@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.interview.mapper.InterviewMapper">
+  <sql id="questionColumns">
+    question_id AS "questionId",
+    COALESCE(bank_type, 'baguwen') AS "bankType",
+    title,
+    category,
+    difficulty,
+    question_type AS "questionType",
+    content,
+    answer,
+    tags_json AS "tagsJson",
+    coding_meta_json AS "codingMetaJson",
+    enabled,
+    created_at AS "createdAt",
+    updated_at AS "updatedAt"
+  </sql>
+
+  <sql id="questionFilters">
+    <if test="keyword != null and keyword != ''">
+      AND (
+        LOWER(title) LIKE #{keyword}
+        OR LOWER(content) LIKE #{keyword}
+        OR LOWER(answer) LIKE #{keyword}
+        OR LOWER(tags_json) LIKE #{keyword}
+        OR LOWER(category) LIKE #{keyword}
+      )
+    </if>
+    <if test="bankType != null and bankType != ''">
+      AND COALESCE(bank_type, 'baguwen') = #{bankType}
+    </if>
+    <if test="category != null and category != ''">
+      AND category = #{category}
+    </if>
+    <if test="difficulty != null and difficulty != ''">
+      AND difficulty = #{difficulty}
+    </if>
+  </sql>
+
+  <select id="listQuestions" resultType="map">
+    SELECT
+      <include refid="questionColumns" />
+    FROM interview_question
+    WHERE enabled = TRUE
+    <include refid="questionFilters" />
+    ORDER BY updated_at DESC
+    LIMIT #{limit}
+    OFFSET #{offset}
+  </select>
+
+  <select id="countQuestions" resultType="int">
+    SELECT COUNT(*)
+    FROM interview_question
+    WHERE enabled = TRUE
+    <include refid="questionFilters" />
+  </select>
+
+  <select id="findEnabled" resultType="map">
+    SELECT
+      <include refid="questionColumns" />
+    FROM interview_question
+    WHERE enabled = TRUE
+    <if test="bankType != null and bankType != ''">
+      AND COALESCE(bank_type, 'baguwen') = #{bankType}
+    </if>
+    <if test="category != null and category != ''">
+      AND category = #{category}
+    </if>
+    <if test="difficulty != null and difficulty != ''">
+      AND difficulty = #{difficulty}
+    </if>
+    <if test="questionType != null and questionType != ''">
+      AND question_type = #{questionType}
+    </if>
+    ORDER BY updated_at DESC
+  </select>
+
+  <select id="listBankTypes" resultType="string">
+    SELECT DISTINCT COALESCE(bank_type, 'baguwen')
+    FROM interview_question
+    WHERE enabled = TRUE
+    ORDER BY 1 ASC
+  </select>
+
+  <select id="listCategories" resultType="string">
+    SELECT DISTINCT category
+    FROM interview_question
+    WHERE enabled = TRUE
+      AND category IS NOT NULL
+      AND category != ''
+    <if test="bankType != null and bankType != ''">
+      AND COALESCE(bank_type, 'baguwen') = #{bankType}
+    </if>
+    ORDER BY category ASC
+  </select>
+
+  <select id="listDifficulties" resultType="string">
+    SELECT DISTINCT difficulty
+    FROM interview_question
+    WHERE enabled = TRUE
+      AND difficulty IS NOT NULL
+      AND difficulty != ''
+    <if test="bankType != null and bankType != ''">
+      AND COALESCE(bank_type, 'baguwen') = #{bankType}
+    </if>
+    ORDER BY difficulty ASC
+  </select>
+
+  <select id="listQuestionTypes" resultType="string">
+    SELECT DISTINCT question_type
+    FROM interview_question
+    WHERE enabled = TRUE
+      AND question_type IS NOT NULL
+      AND question_type != ''
+    <if test="bankType != null and bankType != ''">
+      AND COALESCE(bank_type, 'baguwen') = #{bankType}
+    </if>
+    ORDER BY question_type ASC
+  </select>
+
+  <select id="findQuestion" resultType="map">
+    SELECT
+      <include refid="questionColumns" />
+    FROM interview_question
+    WHERE question_id = #{questionId}
+  </select>
+
+  <select id="countQuestion" resultType="int">
+    SELECT COUNT(*)
+    FROM interview_question
+    WHERE question_id = #{questionId}
+  </select>
+
+  <insert id="insertQuestion">
+    INSERT INTO interview_question(
+      title,
+      bank_type,
+      category,
+      difficulty,
+      question_type,
+      content,
+      answer,
+      tags_json,
+      coding_meta_json,
+      enabled,
+      updated_at,
+      question_id
+    )
+    VALUES (
+      #{question.title},
+      #{question.bankType},
+      #{question.category},
+      #{question.difficulty},
+      #{question.questionType},
+      #{question.content},
+      #{question.answer},
+      #{question.tagsJson},
+      #{question.codingMetaJson},
+      #{question.enabled},
+      #{question.updatedAt},
+      #{question.questionId}
+    )
+  </insert>
+
+  <update id="updateQuestion">
+    UPDATE interview_question
+    SET
+      title = #{question.title},
+      bank_type = #{question.bankType},
+      category = #{question.category},
+      difficulty = #{question.difficulty},
+      question_type = #{question.questionType},
+      content = #{question.content},
+      answer = #{question.answer},
+      tags_json = #{question.tagsJson},
+      coding_meta_json = #{question.codingMetaJson},
+      enabled = #{question.enabled},
+      updated_at = #{question.updatedAt}
+    WHERE question_id = #{question.questionId}
+  </update>
+
+  <update id="softDeleteQuestion">
+    UPDATE interview_question
+    SET
+      enabled = FALSE,
+      updated_at = #{updatedAt}
+    WHERE question_id = #{questionId}
+  </update>
+
+  <update id="updateQuestionCategory">
+    UPDATE interview_question
+    SET category = #{category}, updated_at = #{updatedAt}
+    WHERE question_id = #{questionId}
+  </update>
+
+  <update id="updateQuestionDifficulty">
+    UPDATE interview_question
+    SET difficulty = #{difficulty}, updated_at = #{updatedAt}
+    WHERE question_id = #{questionId}
+  </update>
+
+  <update id="updateQuestionTags">
+    UPDATE interview_question
+    SET tags_json = #{tagsJson}, updated_at = #{updatedAt}
+    WHERE question_id = #{questionId}
+  </update>
+
+  <insert id="insertExam">
+    INSERT INTO interview_exam(
+      exam_id,
+      title,
+      status,
+      total_count,
+      answered_count,
+      score,
+      duration_minutes,
+      strategy_json,
+      started_at,
+      expires_at
+    )
+    VALUES (
+      #{examId},
+      #{title},
+      #{status},
+      #{totalCount},
+      #{answeredCount},
+      #{score},
+      #{durationMinutes},
+      #{strategyJson},
+      #{startedAt},
+      #{expiresAt}
+    )
+  </insert>
+
+  <insert id="insertExamQuestion">
+    INSERT INTO interview_exam_question(
+      exam_id,
+      question_id,
+      display_order
+    )
+    VALUES (
+      #{examId},
+      #{questionId},
+      #{displayOrder}
+    )
+  </insert>
+
+  <select id="findExam" resultType="map">
+    SELECT
+      exam_id AS "examId",
+      exam_id AS "practiceId",
+      title,
+      status,
+      total_count AS "totalCount",
+      answered_count AS "answeredCount",
+      score,
+      duration_minutes AS "durationMinutes",
+      strategy_json AS "strategyJson",
+      started_at AS "startedAt",
+      expires_at AS "expiresAt",
+      submitted_at AS "submittedAt"
+    FROM interview_exam
+    WHERE exam_id = #{examId}
+  </select>
+
+  <select id="listExams" resultType="map">
+    SELECT
+      exam_id AS "examId",
+      exam_id AS "practiceId",
+      title,
+      status,
+      total_count AS "totalCount",
+      answered_count AS "answeredCount",
+      score,
+      duration_minutes AS "durationMinutes",
+      strategy_json AS "strategyJson",
+      started_at AS "startedAt",
+      expires_at AS "expiresAt",
+      submitted_at AS "submittedAt"
+    FROM interview_exam
+    ORDER BY started_at DESC
+    LIMIT 50
+  </select>
+
+  <select id="examQuestions" resultType="map">
+    SELECT
+      eq.user_answer AS "userAnswer",
+      eq.correct,
+      eq.score,
+      eq.display_order AS "displayOrder",
+      q.question_id AS "questionId",
+      COALESCE(q.bank_type, 'baguwen') AS "bankType",
+      q.title,
+      q.category,
+      q.difficulty,
+      q.question_type AS "questionType",
+      q.content,
+      q.answer,
+      q.tags_json AS "tagsJson",
+      q.coding_meta_json AS "codingMetaJson",
+      q.enabled,
+      q.created_at AS "createdAt",
+      q.updated_at AS "updatedAt"
+    FROM interview_exam_question eq
+    JOIN interview_question q ON q.question_id = eq.question_id
+    WHERE eq.exam_id = #{examId}
+    ORDER BY eq.display_order ASC
+  </select>
+
+  <update id="saveExamAnswer">
+    UPDATE interview_exam_question
+    SET
+      user_answer = #{answer},
+      correct = #{correct},
+      score = #{score},
+      evaluated_at = #{evaluatedAt}
+    WHERE exam_id = #{examId}
+      AND question_id = #{questionId}
+  </update>
+
+  <update id="finishExam">
+    UPDATE interview_exam
+    SET
+      status = 'submitted',
+      answered_count = #{answeredCount},
+      score = #{score},
+      submitted_at = #{submittedAt}
+    WHERE exam_id = #{examId}
+  </update>
+</mapper>
