@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.project.mapper.ProjectDeepDiveMapper">
+  <sql id="projectColumns">
+    project_id AS "projectId",
+    name,
+    role,
+    summary,
+    tech_stack AS "techStack",
+    enabled,
+    created_at AS "createdAt",
+    updated_at AS "updatedAt"
+  </sql>
+
+  <select id="listProjects" resultType="map">
+    SELECT
+      <include refid="projectColumns" />
+    FROM project_deep_dive_project
+    WHERE enabled = TRUE
+    ORDER BY updated_at DESC
+  </select>
+
+  <select id="findProject" resultType="map">
+    SELECT
+      <include refid="projectColumns" />
+    FROM project_deep_dive_project
+    WHERE project_id = #{projectId}
+  </select>
+
+  <select id="countProject" resultType="int">
+    SELECT COUNT(*)
+    FROM project_deep_dive_project
+    WHERE project_id = #{projectId}
+  </select>
+
+  <insert id="insertProject">
+    INSERT INTO project_deep_dive_project(
+      project_id,
+      name,
+      role,
+      summary,
+      tech_stack,
+      enabled,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      #{project.projectId},
+      #{project.name},
+      #{project.role},
+      #{project.summary},
+      #{project.techStack},
+      TRUE,
+      #{now},
+      #{now}
+    )
+  </insert>
+
+  <update id="updateProject">
+    UPDATE project_deep_dive_project
+    SET
+      name = #{project.name},
+      role = #{project.role},
+      summary = #{project.summary},
+      tech_stack = #{project.techStack},
+      enabled = TRUE,
+      updated_at = #{now}
+    WHERE project_id = #{project.projectId}
+  </update>
+
+  <update id="deleteProject">
+    UPDATE project_deep_dive_project
+    SET
+      enabled = FALSE,
+      updated_at = #{now}
+    WHERE project_id = #{projectId}
+  </update>
+
+  <insert id="saveMaterial">
+    INSERT INTO project_deep_dive_material(
+      material_id,
+      project_id,
+      file_name,
+      content_type,
+      content,
+      created_at
+    )
+    VALUES (
+      #{material.materialId},
+      #{material.projectId},
+      #{material.fileName},
+      #{material.contentType},
+      #{material.content},
+      #{now}
+    )
+  </insert>
+
+  <delete id="deleteMaterial">
+    DELETE FROM project_deep_dive_material
+    WHERE material_id = #{materialId}
+  </delete>
+
+  <select id="listMaterials" resultType="map">
+    SELECT
+      material_id AS "materialId",
+      project_id AS "projectId",
+      file_name AS "fileName",
+      content_type AS "contentType",
+      content,
+      created_at AS "createdAt"
+    FROM project_deep_dive_material
+    WHERE project_id = #{projectId}
+    ORDER BY created_at DESC
+  </select>
+
+  <delete id="deleteQuestionsByProject">
+    DELETE FROM project_deep_dive_question
+    WHERE project_id = #{projectId}
+  </delete>
+
+  <insert id="insertQuestion">
+    INSERT INTO project_deep_dive_question(
+      question_id,
+      project_id,
+      question,
+      answer,
+      category,
+      difficulty,
+      source,
+      created_at
+    )
+    VALUES (
+      #{question.questionId},
+      #{projectId},
+      #{question.question},
+      #{question.answer},
+      #{question.category},
+      #{question.difficulty},
+      #{question.source},
+      #{now}
+    )
+  </insert>
+
+  <select id="listQuestions" resultType="map">
+    SELECT
+      question_id AS "questionId",
+      project_id AS "projectId",
+      question,
+      answer,
+      category,
+      difficulty,
+      source,
+      created_at AS "createdAt"
+    FROM project_deep_dive_question
+    WHERE project_id = #{projectId}
+    ORDER BY created_at DESC
+  </select>
+
+  <update id="touchProject">
+    UPDATE project_deep_dive_project
+    SET updated_at = #{now}
+    WHERE project_id = #{projectId}
+  </update>
+</mapper>
