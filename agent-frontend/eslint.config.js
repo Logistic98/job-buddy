@@ -1,0 +1,52 @@
+import pluginVue from 'eslint-plugin-vue'
+
+export default [
+  {
+    ignores: ['dist/**', 'node_modules/**'],
+  },
+  ...pluginVue.configs['flat/recommended'],
+  {
+    files: ['**/*.{js,vue}'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        navigator: 'readonly',
+        localStorage: 'readonly',
+        sessionStorage: 'readonly',
+        fetch: 'readonly',
+        console: 'readonly',
+        URLSearchParams: 'readonly',
+        URL: 'readonly',
+        Blob: 'readonly',
+        File: 'readonly',
+        FileReader: 'readonly',
+        FormData: 'readonly',
+        crypto: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        EventSource: 'readonly',
+        AbortController: 'readonly',
+        TextDecoder: 'readonly',
+        requestAnimationFrame: 'readonly',
+        alert: 'readonly',
+        confirm: 'readonly',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', caughtErrors: 'none' }],
+      'vue/multi-word-component-names': 'off',
+      'vue/max-attributes-per-line': 'off',
+      'vue/singleline-html-element-content-newline': 'off',
+      'vue/html-self-closing': 'off',
+      'vue/html-indent': 'off',
+      'vue/html-closing-bracket-newline': 'off',
+      'vue/first-attribute-linebreak': 'off',
+      'vue/attributes-order': 'off',
+    },
+  },
+]
