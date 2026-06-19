@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.job.mapper.JobFavoriteMapper">
+  <select id="listFavorites" resultType="map">
+    SELECT
+      job_key AS "jobKey",
+      job_json AS "jobJson",
+      favorited_at AS "favoritedAt",
+      updated_at AS "updatedAt"
+    FROM job_favorite
+    WHERE user_id = #{userId}
+    ORDER BY updated_at DESC
+  </select>
+
+  <select id="findFavorite" resultType="map">
+    SELECT
+      job_key AS "jobKey",
+      job_json AS "jobJson",
+      favorited_at AS "favoritedAt",
+      updated_at AS "updatedAt"
+    FROM job_favorite
+    WHERE user_id = #{userId}
+      AND job_key = #{jobKey}
+  </select>
+
+  <update id="updateAnalysis">
+    UPDATE job_favorite
+    SET job_json = #{jobJson},
+        updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = #{userId}
+      AND job_key = #{jobKey}
+  </update>
+
+  <insert id="upsertFavorite">
+    INSERT INTO job_favorite(
+      favorite_id,
+      user_id,
+      job_key,
+      job_json,
+      favorited_at,
+      updated_at
+    )
+    VALUES (
+      #{favoriteId},
+      #{userId},
+      #{jobKey},
+      #{jobJson},
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    )
+    ON CONFLICT (user_id, job_key)
+    DO UPDATE SET
+      job_json = EXCLUDED.job_json,
+      updated_at = CURRENT_TIMESTAMP
+  </insert>
+
+  <delete id="removeFavorite">
+    DELETE FROM job_favorite
+    WHERE user_id = #{userId}
+      AND job_key = #{jobKey}
+  </delete>
+</mapper>

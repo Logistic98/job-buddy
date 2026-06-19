@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.journey.mapper.JobJourneyMapper">
+  <sql id="targetColumns">
+    target_id AS "targetId",
+    user_id AS "userId",
+    company_nature AS "companyNature",
+    company_scale AS "companyScale",
+    location,
+    salary_range AS "salaryRange",
+    domains,
+    positions,
+    preferred_companies AS "preferredCompanies",
+    notes,
+    updated_at AS "updatedAt"
+  </sql>
+
+  <sql id="recordColumns">
+    record_id AS "recordId",
+    user_id AS "userId",
+    company,
+    city,
+    company_nature AS "companyNature",
+    company_scale AS "companyScale",
+    position_name AS "positionName",
+    salary_range AS "salaryRange",
+    favorite_key AS "favoriteKey",
+    business_direction AS "businessDirection",
+    interview_round AS "interviewRound",
+    interview_time AS "interviewTime",
+    interview_content AS "interviewContent",
+    interview_format AS "interviewFormat",
+    result,
+    reflection,
+    job_description AS "jobDescription",
+    interview_process AS "interviewProcess",
+    next_action AS "nextAction",
+    status,
+    priority,
+    tags_json AS "tagsJson",
+    enabled,
+    created_at AS "createdAt",
+    updated_at AS "updatedAt"
+  </sql>
+
+  <select id="findTarget" resultType="map">
+    SELECT
+      <include refid="targetColumns" />
+    FROM journey_target
+    WHERE user_id = #{userId}
+    ORDER BY updated_at DESC
+    LIMIT 1
+  </select>
+
+  <select id="countTarget" resultType="int">
+    SELECT COUNT(*)
+    FROM journey_target
+    WHERE target_id = #{targetId}
+  </select>
+
+  <insert id="insertTarget">
+    INSERT INTO journey_target(
+      user_id,
+      company_nature,
+      company_scale,
+      location,
+      salary_range,
+      domains,
+      positions,
+      preferred_companies,
+      notes,
+      updated_at,
+      target_id
+    )
+    VALUES (
+      #{target.userId},
+      #{target.companyNature},
+      #{target.companyScale},
+      #{target.location},
+      #{target.salaryRange},
+      #{target.domains},
+      #{target.positions},
+      #{target.preferredCompanies},
+      #{target.notes},
+      #{updatedAt},
+      #{target.targetId}
+    )
+  </insert>
+
+  <update id="updateTarget">
+    UPDATE journey_target
+    SET
+      user_id = #{target.userId},
+      company_nature = #{target.companyNature},
+      company_scale = #{target.companyScale},
+      location = #{target.location},
+      salary_range = #{target.salaryRange},
+      domains = #{target.domains},
+      positions = #{target.positions},
+      preferred_companies = #{target.preferredCompanies},
+      notes = #{target.notes},
+      updated_at = #{updatedAt}
+    WHERE target_id = #{target.targetId}
+  </update>
+
+  <select id="listRecords" resultType="map">
+    SELECT
+      <include refid="recordColumns" />
+    FROM journey_record
+    WHERE enabled = TRUE
+      AND user_id = #{userId}
+    <if test="keyword != null and keyword != ''">
+      AND (
+        LOWER(company) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+        OR LOWER(position_name) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+        OR LOWER(business_direction) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+        OR LOWER(interview_content) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+      )
+    </if>
+    <if test="status != null and status != ''">
+      AND status = #{status}
+    </if>
+    <if test="result != null and result != ''">
+      AND result = #{result}
+    </if>
+    ORDER BY updated_at DESC
+    LIMIT 300
+  </select>
+
+  <select id="findRecord" resultType="map">
+    SELECT
+      <include refid="recordColumns" />
+    FROM journey_record
+    WHERE record_id = #{recordId}
+  </select>
+
+  <select id="countRecord" resultType="int">
+    SELECT COUNT(*)
+    FROM journey_record
+    WHERE record_id = #{recordId}
+  </select>
+
+  <insert id="insertRecord">
+    INSERT INTO journey_record(
+      user_id,
+      company,
+      city,
+      company_nature,
+      company_scale,
+      position_name,
+      salary_range,
+      favorite_key,
+      business_direction,
+      interview_round,
+      interview_time,
+      interview_content,
+      interview_format,
+      result,
+      reflection,
+      job_description,
+      interview_process,
+      next_action,
+      status,
+      priority,
+      tags_json,
+      enabled,
+      updated_at,
+      record_id
+    )
+    VALUES (
+      #{record.userId},
+      #{record.company},
+      #{record.city},
+      #{record.companyNature},
+      #{record.companyScale},
+      #{record.positionName},
+      #{record.salaryRange},
+      #{record.favoriteKey},
+      #{record.businessDirection},
+      #{record.interviewRound},
+      #{record.interviewTime},
+      #{record.interviewContent},
+      #{record.interviewFormat},
+      #{record.result},
+      #{record.reflection},
+      #{record.jobDescription},
+      #{record.interviewProcess},
+      #{record.nextAction},
+      #{record.status},
+      #{record.priority},
+      #{tagsJson},
+      #{enabled},
+      #{updatedAt},
+      #{record.recordId}
+    )
+  </insert>
+
+  <update id="updateRecord">
+    UPDATE journey_record
+    SET
+      user_id = #{record.userId},
+      company = #{record.company},
+      city = #{record.city},
+      company_nature = #{record.companyNature},
+      company_scale = #{record.companyScale},
+      position_name = #{record.positionName},
+      salary_range = #{record.salaryRange},
+      favorite_key = #{record.favoriteKey},
+      business_direction = #{record.businessDirection},
+      interview_round = #{record.interviewRound},
+      interview_time = #{record.interviewTime},
+      interview_content = #{record.interviewContent},
+      interview_format = #{record.interviewFormat},
+      result = #{record.result},
+      reflection = #{record.reflection},
+      job_description = #{record.jobDescription},
+      interview_process = #{record.interviewProcess},
+      next_action = #{record.nextAction},
+      status = #{record.status},
+      priority = #{record.priority},
+      tags_json = #{tagsJson},
+      enabled = #{enabled},
+      updated_at = #{updatedAt}
+    WHERE record_id = #{record.recordId}
+  </update>
+
+  <update id="deleteRecord">
+    UPDATE journey_record
+    SET
+      enabled = FALSE,
+      updated_at = #{updatedAt}
+    WHERE record_id = #{recordId}
+  </update>
+</mapper>

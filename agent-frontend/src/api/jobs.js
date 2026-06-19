@@ -1,5 +1,94 @@
-import { request } from './http'
+import { apiUrl, parseApiResponse } from './http'
 
-export function placeholder() {
-  return request('/health')
+export async function listFavoriteJobs() {
+  const response = await fetch(apiUrl('/jobs/favorites'), { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
+  return (await parseApiResponse(response, '加载岗位收藏失败')) || []
+}
+
+export async function saveFavoriteJob(job) {
+  const response = await fetch(apiUrl('/jobs/favorites'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(job || {}),
+  })
+  return (await parseApiResponse(response, '保存岗位收藏失败')) || []
+}
+
+export async function analyzeFavoriteJob(jobKey, resumeId) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 120000)
+  const body = { jobKey }
+  if (resumeId) body.resumeId = resumeId
+  const requestOptions = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: controller.signal,
+  }
+
+  try {
+    let response = await fetch(apiUrl('/jobs/favorites/analyze'), requestOptions)
+
+    // 兼容未重启后端或旧版本后端：旧接口只支持 /{jobKey}/analyze。
+    // 新接口返回 404/405 时自动降级，避免用户侧直接看到 Request method 'POST' not supported。
+    if (response.status === 404 || response.status === 405) {
+      response = await fetch(apiUrl(`/jobs/favorites/${encodeURIComponent(jobKey)}/analyze`), requestOptions)
+    }
+
+    return parseApiResponse(response, '收藏岗位分析失败')
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('收藏岗位分析超时，请稍后重试。')
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+export async function deleteFavoriteJob(jobKey) {
+  const response = await fetch(apiUrl(`/jobs/favorites/${encodeURIComponent(jobKey)}`), { method: 'DELETE' })
+  return (await parseApiResponse(response, '移出岗位收藏失败')) || []
+}
+
+/**
+ * 懒加载岗位详情（含职位描述 JD）。仅在用户点击查看时才访问 Boss，降低风控风险。
+ * 未登录时后端返回 code=4001，这里抛出带 authRequired 标记的错误，由调用方触发扫码登录。
+ */
+export async function fetchJobDetail(securityId, url) {
+  const params = new URLSearchParams()
+  if (securityId) params.set('securityId', securityId)
+  if (url) params.set('url', url)
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 90000)
+  try {
+    const response = await fetch(apiUrl(`/jobs/detail?${params.toString()}`), {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+      signal: controller.signal,
+    })
+    const text = await response.text()
+    let json = null
+    if (text) {
+      try {
+        json = JSON.parse(text)
+      } catch (_) {
+        throw new Error(`获取岗位详情失败: HTTP ${response.status} ${text.slice(0, 200)}`)
+      }
+    }
+    if (!json) throw new Error(`获取岗位详情失败: HTTP ${response.status}, 响应体为空`)
+    if (json.code === 4001) {
+      const error = new Error(json.message || 'Boss 直聘需要重新扫码登录')
+      error.authRequired = true
+      error.authData = json.data || null
+      throw error
+    }
+    if (!response.ok || json.code !== 0) {
+      throw new Error(json.message || `获取岗位详情失败: HTTP ${response.status}`)
+    }
+    return json.data
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('获取岗位详情超时，请稍后重试。')
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
 }
