@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.resume.mapper.ResumeRecordMapper">
+  <sql id="resumeColumns">
+    resume_id AS "resumeId",
+    user_id AS "userId",
+    original_name AS "originalName",
+    storage_path AS "storagePath",
+    size_bytes AS "sizeBytes",
+    suffix,
+    uploaded_at AS "uploadedAt",
+    parse_status AS "parseStatus",
+    parse_error AS "parseError",
+    parsed_json AS "parsedJson"
+  </sql>
+
+  <select id="findById" resultType="map">
+    SELECT
+      <include refid="resumeColumns" />
+    FROM resume_record
+    WHERE resume_id = #{resumeId}
+  </select>
+
+  <select id="findLatestByUserId" resultType="map">
+    SELECT
+      <include refid="resumeColumns" />
+    FROM resume_record
+    WHERE user_id = #{userId}
+    ORDER BY uploaded_at DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="countById" resultType="int">
+    SELECT COUNT(*)
+    FROM resume_record
+    WHERE resume_id = #{resumeId}
+  </select>
+
+  <insert id="insertRecord">
+    INSERT INTO resume_record(
+      resume_id,
+      user_id,
+      original_name,
+      storage_path,
+      size_bytes,
+      suffix,
+      uploaded_at,
+      parse_status,
+      parse_error,
+      parsed_json
+    )
+    VALUES (
+      #{record.resumeId},
+      #{record.userId},
+      #{record.originalName},
+      #{record.storagePath},
+      #{record.sizeBytes},
+      #{record.suffix},
+      #{record.uploadedAt},
+      #{record.parseStatus},
+      #{record.parseError},
+      #{record.parsedJson}
+    )
+  </insert>
+
+  <update id="updateRecord">
+    UPDATE resume_record
+    SET
+      user_id = #{record.userId},
+      original_name = #{record.originalName},
+      storage_path = #{record.storagePath},
+      size_bytes = #{record.sizeBytes},
+      suffix = #{record.suffix},
+      uploaded_at = #{record.uploadedAt},
+      parse_status = #{record.parseStatus},
+      parse_error = #{record.parseError},
+      parsed_json = #{record.parsedJson}
+    WHERE resume_id = #{record.resumeId}
+  </update>
+
+  <delete id="deleteById">
+    DELETE FROM resume_record
+    WHERE resume_id = #{resumeId}
+  </delete>
+</mapper>
