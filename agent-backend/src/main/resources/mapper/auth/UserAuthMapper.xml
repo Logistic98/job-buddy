@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.auth.mapper.UserAuthMapper">
+  <select id="findUserByUsername" resultType="map">
+    SELECT
+      user_id AS "userId",
+      username,
+      password_hash AS "passwordHash",
+      display_name AS "displayName",
+      role,
+      enabled,
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    FROM app_user
+    WHERE username = #{username}
+  </select>
+
+  <select id="findUserByToken" resultType="map">
+    SELECT
+      u.user_id AS "userId",
+      u.username,
+      u.display_name AS "displayName",
+      u.role,
+      u.enabled,
+      s.expires_at AS "expiresAt"
+    FROM user_login_session s
+    JOIN app_user u ON s.user_id = u.user_id
+    WHERE s.token = #{token}
+  </select>
+
+  <insert id="saveSession">
+    INSERT INTO user_login_session(
+      token,
+      user_id,
+      expires_at,
+      created_at,
+      last_seen_at
+    )
+    VALUES (
+      #{token},
+      #{userId},
+      #{expiresAt},
+      #{now},
+      #{now}
+    )
+  </insert>
+
+  <update id="touchSession">
+    UPDATE user_login_session
+    SET last_seen_at = #{now}
+    WHERE token = #{token}
+  </update>
+
+  <delete id="deleteSession">
+    DELETE FROM user_login_session
+    WHERE token = #{token}
+  </delete>
+
+  <delete id="deleteExpiredSessions">
+    DELETE FROM user_login_session
+    WHERE expires_at &lt; #{now}
+  </delete>
+</mapper>

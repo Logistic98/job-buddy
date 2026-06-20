@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.auth.mapper.AuthStateMapper">
+  <select id="findByProvider" resultType="map">
+    SELECT
+      provider,
+      status,
+      credential_json AS "credentialJson",
+      metadata_json AS "metadataJson",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    FROM auth_state
+    WHERE provider = #{provider}
+  </select>
+
+  <select id="countByProvider" resultType="int">
+    SELECT COUNT(*)
+    FROM auth_state
+    WHERE provider = #{provider}
+  </select>
+
+  <insert id="insertState">
+    INSERT INTO auth_state(
+      provider,
+      status,
+      credential_json,
+      metadata_json,
+      created_at,
+      updated_at
+    )
+    VALUES (
+      #{state.provider},
+      #{state.status},
+      #{state.credentialJson},
+      #{state.metadataJson},
+      #{state.createdAt},
+      #{state.updatedAt}
+    )
+  </insert>
+
+  <update id="updateState">
+    UPDATE auth_state
+    SET
+      status = #{state.status},
+      credential_json = #{state.credentialJson},
+      metadata_json = #{state.metadataJson},
+      updated_at = #{state.updatedAt}
+    WHERE provider = #{state.provider}
+  </update>
+</mapper>
