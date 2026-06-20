@@ -1,6 +1,5 @@
-<template>
-  <section class="page-card">
-    <h2>智能问答</h2>
-    <p>功能正在完善中。</p>
-  </section>
-</template>
+<template><section class="chat-panel"><div v-for="msg in chat.messages" :key="msg.id">{{ msg.content }}</div></section></template>
+<script setup>
+import { useChatStore } from '../stores/chat'
+const chat = useChatStore()
+</script>

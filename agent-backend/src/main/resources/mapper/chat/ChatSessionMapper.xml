@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.chat.mapper.ChatSessionMapper">
+  <sql id="stateColumns">
+    session_id AS "sessionId",
+    resume_id AS "resumeId",
+    last_slots_json AS "lastSlotsJson",
+    jobs_json AS "jobsJson",
+    tool_events_json AS "toolEventsJson",
+    resume_match_json AS "resumeMatchJson",
+    updated_at AS "updatedAt"
+  </sql>
+
+  <select id="findById" resultType="map">
+    SELECT
+      <include refid="stateColumns" />
+    FROM chat_session_state
+    WHERE session_id = #{sessionId}
+  </select>
+
+  <select id="countById" resultType="int">
+    SELECT COUNT(*)
+    FROM chat_session_state
+    WHERE session_id = #{sessionId}
+  </select>
+
+  <insert id="insertState">
+    INSERT INTO chat_session_state(
+      session_id,
+      resume_id,
+      last_slots_json,
+      jobs_json,
+      tool_events_json,
+      resume_match_json,
+      updated_at
+    )
+    VALUES (
+      #{state.sessionId},
+      #{state.resumeId},
+      #{state.lastSlotsJson},
+      #{state.jobsJson},
+      #{state.toolEventsJson},
+      #{state.resumeMatchJson},
+      #{state.updatedAt}
+    )
+  </insert>
+
+  <update id="updateState">
+    UPDATE chat_session_state
+    SET
+      resume_id = #{state.resumeId},
+      last_slots_json = #{state.lastSlotsJson},
+      jobs_json = #{state.jobsJson},
+      tool_events_json = #{state.toolEventsJson},
+      resume_match_json = #{state.resumeMatchJson},
+      updated_at = #{state.updatedAt}
+    WHERE session_id = #{state.sessionId}
+  </update>
+
+  <insert id="appendMessage">
+    INSERT INTO chat_message_log(
+      session_id,
+      role,
+      content,
+      metadata_json,
+      created_at
+    )
+    VALUES (
+      #{sessionId},
+      #{role},
+      #{content},
+      #{metadataJson},
+      #{createdAt}
+    )
+  </insert>
+
+  <select id="listSessions" resultType="map">
+    SELECT
+      s.session_id AS "sessionId",
+      s.resume_id AS "resumeId",
+      s.updated_at AS "updatedAt",
+      (
+        SELECT content
+        FROM chat_message_log m
+        WHERE m.session_id = s.session_id
+        ORDER BY m.created_at ASC
+        LIMIT 1
+      ) AS "firstMessage"
+    FROM chat_session_state s
+    ORDER BY s.updated_at DESC
+    LIMIT 50
+  </select>
+
+  <select id="listMessages" resultType="map">
+    SELECT
+      role,
+      content,
+      metadata_json AS "metadataJson",
+      created_at AS "createdAt"
+    FROM chat_message_log
+    WHERE session_id = #{sessionId}
+    ORDER BY created_at ASC
+  </select>
+
+  <delete id="deleteMessages">
+    DELETE FROM chat_message_log
+    WHERE session_id = #{sessionId}
+  </delete>
+
+  <delete id="deleteState">
+    DELETE FROM chat_session_state
+    WHERE session_id = #{sessionId}
+  </delete>
+</mapper>

@@ -1,5 +1,2 @@
 import { defineStore } from 'pinia'
-
-export const useChatStore = defineStore('chat', {
-  state: () => ({}),
-})
+export const useChatStore = defineStore('chat', { state: () => ({ messages: [] }) })
