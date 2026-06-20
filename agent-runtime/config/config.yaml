@@ -1,0 +1,8 @@
+app_name: job_buddy_runtime
+llm_service:
+  base_url: "${JOB_BUDDY_LLM_BASE_URL:}"
+  api_key: "${JOB_BUDDY_LLM_API_KEY:}"
+  model: "${JOB_BUDDY_LLM_MODEL_NAME:}"
+runtime:
+  max_turns: 8
+  max_tool_calls: 12
