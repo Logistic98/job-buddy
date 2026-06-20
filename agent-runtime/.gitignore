@@ -1,0 +1,10 @@
+__pycache__
+.venv
+.idea
+.vscode
+*.log
+.runtime_checkpoints
+.runtime_results
+.runtime_traces
+CLAUDE.md
+.claude
