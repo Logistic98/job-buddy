@@ -1,0 +1,16 @@
+id: job_recommendation
+name: 岗位推荐稳定工作流
+profile: job-buddy
+entry_capability: job.recommend
+owner: agent-runtime
+summary: Runtime 只负责任务理解、槽位预检、能力路由和 Trace；岗位搜索等业务动作由 Java BFF 调用后端业务服务执行。
+steps:
+  - id: understand
+    name: 任务理解与槽位预检
+    runtime_node: task_understanding
+  - id: business_execute
+    name: Java BFF 执行业务搜索工具
+    external_action: call_get_recommend_jobs
+  - id: present
+    name: 前端展示岗位卡片
+    external_event: job_cards

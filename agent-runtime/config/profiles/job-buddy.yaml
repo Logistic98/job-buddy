@@ -1,0 +1,416 @@
+id: job-buddy
+name: 求职工作台 Agent Profile
+domain: job
+directive_type: job_buddy_directive
+default_capability_id: open_domain.general_qa
+
+prompts:
+  intent: intent/task_understanding.md
+  planner: planner/default.md
+
+preferences:
+  agent_design: "Profile 只描述能力卡、槽位和风险，不在 Runtime Core 中硬编码 Boss/简历/岗位规则。"
+
+conversation_shortcuts:
+  - id: next_batch
+    phrases: ["换一批", "下一批", "再来一批", "更多", "继续找", "继续推荐", "下一个"]
+    capability_id: job.recommend
+    confidence: 0.92
+    reason: "用户基于上一轮岗位搜索请求下一批结果"
+    slot_updates:
+      boss_page:
+        op: increment
+        default: 1
+        step: 1
+      follow_up: next_batch
+
+slot_extractors:
+  - name: city
+    type: keyword_map
+    values:
+      - value: 上海
+        aliases: ["上海", "魔都"]
+      - value: 北京
+        aliases: ["北京"]
+      - value: 深圳
+        aliases: ["深圳"]
+      - value: 广州
+        aliases: ["广州"]
+      - value: 杭州
+        aliases: ["杭州"]
+      - value: 成都
+        aliases: ["成都"]
+      - value: 南京
+        aliases: ["南京"]
+      - value: 苏州
+        aliases: ["苏州"]
+      - value: 武汉
+        aliases: ["武汉"]
+      - value: 西安
+        aliases: ["西安"]
+      - value: 重庆
+        aliases: ["重庆"]
+      - value: 天津
+        aliases: ["天津"]
+      - value: 厦门
+        aliases: ["厦门"]
+      - value: 长沙
+        aliases: ["长沙"]
+  - name: role
+    type: keyword_map
+    values:
+      - value: 大模型应用开发
+        aliases: ["大模型应用开发", "AI应用开发", "AI 应用开发", "Agent应用开发", "Agent 应用开发", "Agent工程师", "Agent 工程师", "RAG应用", "LLM应用", "大模型开发"]
+        set_slots:
+          role: 大模型应用开发
+          secondary_queries: ["AI应用开发", "Agent工程师", "Python AI应用开发", "大模型开发"]
+      - value: Java 后端
+        aliases: ["Java", "java", "Java后端", "Java 后端", "Spring", "Spring Boot"]
+      - value: Python
+        aliases: ["Python", "python", "Python后端", "Python工程师"]
+      - value: Go 后端
+        aliases: ["Golang", "golang", "Go后端", "Go 后端", "Go工程师"]
+      - value: 前端
+        aliases: ["前端", "React", "Vue", "TypeScript"]
+      - value: 算法
+        aliases: ["算法", "机器学习", "ML", "深度学习"]
+      - value: 后端
+        aliases: ["后端", "服务端"]
+  - name: preferences
+    type: keyword_map
+    values:
+      - value: 远程
+        aliases: ["远程"]
+      - value: 双休
+        aliases: ["双休"]
+      - value: 不加班
+        aliases: ["不加班", "少加班"]
+      - value: agent
+        aliases: ["agent", "Agent"]
+      - value: rag
+        aliases: ["rag", "RAG"]
+      - value: java
+        aliases: ["java", "Java"]
+      - value: python
+        aliases: ["python", "Python"]
+  - name: salary
+    type: regex
+    patterns:
+      - "(?P<salary_min_k>\\d{1,3})\\s*[-~到至]\\s*(?P<salary_max_k>\\d{1,3})\\s*[kK]"
+      - "(?P<salary_min_k>\\d{1,3})\\s*[kK]\\s*(以上|起)"
+  - name: boss_experience
+    type: keyword_map
+    values:
+      - value: 在校/应届
+        aliases: ["应届", "校招", "在校"]
+      - value: 一年以内
+        aliases: ["一年以内", "1年以内"]
+      - value: 一到三年
+        aliases: ["1-3年", "一到三年", "一至三年"]
+      - value: 三到五年
+        aliases: ["3-5年", "三到五年", "三至五年"]
+
+capabilities:
+  - id: job.recommend
+    name: 岗位推荐与筛选
+    domain: job
+    intent: job.recommend
+    execution_intent: operate_business_object
+    execution_mode: STABLE_WORKFLOW
+    description: 根据用户给出的城市、岗位方向、薪资、经验和偏好，触发岗位搜索或推荐工作流。只有用户明确要找、筛选、搜索、推荐岗位或职位机会时才选择该能力。
+    examples:
+      - "帮我筛选上海大模型应用开发 40-50K 岗位"
+      - "找一些 Java 后端职位"
+      - "看看杭州 Python 远程机会"
+      - "有没有适合我的 Agent 工程师岗位"
+    negative_examples:
+      - "分析当前简历是否匹配 Agent 应用开发岗位"
+      - "帮我写一个 Python 脚本处理 CSV"
+      - "解释一下 Spring 事务原理"
+    keywords: ["岗位", "职位", "招聘", "投递", "求职", "找工作", "机会", "推荐", "筛选", "搜索", "看看", "有没有", "薪资", "薪水", "Boss", "直聘"]
+    negative_keywords: ["当前简历", "我的简历", "简历匹配", "是否匹配", "是否适合", "适合这个岗位", "匹配度", "JD 匹配", "写一个", "脚本", "代码", "原理"]
+    required_slots: ["role"]
+    optional_slots: ["city", "salary_min_k", "salary_max_k", "boss_experience", "preferences", "boss_page"]
+    risk: low
+    next_action: call_get_recommend_jobs
+    implementation_status: partial
+    implementation_notes: "默认走真实 Boss 搜索；登录失效时触发扫码登录并在登录后继续执行；数据来源必须是真实岗位。"
+    required_tools: ["boss.search_jobs"]
+    evidence_requirements: ["真实 Boss 搜索结果", "岗位来源和岗位 ID", "用户槽位约束"]
+    context_dependencies: ["profile"]
+    secondary: ["needs_job_filters"]
+    business_tags: ["job_search"]
+    capability_tags: ["search", "recommendation", "stable_workflow"]
+    clarification_question: "你想找什么方向或岗位？例如 Java 后端、Python、前端或大模型应用开发。"
+
+  - id: resume.match
+    name: 简历与岗位匹配分析
+    domain: job
+    intent: resume.match
+    execution_intent: compare_analyze
+    execution_mode: STABLE_WORKFLOW
+    description: 分析当前简历与目标岗位、职位方向或当前岗位列表的匹配度。该能力直接使用已有岗位或用户提供的 JD。
+    examples:
+      - "分析当前简历是否匹配 Agent 应用开发岗位"
+      - "我的简历适合这个岗位吗"
+      - "当前简历和这些岗位匹配度如何"
+      - "简历对比 JD 匹配度"
+    negative_examples:
+      - "帮我筛选上海大模型应用开发岗位"
+      - "找 Java 后端职位"
+    keywords: ["简历", "履历", "CV", "匹配", "适合", "是否", "对比", "JD匹配", "JD 匹配", "当前简历"]
+    negative_keywords: ["搜索", "推荐", "筛选", "找岗位"]
+    optional_slots: ["role", "target_job_description", "city", "salary_min_k", "salary_max_k"]
+    risk: low
+    next_action: run_resume_match
+    implementation_status: partial
+    implementation_notes: "必须基于已解析简历和真实岗位列表或用户提供的完整 JD；只有岗位名称时不得评分。"
+    required_tools: ["resume_match"]
+    evidence_requirements: ["已解析简历", "真实岗位列表或完整 JD", "逐条匹配证据"]
+    eval_rubric:
+      require_evidence: true
+      min_evidence_per_high_score: 2
+      forbid_score_without_jd: true
+    context_dependencies: ["profile", "resume", "current_jobs"]
+    secondary: ["needs_resume", "target_job_analysis"]
+    business_tags: ["resume"]
+    capability_tags: ["compare", "analysis", "stable_workflow"]
+
+  - id: resume.analyze
+    name: 简历质量分析
+    domain: job
+    intent: resume.analyze
+    execution_intent: compare_analyze
+    execution_mode: STABLE_WORKFLOW
+    description: 读取当前简历并分析结构、表达、项目亮点、风险点和改进方向。
+    examples: ["分析一下我的简历", "当前简历有什么问题", "简历评分和优劣势"]
+    keywords: ["简历", "分析", "评分", "优劣", "问题", "深挖点", "排版", "错别字"]
+    risk: low
+    next_action: run_resume_analyze
+    implementation_status: partial
+    implementation_notes: "已接入简历解析和 LLM 分析；输出质量依赖模型配置和 PDF 文本抽取质量。"
+    required_tools: ["resume_analyze"]
+    evidence_requirements: ["PDF 文本抽取结果", "结构化简历"]
+    context_dependencies: ["profile", "resume"]
+    secondary: ["needs_resume"]
+    business_tags: ["resume"]
+    capability_tags: ["analysis"]
+
+  - id: resume.optimize
+    name: 简历优化建议
+    domain: job
+    intent: resume.optimize
+    execution_intent: generate_artifact
+    execution_mode: COMPLEX_AGENT_TASK
+    description: 根据目标岗位或简历问题，生成简历修改、润色、改写和项目表达优化建议；缺少专用改写工具时，由 Runtime Planner 基于简历文本、目标 JD、通用求职知识和可用联网资料给出带限制说明的建议。
+    examples: ["帮我优化简历", "润色这段项目经历", "简历怎么提升"]
+    keywords: ["简历", "优化", "修改", "润色", "改写", "提升", "包装"]
+    risk: low
+    next_action: run_runtime_planner
+    planner_needed: true
+    implementation_status: partial
+    implementation_notes: "已允许 Runtime 托管生成建议；若缺少专用简历版本化编辑工具或证据不足，应基于用户提供材料、通用知识和可用 Web 内容输出建议，并明确证据边界。"
+    required_tools: ["resume_parse"]
+    allowed_tools: ["web_search", "web_fetch"]
+    evidence_requirements: ["已解析简历或用户粘贴的简历内容", "目标岗位 JD 或明确优化目标", "可审计修改建议", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]
+    context_dependencies: ["profile", "resume"]
+    secondary: ["needs_resume"]
+    business_tags: ["resume"]
+    capability_tags: ["artifact", "rewrite", "runtime_planner"]
+
+  - id: resume.upload
+    name: 简历上传引导
+    domain: job
+    intent: resume.upload
+    execution_intent: clarify_only
+    execution_mode: STABLE_WORKFLOW
+    description: 当用户只提到简历但缺少具体分析目标时，引导上传或选择当前简历。
+    examples: ["简历", "我的履历", "上传简历"]
+    keywords: ["简历", "履历", "CV", "上传"]
+    risk: low
+    next_action: prompt_resume_upload
+    answer_template: "请先在左侧上传或选择 PDF 简历，上传后我会解析结构化信息，并用于岗位匹配、简历分析和面试准备。"
+    context_dependencies: ["resume"]
+    capability_tags: ["clarification"]
+
+  - id: auth.login
+    name: Boss 登录态处理
+    domain: job
+    intent: auth.login
+    execution_intent: operate_business_object
+    execution_mode: STABLE_WORKFLOW
+    description: 处理 Boss 直聘登录、扫码、二维码、授权失效和重新登录。
+    examples: ["Boss 登录失效了", "重新扫码登录", "打开 Boss 二维码"]
+    keywords: ["Boss", "直聘", "登录", "扫码", "二维码", "授权", "失效", "重新登录"]
+    risk: medium
+    next_action: trigger_boss_login
+    context_dependencies: ["auth"]
+    capability_tags: ["auth", "stable_workflow"]
+
+  - id: job.compare
+    name: 当前岗位对比分析
+    domain: job
+    intent: job.compare
+    execution_intent: compare_analyze
+    execution_mode: COMPLEX_AGENT_TASK
+    description: 对当前岗位列表、这一批岗位或收藏岗位做排序、风险、优先级和取舍分析；缺少专用评分器时，由 Runtime Planner 基于已有岗位证据、用户偏好、通用行业知识和可用联网资料生成定性对比。
+    examples: ["这些岗位哪个优先", "当前岗位列表对比一下", "这批岗位风险排序"]
+    keywords: ["这些岗位", "岗位列表", "当前岗位", "这批岗位", "对比", "排序", "风险", "优先级", "哪个"]
+    risk: low
+    next_action: run_runtime_planner
+    planner_needed: true
+    implementation_status: partial
+    implementation_notes: "已允许 Runtime 托管做岗位对比；若缺少专用评分器，只输出基于真实岗位列表、用户偏好和可用 Web 内容的定性分析。"
+    required_tools: []
+    allowed_tools: ["web_search", "web_fetch"]
+    evidence_requirements: ["当前真实岗位列表或用户粘贴的岗位信息", "排序维度", "风险证据", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]
+    context_dependencies: ["profile", "current_jobs"]
+    secondary: ["job_analysis"]
+    capability_tags: ["analysis", "runtime_planner"]
+
+  - id: interview.prepare
+    name: 面试准备
+    domain: job
+    intent: interview.prepare
+    execution_intent: generate_artifact
+    execution_mode: COMPLEX_AGENT_TASK
+    description: 生成面试准备清单、问题、回答、复盘和反问建议；缺少专用面试题工具时，由 Runtime Planner 基于简历/JD、岗位方向、通用知识和可用联网资料生成可用的准备方案。
+    examples: ["帮我准备一面", "生成面试问题", "HR 面怎么准备"]
+    keywords: ["面试", "一面", "二面", "HR面", "终面", "准备", "问题", "回答", "复盘", "反问"]
+    risk: low
+    next_action: run_runtime_planner
+    planner_needed: true
+    implementation_status: partial
+    implementation_notes: "已允许 Runtime 托管生成面试准备内容；若缺少专用题库、答案评估或追问模拟工具，应基于简历/JD、岗位方向、通用知识和可用 Web 内容输出，并明确哪些结论缺少岗位证据。"
+    required_tools: []
+    allowed_tools: ["web_search", "web_fetch"]
+    evidence_requirements: ["已解析简历或用户粘贴的项目经历", "目标岗位 JD 或岗位方向", "题目与简历/JD 的证据关联", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]
+    context_dependencies: ["profile", "resume"]
+    capability_tags: ["interview", "artifact", "runtime_planner"]
+
+  - id: application.material
+    name: 求职申请材料生成
+    domain: job
+    intent: application.material
+    execution_intent: generate_artifact
+    execution_mode: COMPLEX_AGENT_TASK
+    description: 生成投递说明、自荐、求职信、沟通话术和 JD 匹配材料；缺少专用材料生成工具时，由 Runtime Planner 基于用户提供事实、目标 JD、通用求职知识和可用联网资料生成草稿。
+    examples: ["写一段投递说明", "生成自荐材料", "根据 JD 写沟通话术"]
+    keywords: ["投递说明", "申请材料", "自荐", "求职信", "沟通话术", "JD匹配", "JD 匹配"]
+    risk: low
+    next_action: run_runtime_planner
+    planner_needed: true
+    implementation_status: partial
+    implementation_notes: "已允许 Runtime 托管生成求职材料草稿；若缺少事实一致性校验工具，应只基于用户提供事实、目标 JD、通用知识和可用 Web 内容生成，并标注需要用户确认的事实。"
+    required_tools: []
+    allowed_tools: ["web_search", "web_fetch"]
+    evidence_requirements: ["已解析简历或用户提供的经历事实", "目标 JD 或岗位方向", "材料事实引用", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]
+    context_dependencies: ["profile", "resume"]
+    capability_tags: ["artifact", "draft", "runtime_planner"]
+
+  - id: runtime.code_generation_task
+    name: 代码生成与脚本任务
+    domain: runtime
+    intent: code_generation_task
+    execution_intent: generate_artifact
+    execution_mode: COMPLEX_AGENT_TASK
+    description: 编写代码、脚本、数据处理程序或工程实现。该能力进入 Runtime Planner，不触发岗位搜索。
+    examples: ["帮我写一个 Python 脚本处理 CSV", "生成代码实现", "写个 Shell 脚本", "处理 Excel 文件"]
+    keywords: ["写一个", "写个", "生成代码", "代码实现", "脚本", "Shell脚本", "Python脚本", "处理 CSV", "处理CSV", "Excel"]
+    risk: medium
+    next_action: run_runtime_planner
+    planner_needed: true
+    secondary: ["plan", "code_generation", "technical"]
+    capability_tags: ["runtime", "code", "planner"]
+
+  - id: runtime.complex_engineering_qa
+    name: 复杂工程问答与架构设计
+    domain: runtime
+    intent: complex_engineering_qa
+    execution_intent: plan_task
+    execution_mode: COMPLEX_AGENT_TASK
+    description: 系统设计、工作流设计、复杂 Agent 架构问题，进入 Runtime Planner 进行目标拆解和工具选择。
+    examples: ["设计一个 Agent 工作流", "复杂问答 Agent 怎么架构", "系统设计方案"]
+    keywords: ["工作流", "系统设计", "架构设计", "复杂问答", "Agent 工作流", "Agent工作流"]
+    risk: medium
+    next_action: run_runtime_planner
+    planner_needed: true
+    required_tools: []
+    allowed_tools: ["web_search", "web_fetch"]
+    secondary: ["plan", "technical"]
+    capability_tags: ["runtime", "architecture", "planner"]
+
+  - id: open_domain.technical_qa
+    name: 开放域技术问答
+    domain: open_domain
+    intent: technical_qa
+    execution_intent: answer_question
+    execution_mode: OPEN_DOMAIN_QA
+    description: 回答 Java、Python、Linux、数据库、缓存、消息队列、RAG、LLM、Agent 等技术问题，不触发求职业务工作流。
+    examples: ["解释一下 Spring 事务原理", "Redis 缓存穿透怎么解决", "RAG 和 Agent 区别是什么"]
+    keywords: ["Java", "Python", "Spring", "Redis", "MySQL", "JVM", "并发", "线程", "事务", "索引", "缓存", "Kafka", "算法", "Linux", "Docker", "Kubernetes", "RAG", "LLM", "Agent", "大模型", "向量", "原理", "区别", "最佳实践"]
+    risk: low
+    next_action: run_runtime_planner
+    planner_needed: true
+    required_tools: []
+    allowed_tools: ["web_search", "web_fetch"]
+    capability_tags: ["technical", "qa", "runtime"]
+
+  - id: safety.automated_outreach
+    name: 自动投递与代聊拒绝
+    domain: job
+    intent: out_of_scope
+    execution_intent: reject_or_unsupported
+    execution_mode: STABLE_WORKFLOW
+    description: 自动投递、自动打招呼、群发、代投、代聊等高风险或平台不允许的行为必须拒绝。
+    examples: ["帮我自动投递", "自动打招呼", "群发 HR", "代聊"]
+    keywords: ["自动投递", "自动打招呼", "群发", "代投", "代聊"]
+    risk: high
+    next_action: reject_with_reason
+    answer_template: "自动投递、自动打招呼和代聊暂不支持。我可以帮你筛选岗位、分析匹配度和准备沟通材料。"
+    capability_tags: ["safety", "reject"]
+
+  - id: general.context_reference_unknown
+    name: 指代不明澄清
+    domain: general
+    intent: context_reference_unknown
+    execution_intent: clarify_only
+    execution_mode: CLARIFY
+    description: 用户使用“它、这个、这些、那个”等短指代，但当前请求无法从上下文解析，需要追问。
+    examples: ["它有几种方向", "这个怎么分类", "这些怎么处理"]
+    keywords: ["它", "这个", "这些", "那个", "几种方向", "怎么分类"]
+    required_slots: ["reference_context"]
+    risk: low
+    next_action: ask_context_reference
+    clarification_question: "你说的对象指什么？可以补充一下主题、岗位、项目或上一条结果。"
+    capability_tags: ["clarification", "context"]
+
+  - id: open_domain.general_qa
+    name: 开放域通用问答
+    domain: open_domain
+    intent: general_qa
+    execution_intent: answer_question
+    execution_mode: OPEN_DOMAIN_QA
+    description: 与求职业务无关的普通知识问答、生活问题和开放域问题，不强行注入求职上下文。
+    examples: ["今天天气怎么样", "解释一下现金流折现法", "普通知识问题"]
+    keywords: ["是什么", "为什么", "怎么", "如何", "解释", "分析", "天气", "现金流", "知识"]
+    risk: low
+    next_action: run_runtime_planner
+    planner_needed: true
+    required_tools: []
+    allowed_tools: ["web_search", "web_fetch"]
+    capability_tags: ["open_domain", "qa", "runtime"]
+
+  - id: general.chat
+    name: 普通对话
+    domain: general
+    intent: chat
+    execution_intent: answer_question
+    execution_mode: OPEN_DOMAIN_QA
+    description: 简短寒暄或运行时自检对话。
+    examples: ["你好", "简单聊一下", "hello runtime"]
+    keywords: ["你好", "hello", "runtime", "聊一下"]
+    risk: low
+    next_action: run_runtime_planner
+    planner_needed: true
+    capability_tags: ["chat", "runtime"]

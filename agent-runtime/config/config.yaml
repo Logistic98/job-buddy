@@ -1,8 +1,215 @@
-app_name: job_buddy_runtime
+# job_buddy_runtime 主配置文件
+# 说明：涉及模型服务、运行时预算、工具执行、权限、安全、检查点和观测的配置统一放在本文件。
+# 说明：生产环境建议通过挂载外部 config.yaml 覆盖本文件，不建议把真实密钥提交到代码仓库。
+
 llm_service:
-  base_url: "${JOB_BUDDY_LLM_BASE_URL:}"
+  # OpenAI Chat Completions 兼容接口地址。支持两种写法：
+  # 1. 完整地址：https://api.xxx.com/v1/chat/completions
+  # 2. v1 根地址：https://api.xxx.com/v1，程序会自动拼接 /chat/completions
+  base_url: "${JOB_BUDDY_LLM_BASE_URL:https://api.deepseek.com/chat/completions}"
+
+  # 模型服务 API Key。程序会以 Authorization: Bearer ${api_key} 方式请求。
+  # 注意：真实密钥只允许通过环境变量注入，禁止提交到配置文件。
   api_key: "${JOB_BUDDY_LLM_API_KEY:}"
-  model: "${JOB_BUDDY_LLM_MODEL_NAME:}"
+
+  # 默认模型名称。DeepSeek OpenAI 兼容接口的对话模型为 deepseek-chat。
+  # 留空时 Runtime 会在执行前尝试拉取来源可用模型列表并取首个可用项，拉取失败再回落到本默认值。
+  model_name: "${JOB_BUDDY_LLM_MODEL_NAME:deepseek-chat}"
+
+  # 单次模型请求超时时间，单位秒。推理类模型思考耗时较长，默认放宽到 120 秒。
+  timeout_seconds: "${JOB_BUDDY_LLM_TIMEOUT_SECONDS:120}"
+
+  # 模型请求失败后的最大重试次数。只对网络超时、连接错误、5xx 等可恢复错误生效。
+  max_retries: "${JOB_BUDDY_LLM_MAX_RETRIES:2}"
+
+  # 重试退避初始时间，单位秒。实际重试会按指数退避增加等待时间。
+  retry_backoff_seconds: "${JOB_BUDDY_LLM_RETRY_BACKOFF_SECONDS:0.8}"
+
+  # 默认采样温度。Planner 和总结节点默认使用该值。
+  temperature: "${JOB_BUDDY_LLM_TEMPERATURE:0.2}"
+
+  # 单次模型输出 token 上限。不同模型服务可能字段兼容性不同，可按需要调整。
+  max_tokens: "${JOB_BUDDY_LLM_MAX_TOKENS:4096}"
+
+  # Prompt Cache：DeepSeek OpenAI 兼容接口由服务端自动按公共前缀缓存。
+  # 这里保持 system prompt、工具目录等稳定前缀优先，避免附加非兼容私有参数。
+  prompt_cache_enabled: "${JOB_BUDDY_LLM_PROMPT_CACHE_ENABLED:true}"
+  prompt_cache_strategy: "${JOB_BUDDY_LLM_PROMPT_CACHE_STRATEGY:stable-prefix}"
+
+  # Runtime 请求级缓存：同一进程内对完全相同的 messages/tools/model/参数去重，降低多节点重复调用成本。
+  request_cache_enabled: "${JOB_BUDDY_LLM_REQUEST_CACHE_ENABLED:true}"
+  request_cache_max_entries: "${JOB_BUDDY_LLM_REQUEST_CACHE_MAX_ENTRIES:256}"
+
+  # 任务理解等结构化路由调用是否关闭模型思考链。推理模型（如 deepseek-v4-pro）默认先输出
+  # 隐藏思考再输出 JSON，会把首字延迟拉长数秒；路由分类不需要深度思考，默认关闭。
+  understanding_thinking_disabled: "${JOB_BUDDY_LLM_UNDERSTANDING_THINKING_DISABLED:true}"
+
 runtime:
-  max_turns: 8
-  max_tool_calls: 12
+  # 应用名称，用于 FastAPI 标题、日志和 Trace 标识。
+  app_name: "${JOB_BUDDY_RUNTIME_APP_NAME:job_buddy_runtime}"
+
+  # 单次 Agent 运行最大循环轮数，防止无限规划和重复调用。
+  max_turns: "${JOB_BUDDY_RUNTIME_MAX_TURNS:12}"
+
+  # 单次 Agent 运行最大工具调用次数，防止工具滥用和成本失控。
+  max_tool_calls: "${JOB_BUDDY_RUNTIME_MAX_TOOL_CALLS:20}"
+
+  # 连续失败阈值。达到后 Runtime 会停止继续执行并输出失败摘要。
+  max_failures: "${JOB_BUDDY_RUNTIME_MAX_FAILURES:3}"
+
+  # 单个工具默认超时时间，单位秒。工具自身配置优先级高于该全局值。
+  tool_timeout_seconds: "${JOB_BUDDY_RUNTIME_TOOL_TIMEOUT_SECONDS:30}"
+
+  # 是否启用模型 Planner。true 表示 API 服务会调用 llm_service 中配置的大模型生成计划；
+  # false 表示使用本地降级 Planner，适合单元测试和离线调试。
+  use_llm_planner: "${JOB_BUDDY_RUNTIME_USE_LLM_PLANNER:true}"
+
+  # 工作目录。文件类工具默认只能访问该目录下的文件，避免越权读写。
+  workspace_dir: "${JOB_BUDDY_RUNTIME_WORKSPACE_DIR:.}"
+
+  # 大工具结果内联返回的最大字符数。超过后会写入 result_storage_dir 并返回预览和文件路径。
+  max_inline_result_chars: 12000
+
+  # 大工具结果落盘目录。
+  result_storage_dir: "${JOB_BUDDY_RUNTIME_RESULT_STORAGE_DIR:.runtime_results}"
+
+  # Profile / Workflow / Prompt 配置目录。Agent Core 通过这些配置加载业务能力，核心代码不硬编码业务规则。
+  profiles_dir: "${JOB_BUDDY_RUNTIME_PROFILES_DIR:config/profiles}"
+  workflows_dir: "${JOB_BUDDY_RUNTIME_WORKFLOWS_DIR:config/workflows}"
+  prompts_dir: "${JOB_BUDDY_RUNTIME_PROMPTS_DIR:config/prompts}"
+
+  # 业务侧 request metadata 键白名单。Runtime Core 不硬编码业务概念，求职场景的简历、岗位等
+  # 业务元数据键由本部署配置注入；任务理解透传与上下文长期引用按此白名单筛选业务字段。
+  business_metadata_keys:
+    - resume_id
+    - current_jobs_count
+    - boss_live_enabled
+
+tool_search:
+  # 全局启用 Tool Search：Agent Loop 先搜索候选工具，再把候选工具交给 Planner，避免全量工具塞进 Prompt。
+  enabled: "${JOB_BUDDY_TOOL_SEARCH_ENABLED:true}"
+  limit: "${JOB_BUDDY_TOOL_SEARCH_LIMIT:8}"
+  fallback_limit: "${JOB_BUDDY_TOOL_SEARCH_FALLBACK_LIMIT:5}"
+
+web_search:
+  # 联网搜索默认走 Bocha Search API。真实 Key 只能通过环境变量注入，禁止写入仓库配置。
+  provider: "${JOB_BUDDY_WEB_SEARCH_PROVIDER:bocha}"
+  bocha_api_key: "${BOCHA_API_KEY:}"
+  bocha_web_endpoint: "${BOCHA_WEB_SEARCH_ENDPOINT:https://api.bochaai.com/v1/web-search}"
+  bocha_ai_endpoint: "${BOCHA_AI_SEARCH_ENDPOINT:https://api.bochaai.com/v1/ai-search?utm_source=job-buddy-runtime}"
+  freshness: "${BOCHA_SEARCH_FRESHNESS:noLimit}"
+  fallback_to_duckduckgo: "${JOB_BUDDY_WEB_SEARCH_FALLBACK_TO_DUCKDUCKGO:true}"
+
+checkpoint:
+  # 是否启用检查点。建议生产环境开启，用于中断恢复和审计。
+  enabled: true
+
+  # 检查点存储目录。当前实现为 JSON 文件存储，后续可替换为 Redis/PostgreSQL。
+  dir: ".runtime_checkpoints"
+
+  # 每个 session 保留的最大检查点文件数量。超过后自动清理旧文件。
+  max_per_session: 100
+
+permission:
+  # 默认权限模式：
+  # default：低风险只读工具自动执行，高风险/破坏性工具拦截。
+  # auto：允许高风险工具自动执行，适合后端受控任务。
+  # plan：只规划不执行工具。
+  # bypass：绕过权限检查，仅建议本地调试使用。
+  default_mode: "default"
+
+  # 是否允许高风险工具在 default 模式自动执行。
+  allow_high_risk_in_default: false
+
+  # 明确允许的工具名称。为空表示不做 allow-list 限制。
+  allow_tools: []
+
+  # 明确拒绝的工具名称。优先级高于 allow_tools。
+  deny_tools: []
+
+  # 只读工具白名单。用于后续只读模式和审计标识。
+  read_only_tools:
+    - "echo"
+    - "file_read"
+    - "glob"
+    - "grep"
+    - "web_fetch"
+
+  # 破坏性工具列表。写文件、编辑文件、Shell 执行等默认进入高风险审查。
+  destructive_tools:
+    - "file_write"
+    - "file_edit"
+    - "shell_exec"
+
+tool_runtime:
+  # 工具执行全局开关。
+  enabled: true
+
+  # 工具失败重试次数。工具自身配置优先级高于全局配置。
+  max_retries: 1
+
+  # 工具重试退避时间，单位秒。
+  retry_backoff_seconds: 0.5
+
+  # Shell 工具允许执行的命令前缀。为空表示不按前缀限制，但仍受权限模式限制。
+  shell_allow_prefixes:
+    - "pwd"
+    - "ls"
+    - "cat"
+    - "head"
+    - "tail"
+    - "grep"
+    - "rg"
+    - "find"
+    - "python -V"
+
+  # Shell 工具明确禁止的危险命令片段。
+  shell_deny_patterns:
+    - "rm -rf"
+    - "sudo"
+    - "chmod 777"
+    - ":(){"
+    - "mkfs"
+    - "dd if="
+
+mcp:
+  # 是否启用 MCP 工具接入。Boss 直聘链路通过 agent-tool 的 boss_browser 工具接入，Runtime 默认关闭 Boss MCP。
+  enabled: false
+
+  # 启动时尝试连接每个 MCP 服务的最长等待秒数。超时即跳过该服务，不影响 Runtime 启动。
+  connect_timeout_seconds: 8
+
+  servers: {}
+
+observability:
+  # 是否开启本地 Trace 事件收集。
+  enabled: true
+
+  # Trace 日志是否同步打印到应用日志。
+  log_events: true
+
+  # 单次运行最多保留的 Trace 事件数量，防止内存无限增长。
+  max_events: 1000
+
+  # 是否将 Trace 事件以 JSONL 形式落盘，支持重启后回放与评估取证。
+  persist_enabled: "${JOB_BUDDY_TRACE_PERSIST_ENABLED:true}"
+
+  # Trace 落盘目录，每个 run_id 一个 JSONL 文件。
+  persist_dir: "${JOB_BUDDY_TRACE_PERSIST_DIR:.runtime_traces}"
+
+memory:
+  # 是否启用 agent-memory 长期记忆检索。开启后上下文装配阶段会注入 memory_refs。
+  # 检索失败静默降级，不阻塞 Agent 主链路。
+  enabled: "${JOB_BUDDY_MEMORY_ENABLED:false}"
+
+  # agent-memory 服务地址。
+  base_url: "${JOB_BUDDY_MEMORY_BASE_URL:http://localhost:8030}"
+
+  # 单次记忆检索超时时间，单位秒。超时即放弃本次记忆注入。
+  timeout_seconds: "${JOB_BUDDY_MEMORY_TIMEOUT_SECONDS:3.0}"
+
+  # 注入上下文的最大记忆条数。
+  top_k: "${JOB_BUDDY_MEMORY_TOP_K:5}"
+
+  # 默认检索范围。
+  default_scope: "${JOB_BUDDY_MEMORY_DEFAULT_SCOPE:session}"
