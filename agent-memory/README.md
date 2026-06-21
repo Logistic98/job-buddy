@@ -1,0 +1,49 @@
+# agent-memory
+
+`agent-memory` 是长程记忆与上下文管理服务。服务优先对接自部署的 TencentDB Agent Memory Hermes Gateway；当 Gateway 未配置或不可用时，本地持久化默认使用 PostgreSQL，不再使用 H2 或其他嵌入式数据库。未配置 PostgreSQL 连接时，仅保留内存兜底，适用于本地快速验证。
+
+## 接口
+
+- `GET /health`
+- `POST /v1/memories`
+- `GET /v1/memories/search?q=trace&scope=session`
+- `PUT /v1/memories/{memory_id}`
+- `POST /v1/memories/{memory_id}/rollback`
+- `DELETE /v1/memories/{memory_id}`
+- `POST /v1/memories/purge-expired`
+
+写入与召回采用 BM25 + 时间衰减的 RRF 融合排序（详见 `app/relevance.py`），向量与图召回作为后续可插拔演进。每条记忆带 `kind`（step / task / long_term / semantic）、`operator_id` 与 `version` 字段；`PUT` 更新会在覆盖前留存历史版本，`POST .../rollback` 回滚到上一版本内容。
+
+所有写类与召回接口接受 `X-Operator-Id` 请求头（缺省回落请求体声明，再回落匿名），并通过 Loguru `audit="memory"` 绑定字段输出审计日志，覆盖创建、检索、更新、回滚、删除与过期清理，便于按操作者还原记忆变更链路。
+
+## 启动与验证
+
+```bash
+uv sync --extra dev
+uv run python server.py
+uv run python -m pytest
+```
+
+## PostgreSQL 本地持久化配置
+
+当未启用 TencentDB Agent Memory Gateway，或 Gateway 暂时不可用需要本地兜底时，PostgreSQL 连接统一读取仓库根目录 `.env`：
+
+```bash
+SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:<port>/<database>
+SPRING_DATASOURCE_USERNAME=<username>
+SPRING_DATASOURCE_PASSWORD=<password>
+AGENT_MEMORY_DB_POOL_SIZE=5
+```
+
+`agent-memory` 会自动加载根目录 `.env`，并将 `SPRING_DATASOURCE_*` 转换为 PostgreSQL 连接串。若需要为记忆服务单独指定数据库，也可在根目录 `.env` 中配置 `AGENT_MEMORY_DATABASE_URL`，其优先级高于 `SPRING_DATASOURCE_*`。服务启动时会自动创建 `agent_memory_items` 表和必要索引。生产环境应通过 Secret 或部署平台注入连接串，不要提交真实账号密码。
+
+## TencentDB Agent Memory 自部署配置
+
+如使用自部署的 TencentDB Agent Memory Hermes Gateway，可通过根目录 `.env` 配置网关地址：
+
+```bash
+TDAI_MEMORY_GATEWAY_URL=http://127.0.0.1:8420
+TDAI_GATEWAY_API_KEY=
+```
+
+`TDAI_GATEWAY_API_KEY` 为空时不会发送 `Authorization` 头，适用于未开启网关鉴权的自部署场景。历史占位值 `change-me`、`changeme`、`none`、`null` 也会被视为未配置密钥。
