@@ -1,0 +1,10 @@
+version: 1
+active_profile: default
+profiles:
+  default: profiles/default.yaml
+  career: profiles/career.yaml
+frontend:
+  workbench: frontend/workbench.yaml
+backend:
+  intent_rules: backend/intent_rules.yaml
+  workbench_answers: backend/workbench_answers.yaml

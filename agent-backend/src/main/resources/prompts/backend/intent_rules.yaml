@@ -1,0 +1,7 @@
+profiles:
+  default:
+    open_domain_question_words: ["是什么", "什么是", "怎么", "如何", "为什么", "解释", "原理", "区别", "对比", "分析", "示例", "最佳实践"]
+    technical_keywords: ["java", "python", "golang", "spring", "redis", "mysql", "jvm", "并发", "事务", "缓存", "kafka", "算法", "网络", "linux", "docker", "kubernetes", "rag", "llm", "agent", "大模型"]
+  career:
+    job_keywords: ["岗位", "招聘", "投递", "求职", "找工作", "职位", "面试", "薪资", "boss", "直聘", "hr"]
+    search_verbs: ["找", "看看", "推荐", "筛选", "搜索", "有没有", "适合", "机会"]
