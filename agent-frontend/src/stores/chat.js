@@ -10,6 +10,14 @@ import {
   normalizeToolEvent,
   requestKey,
 } from '../utils/chatHelpers'
+import {
+  buildSnapshotFromMessages,
+  buildSnapshotFromRows,
+  lastJobCards,
+  lastResumeMatch,
+  lastToolEvents,
+  normalizeSessionRows,
+} from '../utils/chatSnapshots'
 
 const duplicateSubmitWindowMs = 1800
 
@@ -127,47 +135,12 @@ export const useChatStore = defineStore('chat', {
         this.loadSessionMessagesCached(sessionId).catch(() => {})
       }
     },
-    normalizeSessionRows(sessionId, rows = []) {
-      return rows.length
-        ? rows.map((m, idx) => ({
-          id: `${sessionId}_${idx}`,
-          role: m.role,
-          content: m.content,
-          reasoning: typeof m.reasoning === 'string' ? m.reasoning : '',
-          jobCards: Array.isArray(m.jobCards) ? m.jobCards : [],
-          toolEvents: filterVisibleToolEvents(Array.isArray(m.toolEvents) ? m.toolEvents : []),
-        }))
-        : []
-    },
     cacheSessionRows(sessionId, rows = []) {
-      const previous = this.sessionSnapshots[sessionId]
-      const messages = this.normalizeSessionRows(sessionId, rows)
-      // 服务端行缺过程字段时（落库未完成或历史数据 metadata 为空），按同位置同角色用既有快照兜底，
-      // 避免强制重载覆盖快照后，会话切换回来推理过程/工具事件消失。
-      if (previous?.messages?.length) {
-        messages.forEach((item, idx) => {
-          const old = previous.messages[idx]
-          if (!old || old.role !== item.role) return
-          if (!String(item.reasoning || '').trim() && String(old.reasoning || '').trim()) item.reasoning = old.reasoning
-          if (!item.toolEvents?.length && old.toolEvents?.length) item.toolEvents = old.toolEvents
-          if (!item.jobCards?.length && old.jobCards?.length) item.jobCards = old.jobCards
-        })
-      }
-      const lastWithJobs = [...messages].reverse().find(item => item.jobCards?.length)
-      const lastMatch = [...rows].reverse().find(item => item.resumeMatch)?.resumeMatch || previous?.lastResumeMatchEvent || null
-      const lastWithTools = [...messages].reverse().find(item => item.toolEvents?.length)
-      this.sessionSnapshots[sessionId] = {
-        rows: JSON.parse(JSON.stringify(rows || [])),
-        messages: JSON.parse(JSON.stringify(messages || [])),
-        toolEvents: JSON.parse(JSON.stringify(lastWithTools?.toolEvents || [])),
-        lastJobCardsEvent: JSON.parse(JSON.stringify(lastWithJobs?.jobCards || [])),
-        lastResumeMatchEvent: lastMatch ? JSON.parse(JSON.stringify(lastMatch)) : null,
-        lastPersonalContextEvent: previous?.lastPersonalContextEvent || null,
-      }
+      this.sessionSnapshots[sessionId] = buildSnapshotFromRows(sessionId, rows, this.sessionSnapshots[sessionId])
     },
     applyServerRowsInPlace(sessionId, rows = []) {
       this.cacheSessionRows(sessionId, rows)
-      const incoming = this.normalizeSessionRows(sessionId, rows)
+      const incoming = normalizeSessionRows(sessionId, rows)
       if (!incoming.length || incoming.length !== this.messages.length) return false
       if (!incoming.every((item, idx) => item.role === this.messages[idx]?.role)) return false
       incoming.forEach((item, idx) => {
@@ -182,10 +155,10 @@ export const useChatStore = defineStore('chat', {
         if (item.jobCards?.length) current.jobCards = item.jobCards
         if (item.toolEvents?.length) current.toolEvents = item.toolEvents
       })
-      const lastWithTools = [...this.messages].reverse().find(item => item.toolEvents?.length)
-      if (lastWithTools?.toolEvents?.length) this.toolEvents = lastWithTools.toolEvents
-      const lastWithJobs = [...this.messages].reverse().find(item => item.jobCards?.length)
-      if (lastWithJobs?.jobCards?.length) this.lastJobCardsEvent = lastWithJobs.jobCards
+      const tools = lastToolEvents(this.messages)
+      if (tools.length) this.toolEvents = tools
+      const jobs = lastJobCards(this.messages)
+      if (jobs.length) this.lastJobCardsEvent = jobs
       return true
     },
     applySessionRows(sessionId, rows = []) {
@@ -203,12 +176,9 @@ export const useChatStore = defineStore('chat', {
       this.lastPersonalContextEvent = snapshot.lastPersonalContextEvent ? JSON.parse(JSON.stringify(snapshot.lastPersonalContextEvent)) : null
     },
     restoreSessionDerivedState(rows = []) {
-      const lastWithJobs = [...this.messages].reverse().find(item => item.jobCards?.length)
-      this.lastJobCardsEvent = lastWithJobs?.jobCards || []
-      const lastMatch = [...rows].reverse().find(item => item.resumeMatch)?.resumeMatch || null
-      this.lastResumeMatchEvent = lastMatch
-      const lastWithTools = [...this.messages].reverse().find(item => item.toolEvents?.length)
-      this.toolEvents = lastWithTools?.toolEvents || []
+      this.lastJobCardsEvent = lastJobCards(this.messages)
+      this.lastResumeMatchEvent = lastResumeMatch(rows)
+      this.toolEvents = lastToolEvents(this.messages)
     },
     async syncCurrentMessagesFromServer() {
       if (!this.sessionId) return
@@ -246,13 +216,7 @@ export const useChatStore = defineStore('chat', {
     },
     snapshotCurrentSession() {
       if (!this.sessionId) return
-      this.sessionSnapshots[this.sessionId] = {
-        messages: JSON.parse(JSON.stringify(this.messages || [])),
-        toolEvents: JSON.parse(JSON.stringify(filterVisibleToolEvents(this.toolEvents || []))),
-        lastJobCardsEvent: JSON.parse(JSON.stringify(this.lastJobCardsEvent || [])),
-        lastResumeMatchEvent: this.lastResumeMatchEvent ? JSON.parse(JSON.stringify(this.lastResumeMatchEvent)) : null,
-        lastPersonalContextEvent: this.lastPersonalContextEvent ? JSON.parse(JSON.stringify(this.lastPersonalContextEvent)) : null,
-      }
+      this.sessionSnapshots[this.sessionId] = buildSnapshotFromMessages(this)
     },
     applySessionSnapshot(sessionId) {
       const snapshot = this.sessionSnapshots[sessionId]

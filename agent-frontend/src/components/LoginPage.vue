@@ -45,8 +45,9 @@ import { useAuthStore } from '../stores/auth'
 
 const emit = defineEmits(['logged-in'])
 const auth = useAuthStore()
-const username = ref('admin')
-const password = ref('123456')
+// 开发环境预填默认账号方便联调，生产构建一律留空，避免泄露弱口令。
+const username = ref(import.meta.env.DEV ? 'admin' : '')
+const password = ref(import.meta.env.DEV ? '123456' : '')
 const showError = ref(false)
 
 // 始终展示稳定的用户向文案，绝不把后端原始异常/堆栈直接抛给用户。

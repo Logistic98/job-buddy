@@ -27,6 +27,10 @@ public class UserAuthRepository {
         return mapper.findUserByToken(token);
     }
 
+    public void updatePasswordHash(String userId, String passwordHash) {
+        mapper.updatePasswordHash(userId, passwordHash, Instant.now());
+    }
+
     public void saveSession(String token, String userId, Instant expiresAt) {
         mapper.saveSession(token, userId, expiresAt, Instant.now());
     }

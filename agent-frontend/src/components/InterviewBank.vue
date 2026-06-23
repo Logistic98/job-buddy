@@ -416,7 +416,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { batchQuestions, createQuestion, createRandomExam, deleteQuestion, generateQuestions, getExam, getQuestionMeta, listExams, listQuestions, runCodeSample, submitExam, updateQuestion } from '../api/interview'
-import { buildDefaultTemplate, defaultOptions, defaultSignature, difficultyClass, displayTitle, extractFunctionName, formatCodingTests, formatRemainingTime, isChoiceType, isCodingQuestion, isMultiChoice, normalizeCodingLanguage, optionItems, questionStem, requireText, splitCleanTags, tagLabels } from '../utils/interviewBank'
+import { buildDefaultTemplate, defaultOptions, defaultSignature, difficultyClass, displayTitle, extractFunctionName, formatCodingTests, formatRemainingTime, isChoiceType, isCodingQuestion, isMultiChoice, normalizeCodingLanguage, optionItems, questionStem, splitCleanTags, tagLabels } from '../utils/interviewBank'
+import { assertManualPracticeMatches, buildQuestionPayload, codingResultSummary as codingResultSummaryUtil, defaultPracticeTitle, displayExamTitle, examRuleTotal as computeExamRuleTotal, selectedAnswerKeys as selectedAnswerKeysUtil, validateAiForm, validatePracticeConfig, validateQuestionForm } from '../utils/interviewForm'
 
 const props = defineProps({
   mode: { type: String, default: 'bank' },
@@ -477,7 +478,7 @@ const difficulties = computed(() => (questionMeta.difficulties?.length ? questio
 const questionTypes = computed(() => (questionMeta.questionTypes?.length ? questionMeta.questionTypes : ['编程题', '单选', '多选', '判断', '简答']))
 const formQuestionTypes = computed(() => form.bankType === 'leetcode' ? ['编程题'] : ['单选', '多选', '判断', '简答'])
 const aiQuestionTypes = computed(() => aiForm.bankType === 'leetcode' ? ['编程题'] : ['单选', '多选', '判断', '简答'])
-const examRuleTotal = computed(() => examConfig.rules.reduce((sum, rule) => sum + Math.max(0, Number(rule.count || 0)), 0))
+const examRuleTotal = computed(() => computeExamRuleTotal(examConfig.rules))
 const timerExpired = computed(() => Boolean(currentExam.value && currentExam.value.status !== 'submitted' && timerRemaining.value <= 0))
 const remainingTimeText = computed(() => formatRemainingTime(timerRemaining.value))
 const timerRemaining = ref(0)
@@ -644,18 +645,7 @@ async function createManualPractice(questionIds, title, showAnswer = true) {
     examLoading.value = false
   }
 }
-function assertManualPracticeMatches(exam, questionIds) {
-  const expected = Array.from(new Set(questionIds.map(id => String(id || '').trim()).filter(Boolean))).sort()
-  const actual = (exam?.questions || []).map(item => String(item.questionId || '').trim()).filter(Boolean).sort()
-  const same = expected.length === actual.length && expected.every((id, index) => id === actual[index])
-  if (!same) throw new Error('练习内容与所选题目不一致，请刷新题库后重试')
-}
 function currentBankTypeLabel() { return bankTypeLabel(filters.bankType) || '题库' }
-function displayExamTitle(exam) {
-  return String(exam?.title || '未命名练习')
-    .replace(/模拟练习/g, '随机组卷')
-    .replace(/LeetCode/gi, '算法')
-}
 async function loadExams() {
   recordsLoading.value = true
   try {
@@ -671,11 +661,6 @@ function openPracticeModal() {
   practiceModalError.value = ''
   if (!examConfig.title.trim()) examConfig.title = defaultPracticeTitle()
   showPracticeModal.value = true
-}
-function defaultPracticeTitle() {
-  const now = new Date()
-  const pad = value => String(value).padStart(2, '0')
-  return `随机组卷 ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
 }
 function closePracticeModal() {
   if (examLoading.value) return
@@ -728,39 +713,11 @@ async function submitModal() {
   if (modalMode.value === 'manual') return saveQuestion()
   return submitAiGenerate()
 }
-function validateQuestionForm() {
-  requireText(form.title, '请填写题目标题')
-  requireText(form.content, isChoiceForm.value ? '请填写选择题题干' : '请填写题目内容')
-  if (isChoiceForm.value) {
-    const validOptions = form.options.map(item => String(item.text || '').trim()).filter(Boolean)
-    if (validOptions.length < 2) throw new Error('选择题至少需要 2 个有效选项')
-    requireText(form.answer, '请填写正确答案')
-  }
-  if (form.bankType === 'leetcode') {
-    requireText(form.codingTemplate, '请填写初始代码模板')
-    if (!extractFunctionName(form.codingTemplate, form.codingLanguage)) throw new Error('代码模板中需要包含可识别的函数或方法声明')
-  }
-}
-function validateAiForm() {
-  if (!String(aiForm.topic || '').trim() && !String(aiForm.documentText || '').trim()) throw new Error('请填写方向主题或上传参考资料')
-  const count = Number(aiForm.count || 0)
-  if (!Number.isFinite(count) || count < 1 || count > 20) throw new Error('生成数量需在 1-20 之间')
-}
-function validatePracticeConfig() {
-  requireText(examConfig.title, '请填写练习名称')
-  const duration = Number(examConfig.durationMinutes || 0)
-  if (!Number.isFinite(duration) || duration < 1 || duration > 240) throw new Error('限时时长需在 1-240 分钟之间')
-  if (!examRuleTotal.value) throw new Error('请至少配置 1 道题')
-  for (const rule of examConfig.rules) {
-    const count = Number(rule.count || 0)
-    if (!Number.isFinite(count) || count < 0 || count > 50) throw new Error('单条组卷规则题数需在 0-50 之间')
-  }
-}
 async function saveQuestion() {
   saving.value = true
   try {
-    validateQuestionForm()
-    const payload = buildQuestionPayload()
+    validateQuestionForm(form)
+    const payload = buildQuestionPayload(form)
     const saved = normalizeQuestionRow(editingId.value ? await updateQuestion(editingId.value, payload) : await createQuestion(payload))
     upsertQuestionRow(saved)
     showModal.value = false
@@ -781,22 +738,6 @@ function removeOption(index) {
   if (form.options.length <= 2) return
   form.options.splice(index, 1)
   form.options.forEach((item, idx) => { item.key = String.fromCharCode(65 + idx) })
-}
-function buildQuestionPayload() {
-  const options = form.options.map(item => ({ key: item.key, text: String(item.text || '').trim() })).filter(item => item.text)
-  const content = isChoiceType(form.questionType) && options.length
-    ? `${form.content.trim()}\n\n${options.map(item => `${item.key}. ${item.text}`).join('\n')}`
-    : form.content
-  const payload = { ...form, content, answer: form.answer.trim(), tags: splitCleanTags(form.tagsText), bankType: form.bankType, questionType: form.bankType === 'leetcode' ? '编程题' : form.questionType }
-  if (payload.bankType === 'leetcode') payload.codingMeta = buildCodingMetaFromForm()
-  delete payload.tagsText
-  delete payload.options
-  delete payload.codingLanguage
-  delete payload.codingFunctionName
-  delete payload.codingSignature
-  delete payload.codingTemplate
-  delete payload.codingTestsText
-  return payload
 }
 function bankTypeLabel(value) {
   const option = bankTypeOptions.value.find(item => item.value === value)
@@ -846,20 +787,6 @@ function setCodingLanguage(questionId, value) {
   if (!current || current === oldTemplate) answers[questionId] = buildDefaultTemplate(functionName, nextLanguage)
   delete codingResults[questionId]
 }
-function buildCodingMetaFromForm() {
-  let tests = []
-  if (form.codingTestsText.trim()) {
-    try {
-      const parsed = JSON.parse(form.codingTestsText)
-      tests = Array.isArray(parsed) ? parsed : []
-    } catch (err) {
-      throw new Error('测试用例 JSON 格式不正确')
-    }
-  }
-  const language = normalizeCodingLanguage(form.codingLanguage)
-  const functionName = extractFunctionName(form.codingTemplate, language) || form.codingFunctionName || 'solution'
-  return { language, functionName, signature: defaultSignature(functionName, language), template: form.codingTemplate || buildDefaultTemplate(functionName, language), tests }
-}
 function isQuestionAnswered(item) {
   const value = String(answers[item.questionId] || '').trim()
   if (!value) return false
@@ -881,7 +808,7 @@ function goAdjacentQuestion(delta) {
   const next = list[Math.min(Math.max(index + delta, 0), list.length - 1)]
   if (next) setActiveQuestion(next.questionId)
 }
-function selectedAnswerKeys(item) { return String(answers[item.questionId] || '').split(/[,，、\s]+/).filter(Boolean) }
+function selectedAnswerKeys(item) { return selectedAnswerKeysUtil(answers[item.questionId]) }
 function isOptionSelected(item, key) { return selectedAnswerKeys(item).includes(key) }
 function updateOptionAnswer(item, key, checked) {
   if (isMultiChoice(item)) {
@@ -913,7 +840,7 @@ function clearAiDocument() {
 async function submitAiGenerate() {
   saving.value = true
   try {
-    validateAiForm()
+    validateAiForm(aiForm)
     await generateQuestions(aiForm)
     showModal.value = false
     await loadQuestions()
@@ -950,7 +877,7 @@ async function startExam() {
   practiceModalError.value = ''
   error.value = ''
   try {
-    validatePracticeConfig()
+    validatePracticeConfig(examConfig)
     const payload = {
       title: examConfig.title,
       durationMinutes: Number(examConfig.durationMinutes || 30),
@@ -1052,13 +979,7 @@ function codingSubmitPayload() {
   return result
 }
 function codingResultRows(questionId) { return codingResults[questionId]?.rows || [] }
-function codingResultSummary(questionId) {
-  const result = codingResults[questionId]
-  if (!result) return '尚未运行'
-  if (result.message) return result.message
-  const rows = result.rows || []
-  return rows.length ? `${rows.filter(row => row.passed).length} / ${rows.length} 通过` : '尚未运行'
-}
+function codingResultSummary(questionId) { return codingResultSummaryUtil(codingResults[questionId]) }
 function startExamTimer(value, secondsMode = false) {
   stopExamTimer()
   timerRemaining.value = secondsMode ? Math.max(0, Number(value || 0)) : Math.max(1, Number(value || 30)) * 60

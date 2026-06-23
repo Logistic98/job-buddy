@@ -10,11 +10,22 @@ import com.jobbuddy.backend.modules.chat.service.ChatSseService;
 import com.jobbuddy.backend.modules.chat.service.IntentService;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
 import com.jobbuddy.backend.modules.chat.util.RuntimeRequestBuilder;
-import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.booleanValue;
-import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.doubleValue;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.firstPresent;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValue;
-import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.truncate;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.accumulateToolEvent;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.classifyMemoryType;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.compactMatchDetail;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.directiveAction;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.fallbackGeneralResumeMatchAnswer;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.intentFromRuntime;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.intentHint;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.isCapabilityUnavailable;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.manualTargetJobs;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.matchesCapability;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.resumeMatchSummary;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.summarizeRuntimeResult;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.toolStatus;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.withSelectedJobContext;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.prompt.model.PersonalContext;
 import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
@@ -128,18 +139,6 @@ public class ChatSseServiceImpl implements ChatSseService {
         });
     }
 
-    /**
-     * 判定一条用户消息是否值得写入长期记忆，并返回长期记忆类型；普通对话返回 null（只进短期记忆）。
-     * 约束类（排除/不要/不考虑/约束）优先于偏好类（偏好/优先/目标/期望/希望/喜欢）。
-     */
-    private String classifyMemoryType(String message) {
-        String text = message == null ? "" : message;
-        if (text.contains("排除") || text.contains("不要") || text.contains("不考虑") || text.contains("约束")) return "constraint";
-        if (text.contains("偏好") || text.contains("优先") || text.contains("目标") || text.contains("期望")
-                || text.contains("希望") || text.contains("喜欢") || text.contains("倾向")) return "preference";
-        return null;
-    }
-
     /** 顺序异步落库助手消息，保证与用户消息的先后顺序，且不阻塞 SSE 主线程。 */
     private void appendMessageAsync(final String sessionId, final String role, final String content, final Map<String, Object> metadata) {
         persistExecutor.submit(new Runnable() {
@@ -187,39 +186,6 @@ public class ChatSseServiceImpl implements ChatSseService {
                 }
             }
         });
-    }
-
-    /**
-     * 工具事件累积到内存会话状态（按 id 合并、过滤记忆噪声步骤），供本轮答案落库与刷新后回看推理过程使用。
-     * 这里不直接写库，避免每个 tool_status 都触发一次 DB 写造成串行阻塞。
-     */
-    private void accumulateToolEvent(ChatSessionState state, Map<String, Object> event) {
-        if (state == null || event == null || event.get("id") == null) return;
-        if (state.toolEvents == null) state.toolEvents = new java.util.ArrayList<Map<String, Object>>();
-        if (isMemoryNoiseEvent(event)) return;
-        String id = String.valueOf(event.get("id"));
-        for (int i = 0; i < state.toolEvents.size(); i++) {
-            Map<String, Object> existing = state.toolEvents.get(i);
-            if (id.equals(String.valueOf(existing.get("id")))) {
-                Map<String, Object> merged = new LinkedHashMap<String, Object>(existing);
-                merged.putAll(event);
-                state.toolEvents.set(i, merged);
-                return;
-            }
-        }
-        state.toolEvents.add(event);
-    }
-
-    /** 与 ChatSessionStore 保持一致的记忆噪声判定：只按稳定标识字段 id/name 过滤，避免展示文案中出现“记忆”导致误删。 */
-    private boolean isMemoryNoiseEvent(Map<String, Object> event) {
-        if (event == null) return false;
-        StringBuilder builder = new StringBuilder();
-        for (String key : new String[]{"id", "name"}) {
-            Object value = event.get(key);
-            if (value != null) builder.append(' ').append(String.valueOf(value).toLowerCase(java.util.Locale.ROOT));
-        }
-        String text = builder.toString();
-        return text.contains("memory") || text.contains("记忆");
     }
 
     /** 自动装配求职画像、当前简历、求职进展等个人上下文，工作台问答无需用户重复提供。 */
@@ -332,33 +298,6 @@ public class ChatSseServiceImpl implements ChatSseService {
         handleDirective(emitter, sessionId, effectiveMessage, state, directive, intent);
     }
 
-    private String withSelectedJobContext(String message, Map<String, Object> selectedJob) {
-        if (selectedJob == null || selectedJob.isEmpty()) return message;
-        StringBuilder builder = new StringBuilder(message == null ? "" : message);
-        builder.append("\n\n[用户选中的目标岗位信息，请仅针对该岗位作答]\n");
-        appendJobField(builder, "岗位名称", selectedJob, "jobName", "job_name", "title");
-        appendJobField(builder, "公司", selectedJob, "brandName", "companyName", "company");
-        appendJobField(builder, "薪资", selectedJob, "salaryDesc", "salary");
-        appendJobField(builder, "城市", selectedJob, "cityName", "city", "areaDistrict");
-        appendJobField(builder, "经验要求", selectedJob, "jobExperience", "experience", "experienceName");
-        appendJobField(builder, "学历要求", selectedJob, "jobDegree", "degree", "degreeName");
-        appendJobField(builder, "技能标签", selectedJob, "skills", "jobLabels", "labels");
-        appendJobField(builder, "岗位描述", selectedJob, "jobRequire", "description", "jobDescription", "postDescription");
-        return builder.toString();
-    }
-
-    private void appendJobField(StringBuilder builder, String label, Map<String, Object> job, String... keys) {
-        for (String key : keys) {
-            Object value = job.get(key);
-            if (value == null) continue;
-            String text = String.valueOf(value).trim();
-            if (text.isEmpty() || "null".equals(text)) continue;
-            if (text.length() > 400) text = text.substring(0, 400);
-            builder.append(label).append(": ").append(text).append('\n');
-            return;
-        }
-    }
-
     /**
      * 安全门控：仅当配置开关开启，且预判为高风险并建议拒绝时拦截。默认关闭，主链路行为与现状一致。
      */
@@ -366,20 +305,6 @@ public class ChatSseServiceImpl implements ChatSseService {
         if (!properties.isIntentSafetyGateEnabled() || preIntent == null) return false;
         return "high".equalsIgnoreCase(stringValue(preIntent.getRisk()))
                 && "reject".equalsIgnoreCase(stringValue(preIntent.getNextAction()));
-    }
-
-    /** 把 agent-intent 预判结果整理为 runtime intent_hint 元数据，runtime 对未知元数据安全忽略。 */
-    private Map<String, Object> intentHint(IntentResult preIntent) {
-        if (preIntent == null) return Collections.emptyMap();
-        Map<String, Object> hint = new LinkedHashMap<String, Object>();
-        hint.put("domain", preIntent.getDomain());
-        hint.put("intent", preIntent.getIntent());
-        hint.put("confidence", preIntent.getConfidence());
-        hint.put("risk", preIntent.getRisk());
-        hint.put("needs_clarification", preIntent.isNeedsClarification());
-        hint.put("next_action", preIntent.getNextAction());
-        hint.put("secondary", preIntent.getSecondary());
-        return hint;
     }
 
     private Map<String, Object> runTaskUnderstanding(String sessionId, String message, ChatSessionState state, IntentResult preIntent) {
@@ -410,38 +335,6 @@ public class ChatSseServiceImpl implements ChatSseService {
         return directive;
     }
 
-    private boolean isCapabilityUnavailable(Map<String, Object> directive) {
-        Object implementation = directive == null ? null : directive.get("implementation");
-        Object statusValue = directive == null ? null : directive.get("implementation_status");
-        if (implementation instanceof Map) {
-            Object implemented = ((Map) implementation).get("implemented");
-            if (Boolean.FALSE.equals(implemented)) return true;
-            Object nestedStatus = ((Map) implementation).get("status");
-            if (nestedStatus != null) statusValue = nestedStatus;
-        }
-        String status = stringValue(statusValue).toLowerCase(java.util.Locale.ROOT);
-        return "planned".equals(status) || "unsupported".equals(status) || "not_implemented".equals(status);
-    }
-
-    private IntentResult intentFromRuntime(Map<String, Object> directive) {
-        Object slots = directive.get("slots");
-        Map<String, Object> slotMap = slots instanceof Map
-                ? new LinkedHashMap<String, Object>((Map<String, Object>) slots)
-                : new LinkedHashMap<String, Object>();
-        Object secondary = directive.get("secondary");
-        List<String> secondaryList = secondary instanceof List ? (List<String>) secondary : Collections.<String>emptyList();
-        return new IntentResult(
-                stringValue(directive.get("domain"), "unknown"),
-                stringValue(directive.get("intent"), "unknown"),
-                doubleValue(directive.get("confidence"), 0.0),
-                secondaryList,
-                stringValue(directive.get("risk"), "low"),
-                booleanValue(firstPresent(directive, "needs_clarification", "needsClarification"), false),
-                stringValue(firstPresent(directive, "next_action", "nextAction"), "clarify"),
-                slotMap
-        );
-    }
-
     private void handleDirective(SseEmitter emitter, String sessionId, String rawMessage, ChatSessionState state, Map<String, Object> directive, IntentResult intent) throws IOException {
         String action = directiveAction(directive, intent);
         if (matchesCapability(action, intent, "call_login", "trigger_boss_login", "auth.login")) {
@@ -465,25 +358,6 @@ public class ChatSseServiceImpl implements ChatSseService {
             return;
         }
         handleRuntimeManagedTask(emitter, sessionId, rawMessage, state, directive, intent);
-    }
-
-    /** 兼容 action 与 intent 两类能力匹配键。 */
-    private boolean matchesCapability(String action, IntentResult intent, String... keys) {
-        String intentName = intent == null ? "" : stringValue(intent.getIntent());
-        for (String key : keys) {
-            if (key.equals(action) || key.equals(intentName)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String directiveAction(Map<String, Object> directive, IntentResult intent) {
-        Object action = firstPresent(directive, "action", "next_action", "nextAction", "target_action");
-        if (action instanceof Map) action = firstPresent((Map<String, Object>) action, "type", "name", "action");
-        String value = stringValue(action);
-        if (!value.isEmpty()) return value;
-        return intent == null ? "runtime_managed" : stringValue(intent.getNextAction(), intent.getIntent());
     }
 
     private void handleResumeMatch(SseEmitter emitter, String sessionId, ChatSessionState state, IntentResult intent, String rawMessage) throws IOException {
@@ -601,15 +475,6 @@ public class ChatSseServiceImpl implements ChatSseService {
         return response;
     }
 
-    private String fallbackGeneralResumeMatchAnswer(ResumeRecord resume, String targetRole) {
-        Map<String, Object> parsed = resume == null || resume.getParsed() == null ? Collections.<String, Object>emptyMap() : resume.getParsed();
-        String role = stringValue(targetRole, "目标岗位");
-        return "当前缺少具体 JD，以下为基于“" + role + "”通用岗位画像的参考判断，不作为真实岗位精确评分。\n\n"
-                + role + "通常重点考察：大模型或 Agent/RAG 项目经验、后端工程能力、Prompt/Tool Calling、工作流编排、模型接口接入、数据处理和系统落地能力。\n\n"
-                + "请重点检查简历中是否有 LLM 应用、RAG、Agent、工具调用、向量检索、Spring Boot/FastAPI、Python/Java 后端、异步任务和工程部署经历。相关项目需写清业务问题、个人职责、技术方案、异常处理、延迟优化和结果指标。\n\n"
-                + "面试准备建议聚焦 RAG 流程、Agent Loop、Function Calling/Tool Calling、Prompt 设计、模型接口、向量库、评测可观测和 Java/Python 后端工程化。提供目标岗位 JD 后，可继续按真实职责逐条对照。";
-    }
-
     private void handleResumeAnalyze(SseEmitter emitter, String sessionId, ChatSessionState state) throws IOException {
         ResumeRecord resume = loadCurrentResume(state);
         if (resume == null) {
@@ -631,56 +496,6 @@ public class ChatSseServiceImpl implements ChatSseService {
             record = resumeStorageService.parseSync(state.resumeId, state.sessionId);
         }
         return record;
-    }
-
-    private List<Map<String, Object>> manualTargetJobs(String targetRole, String targetDescription, Map<String, Object> slots) {
-        if (!hasSufficientUserProvidedJd(targetDescription)) return Collections.emptyList();
-        Map<String, Object> job = new LinkedHashMap<String, Object>();
-        job.put("id", "user_provided_jd");
-        job.put("jobName", targetRole.isEmpty() ? "用户提供的目标岗位" : targetRole);
-        job.put("jobDescription", targetDescription);
-        job.put("cityName", slots == null ? null : slots.get("city"));
-        job.put("salaryDesc", salaryText(slots));
-        job.put("source", "user_provided_jd");
-        return Collections.singletonList(job);
-    }
-
-    private boolean hasSufficientUserProvidedJd(String targetDescription) {
-        String text = stringValue(targetDescription);
-        return text.length() >= 30;
-    }
-
-    private String salaryText(Map<String, Object> slots) {
-        if (slots == null) return "";
-        Object min = slots.get("salary_min_k");
-        Object max = slots.get("salary_max_k");
-        if (min != null && max != null) return min + "-" + max + "K";
-        if (min != null) return min + "K以上";
-        return "";
-    }
-
-    private Map<String, Object> compactMatchDetail(Map<String, Object> match) {
-        Map<String, Object> detail = new LinkedHashMap<String, Object>();
-        Object matches = match == null ? null : match.get("matches");
-        detail.put("count", matches instanceof List ? ((List) matches).size() : 0);
-        if (matches instanceof List && !((List) matches).isEmpty()) detail.put("top", ((List) matches).get(0));
-        return detail;
-    }
-
-    private String resumeMatchSummary(Map<String, Object> match) {
-        Object matches = match == null ? null : match.get("matches");
-        if (matches instanceof List && !((List) matches).isEmpty()) {
-            Object first = ((List) matches).get(0);
-            if (first instanceof Map) {
-                Map row = (Map) first;
-                String score = stringValue(row.get("score"));
-                String confidence = stringValue(firstPresent(row, "score_confidence", "confidence"));
-                String recommendation = stringValue(row.get("recommendation"));
-                String suffix = recommendation.isEmpty() ? "" : "，结论：" + recommendation;
-                if (!score.isEmpty()) return "简历匹配已完成，评分：" + score + (confidence.isEmpty() ? "" : "，置信度：" + confidence) + suffix + "。";
-            }
-        }
-        return "简历匹配已完成，详情已更新到岗位匹配面板。";
     }
 
     private void handleRuntimeManagedTask(SseEmitter emitter, String sessionId, String rawMessage, ChatSessionState state, Map<String, Object> directive, IntentResult intent) throws IOException {
@@ -850,52 +665,6 @@ public class ChatSseServiceImpl implements ChatSseService {
         send(emitter, "job_cards", jobs);
         // 岗位列表与本轮推理过程统一异步落库，确保扫码搜索路径下首屏卡片即时呈现、不被持久化阻塞。
         saveStateAsync(state);
-    }
-
-    private List<Map<String, Object>> memorySummaries(List<Map<String, Object>> memories) {
-        List<Map<String, Object>> rows = new java.util.ArrayList<Map<String, Object>>();
-        if (memories == null) return rows;
-        for (Map<String, Object> memory : memories) {
-            Map<String, Object> item = new LinkedHashMap<String, Object>();
-            item.put("content", truncate(stringValue(memory.get("content")), 180));
-            item.put("source", firstPresent(memory, "source", "type"));
-            item.put("scope", firstPresent(memory, "scope", "namespace"));
-            rows.add(item);
-        }
-        return rows;
-    }
-
-    private Map<String, Object> memoryDetail(List<Map<String, Object>> memories) {
-        Map<String, Object> detail = new LinkedHashMap<String, Object>();
-        detail.put("count", memories == null ? 0 : memories.size());
-        detail.put("memories", memorySummaries(memories));
-        return detail;
-    }
-
-    private Map<String, Object> toolStatus(String id, String title, String status, String summary, Object detail) {
-        Map<String, Object> data = new LinkedHashMap<String, Object>();
-        data.put("id", id);
-        data.put("title", title);
-        data.put("status", status);
-        data.put("summary", summary);
-        data.put("detail", detail);
-        data.put("time", java.time.Instant.now().toString());
-        return data;
-    }
-
-    private String summarizeRuntimeResult(Map<String, Object> result) {
-        if (result == null || result.isEmpty()) return "空响应";
-        Object error = firstPresent(result, "error", "message", "detail");
-        if (error != null) return stringValue(error);
-        Object status = firstPresent(result, "status", "stop_reason", "stopReason");
-        if (status != null) return "status=" + stringValue(status);
-        return "缺少 directive 字段";
-    }
-
-    private Map<String, Object> resultMetadata(List<Map<String, Object>> jobs) {
-        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-        if (jobs != null && !jobs.isEmpty()) metadata.put("jobCards", jobs);
-        return metadata;
     }
 
     private void sendAssistant(SseEmitter emitter, String sessionId, ChatSessionState state, String value) throws IOException {

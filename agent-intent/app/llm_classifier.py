@@ -9,10 +9,12 @@
 - AGENT_INTENT_LLM_API_KEY: 服务密钥
 - AGENT_INTENT_LLM_MODEL: 模型名
 - AGENT_INTENT_LLM_TIMEOUT_SECONDS: 超时,默认 8
+- AGENT_INTENT_LLM_MAX_RETRIES: 瞬时错误(超时/连接/5xx)重试次数,默认 1
 """
 
 import json
 import os
+import time
 from typing import Optional
 
 import httpx
@@ -48,27 +50,47 @@ def classify_with_llm(text: str) -> Optional[IntentResult]:
         logger.warning("agent-intent LLM 分类器已开启但配置不完整,降级到评分层")
         return None
     timeout = float(os.getenv("AGENT_INTENT_LLM_TIMEOUT_SECONDS", "8"))
+    max_retries = max(0, int(os.getenv("AGENT_INTENT_LLM_MAX_RETRIES", "1")))
 
-    try:
-        response = httpx.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    {"role": "user", "content": text},
-                ],
-                "temperature": 0,
-            },
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-        return _parse_result(content)
-    except Exception as e:
-        logger.warning(f"agent-intent LLM 分类失败,降级到评分层: {e}")
-        return None
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        "temperature": 0,
+    }
+
+    for attempt in range(max_retries + 1):
+        try:
+            response = httpx.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+            return _parse_result(content)
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            if attempt < max_retries:
+                logger.warning(f"agent-intent LLM 瞬时错误,第 {attempt + 1} 次重试: {e}")
+                time.sleep(0.2 * (attempt + 1))
+                continue
+            logger.warning(f"agent-intent LLM 调用多次失败,降级到评分层: {e}")
+            return None
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code
+            if status >= 500 and attempt < max_retries:
+                logger.warning(f"agent-intent LLM 返回 {status},第 {attempt + 1} 次重试")
+                time.sleep(0.2 * (attempt + 1))
+                continue
+            logger.warning(f"agent-intent LLM 返回 {status},降级到评分层")
+            return None
+        except Exception as e:
+            logger.warning(f"agent-intent LLM 分类失败,降级到评分层: {e}")
+            return None
+    return None
 
 
 def _parse_result(content: str) -> Optional[IntentResult]:

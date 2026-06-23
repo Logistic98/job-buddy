@@ -15,6 +15,13 @@
     WHERE username = #{username}
   </select>
 
+  <update id="updatePasswordHash">
+    UPDATE app_user
+    SET password_hash = #{passwordHash},
+        updated_at = #{now}
+    WHERE user_id = #{userId}
+  </update>
+
   <select id="findUserByToken" resultType="map">
     SELECT
       u.user_id AS "userId",

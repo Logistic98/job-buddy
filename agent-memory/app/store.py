@@ -190,7 +190,12 @@ class PostgresMemoryStore:
     async def connect(self) -> None:
         if not self.enabled or self.pool is not None:
             return
-        self.pool = await asyncpg.create_pool(dsn=self.dsn, min_size=1, max_size=int(os.getenv("AGENT_MEMORY_DB_POOL_SIZE", "5")))
+        self.pool = await asyncpg.create_pool(
+            dsn=self.dsn,
+            min_size=1,
+            max_size=int(os.getenv("AGENT_MEMORY_DB_POOL_SIZE", "5")),
+            command_timeout=float(os.getenv("AGENT_MEMORY_DB_CMD_TIMEOUT", "5")),
+        )
         await self.init_schema()
 
     async def close(self) -> None:

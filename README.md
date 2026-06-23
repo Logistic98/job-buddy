@@ -178,7 +178,7 @@ cd agent-intent   && uv sync --extra dev && uv run python server.py
 cd agent-memory   && uv sync --extra dev && uv run python server.py
 cd agent-tool     && uv sync --extra dev && uv run python server.py
 cd agent-eval     && uv sync --extra dev && uv run python server.py
-cd agent-sandbox  && uv sync            && uv run python server.py
+cd agent-sandbox  && uv sync && uv run python server.py
 ```
 
 ## 主要接口入口

@@ -26,10 +26,12 @@ public class MdcContextFilter extends OncePerRequestFilter {
     public static final String REQUEST_ID = "request_id";
     public static final String SESSION_ID = "session_id";
     public static final String OPERATOR_ID = "operator_id";
+    public static final String RUN_ID = "run_id";
 
     private static final String HEADER_REQUEST_ID = "X-Request-Id";
     private static final String HEADER_SESSION_ID = "X-Session-Id";
     private static final String HEADER_OPERATOR_ID = "X-User-Id";
+    private static final String HEADER_RUN_ID = "X-Run-Id";
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -38,10 +40,13 @@ public class MdcContextFilter extends OncePerRequestFilter {
         String sessionId = firstNonBlank(request.getHeader(HEADER_SESSION_ID),
                 firstNonBlank(request.getParameter("session_id"), request.getParameter("sessionId")));
         String operatorId = firstNonBlank(request.getHeader(HEADER_OPERATOR_ID), "-");
+        String runId = firstNonBlank(request.getHeader(HEADER_RUN_ID),
+                firstNonBlank(request.getParameter("run_id"), request.getParameter("runId")));
 
         MDC.put(REQUEST_ID, requestId);
         MDC.put(SESSION_ID, sessionId == null ? "-" : sessionId);
         MDC.put(OPERATOR_ID, operatorId);
+        MDC.put(RUN_ID, runId == null ? "-" : runId);
         response.setHeader(HEADER_REQUEST_ID, requestId);
         try {
             chain.doFilter(request, response);
@@ -49,6 +54,7 @@ public class MdcContextFilter extends OncePerRequestFilter {
             MDC.remove(REQUEST_ID);
             MDC.remove(SESSION_ID);
             MDC.remove(OPERATOR_ID);
+            MDC.remove(RUN_ID);
         }
     }
 

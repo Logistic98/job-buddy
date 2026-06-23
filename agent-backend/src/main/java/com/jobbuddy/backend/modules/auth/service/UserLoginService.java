@@ -1,6 +1,8 @@
 package com.jobbuddy.backend.modules.auth.service;
 
 import com.jobbuddy.backend.modules.auth.repository.UserAuthRepository;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -15,6 +17,7 @@ import java.util.Map;
 public class UserLoginService {
     private final UserAuthRepository repository;
     private final SecureRandom secureRandom = new SecureRandom();
+    private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     public UserLoginService(UserAuthRepository repository) {
         this.repository = repository;
@@ -31,9 +34,10 @@ public class UserLoginService {
             throw new IllegalArgumentException("用户名或密码错误");
         }
         String passwordHash = String.valueOf(user.get("passwordHash"));
-        if (!constantTimeEquals(passwordHash, sha256(safePassword))) {
+        if (!verifyPassword(safePassword, passwordHash)) {
             throw new IllegalArgumentException("用户名或密码错误");
         }
+        upgradeLegacyHashIfNeeded(String.valueOf(user.get("userId")), safePassword, passwordHash);
         repository.deleteExpiredSessions();
         String token = newToken();
         Instant expiresAt = Instant.now().plus(7, ChronoUnit.DAYS);
@@ -75,6 +79,36 @@ public class UserLoginService {
         StringBuilder builder = new StringBuilder();
         for (byte b : bytes) builder.append(String.format("%02x", b & 0xff));
         return builder.toString();
+    }
+
+    /**
+     * 校验密码：优先按 BCrypt 校验；存量账号仍是 64 位 SHA-256 摘要时回退到旧算法做常量时间比较，
+     * 保证升级 BCrypt 后历史用户仍可登录。
+     */
+    private boolean verifyPassword(String rawPassword, String storedHash) {
+        if (storedHash == null) return false;
+        if (isLegacySha256(storedHash)) {
+            return constantTimeEquals(storedHash, sha256(rawPassword));
+        }
+        return passwordEncoder.matches(rawPassword, storedHash);
+    }
+
+    /** 旧 SHA-256 账号登录成功后，立即用 BCrypt 重写存储，实现登录即升级，避免长期保留弱摘要。 */
+    private void upgradeLegacyHashIfNeeded(String userId, String rawPassword, String storedHash) {
+        if (userId == null || userId.isEmpty() || !isLegacySha256(storedHash)) {
+            return;
+        }
+        repository.updatePasswordHash(userId, passwordEncoder.encode(rawPassword));
+    }
+
+    private boolean isLegacySha256(String hash) {
+        if (hash == null || hash.length() != 64) return false;
+        for (int i = 0; i < hash.length(); i++) {
+            char c = hash.charAt(i);
+            boolean isHex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!isHex) return false;
+        }
+        return true;
     }
 
     private String sha256(String value) {

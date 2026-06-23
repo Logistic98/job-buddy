@@ -12,6 +12,11 @@ public interface UserAuthMapper {
 
     Map<String, Object> findUserByUsername(@Param("username") String username);
 
+    int updatePasswordHash(
+            @Param("userId") String userId,
+            @Param("passwordHash") String passwordHash,
+            @Param("now") Instant now);
+
     Map<String, Object> findUserByToken(@Param("token") String token);
 
     int saveSession(

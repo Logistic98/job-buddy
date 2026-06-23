@@ -35,6 +35,15 @@ public class GlobalExceptionHandler {
         return ApiResponse.error(ErrorCode.BAD_REQUEST.getCode(), message);
     }
 
+    /** 非法入参属于客户端错误：统一返回 400 与真实校验文案，避免落到兜底分支被当成 500。 */
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ApiResponse<Void> handleIllegalArgument(IllegalArgumentException exception) {
+        String message = exception.getMessage();
+        return ApiResponse.error(ErrorCode.BAD_REQUEST.getCode(),
+                message == null || message.trim().isEmpty() ? ErrorCode.BAD_REQUEST.getMessage() : message);
+    }
+
     /** 兜底异常：原始堆栈/SQL 错误只落服务端日志，对外仅返回稳定的友好文案，避免把数据库连接、栈信息等内部细节泄露给前端。 */
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)

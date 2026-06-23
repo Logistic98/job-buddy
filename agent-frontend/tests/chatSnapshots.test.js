@@ -1,0 +1,94 @@
+import { describe, expect, it } from 'vitest'
+import {
+  backfillFromPrevious,
+  buildSnapshotFromMessages,
+  buildSnapshotFromRows,
+  lastJobCards,
+  lastResumeMatch,
+  lastToolEvents,
+  normalizeSessionRows,
+} from '../src/utils/chatSnapshots'
+
+describe('normalizeSessionRows', () => {
+  it('maps rows to stable ids and defaults missing fields', () => {
+    const rows = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'yo', reasoning: 'r' }]
+    const out = normalizeSessionRows('s1', rows)
+    expect(out.map(m => m.id)).toEqual(['s1_0', 's1_1'])
+    expect(out[0].reasoning).toBe('')
+    expect(out[0].jobCards).toEqual([])
+    expect(out[1].reasoning).toBe('r')
+  })
+  it('returns empty array for empty input', () => {
+    expect(normalizeSessionRows('s1', [])).toEqual([])
+  })
+  it('drops memory-noise tool events', () => {
+    const rows = [{ role: 'assistant', content: 'a', toolEvents: [{ id: 'memory_read' }, { id: 'boss' }] }]
+    expect(normalizeSessionRows('s', rows)[0].toolEvents.map(t => t.id)).toEqual(['boss'])
+  })
+})
+
+describe('backfillFromPrevious', () => {
+  it('fills missing reasoning/tools/jobs from previous same-role messages', () => {
+    const current = [{ role: 'assistant', content: 'a', reasoning: '', toolEvents: [], jobCards: [] }]
+    const previous = [{ role: 'assistant', content: 'a', reasoning: 'kept', toolEvents: [{ id: 't' }], jobCards: [{ id: 'j' }] }]
+    const out = backfillFromPrevious(current, previous)
+    expect(out[0].reasoning).toBe('kept')
+    expect(out[0].toolEvents).toHaveLength(1)
+    expect(out[0].jobCards).toHaveLength(1)
+  })
+  it('does not backfill when roles differ', () => {
+    const current = [{ role: 'user', content: 'a', reasoning: '', toolEvents: [], jobCards: [] }]
+    const previous = [{ role: 'assistant', content: 'a', reasoning: 'kept' }]
+    expect(backfillFromPrevious(current, previous)[0].reasoning).toBe('')
+  })
+})
+
+describe('buildSnapshotFromRows', () => {
+  it('derives last job cards, tools and resume match', () => {
+    const rows = [
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: 'a', jobCards: [{ id: 'j1' }], toolEvents: [{ id: 'boss' }], resumeMatch: { score: 9 } },
+    ]
+    const snap = buildSnapshotFromRows('s1', rows)
+    expect(snap.lastJobCardsEvent).toEqual([{ id: 'j1' }])
+    expect(snap.toolEvents.map(t => t.id)).toEqual(['boss'])
+    expect(snap.lastResumeMatchEvent).toEqual({ score: 9 })
+    expect(snap.messages).toHaveLength(2)
+  })
+  it('returns deep clones independent from the input', () => {
+    const rows = [{ role: 'assistant', content: 'a', jobCards: [{ id: 'j1' }] }]
+    const snap = buildSnapshotFromRows('s1', rows)
+    rows[0].jobCards[0].id = 'mutated'
+    expect(snap.lastJobCardsEvent[0].id).toBe('j1')
+  })
+})
+
+describe('buildSnapshotFromMessages', () => {
+  it('snapshots the live state and filters tool noise', () => {
+    const snap = buildSnapshotFromMessages({
+      messages: [{ id: 'm', role: 'assistant', content: 'a' }],
+      toolEvents: [{ id: 'memory_x' }, { id: 'boss' }],
+      lastJobCardsEvent: [{ id: 'j' }],
+      lastResumeMatchEvent: { score: 1 },
+      lastPersonalContextEvent: null,
+    })
+    expect(snap.messages).toHaveLength(1)
+    expect(snap.toolEvents.map(t => t.id)).toEqual(['boss'])
+    expect(snap.lastResumeMatchEvent).toEqual({ score: 1 })
+  })
+})
+
+describe('derived selectors', () => {
+  it('lastJobCards / lastToolEvents pick the most recent non-empty', () => {
+    const messages = [
+      { jobCards: [{ id: 'old' }], toolEvents: [{ id: 'old-t' }] },
+      { jobCards: [{ id: 'new' }], toolEvents: [] },
+    ]
+    expect(lastJobCards(messages)).toEqual([{ id: 'new' }])
+    expect(lastToolEvents(messages)).toEqual([{ id: 'old-t' }])
+  })
+  it('lastResumeMatch reads the latest resumeMatch row', () => {
+    expect(lastResumeMatch([{ resumeMatch: { a: 1 } }, { resumeMatch: { a: 2 } }])).toEqual({ a: 2 })
+    expect(lastResumeMatch([{}])).toBeNull()
+  })
+})
