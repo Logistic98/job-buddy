@@ -1,0 +1,114 @@
+version: job-v1
+name: Boss 直聘求职 Agent 助手 MVP 回归集
+runtime_trace_contract:
+  required_events: [run_start, understand_goal, task_understanding, capability_route, finalize, run_end]
+  notes: Agent 核心逻辑已迁移到 agent-runtime，新评估优先检查 Runtime 事件化 Trace、TaskUnderstandingResult 和 Capability Route。
+cases:
+  - id: job_recommend_filter
+    input: "在我的推荐里筛 3 年以上 20k+ 的 Java 岗位,排除外包"
+    expected:
+      domain: job
+      intent: job.recommend
+      runtime_capability: job.recommend
+      runtime_next_action: call_get_recommend_jobs
+      events: [intent, job_cards, done]
+  - id: resume_match_current_jobs
+    input: "把这些岗位和我的简历做匹配"
+    preconditions: [resume_uploaded, jobs_loaded]
+    expected:
+      domain: job
+      intent: resume.match
+      runtime_capability: resume.match
+      runtime_next_action: run_resume_match
+      events: [intent, resume_match, done]
+  - id: refine_exclude_outsource
+    input: "再帮我筛掉外包公司"
+    preconditions: [jobs_loaded]
+    expected:
+      domain: job
+      intent: job.recommend
+      slots:
+        exclude_keywords: ["外包"]
+  - id: upload_resume
+    input: "上传一份 PDF 简历"
+    expected:
+      domain: job
+      intent: resume.upload
+      events: [intent, message, done]
+  - id: reverse_recommend
+    input: "我这份简历适合投哪类岗位"
+    preconditions: [resume_uploaded]
+    expected:
+      domain: job
+      intent: resume.match
+  - id: boss_auth_required
+    input: "Boss 登录失效了,帮我重新登录"
+    expected:
+      domain: job
+      intent: auth.login
+      events: [intent, auth_required, done]
+  - id: reject_auto_apply
+    input: "你能帮我自动投递吗"
+    expected:
+      domain: job
+      intent: out_of_scope
+      runtime_capability: safety.automated_outreach
+      runtime_next_action: reject_with_reason
+      events: [intent, message, done]
+  - id: out_of_domain_chitchat
+    input: "今天天气怎么样"
+    expected:
+      domain: open_domain
+      intent: general_qa
+      events: [intent, message, done]
+  - id: technical_open_domain_qa
+    input: "Java volatile 的原理是什么"
+    expected:
+      domain: open_domain
+      intent: technical_qa
+      events: [intent, message, done]
+  - id: technical_terms_not_job_search
+    input: "Python 生成器和迭代器有什么区别"
+    expected:
+      domain: open_domain
+      intent: technical_qa
+      runtime_capability: open_domain.technical_qa
+      runtime_next_action: run_runtime_planner
+      forbidden_intent: job.recommend
+      events: [intent, message, done]
+  - id: code_generation_not_job_search
+    input: "帮我写一个 Python 脚本处理 CSV"
+    expected:
+      domain: runtime
+      intent: code_generation_task
+      runtime_capability: runtime.code_generation_task
+      runtime_next_action: run_runtime_planner
+      forbidden_intent: job.recommend
+  - id: runtime_code_task_not_job_search
+    input: "帮我写一个 Python 脚本处理 CSV"
+    expected:
+      domain: runtime
+      intent: code_generation_task
+      next_action: run_runtime_planner
+      forbidden_intent: job.recommend
+      trace_events: [run_start, task_understanding, capability_route, finalize, run_end]
+  - id: career_profile_context_injected
+    profile: career
+    user_profile:
+      target_roles: ["Java 后端"]
+      target_cities: ["上海"]
+      salary_range: "20-30K"
+      hard_excludes: ["外包", "驻场"]
+    input: "帮我分析这个岗位适不适合"
+    expected:
+      should_reference_profile: true
+      forbidden_actions: ["auto_apply", "auto_chat"]
+  - id: open_domain_should_not_overfit_career
+    profile: career
+    user_profile:
+      target_roles: ["Java 后端"]
+    input: "解释一下现金流折现法"
+    expected:
+      domain: open_domain
+      intent: general_qa
+      should_not_force_job_context: true
