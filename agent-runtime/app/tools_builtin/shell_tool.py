@@ -1,5 +1,6 @@
 
 import asyncio
+from pathlib import Path
 from typing import Any, Dict
 
 from app.core.common.constants import ToolKind, ToolRiskLevel
@@ -39,14 +40,18 @@ class ShellTool(BaseTool):
         allow_prefixes = settings.config.tool_runtime.shell_allow_prefixes
         if allow_prefixes and not any(command == prefix or command.startswith(f"{prefix} ") for prefix in allow_prefixes):
             return ValidationResult(result=False, message="命令不在 shell_allow_prefixes 允许范围内", error_code=403)
+        cwd = self._resolve_cwd(arguments.get("cwd"), context)
+        workspace = Path(context.workspace_dir).expanduser().resolve()
+        if not self._is_within_workspace(cwd, workspace):
+            return ValidationResult(result=False, message=f"执行目录超出工作区: {cwd}", error_code=403)
         return ValidationResult(result=True)
 
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
         command = arguments["command"]
-        cwd = arguments.get("cwd") or context.workspace_dir
+        cwd = self._resolve_cwd(arguments.get("cwd"), context)
         proc = await asyncio.create_subprocess_shell(
             command,
-            cwd=cwd,
+            cwd=str(cwd),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -56,3 +61,19 @@ class ShellTool(BaseTool):
             "stdout": stdout.decode("utf-8", errors="ignore")[-12000:],
             "stderr": stderr.decode("utf-8", errors="ignore")[-12000:],
         }
+
+    def _resolve_cwd(self, raw_cwd: Any, context: ToolExecutionContext) -> Path:
+        workspace = Path(context.workspace_dir).expanduser().resolve()
+        if raw_cwd is None or str(raw_cwd).strip() == "":
+            return workspace
+        path = Path(str(raw_cwd)).expanduser()
+        if not path.is_absolute():
+            path = workspace / path
+        return path.resolve()
+
+    def _is_within_workspace(self, path: Path, workspace: Path) -> bool:
+        try:
+            path.relative_to(workspace)
+            return True
+        except ValueError:
+            return False

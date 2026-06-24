@@ -3,14 +3,15 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.server.app import create_app
+from app.server.app import create_app, _effective_config
+from app.server.schemas import SandboxPolicySchema
 
 
 def test_health() -> None:
     client = TestClient(create_app())
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"code": 0, "message": "success", "data": {"status": "UP", "service": "agent-sandbox"}}
+    assert resp.json() == {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-sandbox"}}
 
 
 def test_python_code_endpoint(fake_srt) -> None:
@@ -32,3 +33,51 @@ def test_command_requires_exactly_one_command_shape() -> None:
     client = TestClient(create_app())
     resp = client.post("/v1/commands", json={"argv": ["echo", "a"], "command": "echo b"})
     assert resp.status_code == 400
+
+
+def test_http_policy_cannot_weaken_workspace_or_network(tmp_path) -> None:
+    policy = SandboxPolicySchema(
+        network={
+            "allowedDomains": ["example.com"],
+            "allowLocalBinding": True,
+            "allowAllUnixSockets": True,
+        },
+        filesystem={
+            "allowRead": ["/"],
+            "allowWrite": ["/"],
+            "denyRead": ["/etc/shadow"],
+            "denyWrite": [],
+        },
+        ignoreViolations={"filesystem": ["/"]},
+        enableWeakerNestedSandbox=True,
+        enableWeakerNetworkIsolation=True,
+    )
+
+    config = _effective_config(policy, tmp_path)
+
+    workspace = str(tmp_path.resolve())
+    assert config.network.allowedDomains == []
+    assert config.network.allowLocalBinding is False
+    assert config.network.allowAllUnixSockets is False
+    assert config.filesystem.allowRead == [workspace]
+    assert config.filesystem.allowWrite == [workspace]
+    assert "/etc/shadow" in config.filesystem.denyRead
+    assert config.ignoreViolations == {}
+    assert config.enableWeakerNestedSandbox is False
+    assert config.enableWeakerNetworkIsolation is False
+
+
+def test_server_does_not_inherit_host_environment(fake_srt, monkeypatch) -> None:
+    monkeypatch.setenv("JOB_BUDDY_HOST_SECRET", "should-not-leak")
+    client = TestClient(create_app())
+
+    resp = client.post(
+        "/v1/python/code",
+        json={
+            "code": "import os; print(os.environ.get('JOB_BUDDY_HOST_SECRET', 'missing'))",
+            "options": {"check": True},
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["stdout"].strip() == "missing"

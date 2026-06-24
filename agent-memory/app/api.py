@@ -100,12 +100,12 @@ def local_backend_status() -> dict:
 @app.get("/health")
 async def health() -> dict:
     if not adapter.enabled:
-        return {"code": 0, "message": "success", "data": {"status": "UP", "service": "agent-memory", "memory_kinds": list(MEMORY_KINDS), **local_backend_status()}}
+        return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-memory", "memory_kinds": list(MEMORY_KINDS), **local_backend_status()}}
     try:
         gateway = await adapter.health()
-        return {"code": 0, "message": "success", "data": {"status": "UP", "service": "agent-memory", "backend": "tencentdb-agent-memory", "gateway": gateway}}
+        return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-memory", "backend": "tencentdb-agent-memory", "gateway": gateway}}
     except Exception as exc:
-        return {"code": 0, "message": "success", "data": {"status": "DEGRADED", "service": "agent-memory", "reason": str(exc), **local_backend_status()}}
+        return {"code": 200, "message": "success", "data": {"status": "DEGRADED", "service": "agent-memory", "reason": str(exc), **local_backend_status()}}
 
 
 @app.post("/v1/memories")
@@ -116,12 +116,12 @@ async def create_memory(request: MemoryCreateRequest, x_operator_id: str | None 
         try:
             data = await adapter.capture(request.scope, request.content, request.role)
             _audit("create", operator_id, outcome="gateway", scope=request.scope, kind=kind)
-            return {"code": 0, "message": "success", "data": data}
+            return {"code": 200, "message": "success", "data": data}
         except Exception as exc:
             logger.warning("memory capture 网关失败，降级本地存储: scope={}, error={}", request.scope, exc)
     data = await add_local_memory(request.scope, request.content, request.ttl_seconds, kind, operator_id)
     _audit("create", operator_id, outcome="local", scope=request.scope, kind=kind, memory_id=data.get("id"))
-    return {"code": 0, "message": "success", "data": data}
+    return {"code": 200, "message": "success", "data": data}
 
 
 @app.get("/v1/memories/search")
@@ -131,12 +131,12 @@ async def search_memories(q: str, scope: str | None = None, x_operator_id: str |
         try:
             data = await adapter.recall(q, scope or "session")
             _audit("recall", operator_id, outcome="gateway", scope=scope, hits=len(data) if isinstance(data, list) else None)
-            return {"code": 0, "message": "success", "data": data}
+            return {"code": 200, "message": "success", "data": data}
         except Exception as exc:
             logger.warning("memory recall 网关失败，降级本地检索: scope={}, error={}", scope, exc)
     data = await search_local_memories(q, scope)
     _audit("recall", operator_id, outcome="local", scope=scope, hits=len(data))
-    return {"code": 0, "message": "success", "data": data}
+    return {"code": 200, "message": "success", "data": data}
 
 
 @app.put("/v1/memories/{memory_id}")
@@ -152,7 +152,7 @@ async def update_memory(memory_id: str, request: MemoryUpdateRequest, x_operator
         logger.info("memory update 未命中: memory_id={}", memory_id)
         return {"code": 1, "message": f"memory not found: {memory_id}", "data": None}
     _audit("update", operator_id, outcome="ok", memory_id=memory_id, version=item.version)
-    return {"code": 0, "message": "success", "data": item.__dict__}
+    return {"code": 200, "message": "success", "data": item.__dict__}
 
 
 @app.post("/v1/memories/{memory_id}/rollback")
@@ -168,7 +168,7 @@ async def rollback_memory(memory_id: str, request: OperatorRequest | None = None
         logger.info("memory rollback 无可回滚版本: memory_id={}", memory_id)
         return {"code": 1, "message": f"no revision to rollback: {memory_id}", "data": None}
     _audit("rollback", operator_id, outcome="ok", memory_id=memory_id, version=item.version)
-    return {"code": 0, "message": "success", "data": item.__dict__}
+    return {"code": 200, "message": "success", "data": item.__dict__}
 
 
 @app.delete("/v1/memories/{memory_id}")
@@ -184,7 +184,7 @@ async def delete_memory(memory_id: str, x_operator_id: str | None = Header(defau
         logger.info("memory delete 未命中: memory_id={}", memory_id)
         return {"code": 1, "message": f"memory not found: {memory_id}", "data": None}
     _audit("delete", operator_id, outcome="ok", memory_id=memory_id)
-    return {"code": 0, "message": "success", "data": {"id": memory_id, "deleted": True}}
+    return {"code": 200, "message": "success", "data": {"id": memory_id, "deleted": True}}
 
 
 @app.post("/v1/memories/purge-expired")
@@ -196,4 +196,4 @@ async def purge_expired_memories(x_operator_id: str | None = Header(default=None
     else:
         purged = local_store.purge_expired()
     _audit("purge", operator_id, outcome="ok", purged=purged)
-    return {"code": 0, "message": "success", "data": {"purged": purged}}
+    return {"code": 200, "message": "success", "data": {"purged": purged}}

@@ -252,5 +252,5 @@ class AgentRunResponse(BaseModel):
 
 class APIResponse(BaseModel):
     code: int = 200
-    message: str = "ok"
+    message: str = "success"
     data: Any = None

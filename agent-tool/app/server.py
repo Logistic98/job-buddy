@@ -27,12 +27,12 @@ validate_registry_consistency()
 
 @app.get("/health")
 def health() -> dict:
-    return {"code": 0, "message": "success", "data": {"status": "UP", "service": "agent-tool"}}
+    return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-tool"}}
 
 
 @app.get("/v1/tools")
 def tools() -> dict:
-    return {"code": 0, "message": "success", "data": list_tools()}
+    return {"code": 200, "message": "success", "data": list_tools()}
 
 
 @app.post("/v1/tools/{name}/execute")
@@ -51,7 +51,7 @@ def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
                 suggested_action="GET /v1/tools 查看可用工具",
             ),
         )
-        return {"code": 1, "message": result.summary, "data": result.model_dump()}
+        return {"code": 404, "message": result.summary, "data": result.model_dump()}
 
     if definition["permission"] == "high_risk" and not request.confirm:
         result = ToolResult(
@@ -65,7 +65,7 @@ def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
                 suggested_action="由上游权限服务或人工确认后携带 confirm=true 重试",
             ),
         )
-        return {"code": 1, "message": result.summary, "data": result.model_dump()}
+        return {"code": 403, "message": result.summary, "data": result.model_dump()}
 
     executor = TOOL_EXECUTORS.get(name)
     if executor is None:
@@ -80,7 +80,7 @@ def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
                 suggested_action="检查 app/tools/__init__.py 中 TOOL_EXECUTORS 配置",
             ),
         )
-        return {"code": 1, "message": result.summary, "data": result.model_dump()}
+        return {"code": 500, "message": result.summary, "data": result.model_dump()}
 
     logger.info(f"执行工具: tool_name={name}, trace_id={trace_id}")
     try:
@@ -98,5 +98,20 @@ def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
                 suggested_action="查看 agent-tool 日志定位异常原因后重试",
             ),
         )
-    code = 0 if result.status == "success" else 1
+    code = _response_code(result)
     return {"code": code, "message": result.summary, "data": result.model_dump()}
+
+
+def _response_code(result: ToolResult) -> int:
+    if result.status == "success":
+        return 200
+    if result.status == "rejected":
+        return 403
+    error_code = result.error.code if result.error else ""
+    if error_code == "invalid_arguments":
+        return 400
+    if error_code == "tool_not_found":
+        return 404
+    if error_code == "confirmation_required":
+        return 403
+    return 500

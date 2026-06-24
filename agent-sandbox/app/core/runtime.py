@@ -69,10 +69,10 @@ class SandboxRuntime:
             else:
                 args.extend(str(part) for part in command)
 
-            merged_env = os.environ.copy()
+            merged_env = self._minimal_env()
             merged_env.update(self.env)
             if env:
-                merged_env.update(env)
+                merged_env.update({str(key): str(value) for key, value in env.items()})
 
             proc = subprocess.run(
                 args,
@@ -159,7 +159,9 @@ class SandboxRuntime:
     ) -> SandboxResult:
         """写入临时代码文件并在沙箱中执行。"""
 
-        with tempfile.TemporaryDirectory(prefix="job-buddy-sandbox-code-") as temp_dir:
+        parent_cwd = kwargs.pop("cwd", None)
+        temp_parent = str(Path(parent_cwd).resolve()) if parent_cwd else None
+        with tempfile.TemporaryDirectory(prefix="job-buddy-sandbox-code-", dir=temp_parent) as temp_dir:
             code_path = Path(temp_dir) / f"main{suffix}"
             code_path.write_text(code, encoding="utf-8")
             if interpreter is None:
@@ -170,7 +172,7 @@ class SandboxRuntime:
                 command = [*(str(item) for item in interpreter), str(code_path)]
             if args:
                 command.extend(str(item) for item in args)
-            return self.run(command, **kwargs)
+            return self.run(command, cwd=temp_dir, **kwargs)
 
     @staticmethod
     def quote_args(args: Sequence[str]) -> str:
@@ -184,3 +186,14 @@ class SandboxRuntime:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(self.config.to_dict(), f, ensure_ascii=False, indent=2)
         return settings_path
+
+    def _minimal_env(self) -> dict[str, str]:
+        env = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "TMPDIR": os.environ.get("TMPDIR", tempfile.gettempdir()),
+        }
+        for key in ("LANG", "LC_ALL", "LC_CTYPE"):
+            value = os.environ.get(key)
+            if value:
+                env[key] = value
+        return env

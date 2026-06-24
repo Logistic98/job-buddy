@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import time
 import uuid
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from fastapi import FastAPI, HTTPException
 from loguru import logger
 
-from ..core.config import SandboxRuntimeConfig
+from ..core.config import FilesystemConfig, NetworkConfig, SandboxRuntimeConfig
 from ..core.exceptions import SandboxCommandNotFoundError, SandboxProcessError
 from ..core.models import CodeSpec, ExecutionOptions, SandboxResult
 from ..core.policies import SandboxPolicies
@@ -29,48 +33,91 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health() -> dict:
-        return {"code": 0, "message": "success", "data": {"status": "UP", "service": "agent-sandbox"}}
+        return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-sandbox"}}
 
     @app.post("/v1/commands", response_model=SandboxResponse)
     def run_command(req: CommandRequest) -> SandboxResponse:
         if bool(req.argv) == bool(req.command):
             raise HTTPException(status_code=400, detail="argv 与 command 必须且只能提供一个")
-        client = _client(req.policy)
         if req.argv is not None:
-            return _execute("command", lambda: client.command(req.argv, **_options_kwargs(req.options)))
-        return _execute("command", lambda: client.command_string(req.command or "", **_options_kwargs(req.options)))
+            return _run_with_request(
+                "command",
+                req.policy,
+                req.options,
+                lambda client, options: client.command(req.argv or [], **_options_kwargs(options)),
+            )
+        return _run_with_request(
+            "command",
+            req.policy,
+            req.options,
+            lambda client, options: client.command_string(req.command or "", **_options_kwargs(options)),
+        )
 
     @app.post("/v1/cli", response_model=SandboxResponse)
     def run_cli(req: CliRequest) -> SandboxResponse:
-        client = _client(req.policy)
-        return _execute("cli", lambda: client.cli(req.executable, req.args, **_options_kwargs(req.options)))
+        return _run_with_request(
+            "cli",
+            req.policy,
+            req.options,
+            lambda client, options: client.cli(req.executable, req.args, **_options_kwargs(options)),
+        )
 
     @app.post("/v1/shell", response_model=SandboxResponse)
     def run_shell(req: ShellRequest) -> SandboxResponse:
-        client = _client(req.policy)
-        return _execute("shell", lambda: client.shell(req.command, shell=req.shell, **_options_kwargs(req.options)))
+        return _run_with_request(
+            "shell",
+            req.policy,
+            req.options,
+            lambda client, options: client.shell(req.command, shell=req.shell, **_options_kwargs(options)),
+        )
 
     @app.post("/v1/python/code", response_model=SandboxResponse)
     def run_python_code(req: PythonCodeRequest) -> SandboxResponse:
-        client = _client(req.policy)
-        return _execute(
+        return _run_with_request(
             "python_code",
-            lambda: client.python_code(req.code, req.args, python_bin=req.python_bin, **_options_kwargs(req.options)),
+            req.policy,
+            req.options,
+            lambda client, options: client.python_code(
+                req.code,
+                req.args,
+                python_bin=req.python_bin,
+                **_options_kwargs(options),
+            ),
         )
 
     @app.post("/v1/code-file", response_model=SandboxResponse)
     def run_code_file(req: CodeFileRequest) -> SandboxResponse:
-        spec = CodeSpec(
-            code=req.code,
-            suffix=req.suffix,
-            interpreter=req.interpreter,
-            args=req.args,
-            options=_execution_options(req.options),
+        return _run_with_request(
+            "code_file",
+            req.policy,
+            req.options,
+            lambda client, options: client.code_file(
+                CodeSpec(
+                    code=req.code,
+                    suffix=req.suffix,
+                    interpreter=req.interpreter,
+                    args=req.args,
+                    options=options,
+                )
+            ),
         )
-        client = _client(req.policy)
-        return _execute("code_file", lambda: client.code_file(spec))
 
     return app
+
+
+@dataclass
+class PreparedExecution:
+    client: SandboxClient
+    options: ExecutionOptions
+    cleanup: Callable[[], None]
+
+
+def _run_with_request(op: str, policy, options, runner: Callable[[SandboxClient, ExecutionOptions], SandboxResult]) -> SandboxResponse:
+    prepared = _prepare_execution(policy, options)
+    try:
+        return _execute(op, lambda: runner(prepared.client, prepared.options))
+    finally:
+        prepared.cleanup()
 
 
 def _execute(op: str, runner: Callable[[], SandboxResult]) -> SandboxResponse:
@@ -98,14 +145,48 @@ def _execute(op: str, runner: Callable[[], SandboxResult]) -> SandboxResponse:
     return _response(result)
 
 
-def _config(policy) -> SandboxRuntimeConfig:
+def _prepare_execution(policy, options) -> PreparedExecution:
+    raw_options = _execution_options(options)
+    cwd, cleanup = _safe_cwd(raw_options.cwd)
+    safe_options = ExecutionOptions(
+        cwd=str(cwd),
+        env=raw_options.env,
+        timeout=raw_options.timeout,
+        check=raw_options.check,
+    )
+    return PreparedExecution(
+        client=SandboxClient(_effective_config(policy, cwd), cwd=cwd),
+        options=safe_options,
+        cleanup=cleanup,
+    )
+
+
+def _effective_config(policy, workspace: str | Path) -> SandboxRuntimeConfig:
+    workspace_path = Path(workspace).expanduser().resolve()
+    base = SandboxPolicies.workspace_readwrite(workspace_path)
     if policy is None:
-        return SandboxPolicies.no_network_readonly()
-    return SandboxRuntimeConfig.from_dict(policy.model_dump(exclude_none=True))
+        return base
 
-
-def _client(policy) -> SandboxClient:
-    return SandboxClient(_config(policy))
+    requested = SandboxRuntimeConfig.from_dict(policy.model_dump(exclude_none=True))
+    return SandboxRuntimeConfig(
+        network=NetworkConfig(
+            allowedDomains=_narrow_allowed_domains(base.network.allowedDomains, requested.network.allowedDomains),
+            deniedDomains=_dedupe([*base.network.deniedDomains, *requested.network.deniedDomains]),
+            allowUnixSockets=_narrow_allowed_domains(base.network.allowUnixSockets, requested.network.allowUnixSockets),
+            allowAllUnixSockets=base.network.allowAllUnixSockets and requested.network.allowAllUnixSockets,
+            allowLocalBinding=base.network.allowLocalBinding and requested.network.allowLocalBinding,
+        ),
+        filesystem=FilesystemConfig(
+            denyRead=_dedupe([*base.filesystem.denyRead, *requested.filesystem.denyRead]),
+            allowRead=_narrow_allowed_paths(base.filesystem.allowRead, requested.filesystem.allowRead, workspace_path),
+            allowWrite=_narrow_allowed_paths(base.filesystem.allowWrite, requested.filesystem.allowWrite, workspace_path),
+            denyWrite=_dedupe([*base.filesystem.denyWrite, *requested.filesystem.denyWrite]),
+        ),
+        ignoreViolations={},
+        enableWeakerNestedSandbox=False,
+        enableWeakerNetworkIsolation=False,
+        mandatoryDenySearchDepth=base.mandatoryDenySearchDepth,
+    )
 
 
 def _execution_options(options) -> ExecutionOptions:
@@ -118,3 +199,72 @@ def _options_kwargs(options) -> dict:
 
 def _response(result) -> SandboxResponse:
     return SandboxResponse(ok=result.ok, returncode=result.returncode, stdout=result.stdout, stderr=result.stderr, args=result.args)
+
+
+def _safe_cwd(raw_cwd) -> tuple[Path, Callable[[], None]]:
+    if raw_cwd:
+        path = Path(str(raw_cwd)).expanduser().resolve()
+        if not _is_allowed_cwd(path):
+            raise HTTPException(status_code=400, detail="cwd 必须位于系统临时目录下")
+        path.mkdir(parents=True, exist_ok=True)
+        return path, lambda: None
+
+    path = Path(tempfile.mkdtemp(prefix="job-buddy-sandbox-work-")).resolve()
+    return path, lambda: shutil.rmtree(path, ignore_errors=True)
+
+
+def _is_allowed_cwd(path: Path) -> bool:
+    roots = [Path(tempfile.gettempdir()), Path("/tmp"), Path("/private/tmp"), Path("/var/tmp")]
+    for root in roots:
+        try:
+            path.relative_to(root.expanduser().resolve())
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def _narrow_allowed_domains(base_values: list[str], requested_values: list[str]) -> list[str]:
+    if not requested_values:
+        return list(base_values)
+    requested = set(requested_values)
+    return [value for value in base_values if value in requested]
+
+
+def _narrow_allowed_paths(base_values: list[str], requested_values: list[str], workspace: Path) -> list[str]:
+    if not requested_values:
+        return list(base_values)
+
+    narrowed: list[str] = []
+    for base_value in base_values:
+        base_path = Path(base_value).expanduser().resolve()
+        for requested_value in requested_values:
+            requested_path = _resolve_policy_path(requested_value, workspace)
+            if _contains(requested_path, base_path):
+                narrowed.append(str(base_path))
+            elif _contains(base_path, requested_path):
+                narrowed.append(str(requested_path))
+    return _dedupe(narrowed)
+
+
+def _resolve_policy_path(value: str, workspace: Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = workspace / path
+    return path.resolve()
+
+
+def _contains(parent: Path, child: Path) -> bool:
+    try:
+        child.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        if value not in result:
+            result.append(value)
+    return result

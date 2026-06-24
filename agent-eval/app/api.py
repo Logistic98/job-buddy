@@ -20,7 +20,7 @@ def _graded(op: str, fn) -> dict:
         bound.exception(f"评估执行异常 error={exc}")
         return {"code": 500, "message": "评估执行失败，请检查输入或稍后重试", "data": {}}
     bound.info(f"评估完成 passed={data.get('passed')} score={data.get('score')}")
-    return {"code": 0, "message": "success", "data": data}
+    return {"code": 200, "message": "success", "data": data}
 
 
 class TraceEvalRequest(BaseModel):
@@ -38,7 +38,7 @@ class CapabilityInventoryEvalRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"code": 0, "message": "success", "data": {"status": "UP", "service": "agent-eval", "judge_enabled": judge_enabled()}}
+    return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-eval", "judge_enabled": judge_enabled()}}
 
 
 @app.post("/v1/eval/trace")
@@ -58,11 +58,11 @@ def eval_capabilities(request: CapabilityInventoryEvalRequest) -> dict:
 
 @app.post("/v1/eval/judge")
 def eval_judge(request: RunEvalRequest) -> dict:
-    """LLM Judge 开放质量评审。未配置或调用失败时返回 code=1，调用方不得将其当作通过。"""
+    """LLM Judge 开放质量评审。未配置或调用失败时返回 5xx 业务码，调用方不得将其当作通过。"""
     request_id = uuid.uuid4().hex[:12]
     bound = logger.bind(service="agent-eval", request_id=request_id, op="judge")
     result = judge_run(request.run, request.expected or {})
     ok = bool(result.get("enabled")) and bool(result.get("ok"))
     message = "success" if ok else str(result.get("reason") or "judge unavailable")
     bound.info(f"裁判评估完成 enabled={result.get('enabled')} ok={result.get('ok')}")
-    return {"code": 0 if ok else 1, "message": message, "data": result}
+    return {"code": 200 if ok else 503, "message": message, "data": result}

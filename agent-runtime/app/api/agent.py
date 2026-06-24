@@ -9,6 +9,7 @@ import json
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
+from app.api.responses import success
 from app.api.runtime import get_executor
 from app.models.schemas import AgentRunRequest
 
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/v1/agent", tags=["agent"])
 @router.post("/runs")
 async def run_agent(request: AgentRunRequest):
     data = await get_executor().execute(request)
-    return {"code": 200, "message": "ok", "data": data.model_dump()}
+    return success(data.model_dump())
 
 
 @router.post("/runs/stream")

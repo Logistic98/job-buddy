@@ -1,11 +1,14 @@
 
+from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.responses import success
 from app.core.agent.executor import AgentExecutor
+from app.core.common.constants import PermissionMode
 from app.core.common.settings import reload_settings, settings
 from app.core.tool.base import ToolExecutionContext
 from app.core.tool.mcp_adapter import register_mcp_tools
@@ -46,7 +49,7 @@ class ToolInvokeRequest(BaseModel):
 @router.post("/runs")
 async def run_agent(request: AgentRunRequest):
     data = await get_executor().execute(request)
-    return {"code": 200, "message": "ok", "data": data.model_dump()}
+    return success(data.model_dump())
 
 
 @router.post("/agent/runs")
@@ -54,13 +57,13 @@ async def run_agent_profile(request: AgentRunRequest):
     """目标 Agent Core 契约的兼容入口。"""
 
     data = await get_executor().execute(request)
-    return {"code": 200, "message": "ok", "data": data.model_dump()}
+    return success(data.model_dump())
 
 
 @router.get("/tools")
 async def list_tools():
     executor = get_executor()
-    return {"code": 200, "message": "ok", "data": [item.model_dump() for item in executor.registry.list_definitions()]}
+    return success([item.model_dump() for item in executor.registry.list_definitions()])
 
 
 @router.post("/mcp/reload")
@@ -69,7 +72,7 @@ async def reload_mcp_tools():
 
     executor = get_executor()
     registered = await register_mcp_tools(executor.registry, settings.config.mcp)
-    return {"code": 200, "message": "ok", "data": {"registered": registered, "tools": executor.registry.names()}}
+    return success({"registered": registered, "tools": executor.registry.names()})
 
 
 @router.post("/tools/{name}/invoke")
@@ -91,7 +94,7 @@ async def invoke_tool(name: str, request: ToolInvokeRequest):
     session_id = request.session_id or f"direct_{uuid4().hex[:12]}"
     run_id = request.run_id or f"run_{uuid4().hex[:12]}"
     trace_id = f"trace_{uuid4().hex[:12]}"
-    workspace_dir = request.workspace_dir or settings.workspace_dir
+    workspace_dir = _configured_workspace_dir()
 
     tool_call = ToolCall(id=f"call_{uuid4().hex[:8]}", name=name, arguments=request.arguments or {})
     context = ToolExecutionContext(
@@ -99,21 +102,24 @@ async def invoke_tool(name: str, request: ToolInvokeRequest):
         trace_id=trace_id,
         session_id=session_id,
         workspace_dir=workspace_dir,
+        metadata={"requested_workspace_dir": request.workspace_dir} if request.workspace_dir else {},
     )
-    result = await tool.safe_run(tool_call, context)
-    return {"code": 200, "message": "ok", "data": result.model_dump()}
+    result = await executor.tool_runtime.execute(tool_call, _default_permission_mode(), context)
+    if result.metadata.get("permission_denied"):
+        raise HTTPException(status_code=403, detail=result.error or "工具权限被拒绝")
+    return success(result.model_dump())
 
 
 @router.post("/tools/reload-builtins")
 async def reload_builtin_tools():
     executor = get_executor()
     registered = register_missing_builtin_tools(executor.registry)
-    return {"code": 200, "message": "ok", "data": {"registered": registered, "tools": executor.registry.names()}}
+    return success({"registered": registered, "tools": executor.registry.names()})
 
 
 @router.get("/config")
 async def get_runtime_config():
-    return {"code": 200, "message": "ok", "data": _safe_config_payload()}
+    return success(_safe_config_payload())
 
 
 @router.post("/config/reload")
@@ -122,7 +128,7 @@ async def reload_runtime_config(config_path: Optional[str] = None):
 
     reload_settings(config_path)
     reset_executor()
-    return {"code": 200, "message": "ok", "data": _safe_config_payload()}
+    return success(_safe_config_payload())
 
 
 @router.get("/trace-events")
@@ -132,7 +138,7 @@ async def list_trace_events(run_id: str = None):
         events = executor.trace_recorder.list_by_run(run_id)
     else:
         events = executor.trace_recorder.events
-    return {"code": 200, "message": "ok", "data": [item.model_dump() for item in events]}
+    return success([item.model_dump() for item in events])
 
 
 @router.get("/checkpoints")
@@ -145,7 +151,7 @@ async def list_checkpoints(session_id: str, run_id: Optional[str] = None):
         data = await store.load_latest_by_run(session_id, run_id)
     else:
         data = await store.list_snapshots(session_id)
-    return {"code": 200, "message": "ok", "data": data}
+    return success(data)
 
 
 def _safe_config_payload() -> Dict[str, Any]:
@@ -163,3 +169,14 @@ def _mask_secret(value: str) -> str:
     if len(value) <= 8:
         return "****"
     return f"{value[:4]}****{value[-4:]}"
+
+
+def _configured_workspace_dir() -> str:
+    return str(Path(settings.workspace_dir or ".").expanduser().resolve())
+
+
+def _default_permission_mode() -> PermissionMode:
+    try:
+        return PermissionMode(settings.config.permission.default_mode or PermissionMode.DEFAULT.value)
+    except ValueError:
+        return PermissionMode.DEFAULT

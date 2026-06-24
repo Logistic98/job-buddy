@@ -3,7 +3,7 @@ from app.tools.boss_browser.core.extract import extract_jobs, normalize_detail
 
 def test_extract_jobs_from_zpdata():
     payload = {
-        "code": 0,
+        "code": 200,
         "zpData": {
             "lid": "abc123",
             "jobList": [

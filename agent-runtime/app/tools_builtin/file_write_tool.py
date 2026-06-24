@@ -32,7 +32,7 @@ class FileWriteTool(BaseTool):
             return base
         path = self._resolve_path(arguments["path"], context)
         workspace = Path(context.workspace_dir).expanduser().resolve()
-        if not str(path).startswith(str(workspace)):
+        if not self._is_within_workspace(path, workspace):
             return ValidationResult(result=False, message=f"文件路径超出工作区: {path}", error_code=403)
         if path.exists() and not bool(arguments.get("overwrite", False)):
             return ValidationResult(result=False, message="文件已存在，overwrite=false", error_code=409)
@@ -49,3 +49,10 @@ class FileWriteTool(BaseTool):
         if not path.is_absolute():
             path = Path(context.workspace_dir) / path
         return path.resolve()
+
+    def _is_within_workspace(self, path: Path, workspace: Path) -> bool:
+        try:
+            path.relative_to(workspace)
+            return True
+        except ValueError:
+            return False

@@ -34,7 +34,7 @@ def test_memory_client_disabled_by_default(monkeypatch):
 
 def test_memory_client_returns_normalized_refs(monkeypatch, memory_enabled):
     body = {
-        "code": 0,
+        "code": 200,
         "data": [
             {"id": "mem_1", "scope": "session", "content": "偏好 Java 后端岗位", "created_at": "2026-06-01"},
             {"id": "mem_2", "scope": "session", "content": "期望薪资 30k", "created_at": "2026-06-02"},
@@ -58,7 +58,7 @@ def test_memory_client_returns_normalized_refs(monkeypatch, memory_enabled):
 
 def test_memory_client_respects_top_k(monkeypatch, memory_enabled):
     monkeypatch.setattr(settings.config.memory, "top_k", 1)
-    body = {"code": 0, "data": [{"id": f"mem_{i}", "content": "x"} for i in range(5)]}
+    body = {"code": 200, "data": [{"id": f"mem_{i}", "content": "x"} for i in range(5)]}
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: FakeResponse(body))
     assert len(MemoryClient().search("java")) == 1
 
@@ -80,7 +80,7 @@ def test_memory_client_skips_empty_query(monkeypatch, memory_enabled):
 
 
 def test_assembler_injects_memory_refs_when_enabled(monkeypatch, memory_enabled):
-    body = {"code": 0, "data": [{"id": "mem_1", "scope": "session", "content": "偏好 Java"}]}
+    body = {"code": 200, "data": [{"id": "mem_1", "scope": "session", "content": "偏好 Java"}]}
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: FakeResponse(body))
     result = ContextAssembler().assemble(
         messages=[ChatMessage(role="user", content="推荐 Java 岗位")],

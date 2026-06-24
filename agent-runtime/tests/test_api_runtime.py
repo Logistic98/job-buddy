@@ -7,6 +7,15 @@ except ImportError:
     TestClient = None
 
 from app.server import create_app
+from app.core.common.settings import settings
+
+
+def assert_success_envelope(response):
+    assert response.status_code == 200
+    body = response.json()
+    assert body["code"] == 200
+    assert body["message"] == "success"
+    return body
 
 
 @pytest.fixture
@@ -18,15 +27,13 @@ def client():
 
 def test_health_endpoint(client):
     response = client.get("/health")
-    assert response.status_code == 200
-    body = response.json()
+    body = assert_success_envelope(response)
     assert body["data"]["status"] == "healthy"
 
 
 def test_list_tools_endpoint(client):
     response = client.get("/v1/runtime/tools")
-    assert response.status_code == 200
-    data = response.json()["data"]
+    data = assert_success_envelope(response)["data"]
     names = {item["name"] for item in data}
     assert "echo" in names
     assert "file_read" in names
@@ -37,8 +44,7 @@ def test_list_tools_endpoint(client):
 
 def test_config_endpoint_masks_api_key(client):
     response = client.get("/v1/runtime/config")
-    assert response.status_code == 200
-    config = response.json()["data"]["config"]
+    config = assert_success_envelope(response)["data"]["config"]
     api_key = config["llm_service"]["api_key"]
     assert "****" in api_key
 
@@ -46,11 +52,18 @@ def test_config_endpoint_masks_api_key(client):
 def test_run_agent_endpoint_echo(client):
     payload = {"messages": [{"role": "user", "content": "请回显 hello api"}]}
     response = client.post("/v1/runtime/runs", json=payload)
-    assert response.status_code == 200
-    body = response.json()["data"]
+    body = assert_success_envelope(response)["data"]
     assert body["status"] in {"success", "paused"}
     assert body["run_id"].startswith("run_")
     assert any(r["tool_name"] == "echo" for r in body["tool_results"])
+
+
+def test_agent_runs_endpoint_uses_standard_envelope(client):
+    payload = {"messages": [{"role": "user", "content": "请回显 hello agent api"}]}
+    response = client.post("/v1/agent/runs", json=payload)
+    body = assert_success_envelope(response)["data"]
+    assert body["status"] in {"success", "paused"}
+    assert body["run_id"].startswith("run_")
 
 
 def test_invoke_tool_direct_echo(client):
@@ -58,17 +71,50 @@ def test_invoke_tool_direct_echo(client):
         "/v1/runtime/tools/echo/invoke",
         json={"arguments": {"text": "direct invoke"}},
     )
-    assert response.status_code == 200
-    data = response.json()["data"]
+    data = assert_success_envelope(response)["data"]
     assert data["success"] is True
     assert data["output"]["text"] == "direct invoke"
     assert data["tool_name"] == "echo"
 
 
+def test_direct_tool_invoke_ignores_caller_workspace(client, tmp_path, monkeypatch):
+    safe_workspace = tmp_path / "safe"
+    attacker_workspace = tmp_path / "attacker"
+    safe_workspace.mkdir()
+    attacker_workspace.mkdir()
+    (attacker_workspace / "secret.txt").write_text("caller-controlled-secret", encoding="utf-8")
+    monkeypatch.setattr(settings.config.runtime, "workspace_dir", str(safe_workspace))
+
+    response = client.post(
+        "/v1/runtime/tools/file_read/invoke",
+        json={
+            "arguments": {"path": "secret.txt"},
+            "workspace_dir": str(attacker_workspace),
+        },
+    )
+
+    data = assert_success_envelope(response)["data"]
+    assert data["success"] is False
+    assert "caller-controlled-secret" not in response.text
+
+
+def test_direct_tool_invoke_blocks_destructive_tools(client, tmp_path, monkeypatch):
+    safe_workspace = tmp_path / "safe"
+    safe_workspace.mkdir()
+    monkeypatch.setattr(settings.config.runtime, "workspace_dir", str(safe_workspace))
+
+    response = client.post(
+        "/v1/runtime/tools/file_write/invoke",
+        json={"arguments": {"path": "out.txt", "content": "blocked"}},
+    )
+
+    assert response.status_code == 403
+    assert not (safe_workspace / "out.txt").exists()
+
+
 def test_reload_builtin_tools_endpoint(client):
     response = client.post("/v1/runtime/tools/reload-builtins")
-    assert response.status_code == 200
-    data = response.json()["data"]
+    data = assert_success_envelope(response)["data"]
     assert "resume_analyze" in data["tools"]
 
 
@@ -86,7 +132,6 @@ def test_trace_events_endpoint_query_by_run_id(client):
     run_id = run_response["run_id"]
 
     response = client.get(f"/v1/runtime/trace-events?run_id={run_id}")
-    assert response.status_code == 200
-    events = response.json()["data"]
+    events = assert_success_envelope(response)["data"]
     assert events
     assert all(item["run_id"] == run_id for item in events)

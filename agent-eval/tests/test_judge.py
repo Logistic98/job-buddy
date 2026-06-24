@@ -24,13 +24,13 @@ def test_judge_disabled_when_not_configured(monkeypatch):
     assert "not configured" in result["reason"]
 
 
-def test_judge_endpoint_returns_code_1_when_unavailable(monkeypatch):
+def test_judge_endpoint_returns_503_when_unavailable(monkeypatch):
     _clear_judge_env(monkeypatch)
     client = TestClient(app)
     response = client.post("/v1/eval/judge", json={"run": {"answer": "hi"}})
     body = response.json()
     assert response.status_code == 200
-    assert body["code"] == 1
+    assert body["code"] == 503
     assert body["data"]["enabled"] is False
 
 

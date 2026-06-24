@@ -36,6 +36,17 @@ async def test_runtime_blocks_destructive_in_default(fresh_registry, tool_contex
 
 
 @pytest.mark.asyncio
+async def test_runtime_blocks_shell_cwd_outside_workspace_even_in_auto(fresh_registry, tool_context, tmp_path):
+    runtime = ToolRuntime(fresh_registry)
+    outside = tmp_path.parent / f"{tmp_path.name}_outside"
+    outside.mkdir()
+    call = ToolCall(id="call_s", name="shell_exec", arguments={"command": "pwd", "cwd": str(outside)})
+    result = await runtime.execute(call, PermissionMode.AUTO, tool_context)
+    assert not result.success
+    assert "执行目录超出工作区" in (result.error or "")
+
+
+@pytest.mark.asyncio
 async def test_runtime_alias_resolution(fresh_registry, tool_context):
     runtime = ToolRuntime(fresh_registry)
     call = ToolCall(id="call_a", name="print_text", arguments={"text": "hi"})

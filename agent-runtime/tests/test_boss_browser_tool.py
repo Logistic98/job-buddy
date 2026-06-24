@@ -26,12 +26,12 @@ async def test_boss_browser_tool_proxies_to_agent_tool(monkeypatch, tool_context
 
         def json(self):
             return {
-                "code": 0,
+                "code": 200,
                 "message": "success",
                 "data": {
                     "status": "success",
                     "summary": "success",
-                    "data": {"code": 0, "message": "success", "data": {"search_used_hour": 0}},
+                    "data": {"code": 200, "message": "success", "data": {"search_used_hour": 0}},
                 },
             }
 
@@ -64,7 +64,7 @@ async def test_boss_browser_tool_proxies_to_agent_tool(monkeypatch, tool_context
     )
 
     assert result.success is True
-    assert result.output == {"code": 0, "message": "success", "data": {"search_used_hour": 0}}
+    assert result.output == {"code": 200, "message": "success", "data": {"search_used_hour": 0}}
     assert captured["url"] == "http://agent-tool.local/v1/tools/boss_browser/execute"
     assert captured["json"]["arguments"] == {"operation": "rate", "payload": {"probe": True}}
     assert captured["json"]["confirm"] is True
@@ -80,13 +80,13 @@ async def test_boss_browser_tool_keeps_qr_payload_inline(monkeypatch, tool_conte
 
         def json(self):
             return {
-                "code": 0,
+                "code": 200,
                 "message": "success",
                 "data": {
                     "status": "success",
                     "summary": "success",
                     "data": {
-                        "code": 0,
+                        "code": 200,
                         "message": "success",
                         "data": {"status": "qr_ready", "image_base64": image_base64, "image_mime": "image/png"},
                     },

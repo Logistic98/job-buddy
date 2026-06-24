@@ -54,7 +54,7 @@ def test_memory_search_success(monkeypatch):
             return None
 
         def json(self):
-            return {"code": 0, "data": [{"id": "mem_1", "content": "Java 偏好"}]}
+            return {"code": 200, "data": [{"id": "mem_1", "content": "Java 偏好"}]}
 
     monkeypatch.setattr(httpx, "get", lambda *a, **kw: FakeResponse())
     result = run_memory_search({"query": "java"}, trace_id="t5")
@@ -100,14 +100,14 @@ def test_execute_endpoint_unknown_tool():
     response = client.post("/v1/tools/not_exists/execute", json={"arguments": {}})
     assert response.status_code == 200
     body = response.json()
-    assert body["code"] == 1
+    assert body["code"] == 404
     assert body["data"]["error"]["code"] == "tool_not_found"
 
 
 def test_sandbox_execute_requires_confirm():
     response = client.post("/v1/tools/sandbox_execute/execute", json={"arguments": {"command": "echo hi"}})
     body = response.json()
-    assert body["code"] == 1
+    assert body["code"] == 403
     assert body["data"]["status"] == "rejected"
     assert body["data"]["error"]["code"] == "confirmation_required"
 
@@ -118,7 +118,7 @@ def test_execute_endpoint_trace_summarize():
         json={"arguments": {"events": [{"event": "run_start", "run_id": "r1"}]}, "trace_id": "trace_x"},
     )
     body = response.json()
-    assert body["code"] == 0
+    assert body["code"] == 200
     assert body["data"]["status"] == "success"
     assert body["data"]["trace_id"] == "trace_x"
 
@@ -146,6 +146,6 @@ def test_executor_exception_returns_structured_error(monkeypatch):
     monkeypatch.setitem(server_module.TOOL_EXECUTORS, "core_trace_summarize", boom)
     response = client.post("/v1/tools/core_trace_summarize/execute", json={"arguments": {"events": []}})
     body = response.json()
-    assert body["code"] == 1
+    assert body["code"] == 500
     assert body["data"]["error"]["code"] == "tool_execution_error"
     assert body["data"]["error"]["retryable"] is True

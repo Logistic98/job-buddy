@@ -83,9 +83,9 @@ def run_boss_browser(arguments: Dict[str, Any], trace_id: str | None = None) -> 
         )
 
     envelope = _run_on_loop(_dispatch(operation, payload))
-    code = int(envelope.get("code") or 0)
+    code = int(envelope.get("code") or 500)
     message = str(envelope.get("message") or "success")
-    if code == 0:
+    if 200 <= code < 300:
         return ToolResult(
             status="success",
             summary=message,

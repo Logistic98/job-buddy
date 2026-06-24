@@ -11,7 +11,7 @@ app = FastAPI(title="agent-intent", version="0.1.0")
 
 @app.get("/health")
 def health() -> dict:
-    return {"code": 0, "message": "success", "data": {"status": "UP", "service": "agent-intent"}}
+    return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-intent"}}
 
 
 @app.post("/v1/intent/classify", response_model=dict)
@@ -27,4 +27,4 @@ def classify(request: IntentRequest) -> dict:
         f"意图分类完成 domain={result.domain} intent={result.intent} "
         f"confidence={result.confidence} risk={result.risk} needs_clarification={result.needs_clarification}"
     )
-    return {"code": 0, "message": "success", "data": result.model_dump()}
+    return {"code": 200, "message": "success", "data": result.model_dump()}
