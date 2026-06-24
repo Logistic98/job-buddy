@@ -87,7 +87,7 @@ public class BossCliServiceImpl implements BossCliService {
     public Map<String, Object> status() {
         Map<String, Object> envelope = browserClient.get("/status");
         Map<String, Object> data = dataOf(envelope);
-        boolean authenticated = code(envelope) == 0 && Boolean.TRUE.equals(data.get("authenticated"));
+        boolean authenticated = success(envelope) && Boolean.TRUE.equals(data.get("authenticated"));
         if (authenticated) ensureLocalMarker(data);
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         result.put("authenticated", authenticated);
@@ -99,7 +99,7 @@ public class BossCliServiceImpl implements BossCliService {
         result.put("credentialPersisted", hasLocalCredential());
         result.put("riskMarker", data.get("risk_marker"));
         result.put("finalUrl", data.get("final_url"));
-        if (code(envelope) != 0) result.put("error", errorOf(envelope));
+        if (!success(envelope)) result.put("error", errorOf(envelope));
         return result;
     }
 
@@ -226,7 +226,7 @@ public class BossCliServiceImpl implements BossCliService {
     public Map<String, Object> qrStart() {
         Map<String, Object> envelope = browserClient.post("/login/qr/start", Collections.<String, Object>emptyMap());
         Map<String, Object> response = new LinkedHashMap<String, Object>();
-        if (code(envelope) != 0) {
+        if (!success(envelope)) {
             response.put("ok", false);
             response.put("data", null);
             response.put("error", errorOf(envelope));
@@ -252,7 +252,7 @@ public class BossCliServiceImpl implements BossCliService {
         Map<String, Object> response = new LinkedHashMap<String, Object>();
         int code = code(envelope);
         Map<String, Object> data = dataOf(envelope);
-        boolean authenticated = code == 0 && Boolean.TRUE.equals(data.get("authenticated"));
+        boolean authenticated = success(code) && Boolean.TRUE.equals(data.get("authenticated"));
         String toolStatus = stringOrDefault(data.get("status"), "");
         String reason = stringOrDefault(data.get("reason"), "");
         Object toolError = data.get("error");
@@ -264,7 +264,7 @@ public class BossCliServiceImpl implements BossCliService {
         Object errorMessage = null;
         if (authenticated || "logged_in".equals(toolStatus)) {
             status = "logged_in";
-        } else if (code != 0 && code != 4001) {
+        } else if (!success(code) && code != 4001) {
             status = "error";
             errorMessage = message(envelope);
         } else if ("qr_expired".equals(toolStatus)) {
@@ -320,7 +320,7 @@ public class BossCliServiceImpl implements BossCliService {
     public Map<String, Object> fetchOnlineProfile() {
         Map<String, Object> envelope = browserClient.post("/profile", Collections.<String, Object>emptyMap());
         int code = code(envelope);
-        if (code != 0) {
+        if (!success(code)) {
             if (code == 4001) {
                 clearLocalCredential();
                 throw new BossAuthRequiredException("Boss 直聘未登录或登录态不完整，请先完成二维码登录。", authRequiredInstructions());
@@ -433,7 +433,7 @@ public class BossCliServiceImpl implements BossCliService {
             clearLocalCredential();
             throw new BossAuthRequiredException("Boss 直聘未登录或登录态不完整，请先完成二维码登录。", authRequiredInstructions());
         }
-        if (code != 0) {
+        if (!success(code)) {
             throw new RuntimeException("岗位搜索失败：" + message(envelope));
         }
         Map<String, Object> data = dataOf(envelope);
@@ -486,7 +486,7 @@ public class BossCliServiceImpl implements BossCliService {
             clearLocalCredential();
             throw new BossAuthRequiredException("Boss 直聘未登录或登录态不完整，请先完成二维码登录。", authRequiredInstructions());
         }
-        if (code != 0) {
+        if (!success(code)) {
             throw new RuntimeException("岗位详情获取失败：" + message(envelope));
         }
         return dataOf(envelope);
@@ -639,6 +639,14 @@ public class BossCliServiceImpl implements BossCliService {
         } catch (Exception e) {
             return -1;
         }
+    }
+
+    private boolean success(Map<String, Object> envelope) {
+        return success(code(envelope));
+    }
+
+    private boolean success(int code) {
+        return code == 0 || (code >= 200 && code < 300);
     }
 
     private String message(Map<String, Object> envelope) {

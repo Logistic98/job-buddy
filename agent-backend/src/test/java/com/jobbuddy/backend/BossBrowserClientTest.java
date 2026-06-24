@@ -29,7 +29,7 @@ class BossBrowserClientTest {
         BossBrowserClient client = new BossBrowserClient(restTemplate, properties, new ServiceResilience(properties));
 
         Map<String, Object> output = new LinkedHashMap<String, Object>();
-        output.put("code", 0);
+        output.put("code", 200);
         output.put("message", "success");
         output.put("data", Collections.singletonMap("count", 0));
         Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
@@ -46,7 +46,7 @@ class BossBrowserClientTest {
         request.put("city", "上海");
         Map<String, Object> result = client.post("/search", request);
 
-        assertEquals(0, result.get("code"));
+        assertEquals(200, result.get("code"));
         ArgumentCaptor<Map> bodyCaptor = ArgumentCaptor.forClass(Map.class);
         verify(restTemplate).postForObject(eq("http://runtime.local/v1/runtime/tools/boss_browser/invoke"), bodyCaptor.capture(), eq(Map.class));
         Map<String, Object> body = bodyCaptor.getValue();

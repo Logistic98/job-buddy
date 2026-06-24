@@ -25,6 +25,9 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     public Map<String, Object> getTarget(String userId) {
         String effectiveUser = defaultUser(userId);
         Map<String, Object> target = repository.findTarget(effectiveUser);
+        if (target == null && !isDefaultUser(effectiveUser)) {
+            target = repository.findTarget(defaultUser(null));
+        }
         if (target != null) return target;
         Map<String, Object> seed = new LinkedHashMap<String, Object>();
         seed.put("targetId", "target_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16));
@@ -60,7 +63,12 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     }
 
     public List<Map<String, Object>> listRecords(String userId, String keyword, String status, String result) {
-        return repository.listRecords(defaultUser(userId), keyword, status, result);
+        String effectiveUser = defaultUser(userId);
+        List<Map<String, Object>> records = new ArrayList<Map<String, Object>>(repository.listRecords(effectiveUser, keyword, status, result));
+        if (!isDefaultUser(effectiveUser)) {
+            appendLegacyDefaultUserRecords(records, keyword, status, result);
+        }
+        return records;
     }
 
     public Map<String, Object> getRecord(String recordId) {
@@ -190,6 +198,24 @@ public class JobJourneyServiceImpl implements JobJourneyService {
 
     private String defaultUser(String userId) {
         return (userId == null || userId.isEmpty()) ? properties.getDefaultUserId() : userId;
+    }
+
+    private void appendLegacyDefaultUserRecords(List<Map<String, Object>> records, String keyword, String status, String result) {
+        java.util.Set<String> seen = new java.util.HashSet<String>();
+        for (Map<String, Object> record : records) {
+            String recordId = string(record.get("recordId"));
+            if (!recordId.isEmpty()) seen.add(recordId);
+        }
+        for (Map<String, Object> record : repository.listRecords(defaultUser(null), keyword, status, result)) {
+            String recordId = string(record.get("recordId"));
+            if (recordId.isEmpty() || seen.contains(recordId)) continue;
+            records.add(record);
+            seen.add(recordId);
+        }
+    }
+
+    private boolean isDefaultUser(String userId) {
+        return defaultUser(null).equals(userId);
     }
 
     private String string(Object value) { return value == null ? "" : String.valueOf(value); }

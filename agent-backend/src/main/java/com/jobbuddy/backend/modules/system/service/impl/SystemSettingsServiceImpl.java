@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -630,7 +631,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
         if (payload == null) return result;
         copyIfMap(payload, result, "workspace");
-        copyIfMap(payload, result, "services");
+        copySanitizedServices(payload, result);
         copyIfMap(payload, result, "memory");
         copyIfMap(payload, result, "blacklist");
         return result;
@@ -648,6 +649,64 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     private void copyIfMap(Map<String, Object> from, Map<String, Object> to, String key) {
         Object value = from.get(key);
         if (value instanceof Map) to.put(key, value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void copySanitizedServices(Map<String, Object> from, Map<String, Object> to) {
+        Object value = from.get("services");
+        if (!(value instanceof Map)) return;
+        Map<String, Object> services = new LinkedHashMap<String, Object>((Map<String, Object>) value);
+        sanitizeServiceUrl(services, "intentUrl");
+        sanitizeServiceUrl(services, "runtimeUrl");
+        sanitizeServiceUrl(services, "memoryUrl");
+        sanitizeServiceUrl(services, "toolUrl");
+        sanitizeServiceUrl(services, "evalUrl");
+        to.put("services", services);
+    }
+
+    private void sanitizeServiceUrl(Map<String, Object> services, String key) {
+        if (!services.containsKey(key)) return;
+        String value = stringValue(services.get(key));
+        if (value == null || value.trim().isEmpty()) {
+            services.put(key, "");
+            return;
+        }
+        services.put(key, normalizeLoopbackHttpUrl(value, key));
+    }
+
+    private String normalizeLoopbackHttpUrl(String rawValue, String key) {
+        String value = rawValue.trim();
+        try {
+            URI uri = URI.create(value);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                throw new IllegalArgumentException(key + " 仅支持 http/https 服务地址");
+            }
+            if (uri.getUserInfo() != null) {
+                throw new IllegalArgumentException(key + " 不允许包含用户信息");
+            }
+            if (!isLoopbackHost(host)) {
+                throw new IllegalArgumentException(key + " 仅允许指向本机 loopback 地址");
+            }
+            String normalized = uri.toString();
+            while (normalized.endsWith("/")) normalized = normalized.substring(0, normalized.length() - 1);
+            return normalized;
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException(key + " 服务地址不合法", e);
+        }
+    }
+
+    private boolean isLoopbackHost(String host) {
+        if (host == null || host.trim().isEmpty()) return false;
+        String value = host.trim().toLowerCase();
+        return "localhost".equals(value)
+                || "127.0.0.1".equals(value)
+                || value.startsWith("127.")
+                || "::1".equals(value)
+                || "0:0:0:0:0:0:0:1".equals(value);
     }
 
     @SuppressWarnings("unchecked")

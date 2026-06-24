@@ -5,6 +5,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.jobbuddy.backend.common.dto.MapBackedDto;
 import com.jobbuddy.backend.common.result.ApiResponse;
+import com.jobbuddy.backend.modules.job.dto.command.JobFavoriteAnalysisCommand;
+import com.jobbuddy.backend.modules.job.dto.command.JobFavoriteSaveCommand;
 import com.jobbuddy.backend.modules.job.dto.request.JobFavoriteRequest;
 import com.jobbuddy.backend.modules.job.dto.response.JobFavoriteResponse;
 import com.jobbuddy.backend.modules.job.service.JobFavoriteService;
@@ -50,7 +52,7 @@ public class JobFavoriteController {
     @Operation(summary = "保存收藏岗位")
     @PostMapping
     public ApiResponse<List<JobFavoriteResponse>> save(@RequestBody JobFavoriteRequest job) {
-        service.saveFavorite(job == null ? null : job.toMap());
+        service.saveFavorite(job == null ? JobFavoriteSaveCommand.empty() : JobFavoriteSaveCommand.from(job.toMap()));
         return ApiResponse.success(MapBackedDto.fromMapList(service.listFavorites(), JobFavoriteResponse::from));
     }
 
@@ -62,9 +64,9 @@ public class JobFavoriteController {
     @Operation(summary = "分析收藏岗位")
     @PostMapping("/analyze")
     public ApiResponse<JobFavoriteResponse> analyzeByBody(@RequestBody(required = false) JobFavoriteRequest body) {
-        String jobKey = body == null || body.get("jobKey") == null ? null : String.valueOf(body.get("jobKey"));
-        String resumeId = body == null || body.get("resumeId") == null ? null : String.valueOf(body.get("resumeId"));
-        return ApiResponse.success(JobFavoriteResponse.from(service.analyzeFavorite(jobKey, resumeId)));
+        String jobKey = body == null ? null : body.jobKey();
+        String resumeId = body == null ? null : body.resumeId();
+        return ApiResponse.success(JobFavoriteResponse.from(service.analyzeFavorite(JobFavoriteAnalysisCommand.of(jobKey, resumeId))));
     }
 
     /**
@@ -76,8 +78,8 @@ public class JobFavoriteController {
     @PostMapping("/{jobKey}/analyze")
     public ApiResponse<JobFavoriteResponse> analyze(@PathVariable String jobKey,
                                                     @RequestBody(required = false) JobFavoriteRequest body) {
-        String resumeId = body == null || body.get("resumeId") == null ? null : String.valueOf(body.get("resumeId"));
-        return ApiResponse.success(JobFavoriteResponse.from(service.analyzeFavorite(jobKey, resumeId)));
+        String resumeId = body == null ? null : body.resumeId();
+        return ApiResponse.success(JobFavoriteResponse.from(service.analyzeFavorite(JobFavoriteAnalysisCommand.of(jobKey, resumeId))));
     }
 
     /**

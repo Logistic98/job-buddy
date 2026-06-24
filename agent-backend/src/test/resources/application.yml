@@ -12,6 +12,9 @@ spring:
     enabled: false
 
 job-buddy:
+  auth:
+    enabled: false
+    asset-url-signing-key: test-asset-signing-key
   minio:
     endpoint: https://minio.example.com
     access-key: test-access-key

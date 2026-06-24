@@ -30,7 +30,7 @@ class ChatControllerTest {
     void healthShouldReturnUp() throws Exception {
         mockMvc.perform(get("/api/health"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.status").value("UP"));
     }
 
@@ -40,7 +40,7 @@ class ChatControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"帮我设计一个复杂问答 Agent 工作流\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.answer").isNotEmpty())
                 .andExpect(jsonPath("$.data.intent.intent").value("agent.run"))
                 .andExpect(jsonPath("$.data.trace.length()", greaterThanOrEqualTo(1)));

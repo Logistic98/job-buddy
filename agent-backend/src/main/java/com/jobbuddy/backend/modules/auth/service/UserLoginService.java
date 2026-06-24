@@ -55,7 +55,8 @@ public class UserLoginService {
         Map<String, Object> user = repository.findUserByToken(token.trim());
         if (user == null || !Boolean.TRUE.equals(user.get("enabled"))) return null;
         Object expiresAt = user.get("expiresAt");
-        if (expiresAt instanceof Instant && ((Instant) expiresAt).isBefore(Instant.now())) return null;
+        Instant expiresAtInstant = toInstant(expiresAt);
+        if (expiresAtInstant != null && expiresAtInstant.isBefore(Instant.now())) return null;
         repository.touchSession(token.trim());
         return publicUser(user);
     }
@@ -120,6 +121,18 @@ public class UserLoginService {
             return builder.toString();
         } catch (Exception e) {
             throw new IllegalStateException("密码摘要计算失败", e);
+        }
+    }
+
+    private Instant toInstant(Object value) {
+        if (value instanceof Instant) return (Instant) value;
+        if (value instanceof java.sql.Timestamp) return ((java.sql.Timestamp) value).toInstant();
+        if (value instanceof java.util.Date) return ((java.util.Date) value).toInstant();
+        if (value == null) return null;
+        try {
+            return Instant.parse(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
         }
     }
 
