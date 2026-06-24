@@ -50,7 +50,7 @@ class InterviewPracticeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.totalCount").value(2))
                 .andExpect(jsonPath("$.data.durationMinutes").value(20))
                 .andExpect(jsonPath("$.data.strategy.mode").value("manual"))
@@ -67,13 +67,13 @@ class InterviewPracticeControllerTest {
 
         mockMvc.perform(get("/api/interview/questions/meta"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.fields").doesNotExist())
                 .andExpect(jsonPath("$.data.bankTypeOptions.length()", greaterThanOrEqualTo(2)));
 
         mockMvc.perform(get("/api/interview/questions").param("bankType", "leetcode").param("size", "10"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.fields").doesNotExist())
                 .andExpect(jsonPath("$.data.total", greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.data.items[0].bankType").value("leetcode"));
@@ -86,7 +86,7 @@ class InterviewPracticeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(practiceBody))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.totalCount").value(3))
                 .andExpect(jsonPath("$.data.durationMinutes").value(15))
                 .andExpect(jsonPath("$.data.strategy.showAnswer").value(true))
@@ -124,7 +124,7 @@ class InterviewPracticeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"answers\":" + answers + ",\"codingResults\":" + codingResults + "}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.status").value("submitted"))
                 .andExpect(jsonPath("$.data.score").value(100.0));
     }
@@ -134,7 +134,7 @@ class InterviewPracticeControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.code").value(200))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         return parseData(content);
     }

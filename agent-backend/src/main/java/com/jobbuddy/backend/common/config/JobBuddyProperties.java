@@ -40,6 +40,7 @@ public class JobBuddyProperties {
     /** Resume upload and object-storage configuration. */
     private int maxResumeBytes = 5 * 1024 * 1024;
     private String resumeRuntimeWorkspace = "";
+    private Auth auth = new Auth();
     private Minio minio = new Minio();
 
     public String getDefaultUserId() {
@@ -178,6 +179,14 @@ public class JobBuddyProperties {
         this.resumeRuntimeWorkspace = resumeRuntimeWorkspace;
     }
 
+    public Auth getAuth() {
+        return auth;
+    }
+
+    public void setAuth(Auth auth) {
+        this.auth = auth;
+    }
+
     public Minio getMinio() {
         return minio;
     }
@@ -243,6 +252,48 @@ public class JobBuddyProperties {
 
         public void setSecure(boolean secure) {
             this.secure = secure;
+        }
+    }
+
+    /**
+     * Local API authentication settings.
+     */
+    public static class Auth {
+        private boolean enabled = true;
+        private String internalApiToken = "";
+        private String assetUrlSigningKey = "";
+        private long assetUrlTtlSeconds = 3600L;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getInternalApiToken() {
+            return internalApiToken;
+        }
+
+        public void setInternalApiToken(String internalApiToken) {
+            this.internalApiToken = internalApiToken;
+        }
+
+        public String getAssetUrlSigningKey() {
+            return assetUrlSigningKey;
+        }
+
+        public void setAssetUrlSigningKey(String assetUrlSigningKey) {
+            this.assetUrlSigningKey = assetUrlSigningKey;
+        }
+
+        public long getAssetUrlTtlSeconds() {
+            return assetUrlTtlSeconds;
+        }
+
+        public void setAssetUrlTtlSeconds(long assetUrlTtlSeconds) {
+            this.assetUrlTtlSeconds = assetUrlTtlSeconds;
         }
     }
 }

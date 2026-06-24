@@ -24,7 +24,7 @@ public class UserAuthRepository {
     }
 
     public Map<String, Object> findUserByToken(String token) {
-        return mapper.findUserByToken(token);
+        return normalizeTimeStrings(mapper.findUserByToken(token), "expiresAt");
     }
 
     public void updatePasswordHash(String userId, String passwordHash) {

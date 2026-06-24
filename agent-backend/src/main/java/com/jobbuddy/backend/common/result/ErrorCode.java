@@ -8,7 +8,7 @@ package com.jobbuddy.backend.common.result;
  */
 public enum ErrorCode {
     /** 成功。 */
-    SUCCESS(0, "success"),
+    SUCCESS(200, "success"),
     /** 请求参数校验失败。 */
     BAD_REQUEST(400, "invalid request"),
     /** Boss 直聘登录态缺失，需引导用户扫码登录。 */

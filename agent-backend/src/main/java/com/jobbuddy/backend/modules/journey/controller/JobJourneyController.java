@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.jobbuddy.backend.common.dto.response.NamedValueResponse;
 import com.jobbuddy.backend.common.dto.MapBackedDto;
 import com.jobbuddy.backend.common.result.ApiResponse;
+import com.jobbuddy.backend.common.security.AuthenticatedUserContext;
 import com.jobbuddy.backend.modules.journey.dto.request.JobTargetRequest;
 import com.jobbuddy.backend.modules.journey.dto.response.JobTargetResponse;
 import com.jobbuddy.backend.modules.journey.dto.request.JourneyAnalysisRequest;
@@ -19,11 +20,11 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.servlet.http.HttpServletRequest;
 import java.util.Collections;
 import java.util.List;
 
@@ -47,7 +48,8 @@ public class JobJourneyController {
      */
     @Operation(summary = "查询求职目标")
     @GetMapping("/target")
-    public ApiResponse<JobTargetResponse> target(@RequestHeader(value = "X-User-Id", required = false) String userId) {
+    public ApiResponse<JobTargetResponse> target(HttpServletRequest request) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(JobTargetResponse.from(service.getTarget(userId)));
     }
 
@@ -58,8 +60,9 @@ public class JobJourneyController {
      */
     @Operation(summary = "保存求职目标")
     @PutMapping("/target")
-    public ApiResponse<JobTargetResponse> saveTarget(@RequestHeader(value = "X-User-Id", required = false) String userId,
+    public ApiResponse<JobTargetResponse> saveTarget(HttpServletRequest request,
                                                      @RequestBody JobTargetRequest payload) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(JobTargetResponse.from(service.saveTarget(userId, payload == null ? Collections.<String, Object>emptyMap() : payload.toMap())));
     }
 
@@ -70,10 +73,11 @@ public class JobJourneyController {
      */
     @Operation(summary = "查询求职记录列表")
     @GetMapping("/records")
-    public ApiResponse<List<JourneyRecordResponse>> records(@RequestHeader(value = "X-User-Id", required = false) String userId,
+    public ApiResponse<List<JourneyRecordResponse>> records(HttpServletRequest request,
                                                             @RequestParam(value = "keyword", required = false) String keyword,
                                                             @RequestParam(value = "status", required = false) String status,
                                                             @RequestParam(value = "result", required = false) String result) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(MapBackedDto.fromMapList(service.listRecords(userId, keyword, status, result), JourneyRecordResponse::from));
     }
 
@@ -84,8 +88,9 @@ public class JobJourneyController {
      */
     @Operation(summary = "分析求职进展")
     @PostMapping("/analysis")
-    public ApiResponse<JourneyAnalysisResponse> analyze(@RequestHeader(value = "X-User-Id", required = false) String userId,
+    public ApiResponse<JourneyAnalysisResponse> analyze(HttpServletRequest request,
                                                         @RequestBody(required = false) JourneyAnalysisRequest payload) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(JourneyAnalysisResponse.from(service.analyzeProgress(userId, payload == null ? Collections.<String, Object>emptyMap() : payload.toMap())));
     }
 
@@ -107,8 +112,9 @@ public class JobJourneyController {
      */
     @Operation(summary = "创建求职记录")
     @PostMapping("/records")
-    public ApiResponse<JourneyRecordResponse> createRecord(@RequestHeader(value = "X-User-Id", required = false) String userId,
+    public ApiResponse<JourneyRecordResponse> createRecord(HttpServletRequest request,
                                                            @RequestBody JourneyRecordRequest payload) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(JourneyRecordResponse.from(service.saveRecord(userId, payload == null ? Collections.<String, Object>emptyMap() : payload.toMap(), null)));
     }
 
@@ -119,9 +125,10 @@ public class JobJourneyController {
      */
     @Operation(summary = "更新求职记录")
     @PutMapping("/records/{recordId}")
-    public ApiResponse<JourneyRecordResponse> updateRecord(@RequestHeader(value = "X-User-Id", required = false) String userId,
+    public ApiResponse<JourneyRecordResponse> updateRecord(HttpServletRequest request,
                                                            @PathVariable String recordId,
                                                            @RequestBody JourneyRecordRequest payload) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(JourneyRecordResponse.from(service.saveRecord(userId, payload == null ? Collections.<String, Object>emptyMap() : payload.toMap(), recordId)));
     }
 

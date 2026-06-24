@@ -11,20 +11,23 @@ import java.util.Map;
 public interface ResumeStorageService {
     ResumeRecord upload(MultipartFile file, String userId) throws IOException;
     Map<String, Object> uploadAsset(MultipartFile file, String userId) throws IOException;
-    InputStream openAsset(String encodedObjectName);
-    String assetContentType(String encodedObjectName);
+    InputStream openAsset(String assetToken, String userId);
+    String assetContentType(String assetToken, String userId);
     ResumeRecord syncBossOnlineResume(String userId) throws IOException;
     Map<String, Object> getJobProfileOrEmpty(String userId);
     ResumeRecord getOrCreateJobProfile(String userId) throws IOException;
     ResumeRecord saveJobProfile(String userId, Map<String, Object> parsed) throws IOException;
     Map<String, Object> generateJobProfileSummary(Map<String, Object> parsed, String sessionId);
     ResumeRecord get(String resumeId);
-    InputStream openOriginalFile(String resumeId);
-    byte[] thumbnail(String resumeId);
+    ResumeRecord get(String resumeId, String userId);
+    InputStream openOriginalFile(String resumeId, String userId);
+    byte[] thumbnail(String resumeId, String userId);
     ResumeRecord updateParsed(String resumeId, Map<String, Object> parsed, String userId);
     void delete(String resumeId, String userId);
     List<Map<String, Object>> list(String userId);
     ResumeRecord analyzeSync(String resumeId, String sessionId);
+    ResumeRecord analyzeSync(String resumeId, String sessionId, String userId);
     ResumeRecord parseSync(String resumeId, String sessionId);
+    ResumeRecord parseSync(String resumeId, String sessionId, String userId);
     Map<String, Object> summarize(ResumeRecord record);
 }

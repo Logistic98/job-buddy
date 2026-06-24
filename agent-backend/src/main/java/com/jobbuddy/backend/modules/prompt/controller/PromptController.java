@@ -4,16 +4,18 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.jobbuddy.backend.common.result.ApiResponse;
+import com.jobbuddy.backend.common.security.AuthenticatedUserContext;
 import com.jobbuddy.backend.modules.prompt.dto.response.FrontendPromptResponse;
 import com.jobbuddy.backend.modules.prompt.dto.response.ProfileContextResponse;
 import com.jobbuddy.backend.modules.prompt.model.UserProfileContext;
 import com.jobbuddy.backend.modules.prompt.service.ProfileContextService;
 import com.jobbuddy.backend.modules.prompt.service.PromptRegistryService;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import javax.servlet.http.HttpServletRequest;
 
 /**
  * 提示词接口，提供前端提示词配置和用户画像上下文查询能力。
@@ -53,8 +55,9 @@ public class PromptController {
      */
     @Operation(summary = "获取用户画像上下文")
     @GetMapping("/profile-context")
-    public ApiResponse<ProfileContextResponse> profileContext(@RequestHeader(value = "X-User-Id", required = false) String userId,
+    public ApiResponse<ProfileContextResponse> profileContext(HttpServletRequest request,
                                                               @RequestParam(value = "resumeId", required = false) String resumeId) {
+        String userId = AuthenticatedUserContext.userId(request);
         UserProfileContext context = profileContextService.current(userId, resumeId);
         return ApiResponse.success(ProfileContextResponse.from(context.toMap()));
     }

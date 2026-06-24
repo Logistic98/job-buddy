@@ -30,7 +30,7 @@ class JobDetailControllerTest {
         JobDetailController controller = new JobDetailController(service);
         ApiResponse<JobDetailResponse> response = controller.detail("sec-1", null);
 
-        assertEquals(0, response.getCode());
+        assertEquals(200, response.getCode());
         assertEquals("资深 Java 工程师", response.getData().get("jd"));
     }
 

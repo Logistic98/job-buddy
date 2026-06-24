@@ -28,13 +28,19 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 @Service
 public class ResumeStorageServiceImpl implements ResumeStorageService {
@@ -54,6 +60,7 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     private final ResumeObjectStorage resumeObjectStorage;
     private final BossCliService bossCliService;
     private final JsonCodec jsonCodec;
+    private final byte[] assetSigningKey;
 
     public ResumeStorageServiceImpl(JobBuddyProperties properties,
                                 RuntimeToolClient toolClient,
@@ -67,6 +74,7 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         this.resumeObjectStorage = resumeObjectStorage;
         this.bossCliService = bossCliService;
         this.jsonCodec = jsonCodec;
+        this.assetSigningKey = initAssetSigningKey(properties);
     }
 
     public ResumeRecord upload(MultipartFile file, String userId) throws IOException {
@@ -109,30 +117,22 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         String assetId = "asset_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         String objectName = effectiveUser + "/assets/" + assetId + "." + suffix;
         resumeObjectStorage.upload(file, objectName);
-        String encoded = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(objectName.getBytes(StandardCharsets.UTF_8));
+        String token = signAssetToken(objectName, effectiveUser);
         Map<String, Object> data = new LinkedHashMap<String, Object>();
         data.put("assetId", assetId);
-        data.put("objectName", objectName);
-        data.put("url", "/api/resume/assets/" + encoded);
+        data.put("url", "/api/resume/assets/" + token);
         data.put("contentType", file.getContentType());
         data.put("sizeBytes", file.getSize());
         return data;
     }
 
-    public InputStream openAsset(String encodedObjectName) {
-        try {
-            byte[] bytes = java.util.Base64.getUrlDecoder().decode(encodedObjectName);
-            String objectName = new String(bytes, StandardCharsets.UTF_8);
-            if (!objectName.contains("/assets/")) throw new IllegalArgumentException("非法资源路径");
-            return resumeObjectStorage.openObjectStream(objectName);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("非法资源标识", e);
-        }
+    public InputStream openAsset(String assetToken, String userId) {
+        return resumeObjectStorage.openObjectStream(requireAssetObjectName(assetToken, userId));
     }
 
-    public String assetContentType(String encodedObjectName) {
+    public String assetContentType(String assetToken, String userId) {
         try {
-            String objectName = new String(java.util.Base64.getUrlDecoder().decode(encodedObjectName), StandardCharsets.UTF_8);
+            String objectName = requireAssetObjectName(assetToken, userId);
             String suffix = extractSuffix(objectName);
             if ("png".equals(suffix)) return "image/png";
             if ("webp".equals(suffix)) return "image/webp";
@@ -154,6 +154,9 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     public Map<String, Object> getJobProfileOrEmpty(String userId) {
         String effectiveUser = defaultUser(userId);
         ResumeRecord existing = findJobProfile(effectiveUser);
+        if (existing == null && !isDefaultUser(effectiveUser)) {
+            existing = findJobProfile(defaultUser(null));
+        }
         if (existing != null) return summarize(existing);
         Map<String, Object> view = new LinkedHashMap<String, Object>();
         view.put("resumeId", null);
@@ -216,15 +219,20 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         return resumeRecordRepository.findById(resumeId);
     }
 
-    public InputStream openOriginalFile(String resumeId) {
+    public ResumeRecord get(String resumeId, String userId) {
         ResumeRecord record = get(resumeId);
         if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
+        ensureOwner(record, userId);
+        return record;
+    }
+
+    public InputStream openOriginalFile(String resumeId, String userId) {
+        ResumeRecord record = get(resumeId, userId);
         return resumeObjectStorage.openStream(record);
     }
 
-    public byte[] thumbnail(String resumeId) {
-        ResumeRecord record = get(resumeId);
-        if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
+    public byte[] thumbnail(String resumeId, String userId) {
+        ResumeRecord record = get(resumeId, userId);
         String suffix = record.getSuffix() == null ? "" : record.getSuffix().toLowerCase(java.util.Locale.ROOT);
         if (!"pdf".equals(suffix)) return placeholderThumbnail(record);
         Path thumbnailPath = thumbnailCachePath(record);
@@ -265,7 +273,11 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
 
     public List<Map<String, Object>> list(String userId) {
-        List<ResumeRecord> records = resumeRecordRepository.findLatestByUserId(defaultUser(userId), DEFAULT_LIST_LIMIT);
+        String effectiveUser = defaultUser(userId);
+        List<ResumeRecord> records = new ArrayList<ResumeRecord>(resumeRecordRepository.findLatestByUserId(effectiveUser, DEFAULT_LIST_LIMIT));
+        if (!isDefaultUser(effectiveUser)) {
+            appendLegacyDefaultUserRecords(records);
+        }
         List<Map<String, Object>> result = new java.util.ArrayList<Map<String, Object>>();
         for (ResumeRecord record : records) {
             if (isInternalProfileRecord(record)) continue;
@@ -283,6 +295,15 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     public ResumeRecord analyzeSync(String resumeId, String sessionId) {
         ResumeRecord record = get(resumeId);
         if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
+        return analyzeRecordSync(record, sessionId);
+    }
+
+    public ResumeRecord analyzeSync(String resumeId, String sessionId, String userId) {
+        ResumeRecord record = get(resumeId, userId);
+        return analyzeRecordSync(record, sessionId);
+    }
+
+    private ResumeRecord analyzeRecordSync(ResumeRecord record, String sessionId) {
         Path tempFile = null;
         try {
             String workspaceDir = workspaceForRuntime();
@@ -317,6 +338,15 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     public ResumeRecord parseSync(String resumeId, String sessionId) {
         ResumeRecord record = get(resumeId);
         if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
+        return parseRecordSync(record, sessionId);
+    }
+
+    public ResumeRecord parseSync(String resumeId, String sessionId, String userId) {
+        ResumeRecord record = get(resumeId, userId);
+        return parseRecordSync(record, sessionId);
+    }
+
+    private ResumeRecord parseRecordSync(ResumeRecord record, String sessionId) {
         if ("success".equals(record.getParseStatus()) && record.getParsed() != null && !record.getParsed().isEmpty()) return record;
 
         Path tempFile = null;
@@ -800,15 +830,127 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         return workspace.toAbsolutePath().normalize().toString();
     }
 
+    private byte[] initAssetSigningKey(JobBuddyProperties properties) {
+        String configured = properties.getAuth().getAssetUrlSigningKey();
+        if (configured != null && !configured.trim().isEmpty()) {
+            return sha256Bytes(configured.trim());
+        }
+        String minioSecret = properties.getMinio() == null ? "" : properties.getMinio().getSecretKey();
+        if (minioSecret != null && !minioSecret.trim().isEmpty() && !minioSecret.contains("${")) {
+            return sha256Bytes(minioSecret.trim());
+        }
+        byte[] random = new byte[32];
+        new SecureRandom().nextBytes(random);
+        return random;
+    }
+
+    private String signAssetToken(String objectName, String userId) {
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("objectName", objectName);
+        payload.put("userId", userId);
+        payload.put("exp", Long.valueOf(Instant.now().plusSeconds(assetUrlTtlSeconds()).getEpochSecond()));
+        String payloadJson = jsonCodec.toJson(payload);
+        String encodedPayload = base64Url(payloadJson.getBytes(StandardCharsets.UTF_8));
+        String encodedSignature = base64Url(hmacSha256(encodedPayload));
+        return encodedPayload + "." + encodedSignature;
+    }
+
+    private String requireAssetObjectName(String token, String userId) {
+        if (token == null || token.trim().isEmpty()) throw new IllegalArgumentException("非法资源标识");
+        String[] parts = token.split("\\.", -1);
+        if (parts.length != 2 || parts[0].isEmpty() || parts[1].isEmpty()) {
+            throw new IllegalArgumentException("非法资源标识");
+        }
+        byte[] expected = hmacSha256(parts[0]);
+        byte[] actual;
+        try {
+            actual = Base64.getUrlDecoder().decode(parts[1]);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("非法资源标识", e);
+        }
+        if (!MessageDigest.isEqual(expected, actual)) {
+            throw new IllegalArgumentException("非法资源标识");
+        }
+        Map<String, Object> payload;
+        try {
+            payload = jsonCodec.toMap(new String(Base64.getUrlDecoder().decode(parts[0]), StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("非法资源标识", e);
+        }
+        String effectiveUser = defaultUser(userId);
+        String tokenUser = stringOf(payload.get("userId"));
+        String objectName = stringOf(payload.get("objectName"));
+        long exp = longValue(payload.get("exp"), 0L);
+        if (exp < Instant.now().getEpochSecond()) throw new IllegalArgumentException("资源链接已过期");
+        String legacyUser = defaultUser(null);
+        boolean legacyDefaultAsset = legacyUser.equals(tokenUser) && !isDefaultUser(effectiveUser);
+        if (!effectiveUser.equals(tokenUser) && !legacyDefaultAsset) throw new IllegalArgumentException("无权访问该资源");
+        String ownerPrefix = legacyDefaultAsset ? legacyUser : effectiveUser;
+        if (!objectName.startsWith(ownerPrefix + "/assets/")) throw new IllegalArgumentException("非法资源路径");
+        String suffix = extractSuffix(objectName);
+        if (!ALLOWED_ASSET_SUFFIXES.contains(suffix)) throw new IllegalArgumentException("非法资源类型");
+        return objectName;
+    }
+
+    private long assetUrlTtlSeconds() {
+        return Math.max(60L, properties.getAuth().getAssetUrlTtlSeconds());
+    }
+
+    private byte[] hmacSha256(String value) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(assetSigningKey, "HmacSHA256"));
+            return mac.doFinal(value.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new IllegalStateException("资源签名失败", e);
+        }
+    }
+
+    private byte[] sha256Bytes(String value) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new IllegalStateException("资源签名密钥初始化失败", e);
+        }
+    }
+
+    private String base64Url(byte[] bytes) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
     private String defaultUser(String userId) {
         return (userId == null || userId.isEmpty()) ? properties.getDefaultUserId() : userId;
     }
 
     private void ensureOwner(ResumeRecord record, String userId) {
         String effectiveUser = defaultUser(userId);
-        if (record.getUserId() != null && !record.getUserId().equals(effectiveUser)) {
+        if (record.getUserId() != null && !record.getUserId().equals(effectiveUser) && !isLegacyDefaultUserRecord(record, effectiveUser)) {
             throw new IllegalArgumentException("无权操作该简历");
         }
+    }
+
+    private void appendLegacyDefaultUserRecords(List<ResumeRecord> records) {
+        String legacyUser = defaultUser(null);
+        java.util.Set<String> seen = new java.util.HashSet<String>();
+        for (ResumeRecord record : records) {
+            if (record != null && record.getResumeId() != null) seen.add(record.getResumeId());
+        }
+        for (ResumeRecord record : resumeRecordRepository.findLatestByUserId(legacyUser, DEFAULT_LIST_LIMIT)) {
+            if (record == null || record.getResumeId() == null || seen.contains(record.getResumeId())) continue;
+            records.add(record);
+            seen.add(record.getResumeId());
+        }
+    }
+
+    private boolean isLegacyDefaultUserRecord(ResumeRecord record, String effectiveUser) {
+        return record != null
+                && record.getUserId() != null
+                && record.getUserId().equals(defaultUser(null))
+                && !isDefaultUser(effectiveUser);
+    }
+
+    private boolean isDefaultUser(String userId) {
+        return defaultUser(null).equals(userId);
     }
 
     private String extractSuffix(String name) {
@@ -817,6 +959,16 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
 
     private String stringOf(Object value) { return value == null ? "" : String.valueOf(value); }
+
+    private long longValue(Object value, long fallback) {
+        if (value instanceof Number) return ((Number) value).longValue();
+        if (value == null) return fallback;
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
 
     private void deleteQuietly(Path tempFile) {
         if (tempFile == null) return;

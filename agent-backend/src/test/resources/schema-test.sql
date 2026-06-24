@@ -39,6 +39,25 @@ CREATE TABLE IF NOT EXISTS job_buddy_auth_state (
 CREATE INDEX IF NOT EXISTS idx_job_buddy_auth_state_updated
   ON job_buddy_auth_state (updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS app_user (
+  user_id VARCHAR(64) PRIMARY KEY,
+  username VARCHAR(128) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  display_name VARCHAR(128),
+  role VARCHAR(64),
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_login_session (
+  token VARCHAR(128) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS job_buddy_journey_target (
   target_id VARCHAR(64) PRIMARY KEY,
   user_id VARCHAR(128) NOT NULL,

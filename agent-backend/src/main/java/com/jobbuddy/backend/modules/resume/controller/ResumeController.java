@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import com.jobbuddy.backend.common.dto.response.NamedValueResponse;
 import com.jobbuddy.backend.common.dto.MapBackedDto;
 import com.jobbuddy.backend.common.result.ApiResponse;
+import com.jobbuddy.backend.common.security.AuthenticatedUserContext;
 import com.jobbuddy.backend.modules.resume.dto.response.ResumeAssetUploadResponse;
 import com.jobbuddy.backend.modules.resume.dto.request.ResumeProfileRequest;
 import com.jobbuddy.backend.modules.resume.dto.response.ResumeProfileResponse;
@@ -26,12 +27,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
@@ -56,7 +57,8 @@ public class ResumeController {
      */
     @Operation(summary = "查询简历列表")
     @GetMapping
-    public ApiResponse<List<ResumeSummaryResponse>> list(@RequestHeader(value = "X-User-Id", required = false) String userId) {
+    public ApiResponse<List<ResumeSummaryResponse>> list(HttpServletRequest request) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(MapBackedDto.fromMapList(resumeStorageService.list(userId), ResumeSummaryResponse::from));
     }
 
@@ -67,7 +69,8 @@ public class ResumeController {
      */
     @Operation(summary = "查询求职画像")
     @GetMapping("/profile")
-    public ApiResponse<ResumeProfileResponse> profile(@RequestHeader(value = "X-User-Id", required = false) String userId) {
+    public ApiResponse<ResumeProfileResponse> profile(HttpServletRequest request) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(ResumeProfileResponse.from(resumeStorageService.getJobProfileOrEmpty(userId)));
     }
 
@@ -78,8 +81,9 @@ public class ResumeController {
      */
     @Operation(summary = "保存求职画像")
     @PutMapping("/profile")
-    public ApiResponse<ResumeSummaryResponse> saveProfile(@RequestHeader(value = "X-User-Id", required = false) String userId,
+    public ApiResponse<ResumeSummaryResponse> saveProfile(HttpServletRequest request,
                                                           @RequestBody ResumeProfileRequest body) throws Exception {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(resumeStorageService.saveJobProfile(userId, body == null ? null : body.parsedPayload()))));
     }
 
@@ -102,7 +106,8 @@ public class ResumeController {
      */
     @Operation(summary = "同步 Boss 在线简历")
     @PostMapping("/boss/sync")
-    public ApiResponse<ResumeSummaryResponse> syncBossOnlineResume(@RequestHeader(value = "X-User-Id", required = false) String userId) throws Exception {
+    public ApiResponse<ResumeSummaryResponse> syncBossOnlineResume(HttpServletRequest request) throws Exception {
+        String userId = AuthenticatedUserContext.userId(request);
         ResumeRecord record = resumeStorageService.syncBossOnlineResume(userId);
         return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(record)));
     }
@@ -115,13 +120,14 @@ public class ResumeController {
     @Operation(summary = "上传并解析简历")
     @PostMapping("/upload")
     public ApiResponse<ResumeSummaryResponse> upload(@RequestParam("file") MultipartFile file,
-                                                     @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                     HttpServletRequest request,
                                                      @RequestParam(value = "sessionId", required = false) String sessionId) throws Exception {
+        String userId = AuthenticatedUserContext.userId(request);
         ResumeRecord record = resumeStorageService.upload(file, userId);
         try {
-            record = resumeStorageService.parseSync(record.getResumeId(), sessionId);
+            record = resumeStorageService.parseSync(record.getResumeId(), sessionId, userId);
         } catch (RuntimeException e) {
-            ResumeRecord latest = resumeStorageService.get(record.getResumeId());
+            ResumeRecord latest = resumeStorageService.get(record.getResumeId(), userId);
             if (latest != null) record = latest;
         }
         return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(record)));
@@ -135,7 +141,8 @@ public class ResumeController {
     @Operation(summary = "上传简历资源")
     @PostMapping("/assets/upload")
     public ApiResponse<ResumeAssetUploadResponse> uploadAsset(@RequestParam("file") MultipartFile file,
-                                                              @RequestHeader(value = "X-User-Id", required = false) String userId) throws Exception {
+                                                              HttpServletRequest request) throws Exception {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(ResumeAssetUploadResponse.from(resumeStorageService.uploadAsset(file, userId)));
     }
 
@@ -146,10 +153,11 @@ public class ResumeController {
      */
     @Operation(summary = "读取简历资源")
     @GetMapping("/assets/{encodedObjectName}")
-    public ResponseEntity<Resource> asset(@PathVariable String encodedObjectName) {
-        InputStreamResource resource = new InputStreamResource(resumeStorageService.openAsset(encodedObjectName));
+    public ResponseEntity<Resource> asset(@PathVariable String encodedObjectName, HttpServletRequest request) {
+        String userId = AuthenticatedUserContext.userId(request);
+        InputStreamResource resource = new InputStreamResource(resumeStorageService.openAsset(encodedObjectName, userId));
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(resumeStorageService.assetContentType(encodedObjectName)))
+                .contentType(MediaType.parseMediaType(resumeStorageService.assetContentType(encodedObjectName, userId)))
                 .body(resource);
     }
 
@@ -160,8 +168,9 @@ public class ResumeController {
      */
     @Operation(summary = "查询简历详情")
     @GetMapping("/{resumeId}")
-    public ApiResponse<ResumeSummaryResponse> get(@PathVariable String resumeId) {
-        return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(resumeStorageService.get(resumeId))));
+    public ApiResponse<ResumeSummaryResponse> get(@PathVariable String resumeId, HttpServletRequest request) {
+        String userId = AuthenticatedUserContext.userId(request);
+        return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(resumeStorageService.get(resumeId, userId))));
     }
 
     /**
@@ -172,8 +181,10 @@ public class ResumeController {
     @Operation(summary = "分析指定简历")
     @PostMapping("/{resumeId}/analyze")
     public ApiResponse<ResumeSummaryResponse> analyze(@PathVariable String resumeId,
+                                                      HttpServletRequest request,
                                                       @RequestParam(value = "sessionId", required = false) String sessionId) {
-        return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(resumeStorageService.analyzeSync(resumeId, sessionId))));
+        String userId = AuthenticatedUserContext.userId(request);
+        return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(resumeStorageService.analyzeSync(resumeId, sessionId, userId))));
     }
 
     /**
@@ -184,8 +195,10 @@ public class ResumeController {
     @Operation(summary = "按查询参数分析简历")
     @PostMapping("/analyze")
     public ApiResponse<ResumeSummaryResponse> analyzeByQuery(@RequestParam("resumeId") String resumeId,
+                                                             HttpServletRequest request,
                                                              @RequestParam(value = "sessionId", required = false) String sessionId) {
-        return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(resumeStorageService.analyzeSync(resumeId, sessionId))));
+        String userId = AuthenticatedUserContext.userId(request);
+        return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(resumeStorageService.analyzeSync(resumeId, sessionId, userId))));
     }
 
     /**
@@ -196,8 +209,9 @@ public class ResumeController {
     @Operation(summary = "更新简历解析内容")
     @PutMapping("/{resumeId}/parsed")
     public ApiResponse<ResumeSummaryResponse> updateParsed(@PathVariable String resumeId,
-                                                           @RequestHeader(value = "X-User-Id", required = false) String userId,
+                                                           HttpServletRequest request,
                                                            @RequestBody ResumeProfileRequest body) {
+        String userId = AuthenticatedUserContext.userId(request);
         return ApiResponse.success(ResumeSummaryResponse.from(resumeStorageService.summarize(resumeStorageService.updateParsed(resumeId, body == null ? null : body.parsedPayload(), userId))));
     }
 
@@ -209,7 +223,8 @@ public class ResumeController {
     @Operation(summary = "删除简历")
     @DeleteMapping("/{resumeId}")
     public ApiResponse<NamedValueResponse> delete(@PathVariable String resumeId,
-                                                     @RequestHeader(value = "X-User-Id", required = false) String userId) {
+                                                  HttpServletRequest request) {
+        String userId = AuthenticatedUserContext.userId(request);
         resumeStorageService.delete(resumeId, userId);
         return ApiResponse.success(new NamedValueResponse("deleted", true));
     }
@@ -221,8 +236,8 @@ public class ResumeController {
      */
     @Operation(summary = "预览简历原文件")
     @GetMapping("/{resumeId}/preview")
-    public ResponseEntity<Resource> preview(@PathVariable String resumeId) {
-        ResumeRecord record = requireRecord(resumeId);
+    public ResponseEntity<Resource> preview(@PathVariable String resumeId, HttpServletRequest request) {
+        ResumeRecord record = requireRecord(resumeId, AuthenticatedUserContext.userId(request));
         return fileResponse(record, false);
     }
 
@@ -233,8 +248,8 @@ public class ResumeController {
      */
     @Operation(summary = "获取简历缩略图")
     @GetMapping("/{resumeId}/thumbnail")
-    public ResponseEntity<Resource> thumbnail(@PathVariable String resumeId) {
-        byte[] bytes = resumeStorageService.thumbnail(resumeId);
+    public ResponseEntity<Resource> thumbnail(@PathVariable String resumeId, HttpServletRequest request) {
+        byte[] bytes = resumeStorageService.thumbnail(resumeId, AuthenticatedUserContext.userId(request));
         return ResponseEntity.ok()
                 .contentType(MediaType.IMAGE_PNG)
                 .cacheControl(org.springframework.http.CacheControl.maxAge(7, java.util.concurrent.TimeUnit.DAYS).cachePublic())
@@ -248,19 +263,19 @@ public class ResumeController {
      */
     @Operation(summary = "下载简历原文件")
     @GetMapping("/{resumeId}/download")
-    public ResponseEntity<Resource> download(@PathVariable String resumeId) {
-        ResumeRecord record = requireRecord(resumeId);
+    public ResponseEntity<Resource> download(@PathVariable String resumeId, HttpServletRequest request) {
+        ResumeRecord record = requireRecord(resumeId, AuthenticatedUserContext.userId(request));
         return fileResponse(record, true);
     }
 
-    private ResumeRecord requireRecord(String resumeId) {
-        ResumeRecord record = resumeStorageService.get(resumeId);
+    private ResumeRecord requireRecord(String resumeId, String userId) {
+        ResumeRecord record = resumeStorageService.get(resumeId, userId);
         if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
         return record;
     }
 
     private ResponseEntity<Resource> fileResponse(ResumeRecord record, boolean attachment) {
-        InputStreamResource resource = new InputStreamResource(resumeStorageService.openOriginalFile(record.getResumeId()));
+        InputStreamResource resource = new InputStreamResource(resumeStorageService.openOriginalFile(record.getResumeId(), record.getUserId()));
         ContentDisposition disposition = (attachment ? ContentDisposition.attachment() : ContentDisposition.inline())
                 .filename(record.getOriginalName(), StandardCharsets.UTF_8)
                 .build();

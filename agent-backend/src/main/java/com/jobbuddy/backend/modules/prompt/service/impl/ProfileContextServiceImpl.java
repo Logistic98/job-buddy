@@ -36,7 +36,7 @@ public class ProfileContextServiceImpl implements ProfileContextService {
         }
         if (resumeId != null && !resumeId.trim().isEmpty()) {
             try {
-                ResumeRecord record = resumeStorageService.get(resumeId);
+                ResumeRecord record = resumeStorageService.get(resumeId, userId);
                 if (record != null && record.getParsed() != null) profile.put("current_resume", record.getParsed());
             } catch (RuntimeException e) {
                 // 当前简历读取失败时降级为不带简历的画像，留痕便于排查。

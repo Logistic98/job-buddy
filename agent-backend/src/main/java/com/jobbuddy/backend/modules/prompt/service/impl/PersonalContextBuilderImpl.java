@@ -49,7 +49,7 @@ public class PersonalContextBuilderImpl implements PersonalContextBuilder {
         UserProfileContext profileContext = contextHelpful
                 ? safeProfile(effectiveUser, state == null ? null : state.resumeId)
                 : new UserProfileContext(Collections.<String, Object>emptyMap(), "");
-        Map<String, Object> resume = compactResume(state == null ? null : state.resumeId, contextHelpful);
+        Map<String, Object> resume = compactResume(effectiveUser, state == null ? null : state.resumeId, contextHelpful);
         List<Map<String, Object>> currentJobs = limit(state == null || state.jobs == null ? Collections.<Map<String, Object>>emptyList() : state.jobs, 8);
         List<Map<String, Object>> favorites = shouldLoadFavorites(intent) ? safeFavorites() : Collections.<Map<String, Object>>emptyList();
         List<Map<String, Object>> journey = shouldLoadJourney(intent) ? safeJourney(effectiveUser) : Collections.<Map<String, Object>>emptyList();
@@ -88,10 +88,10 @@ public class PersonalContextBuilderImpl implements PersonalContextBuilder {
         try { return profileContextService.current(userId, resumeId); } catch (Exception ignored) { return new UserProfileContext(Collections.<String, Object>emptyMap(), ""); }
     }
 
-    private Map<String, Object> compactResume(String resumeId, boolean enabled) {
+    private Map<String, Object> compactResume(String userId, String resumeId, boolean enabled) {
         if (!enabled || resumeId == null || resumeId.trim().isEmpty()) return Collections.emptyMap();
         try {
-            ResumeRecord record = resumeStorageService.get(resumeId);
+            ResumeRecord record = resumeStorageService.get(resumeId, userId);
             if (record == null || record.getParsed() == null) return Collections.emptyMap();
             Map<String, Object> parsed = record.getParsed();
             Map<String, Object> resume = new LinkedHashMap<String, Object>();

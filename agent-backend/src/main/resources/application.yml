@@ -91,6 +91,11 @@ job-buddy:
   runtime-max-failures: ${JOB_BUDDY_RUNTIME_MAX_FAILURES:2}
   max-resume-bytes: ${JOB_BUDDY_MAX_RESUME_BYTES:5242880}
   resume-runtime-workspace: ${JOB_BUDDY_RESUME_RUNTIME_WORKSPACE:}
+  auth:
+    enabled: ${JOB_BUDDY_AUTH_ENABLED:true}
+    internal-api-token: ${JOB_BUDDY_INTERNAL_API_TOKEN:}
+    asset-url-signing-key: ${JOB_BUDDY_ASSET_URL_SIGNING_KEY:}
+    asset-url-ttl-seconds: ${JOB_BUDDY_ASSET_URL_TTL_SECONDS:3600}
   minio:
     endpoint: ${JOB_BUDDY_MINIO_ENDPOINT}
     access-key: ${JOB_BUDDY_MINIO_ACCESS_KEY}
