@@ -1,7 +1,7 @@
-import { apiUrl, parseApiResponse } from './http'
+import { apiFetch, parseApiResponse } from './http'
 
 export async function askAgent(payload) {
-  const response = await fetch(apiUrl('/chat/ask'), {
+  const response = await apiFetch('/chat/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -10,24 +10,24 @@ export async function askAgent(payload) {
 }
 
 export async function listSessions() {
-  const response = await fetch(apiUrl('/chat/sessions'))
+  const response = await apiFetch('/chat/sessions')
   return (await parseApiResponse(response, '加载会话失败')) || []
 }
 
 export async function listSessionMessages(sessionId) {
-  const response = await fetch(apiUrl(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`))
+  const response = await apiFetch(`/chat/sessions/${encodeURIComponent(sessionId)}/messages`)
   return (await parseApiResponse(response, '加载消息失败')) || []
 }
 
 export async function deleteSession(sessionId) {
-  const response = await fetch(apiUrl(`/chat/sessions/${encodeURIComponent(sessionId)}`), { method: 'DELETE' })
+  const response = await apiFetch(`/chat/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' })
   return parseApiResponse(response, '删除会话失败')
 }
 
 export async function streamChat(payload, handlers = {}) {
   let response
   try {
-    response = await fetch(apiUrl('/chat/stream'), {
+    response = await apiFetch('/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify(payload),

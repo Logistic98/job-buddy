@@ -17,6 +17,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
+export MAVEN_OPTS="${MAVEN_OPTS:-} -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8"
+
 QUICK=0
 TARGET=""
 LIST=0
@@ -80,6 +82,16 @@ run_python_module() {
     uv sync --extra dev --quiet || fail "$module: uv sync --extra dev failed"
   else
     uv sync --quiet || fail "$module: uv sync failed"
+  fi
+
+  local lint_targets=()
+  for candidate in app tests server.py main.py; do
+    if [[ -e "$candidate" ]]; then
+      lint_targets+=("$candidate")
+    fi
+  done
+  if [[ "${#lint_targets[@]}" -gt 0 ]]; then
+    uv run ruff check --select E9,F63,F7,F82 "${lint_targets[@]}" || fail "$module: ruff critical lint failed"
   fi
 
   if [[ -d tests ]]; then

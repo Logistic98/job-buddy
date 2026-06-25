@@ -17,7 +17,7 @@
 ## 技术栈
 
 - Vue 3
-- Vite
+- Vite 7
 - Pinia
 - Vitest
 - ESLint
@@ -42,6 +42,8 @@ agent-frontend/
 ```
 
 ## 本地启动
+
+当前本地验证环境为 Node.js 22.16.0 / npm 10.9.x。由于 Vite 7 要求 Node `^20.19.0 || >=22.12.0`，推荐使用 Node.js 22.16+，最低使用 Node.js 20.19+。
 
 ```bash
 cd agent-frontend

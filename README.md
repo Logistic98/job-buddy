@@ -1,6 +1,6 @@
 # job-buddy
 
-`job-buddy` 是一个面向求职场景的本地 Agent 工作台。当前项目已经从早期的通用 Agent 平台雏形，演进为“Vue 前端 + Spring Boot 业务后端 + Python Agent Runtime + Runtime 按需工具 + 评估/记忆/工具/沙箱辅助服务”的多服务工程。
+`job-buddy` 是一个面向求职场景的 Agent，当前项目是包括“Vue 前端 + Spring Boot 业务后端 + Python Agent Runtime + Runtime 按需工具 + 评估/记忆/工具/沙箱辅助服务”的多服务工程。
 
 当前主线聚焦在求职工作流：登录与同步 Boss 在线简历、简历管理、岗位收藏与详情懒加载、岗位/简历分析、对话式问答、求职旅程、面试题库、项目深挖、系统设置与记忆管理。Agent 核心能力逐步下沉到 `agent-runtime`，Java 后端主要负责业务 API、登录态、文件与数据管理，以及对 Runtime、Intent、Memory、Tool、Eval 等服务的代理编排；Boss 能力作为 `agent-tool` 工具注入，Runtime 只做代理和编排。
 
@@ -17,7 +17,7 @@
 
 ```text
 job-buddy/
-├── agent-backend/       # Java 8 + Spring Boot 业务后端 / BFF / Runtime 代理层
+├── agent-backend/       # Java 8 字节码目标 + Spring Boot 业务后端 / BFF / Runtime 代理层
 ├── agent-frontend/      # Vue 3 + Vite 前端工作台
 ├── agent-runtime/       # Python FastAPI + LangGraph，Agent 运行时与工具编排
 ├── agent-intent/        # Python FastAPI，意图识别与路由
@@ -52,7 +52,7 @@ job-buddy/
 | 层次 | 当前使用 |
 | --- | --- |
 | 后端 | Java 8、Spring Boot 2.7、MyBatis Plus、Flyway、PostgreSQL、Redis、MinIO、Knife4j |
-| 前端 | Vue 3、Vite、Pinia、Vitest、ESLint、原生 CSS |
+| 前端 | Vue 3、Vite 7、Pinia、Vitest、ESLint、原生 CSS |
 | Python 服务 | Python 3.10.16、FastAPI、Uvicorn、Pydantic、Loguru、httpx、PyYAML |
 | Runtime | LangGraph、OpenAI 兼容 Chat Completions、MCP 适配、内置文件/搜索/简历/Shell 工具、agent-tool 工具代理 |
 | Boss 工具 | 位于 agent-tool，使用 jackwener/boss-cli、本机浏览器 Cookie、拟人化限速和上游异常归类 |
@@ -63,10 +63,12 @@ job-buddy/
 
 ## 环境准备
 
-- JDK 8
-- Maven（仓库当前未提供 `mvnw`）
-- Python 3.10.16 与 `uv`
-- Node.js 18+
+当前本地验证环境为 JDK 1.8.0_333、Maven 3.8.6、Python 3.10.x + uv 0.10.x、Node.js 22.16.0 / npm 10.9.x。前端依赖 Vite 7，Node 版本需满足 `^20.19.0 || >=22.12.0`，推荐直接使用 Node.js 22.16+。
+
+- JDK 8（项目编译目标为 Java 8 字节码；Docker 镜像使用 Temurin 17 构建/运行）
+- Maven 3.8+（仓库当前未提供 `mvnw`）
+- Python 3.10.x 与 `uv`（`agent-runtime` 锁定 Python 3.10.16，其余 Python 服务以各自 `pyproject.toml` 为准）
+- Node.js 22.16+ 或 20.19+
 - PostgreSQL 与 Redis（后端本地完整运行需要）
 - 可选：Docker
 - 可选：已登录 Boss 直聘网页端的本机常用浏览器（Boss 工具可从浏览器 Cookie 导入登录态）

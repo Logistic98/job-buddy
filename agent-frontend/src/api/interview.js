@@ -1,4 +1,4 @@
-import { apiUrl, parseApiResponse } from './http'
+import { apiFetch, parseApiResponse } from './http'
 
 export async function listQuestions(params = {}) {
   const query = new URLSearchParams()
@@ -9,8 +9,8 @@ export async function listQuestions(params = {}) {
   if (params.page) query.set('page', params.page)
   if (params.size) query.set('size', params.size)
   if (params._ts) query.set('_ts', params._ts)
-  const url = apiUrl(`/interview/questions${query.toString() ? `?${query}` : ''}`)
-  const data = await fetchWithStartupRetry(url, '笔试题库加载失败')
+  const path = `/interview/questions${query.toString() ? `?${query}` : ''}`
+  const data = await fetchWithStartupRetry(path, '笔试题库加载失败')
   return Array.isArray(data) ? { items: data, total: data.length, page: 1, size: data.length || 20, pages: 1 } : data
 }
 
@@ -18,15 +18,15 @@ export async function getQuestionMeta(params = {}) {
   const query = new URLSearchParams()
   if (params.bankType) query.set('bankType', params.bankType)
   if (params._ts) query.set('_ts', params._ts)
-  const response = await fetch(apiUrl(`/interview/questions/meta${query.toString() ? `?${query}` : ''}`), { cache: 'no-store' })
+  const response = await apiFetch(`/interview/questions/meta${query.toString() ? `?${query}` : ''}`, { cache: 'no-store' })
   return parseApiResponse(response, '题库元数据加载失败')
 }
 
-async function fetchWithStartupRetry(url, fallbackMessage, attempts = 3) {
+async function fetchWithStartupRetry(path, fallbackMessage, attempts = 3) {
   let lastError = null
   for (let i = 0; i < attempts; i++) {
     try {
-      const response = await fetch(url, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
+      const response = await apiFetch(path, { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
       return await parseApiResponse(response, fallbackMessage)
     } catch (error) {
       lastError = error
@@ -40,7 +40,7 @@ async function fetchWithStartupRetry(url, fallbackMessage, attempts = 3) {
 }
 
 export async function createQuestion(payload) {
-  const response = await fetch(apiUrl('/interview/questions'), {
+  const response = await apiFetch('/interview/questions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
     body: JSON.stringify(payload),
@@ -49,7 +49,7 @@ export async function createQuestion(payload) {
 }
 
 export async function generateQuestions(payload) {
-  const response = await fetch(apiUrl('/interview/questions/generate'), {
+  const response = await apiFetch('/interview/questions/generate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -115,7 +115,7 @@ function buildQuestionContent(stem, questionType) {
 }
 
 export async function updateQuestion(questionId, payload) {
-  const response = await fetch(apiUrl(`/interview/questions/${encodeURIComponent(questionId)}`), {
+  const response = await apiFetch(`/interview/questions/${encodeURIComponent(questionId)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
     body: JSON.stringify(payload),
@@ -125,16 +125,16 @@ export async function updateQuestion(questionId, payload) {
 
 export async function deleteQuestion(questionId) {
   const id = encodeURIComponent(questionId)
-  const response = await fetch(apiUrl(`/interview/questions/${id}`), { method: 'DELETE' })
+  const response = await apiFetch(`/interview/questions/${id}`, { method: 'DELETE' })
   if (isUnsupported(response)) {
-    const fallback = await fetch(apiUrl(`/interview/questions/${id}/delete`), { method: 'POST' })
+    const fallback = await apiFetch(`/interview/questions/${id}/delete`, { method: 'POST' })
     return parseApiResponse(fallback, '笔试题删除失败')
   }
   return parseApiResponse(response, '笔试题删除失败')
 }
 
 export async function batchQuestions(payload) {
-  const response = await fetch(apiUrl('/interview/questions/batch'), {
+  const response = await apiFetch('/interview/questions/batch', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -148,17 +148,17 @@ export async function batchQuestions(payload) {
 }
 
 export async function listExams() {
-  const response = await fetch(apiUrl('/interview/practices'))
+  const response = await apiFetch('/interview/practices')
   return (await parseApiResponse(response, '练习记录加载失败')) || []
 }
 
 export async function getExam(examId) {
-  const response = await fetch(apiUrl(`/interview/practices/${encodeURIComponent(examId)}`))
+  const response = await apiFetch(`/interview/practices/${encodeURIComponent(examId)}`)
   return parseApiResponse(response, '练习详情加载失败')
 }
 
 export async function createRandomExam(payload) {
-  const response = await fetch(apiUrl('/interview/practices/random'), {
+  const response = await apiFetch('/interview/practices/random', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -167,7 +167,7 @@ export async function createRandomExam(payload) {
 }
 
 export async function runCodeSample(payload) {
-  const response = await fetch(apiUrl('/interview/code/run'), {
+  const response = await apiFetch('/interview/code/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -176,7 +176,7 @@ export async function runCodeSample(payload) {
 }
 
 export async function submitExam(examId, answers, codingResults = {}) {
-  const response = await fetch(apiUrl(`/interview/practices/${encodeURIComponent(examId)}/submit`), {
+  const response = await apiFetch(`/interview/practices/${encodeURIComponent(examId)}/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ answers, codingResults }),

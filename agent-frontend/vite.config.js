@@ -1,8 +1,32 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
+function packageNameFromId(id) {
+  const marker = 'node_modules/'
+  const index = id.lastIndexOf(marker)
+  if (index < 0) return 'misc'
+  const segments = id.slice(index + marker.length).split('/')
+  if (segments[0]?.startsWith('@')) return `${segments[0].slice(1)}-${segments[1] || 'pkg'}`
+  return segments[0] || 'misc'
+}
+
 export default defineConfig({
   plugins: [vue()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('/vue') || id.includes('/pinia') || id.includes('/vue-router')) return 'vendor-vue'
+          if (id.includes('/markstream-vue')) return 'vendor-markdown'
+          if (id.includes('/html2pdf.js')) return 'vendor-html2pdf'
+          if (id.includes('/jspdf')) return 'vendor-jspdf'
+          if (id.includes('/html2canvas')) return 'vendor-html2canvas'
+          return `vendor-${packageNameFromId(id)}`
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

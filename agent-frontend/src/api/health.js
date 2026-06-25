@@ -1,10 +1,10 @@
-import { apiUrl, parseApiResponse } from './http'
+import { apiFetch, parseApiResponse } from './http'
 
 export async function getSystemHealth({ timeoutMs = 1800 } = {}) {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const response = await fetch(apiUrl('/health'), {
+    const response = await apiFetch('/health', {
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache' },
       signal: controller.signal,

@@ -1,15 +1,15 @@
-import { apiUrl, parseApiResponse } from './http'
+import { apiFetch, parseApiResponse } from './http'
 
 const LOCAL_KEY = 'job-buddy-project-deep-dive-local'
 
 export async function listDeepDiveProjects() {
-  const response = await fetch(apiUrl('/project-deep-dive/projects'))
+  const response = await apiFetch('/project-deep-dive/projects')
   if (isUnsupported(response)) return loadLocalProjects()
   return (await parseApiResponse(response, '项目深挖列表加载失败')) || []
 }
 
 export async function createDeepDiveProject(payload) {
-  const response = await fetch(apiUrl('/project-deep-dive/projects'), {
+  const response = await apiFetch('/project-deep-dive/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -19,13 +19,13 @@ export async function createDeepDiveProject(payload) {
 }
 
 export async function deleteDeepDiveProject(projectId) {
-  const response = await fetch(apiUrl(`/project-deep-dive/projects/${encodeURIComponent(projectId)}`), { method: 'DELETE' })
+  const response = await apiFetch(`/project-deep-dive/projects/${encodeURIComponent(projectId)}`, { method: 'DELETE' })
   if (isUnsupported(response)) return deleteLocalProject(projectId)
   return parseApiResponse(response, '项目删除失败')
 }
 
 export async function addProjectMaterial(projectId, payload) {
-  const response = await fetch(apiUrl(`/project-deep-dive/projects/${encodeURIComponent(projectId)}/materials`), {
+  const response = await apiFetch(`/project-deep-dive/projects/${encodeURIComponent(projectId)}/materials`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -35,7 +35,7 @@ export async function addProjectMaterial(projectId, payload) {
 }
 
 export async function generateProjectQuestions(projectId, payload) {
-  const response = await fetch(apiUrl(`/project-deep-dive/projects/${encodeURIComponent(projectId)}/generate`), {
+  const response = await apiFetch(`/project-deep-dive/projects/${encodeURIComponent(projectId)}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

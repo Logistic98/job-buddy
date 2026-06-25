@@ -1,12 +1,12 @@
-import { apiUrl, parseApiResponse } from './http'
+import { apiFetch, parseApiResponse } from './http'
 
 export async function listFavoriteJobs() {
-  const response = await fetch(apiUrl('/jobs/favorites'), { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
+  const response = await apiFetch('/jobs/favorites', { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
   return (await parseApiResponse(response, '加载岗位收藏失败')) || []
 }
 
 export async function saveFavoriteJob(job) {
-  const response = await fetch(apiUrl('/jobs/favorites'), {
+  const response = await apiFetch('/jobs/favorites', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(job || {}),
@@ -27,12 +27,12 @@ export async function analyzeFavoriteJob(jobKey, resumeId) {
   }
 
   try {
-    let response = await fetch(apiUrl('/jobs/favorites/analyze'), requestOptions)
+    let response = await apiFetch('/jobs/favorites/analyze', requestOptions)
 
     // 兼容未重启后端或旧版本后端：旧接口只支持 /{jobKey}/analyze。
     // 新接口返回 404/405 时自动降级，避免用户侧直接看到 Request method 'POST' not supported。
     if (response.status === 404 || response.status === 405) {
-      response = await fetch(apiUrl(`/jobs/favorites/${encodeURIComponent(jobKey)}/analyze`), requestOptions)
+      response = await apiFetch(`/jobs/favorites/${encodeURIComponent(jobKey)}/analyze`, requestOptions)
     }
 
     return parseApiResponse(response, '收藏岗位分析失败')
@@ -45,7 +45,7 @@ export async function analyzeFavoriteJob(jobKey, resumeId) {
 }
 
 export async function deleteFavoriteJob(jobKey) {
-  const response = await fetch(apiUrl(`/jobs/favorites/${encodeURIComponent(jobKey)}`), { method: 'DELETE' })
+  const response = await apiFetch(`/jobs/favorites/${encodeURIComponent(jobKey)}`, { method: 'DELETE' })
   return (await parseApiResponse(response, '移出岗位收藏失败')) || []
 }
 
@@ -60,7 +60,7 @@ export async function fetchJobDetail(securityId, url) {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 90000)
   try {
-    const response = await fetch(apiUrl(`/jobs/detail?${params.toString()}`), {
+    const response = await apiFetch(`/jobs/detail?${params.toString()}`, {
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache' },
       signal: controller.signal,
@@ -81,7 +81,7 @@ export async function fetchJobDetail(securityId, url) {
       error.authData = json.data || null
       throw error
     }
-    if (!response.ok || json.code !== 0) {
+    if (!response.ok || (json.code !== 0 && json.code !== 200)) {
       throw new Error(json.message || `获取岗位详情失败: HTTP ${response.status}`)
     }
     return json.data

@@ -1,46 +1,22 @@
 <template>
   <section :class="embedded ? 'interview-embedded interview-manager-page' : 'system-page interview-page interview-manager-page'">
-    <header v-if="!embedded" class="page-header">
-      <div>
-        <p class="eyebrow">{{ pageEyebrow }}</p>
-        <h1>{{ pageTitle }}</h1>
-        <p>{{ pageDescription }}</p>
-      </div>
-      <div class="history-header-actions">
-        <template v-if="activeMode === 'bank'">
-          <button class="primary-btn" @click="openCreateModal">新增题目</button>
-          <button class="secondary-btn" :disabled="loading" @click="loadAll">刷新</button>
-        </template>
-        <template v-else>
-          <button class="secondary-btn" @click="emit('back-to-bank')">返回题库</button>
-          <button class="primary-btn" @click="openPracticeModal">随机组卷</button>
-          <button class="secondary-btn" :disabled="recordsLoading" @click="loadExams">刷新记录</button>
-        </template>
-      </div>
-    </header>
-    <div v-else class="embedded-actions">
-      <nav v-if="activeMode === 'bank'" class="bank-type-tabs embedded-bank-tabs" aria-label="题库切换">
-        <button
-          v-for="item in bankTypeOptions"
-          :key="item.value"
-          :class="{ active: filters.bankType === item.value }"
-          @click="switchBankTab(item.value)"
-        >
-          {{ item.label }}
-        </button>
-      </nav>
-      <div class="history-header-actions">
-        <template v-if="activeMode === 'bank'">
-          <button class="primary-btn" @click="openCreateModal">新增题目</button>
-          <button class="secondary-btn" :disabled="loading" @click="loadAll">刷新</button>
-        </template>
-        <template v-else>
-          <button class="secondary-btn" @click="emit('back-to-bank')">返回题库</button>
-          <button class="primary-btn" @click="openPracticeModal">随机组卷</button>
-          <button class="secondary-btn" :disabled="recordsLoading" @click="loadExams">刷新记录</button>
-        </template>
-      </div>
-    </div>
+    <InterviewBankHeader
+      :embedded="embedded"
+      :active-mode="activeMode"
+      :page-eyebrow="pageEyebrow"
+      :page-title="pageTitle"
+      :page-description="pageDescription"
+      :loading="loading"
+      :records-loading="recordsLoading"
+      :bank-type-options="bankTypeOptions"
+      :active-bank-type="filters.bankType"
+      @create="openCreateModal"
+      @refresh-bank="loadAll"
+      @back-to-bank="emit('back-to-bank')"
+      @practice="openPracticeModal"
+      @refresh-exams="loadExams"
+      @switch-bank="switchBankTab"
+    />
 
     <p v-if="error" class="error settings-error">{{ error }}</p>
 
@@ -416,6 +392,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { batchQuestions, createQuestion, createRandomExam, deleteQuestion, generateQuestions, getExam, getQuestionMeta, listExams, listQuestions, runCodeSample, submitExam, updateQuestion } from '../api/interview'
+import InterviewBankHeader from './interview/InterviewBankHeader.vue'
 import { buildDefaultTemplate, defaultOptions, defaultSignature, difficultyClass, displayTitle, extractFunctionName, formatCodingTests, formatRemainingTime, isChoiceType, isCodingQuestion, isMultiChoice, normalizeCodingLanguage, optionItems, questionStem, splitCleanTags, tagLabels } from '../utils/interviewBank'
 import { assertManualPracticeMatches, buildQuestionPayload, codingResultSummary as codingResultSummaryUtil, defaultPracticeTitle, displayExamTitle, examRuleTotal as computeExamRuleTotal, selectedAnswerKeys as selectedAnswerKeysUtil, validateAiForm, validatePracticeConfig, validateQuestionForm } from '../utils/interviewForm'
 

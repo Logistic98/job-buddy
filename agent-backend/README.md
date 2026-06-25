@@ -1,6 +1,6 @@
 # agent-backend
 
-`agent-backend` 是 `job-buddy` 的 Java 8 + Spring Boot 业务后端，也是前端默认访问的 BFF/API 入口。当前职责不再是单一“复杂问答 MVP”，而是承载求职工作台的业务 API、登录态、文件与数据管理，并代理调用 `agent-runtime`、`agent-intent`、`agent-memory`、`agent-tool`、`agent-eval` 等服务。Boss 直聘能力作为 `agent-tool` 的 `boss_browser` 工具注入，由 Runtime 编排调用。
+`agent-backend` 是 `job-buddy` 的 Java 8 字节码目标 + Spring Boot 业务后端，也是前端默认访问的 BFF/API 入口。当前职责不再是单一“复杂问答 MVP”，而是承载求职工作台的业务 API、登录态、文件与数据管理，并代理调用 `agent-runtime`、`agent-intent`、`agent-memory`、`agent-tool`、`agent-eval` 等服务。Boss 直聘能力作为 `agent-tool` 的 `boss_browser` 工具注入，由 Runtime 编排调用。
 
 ## 当前能力
 
@@ -17,7 +17,7 @@
 
 ## 技术栈
 
-- Java 8
+- JDK 8（当前本地验证版本为 1.8.0_333；Docker 镜像使用 Temurin 17 构建/运行，但 Maven 编译目标仍为 1.8）
 - Spring Boot 2.7.18
 - MyBatis Plus
 - Flyway
@@ -25,7 +25,7 @@
 - Redis
 - MinIO
 - Knife4j / OpenAPI
-- Maven（仓库当前未提供 `mvnw`）
+- Maven 3.8+（当前本地验证版本为 3.8.6；仓库当前未提供 `mvnw`）
 
 ## 主要目录
 

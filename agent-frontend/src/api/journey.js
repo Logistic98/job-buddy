@@ -1,4 +1,4 @@
-import { apiUrl, parseApiResponse } from './http'
+import { apiFetch, parseApiResponse } from './http'
 
 const TARGET_KEY = 'job-buddy.journey.target'
 const RECORDS_KEY = 'job-buddy.journey.records'
@@ -56,7 +56,7 @@ function saveRecordLocal(payload, recordId) {
 
 export async function getJourneyTarget() {
   try {
-    const response = await fetch(apiUrl('/journey/target'))
+    const response = await apiFetch('/journey/target')
     return await parseApiResponse(response, '求职目标加载失败')
   } catch (error) {
     if (isNotFound(error)) return loadTargetLocal()
@@ -66,7 +66,7 @@ export async function getJourneyTarget() {
 
 export async function saveJourneyTarget(payload) {
   try {
-    const response = await fetch(apiUrl('/journey/target'), {
+    const response = await apiFetch('/journey/target', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -84,7 +84,7 @@ export async function listJourneyRecords(params = {}) {
   if (params.status) query.set('status', params.status)
   if (params.result) query.set('result', params.result)
   try {
-    const response = await fetch(apiUrl(`/journey/records${query.toString() ? `?${query}` : ''}`))
+    const response = await apiFetch(`/journey/records${query.toString() ? `?${query}` : ''}`)
     return (await parseApiResponse(response, '求职进展加载失败')) || []
   } catch (error) {
     if (isNotFound(error)) return loadRecordsLocal().filter(row => matchFilter(row, params))
@@ -94,7 +94,7 @@ export async function listJourneyRecords(params = {}) {
 
 export async function createJourneyRecord(payload) {
   try {
-    const response = await fetch(apiUrl('/journey/records'), {
+    const response = await apiFetch('/journey/records', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -108,7 +108,7 @@ export async function createJourneyRecord(payload) {
 
 export async function updateJourneyRecord(recordId, payload) {
   try {
-    const response = await fetch(apiUrl(`/journey/records/${encodeURIComponent(recordId)}`), {
+    const response = await apiFetch(`/journey/records/${encodeURIComponent(recordId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -122,7 +122,7 @@ export async function updateJourneyRecord(recordId, payload) {
 
 export async function deleteJourneyRecord(recordId) {
   try {
-    const response = await fetch(apiUrl(`/journey/records/${encodeURIComponent(recordId)}`), { method: 'DELETE' })
+    const response = await apiFetch(`/journey/records/${encodeURIComponent(recordId)}`, { method: 'DELETE' })
     return await parseApiResponse(response, '求职记录删除失败')
   } catch (error) {
     if (isNotFound(error)) {
@@ -135,7 +135,7 @@ export async function deleteJourneyRecord(recordId) {
 
 export async function analyzeJourneyProgress(payload = {}) {
   try {
-    const response = await fetch(apiUrl('/journey/analysis'), {
+    const response = await apiFetch('/journey/analysis', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

@@ -1,12 +1,12 @@
-import { apiUrl, parseApiResponse } from './http'
+import { apiFetch, parseApiResponse } from './http'
 
 export async function getSettings() {
-  const response = await fetch(apiUrl('/settings'))
+  const response = await apiFetch('/settings')
   return parseApiResponse(response, '设置加载失败')
 }
 
 export async function saveSettings(payload) {
-  const response = await fetch(apiUrl('/settings'), {
+  const response = await apiFetch('/settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -15,12 +15,12 @@ export async function saveSettings(payload) {
 }
 
 export async function listMemories() {
-  const response = await fetch(apiUrl('/settings/memories'))
+  const response = await apiFetch('/settings/memories')
   return parseApiResponse(response, '记忆加载失败')
 }
 
 export async function addMemory(payload) {
-  const response = await fetch(apiUrl('/settings/memories'), {
+  const response = await apiFetch('/settings/memories', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -29,11 +29,11 @@ export async function addMemory(payload) {
 }
 
 export async function deleteMemory(memoryId) {
-  const response = await fetch(apiUrl(`/settings/memories/${encodeURIComponent(memoryId)}`), { method: 'DELETE' })
+  const response = await apiFetch(`/settings/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' })
   return parseApiResponse(response, '记忆删除失败')
 }
 
 export async function clearMemories() {
-  const response = await fetch(apiUrl('/settings/memories'), { method: 'DELETE' })
+  const response = await apiFetch('/settings/memories', { method: 'DELETE' })
   return parseApiResponse(response, '记忆清空失败')
 }
