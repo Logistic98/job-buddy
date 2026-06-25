@@ -57,7 +57,7 @@ else
   warn_msg "CLAUDE.md not found; agent runs will have less project context"
 fi
 
-for script in .agent-harness/scripts/verify.sh .agent-harness/scripts/evaluate.sh .agent-harness/scripts/gate.sh agent-backend/scripts/quality-gate.sh; do
+for script in .agent-harness/scripts/verify.sh .agent-harness/scripts/evaluate.sh .agent-harness/scripts/gate.sh .agent-harness/scripts/check_flyway_migrations.py agent-backend/scripts/quality-gate.sh; do
   if [[ -x "$script" ]]; then
     ok "$script is executable"
   else

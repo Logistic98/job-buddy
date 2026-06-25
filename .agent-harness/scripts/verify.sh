@@ -175,6 +175,12 @@ run_java_module() {
   popd >/dev/null
 }
 
+run_flyway_migration_check() {
+  log "flyway migrations"
+  need_cmd python3 "Flyway migration verification"
+  python3 .agent-harness/scripts/check_flyway_migrations.py || fail "Flyway migration check failed"
+}
+
 run_auto_module() {
   local module="$1"
   if [[ -f "$module/pyproject.toml" ]]; then
@@ -206,6 +212,10 @@ verify_module() {
       fail "unknown module: $module. Use --list to show supported modules." ;;
   esac
 }
+
+if [[ -z "$TARGET" || "$TARGET" == "agent-backend" ]]; then
+  run_flyway_migration_check
+fi
 
 if [[ -n "$TARGET" ]]; then
   verify_module "$TARGET"

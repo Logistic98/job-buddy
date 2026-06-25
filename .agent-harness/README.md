@@ -21,6 +21,7 @@ job-buddy/
 
 `verify.sh` 已按多技术栈设计：
 
+- Flyway 迁移：全量验证和 `agent-backend` 验证会先执行 `check_flyway_migrations.py`，检查迁移脚本命名、版本唯一性，以及相对基线只允许追加更高版本新脚本。
 - `agent-backend`：优先识别 Maven Wrapper / Maven / Gradle Wrapper / Gradle，执行 `test` 或 `verify/build`。
 - `agent-frontend`：识别 `package.json`，执行 `npm ci/install`、`lint`、`test`、`build`。
 - Python 模块：识别 `pyproject.toml`，执行 `uv sync` 与 `python -m pytest`。
@@ -68,6 +69,7 @@ graph LR
 ├── runs/                     # 运行产物：日志、summary、verdict、diff，已被 .gitignore 忽略；默认保留 30 天
 └── scripts/
     ├── doctor.sh             # 依赖与 harness 自检
+    ├── check_flyway_migrations.py  # Flyway 迁移命名、版本唯一与只追加校验
     ├── verify.sh             # 测试/构建层统一验证入口
     ├── evaluate.sh           # 行为评估层入口
     ├── gate.sh               # 交付门禁：verify + evaluate
@@ -277,6 +279,9 @@ agent-backend/scripts/quality-gate.sh --quick
 ./.agent-harness/scripts/verify.sh agent-intent --quick
 ./.agent-harness/scripts/verify.sh agent-runtime --quick
 
+# 单独检查 Flyway 迁移脚本
+./.agent-harness/scripts/check_flyway_migrations.py
+
 # 分层调试：只跑评估
 ./.agent-harness/scripts/evaluate.sh agent-runtime
 ./.agent-harness/scripts/evaluate.sh agent-backend
@@ -295,6 +300,7 @@ agent-backend/scripts/quality-gate.sh --quick
 
 - `.agent-harness/runs/` 是运行现场，通常不应提交到 Git；默认按 `HARNESS_RUN_RETENTION_DAYS=30` 清理旧运行目录。
 - 后续开发任务返回前必须跑 `./.agent-harness/scripts/gate.sh <target> --quick`；跨模块任务跑 `gate.sh all --quick`。不要只跑 `verify.sh` 就声明完成。
+- Flyway 迁移脚本位于 `agent-backend/src/main/resources/db/migration/`；已合并或已发布的 `V*.sql` 只能追加不能修改，新增脚本必须使用高于当前最大版本的新版本号，禁止重复版本号，文件名遵循 `V<major>_<minor>_<patch>__<English_description>.sql`。
 - Goal 不应包含真实密钥、生产地址或敏感数据。
 - Vue 前端禁止硬编码后端地址，应通过 Vite 环境变量或代理配置注入。
 - Spring Boot 后端禁止把数据库、模型服务、第三方系统密钥写入 `application.yml`，应通过环境变量、Profile 或 Secret 注入。

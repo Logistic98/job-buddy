@@ -74,6 +74,7 @@ job-buddy/
 - MySQL / Redis / Elasticsearch / Kafka / MinIO / Milvus 等中间件按模块按需启用。
 - 中间件连接信息、密钥、模型 API Key 等敏感配置必须通过环境变量或挂载的配置文件注入。
 - 任何对生产数据库的结构变更必须通过迁移脚本管理，不允许直接手工改库。
+- 后端 Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。已合并或已发布的 `V*.sql` 迁移脚本视为不可变资产，只能追加更高版本的新脚本，禁止修改、删除、重命名旧脚本，禁止复用版本号；否则会触发 Flyway checksum/hash 校验失败。文件命名遵循 `V<major>_<minor>_<patch>__<English_description>.sql`，描述使用英文单词、数字和下划线。
 
 ## 常用命令
 
@@ -412,6 +413,7 @@ uv run python -m pytest
 - Java / Spring Boot 模块：执行 `mvn test` / `mvn verify`（仓库未提供 mvnw Wrapper）。
 - Python 模块：`uv run python -m pytest`，必要时附带覆盖率检查。
 - Vue 前端：`npm run lint`、`npm test`、`npm run build`，关键页面需本地 `npm run dev` 联调。
+- Flyway 迁移变更：必须运行 `./.agent-harness/scripts/check_flyway_migrations.py`；`verify.sh agent-backend --quick` 和 `gate.sh agent-backend --quick` 会自动执行该检查。
 - 接口变更：补充或更新 curl 示例、Mock 数据、接口文档。
 - 配置变更：在 dev 环境验证启动流程，确认健康检查通过。
 - Agent 行为、意图、工具、Trace、观测字段变更：同步执行或更新 `agent-eval` 评估，并通过 `.agent-harness/scripts/evaluate.sh <target>` 或 `gate.sh <target> --quick` 验证。
@@ -421,8 +423,9 @@ Harness 联动规则：
 1. 修改任一模块的启动命令、测试命令、构建命令、目录结构、健康检查接口或依赖管理方式时，必须同步检查 `.agent-harness/scripts/verify.sh`、`doctor.sh`、`gate.sh` 和 `.agent-harness/README.md`。
 2. 修改 Agent 核心链路、SSE 事件、Trace 节点、工具事件、意图分类输出、风险等级、权限边界或用户可见任务流程时，必须同步检查 `.agent-harness/scripts/evaluate.sh`、`agent-eval/app/grader.py`、`agent-eval/cases/` 和 `agent-eval/tests/`。
 3. 新增跨模块能力时，应优先补充或更新 `.agent-harness/goals/` 中的 Goal 示例；新增周期性巡检、回归检查或健康检查时，应补充 `.agent-harness/loops/`。
-4. 代码已经更新但 Harness 或 Eval 未更新时，必须在回复中明确说明“不需要同步更新”的理由；不能默认忽略。
-5. 跨模块交付优先运行 `./.agent-harness/scripts/gate.sh all --quick`；单模块交付至少运行对应模块的 `gate.sh <target> --quick` 或说明无法运行原因。
+4. 修改 Flyway 迁移规则、迁移目录或数据库结构变更流程时，必须同步维护 `.agent-harness/scripts/check_flyway_migrations.py`、`.agent-harness/scripts/verify.sh` 和 `.agent-harness/README.md`。
+5. 代码已经更新但 Harness 或 Eval 未更新时，必须在回复中明确说明“不需要同步更新”的理由；不能默认忽略。
+6. 跨模块交付优先运行 `./.agent-harness/scripts/gate.sh all --quick`；单模块交付至少运行对应模块的 `gate.sh <target> --quick` 或说明无法运行原因。
 
 如果本地环境无法完整验证，必须在回复或提交说明中明确未验证项与原因。
 

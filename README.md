@@ -99,6 +99,18 @@ cp .env.example .env
 
 真实密钥、数据库密码、模型 API Key、用户数据和本地运行目录不得提交到仓库。
 
+## 数据库迁移规范
+
+后端使用 Flyway 管理数据库结构变更，迁移脚本统一放在 `agent-backend/src/main/resources/db/migration/`。已合并或已发布的 `V*.sql` 迁移脚本视为不可变资产，后续变更只能追加更高版本的新脚本，禁止修改、删除、重命名旧脚本，禁止复用版本号；否则会触发 Flyway checksum/hash 校验失败。文件命名遵循 `V<major>_<minor>_<patch>__<English_description>.sql`，例如 `V1_15_0__Add_user_profile_table.sql`，描述部分使用英文单词、数字和下划线。
+
+提交涉及数据库结构的改动前，先运行 Flyway 迁移校验：
+
+```bash
+./.agent-harness/scripts/check_flyway_migrations.py
+```
+
+该检查已接入 `./.agent-harness/scripts/verify.sh agent-backend --quick` 和 `./.agent-harness/scripts/gate.sh agent-backend --quick`。
+
 ## 快速开始
 
 ### 一键启动本地开发环境
@@ -216,6 +228,9 @@ cd agent-sandbox  && uv sync && uv run python server.py
 ```bash
 # 后端
 cd agent-backend && mvn test
+
+# Flyway 迁移规则
+./.agent-harness/scripts/check_flyway_migrations.py
 
 # 前端
 cd agent-frontend && npm run lint && npm test && npm run build
