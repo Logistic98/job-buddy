@@ -11,4 +11,5 @@ public interface JobFavoriteService {
     void saveFavorite(JobFavoriteSaveCommand command);
     void removeFavorite(String jobKey);
     Map<String, Object> analyzeFavorite(JobFavoriteAnalysisCommand command);
+    Map<String, Object> analyzeJob(JobFavoriteSaveCommand command, String resumeId);
 }

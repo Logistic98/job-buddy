@@ -125,6 +125,7 @@ import { computed, ref } from 'vue'
 import { useJobStore } from '../stores/job'
 import { useResumeStore } from '../stores/resume'
 import { useChatStore } from '../stores/chat'
+import { compactJobSummaryText, firstJobDescriptionText, normalizeJobDescriptionText } from '../utils/jobText'
 
 const props = defineProps({ mode: { type: String, default: 'workspace' } })
 const job = useJobStore()
@@ -201,11 +202,10 @@ function salaryText(item) {
   return String(value || '').trim() || '薪资未标注'
 }
 function descriptionText(item) {
-  const text = item.jobDescription || item.description || item.postDescription || item.jobDesc || item.jobSecText || item.detailText || ''
-  return String(text || '').replace(/\s+/g, ' ').slice(0, 180)
+  return compactJobSummaryText(firstJobDescriptionText(item), 180)
 }
 function fullDescription(item) {
-  return String(item.jobDescription || item.description || item.postDescription || item.jobDesc || item.jobSecText || item.detailText || '').trim()
+  return normalizeJobDescriptionText(firstJobDescriptionText(item))
 }
 function hasLoadedJd(item) {
   return !!fullDescription(item)

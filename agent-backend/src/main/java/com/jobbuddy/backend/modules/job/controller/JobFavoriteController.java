@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 岗位收藏接口，提供收藏岗位查询、保存和删除能力。
@@ -57,16 +58,17 @@ public class JobFavoriteController {
     }
 
     /**
-     * 分析收藏岗位与简历的匹配度，结果持久化并支持重新分析。
+     * 分析岗位与简历的匹配度。岗位可以是收藏岗位，也可以是会话中的推荐岗位快照；
+     * 命中收藏岗位时结果持久化，未收藏的临时岗位仅返回分析结果不落库。
      *
      * @return 统一接口响应
      */
-    @Operation(summary = "分析收藏岗位")
+    @Operation(summary = "分析岗位匹配度")
     @PostMapping("/analyze")
     public ApiResponse<JobFavoriteResponse> analyzeByBody(@RequestBody(required = false) JobFavoriteRequest body) {
-        String jobKey = body == null ? null : body.jobKey();
+        Map<String, Object> job = body == null ? java.util.Collections.<String, Object>emptyMap() : body.toMap();
         String resumeId = body == null ? null : body.resumeId();
-        return ApiResponse.success(JobFavoriteResponse.from(service.analyzeFavorite(JobFavoriteAnalysisCommand.of(jobKey, resumeId))));
+        return ApiResponse.success(JobFavoriteResponse.from(service.analyzeJob(JobFavoriteSaveCommand.from(job), resumeId)));
     }
 
     /**

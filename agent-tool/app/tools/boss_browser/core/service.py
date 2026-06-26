@@ -54,6 +54,13 @@ class BossService:
             self._limiter.reset_backstop()
         return result
 
+    async def refresh_auth(self) -> dict[str, Any]:
+        result = await self._session.refresh_auth()
+        if result.get("authenticated"):
+            self._limiter.clear_cooldown()
+            self._limiter.reset_backstop()
+        return result
+
     async def qr_start(self) -> dict[str, Any]:
         return await self._session.start_qr_login()
 
@@ -98,7 +105,7 @@ class BossService:
         # 注意：需要登录不是风险信号，不计入连续失败硬停，否则未登录会反复累计直至
         # 触发硬停，使扫码登录入口被彻底锁死、无法恢复。
         if result.get("login_redirect"):
-            raise AuthRequiredError("Boss 未登录或登录态失效，请扫码登录。")
+            raise AuthRequiredError(result.get("error_message") or "Boss 未登录或登录态失效，请扫码登录。")
         payload = result.get("payload")
         jobs = extract_jobs(payload)
         if not jobs:
@@ -137,7 +144,7 @@ class BossService:
         self._handle_risk(result.get("risk_marker"))
         # 需要登录不计入硬停，避免登录态失效把详情入口也锁死。
         if result.get("login_redirect"):
-            raise AuthRequiredError("Boss 未登录或登录态失效，请扫码登录。")
+            raise AuthRequiredError(result.get("error_message") or "Boss 未登录或登录态失效，请扫码登录。")
         payload = result.get("payload")
         if payload is None:
             auth = await self._session.status()

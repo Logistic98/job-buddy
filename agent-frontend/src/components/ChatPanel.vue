@@ -39,26 +39,11 @@
               <div class="loading-count">{{ completedToolCount }}/{{ visibleToolEvents.length || 1 }}</div>
             </div>
             <div class="tool-step-list">
-              <details v-for="item in messageToolEvents(msg)" :key="item.id" class="tool-step">
-                <summary>
-                  <b :class="['tool-dot', item.status]"></b>
-                  <strong>{{ item.name }}</strong>
-                  <small>{{ item.detail }}</small>
-                </summary>
-                <div class="tool-detail">
-                  <template v-if="detailEntries(item.payload).length">
-                    <div v-for="entry in detailEntries(item.payload)" :key="entry.key" class="tool-detail-row">
-                      <span>{{ entry.key }}</span>
-                      <em>{{ entry.value }}</em>
-                    </div>
-                  </template>
-                  <p v-else class="tool-detail-empty">暂无明细</p>
-                  <details v-if="detailRawJson(item.payload)" class="tool-raw-json">
-                    <summary>查看原始 JSON</summary>
-                    <pre>{{ detailRawJson(item.payload) }}</pre>
-                  </details>
-                </div>
-              </details>
+              <div v-for="item in messageToolEvents(msg)" :key="item.id" class="tool-step-line">
+                <b :class="['tool-dot', item.status]"></b>
+                <strong>{{ item.name }}</strong>
+                <small v-if="item.detail">{{ item.detail }}</small>
+              </div>
               <details
                 v-if="msg.reasoning && msg.reasoning.trim()"
                 class="tool-step reasoning-step"
@@ -116,14 +101,14 @@
                     <div class="chat-job-actions">
                       <a v-if="originalUrl(item)" class="chat-origin-link" :href="originalUrl(item)" target="_blank" rel="noreferrer" title="在外部浏览器打开 Boss 原岗位" @click.stop>Boss 原岗位</a>
                       <button type="button" :disabled="isChatJdLoading(item, idx)" @click.stop="toggleChatJd(item, idx)">{{ chatJdButtonText(item, idx) }}</button>
-                      <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item)">分析此岗位</button>
+                      <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item)">{{ chat.loading ? '分析中' : '分析此岗位' }}</button>
                       <button type="button" :class="{ active: job.isFavorite(item) }" @click.stop="job.toggleFavorite(item)">{{ job.isFavorite(item) ? '已收藏' : '收藏' }}</button>
                     </div>
                     <p v-if="chatJdError(item, idx)" class="chat-job-jd-error">{{ chatJdError(item, idx) }}</p>
                     <div v-if="isChatJdOpen(item, idx) && chatJobFullJd(item)" class="chat-job-jd-full">{{ chatJobFullJd(item) }}</div>
                   </article>
                   <div class="chat-job-more">
-                    <button type="button" :disabled="chat.loading" @click="requestMoreJobs">换一批 / 更多岗位</button>
+                    <button type="button" :disabled="chat.loading" @click="requestMoreJobs(msg)">换一批 / 更多岗位</button>
                     <small>点击后再加载下一批岗位。</small>
                   </div>
                 </div>
@@ -169,6 +154,7 @@ import MarkdownRender from 'markstream-vue'
 import { useChatStore } from '../stores/chat'
 import { useJobStore } from '../stores/job'
 import { fetchJobDetail } from '../api/jobs'
+import { firstJobDescriptionText, normalizeJobDescriptionText } from '../utils/jobText'
 defineEmits(['ask', 'select-resume'])
 const props = defineProps({ resumeId: { type: String, default: '' }, resumeName: { type: String, default: '' } })
 const chat = useChatStore()
@@ -301,7 +287,7 @@ function chatJobSummary(item) {
 }
 function jobId(item, idx) { return String(item.securityId || item.id || item.jobId || item.encryptJobId || `job_${idx}`) }
 function chatJobFullJd(item) {
-  return String(item.jobDescription || item.description || item.postDescription || item.jobDesc || item.jobSecText || item.detailText || '').trim()
+  return normalizeJobDescriptionText(firstJobDescriptionText(item))
 }
 function isChatJdLoading(item, idx) { return jdLoadingKeys.value.has(jobId(item, idx)) }
 function chatJdError(item, idx) { return jdErrorMap.value[jobId(item, idx)] || '' }
@@ -415,50 +401,17 @@ function linkifyBareUrls(content) {
   })
 }
 
-// 推理/过程面板默认完整展示，不做任何文本截断：用户要看到全部推理依据。
-function previewValue(value) {
-  if (value === null || value === undefined || value === '') return '—'
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  if (Array.isArray(value)) return `${value.length} 项`
-  try {
-    return JSON.stringify(value)
-  } catch (_) {
-    return String(value)
-  }
-}
-
-function detailEntries(payload) {
-  if (payload === null || payload === undefined || payload === '') return []
-  if (typeof payload === 'string') {
-    return [{ key: '内容', value: payload }]
-  }
-  if (Array.isArray(payload)) return [{ key: '条目数', value: `${payload.length} 项` }]
-  if (typeof payload !== 'object') return [{ key: '值', value: String(payload) }]
-  return Object.entries(payload).map(([key, value]) => ({ key, value: previewValue(value) }))
-}
-
-function detailRawJson(payload) {
-  if (payload === null || payload === undefined || payload === '') return ''
-  if (typeof payload === 'string') return payload.length > 400 ? payload : ''
-  try {
-    const text = JSON.stringify(payload, null, 2)
-    if (text.length <= 240) return ''
-    return text
-  } catch (_) {
-    return ''
-  }
-}
-
-function requestMoreJobs() {
+function requestMoreJobs(msg) {
   if (chat.loading) return
-  chat.send('换一批', props.resumeId)
+  // 换一批走确定性翻页：复用上一轮检索条件直接翻到下一批候选。
+  // 前端复用当前岗位卡片所在的助手消息，在同一个卡片区域原位切换，避免新开一轮过程框。
+  chat.send('换一批', props.resumeId, { replay: true, flipJobs: true, assistantId: msg?.id })
 }
 
 function analyzeChatJob(item) {
-  if (chat.loading || !item) return
-  const text = `请针对「${jobTitle(item)} / ${company(item)}」这个岗位，结合当前简历分析匹配度、优势、差距、面试准备重点和是否建议投递。`
-  chat.send(text, props.resumeId, { selectedJob: item })
+  if (!item || chat.loading) return
+  const prompt = `分析此岗位与当前简历的匹配度：${jobTitle(item)} / ${company(item)}。请给出评分、结论、匹配优势、主要差距和下一步建议。`
+  chat.send(prompt, props.resumeId, { selectedJob: item })
 }
 
 onMounted(() => {

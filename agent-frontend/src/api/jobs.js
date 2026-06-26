@@ -44,6 +44,31 @@ export async function analyzeFavoriteJob(jobKey, resumeId) {
   }
 }
 
+/**
+ * 分析会话推荐岗位与当前简历的匹配度。岗位卡片通常未收藏、没有持久化 jobKey，
+ * 因此整条岗位快照随请求体一起提交，由后端做临时匹配分析并返回结果（命中收藏才落库）。
+ */
+export async function analyzeJobByBody(job, resumeId) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 120000)
+  const body = { ...(job || {}) }
+  if (resumeId) body.resumeId = resumeId
+  try {
+    const response = await apiFetch('/jobs/favorites/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    return parseApiResponse(response, '岗位分析失败')
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('岗位分析超时，请稍后重试。')
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 export async function deleteFavoriteJob(jobKey) {
   const response = await apiFetch(`/jobs/favorites/${encodeURIComponent(jobKey)}`, { method: 'DELETE' })
   return (await parseApiResponse(response, '移出岗位收藏失败')) || []

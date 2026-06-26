@@ -132,6 +132,22 @@ public class BossCliServiceImpl implements BossCliService {
         return json != null && !json.trim().isEmpty();
     }
 
+    /**
+     * 物化本地登录标记：扫码成功时 Boss 工具已确认 logged_in，但本地标记文件可能尚未生成，
+     * 此时直接落库会因凭证为空而丢失持久化。这里在标记缺失时写入一份最小化 logged_in 标记并返回，
+     * 已存在则原样返回，供 BossAuthService 在落库前确保 credential_json 可靠非空。
+     */
+    public String ensureLoginMarker() {
+        String existing = readCredentialJson();
+        if (existing != null && !existing.trim().isEmpty()) return existing;
+        String markerJson = "{\"provider\":\"jackwener/boss-cli\","
+                + "\"status\":\"logged_in\","
+                + "\"updatedAt\":\"" + jsonEscape(Instant.now().toString()) + "\"}";
+        writeCredential(markerJson);
+        String written = readCredentialJson();
+        return written != null && !written.trim().isEmpty() ? written : markerJson;
+    }
+
     public boolean restoreCredentialIfMissing(String credentialJson) {
         if (credentialJson == null || credentialJson.trim().isEmpty() || hasLocalCredential()) return false;
         return writeCredential(credentialJson);

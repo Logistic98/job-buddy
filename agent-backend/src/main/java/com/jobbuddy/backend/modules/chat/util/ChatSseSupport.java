@@ -102,12 +102,25 @@ public final class ChatSseSupport {
         for (String key : keys) {
             Object value = job.get(key);
             if (value == null) continue;
-            String text = String.valueOf(value).trim();
+            String text = cleanJobFieldText(value);
             if (text.isEmpty() || "null".equals(text)) continue;
             if (text.length() > 400) text = text.substring(0, 400);
             builder.append(label).append(": ").append(text).append('\n');
             return;
         }
+    }
+
+    private static String cleanJobFieldText(Object value) {
+        String raw = String.valueOf(value == null ? "" : value).replace("\r\n", "\n").replace('\r', '\n');
+        StringBuilder builder = new StringBuilder();
+        String[] lines = raw.split("\\n+");
+        for (String line : lines) {
+            String text = line == null ? "" : line.replace('\t', ' ').trim().replaceAll(" {2,}", " ");
+            if (text.isEmpty()) continue;
+            if (builder.length() > 0) builder.append('；');
+            builder.append(text);
+        }
+        return builder.toString().trim();
     }
 
     /** 把 agent-intent 预判结果整理为 runtime intent_hint 元数据，runtime 对未知元数据安全忽略。 */

@@ -1,3 +1,4 @@
+import time
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -82,11 +83,16 @@ def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
         )
         return {"code": 500, "message": result.summary, "data": result.model_dump()}
 
-    logger.info(f"执行工具: tool_name={name}, trace_id={trace_id}")
+    operation = ""
+    if isinstance(request.arguments, dict):
+        operation = str(request.arguments.get("operation") or "")
+    started_at = time.monotonic()
+    logger.info(f"执行工具: tool_name={name}, operation={operation}, trace_id={trace_id}")
     try:
         result = executor(request.arguments, trace_id=trace_id)
     except Exception as exc:
-        logger.error(f"工具执行异常: tool_name={name}, trace_id={trace_id}, error={exc}")
+        elapsed_ms = int((time.monotonic() - started_at) * 1000)
+        logger.error(f"工具执行异常: tool_name={name}, operation={operation}, trace_id={trace_id}, elapsed_ms={elapsed_ms}, error={exc}")
         result = ToolResult(
             status="error",
             summary=f"工具 {name} 执行异常",
@@ -99,6 +105,8 @@ def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
             ),
         )
     code = _response_code(result)
+    elapsed_ms = int((time.monotonic() - started_at) * 1000)
+    logger.info(f"工具执行完成: tool_name={name}, operation={operation}, trace_id={trace_id}, status={result.status}, code={code}, elapsed_ms={elapsed_ms}")
     return {"code": code, "message": result.summary, "data": result.model_dump()}
 
 

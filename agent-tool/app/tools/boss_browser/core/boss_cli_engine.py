@@ -63,6 +63,7 @@ class BossCliEngine:
         self._credential_file = self._data_dir / "credential.json"
         self._lock = asyncio.Lock()
         self._auth_degraded = False
+        self._last_browser_refresh_at = 0.0
         self._qr_state: dict[str, Any] = {}
 
         try:
@@ -123,6 +124,9 @@ class BossCliEngine:
 
     async def status(self) -> dict[str, Any]:
         return await asyncio.to_thread(self._status_sync)
+
+    async def refresh_auth(self) -> dict[str, Any]:
+        return await asyncio.to_thread(self._refresh_auth_sync)
 
     def _status_sync(self) -> dict[str, Any]:
         try:
@@ -214,12 +218,44 @@ class BossCliEngine:
         if not self._settings.boss_cli.auto_import_browser_cookies:
             return None
 
+        return self._import_browser_credential()
+
+    def _import_browser_credential(self) -> Any | None:
         cookie_source = (self._settings.boss_cli.cookie_source or "").strip() or None
         extracted = self._auth.extract_browser_credential(cookie_source=cookie_source)
         cred = extracted[0] if isinstance(extracted, tuple) else extracted
         if cred:
             self._auth.save_credential(cred)
+            self._auth_degraded = not self._credential_has_required_cookies(cred)
+            if not self._auth_degraded:
+                self._last_browser_refresh_at = time.time()
         return cred
+
+    def _refresh_auth_sync(self) -> dict[str, Any]:
+        cred = self._import_browser_credential()
+        refreshed = bool(cred and self._credential_has_required_cookies(cred))
+        if refreshed:
+            self._auth_degraded = False
+            payload = self._status_sync()
+            payload["refreshed"] = True
+            payload["refresh_source"] = (self._settings.boss_cli.cookie_source or "browser").strip() or "browser"
+            return payload
+
+        # 如果浏览器导入失败，但磁盘凭证仍包含完整关键 Cookie，则至少清掉进程内降级锁。
+        # 后续真实搜索会再次验证；这样避免一次临时失败让 status 永久显示未登录。
+        existing = self._get_credential_without_browser_import()
+        if existing and self._credential_has_required_cookies(existing):
+            self._auth_degraded = False
+        payload = self._status_sync()
+        payload["refreshed"] = False
+        payload["refresh_source"] = (self._settings.boss_cli.cookie_source or "browser").strip() or "browser"
+        return payload
+
+    def _get_credential_without_browser_import(self) -> Any | None:
+        try:
+            return self._auth.load_credential()
+        except Exception:  # noqa: BLE001
+            return None
 
     def _credential_or_none(self) -> Any | None:
         cred = self._get_credential()
@@ -230,6 +266,26 @@ class BossCliEngine:
             logger.warning(f"boss-cli 凭证缺少关键 Cookie：{missing}")
             return None
         return cred
+
+    def _refresh_after_auth_failure(self) -> bool:
+        now = time.time()
+        # 避免一次失效请求触发多轮浏览器 Cookie 读取，既慢又可能反复弹系统授权。
+        if now - self._last_browser_refresh_at < 60:
+            return False
+        self._last_browser_refresh_at = now
+        logger.warning("Boss 搜索登录态降级，尝试从本机浏览器刷新 Cookie 后重试一次。")
+        try:
+            cred = self._import_browser_credential()
+            refreshed = bool(cred and self._credential_has_required_cookies(cred))
+            if refreshed:
+                self._auth_degraded = False
+                logger.info("Boss 浏览器 Cookie 刷新成功，准备重试当前请求。")
+            else:
+                logger.warning("Boss 浏览器 Cookie 刷新失败或缺少关键 Cookie。")
+            return refreshed
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Boss 浏览器 Cookie 刷新异常：{exc}")
+            return False
 
     # ── 搜索 ─────────────────────────────────────────────────────────
 
@@ -259,8 +315,15 @@ class BossCliEngine:
 
         cred = self._credential_or_none()
         if not cred:
-            return self._auth_redirect(url)
+            refreshed = self._refresh_after_auth_failure()
+            if refreshed:
+                cred = self._credential_or_none()
+            if not cred:
+                return self._auth_redirect(url, "Boss 登录态失效，且未能从本机浏览器刷新可用 Cookie。请确认 Chrome 已登录 Boss，并允许读取 Chrome Safe Storage，或重新扫码登录。")
 
+        return self._search_with_credential(cred, url, query, city, page, extra, allow_refresh=True)
+
+    def _search_with_credential(self, cred: Any, url: str, query: str, city: str, page: int, extra: dict, *, allow_refresh: bool) -> dict[str, Any]:
         try:
             with self._client_cls(
                 cred,
@@ -280,11 +343,20 @@ class BossCliEngine:
                     job_type=self._resolve_filter(extra.get("job_type") or extra.get("jobType"), self._constants.JOB_TYPE_CODES),
                 )
         except self._SessionExpiredError:
-            return self._auth_redirect(url)
+            if allow_refresh and self._refresh_after_auth_failure():
+                refreshed = self._credential_or_none()
+                if refreshed:
+                    return self._search_with_credential(refreshed, url, query, city, page, extra, allow_refresh=False)
+            return self._auth_redirect(url, "Boss 登录态失效，自动刷新浏览器 Cookie 后仍不可用。请确认 Chrome 已登录 Boss，并允许读取 Chrome Safe Storage，或重新扫码登录。")
         except self._RateLimitError as exc:
             return self._rate_limited_result(url, exc)
         except self._BossApiError as exc:
-            return self._classify_exception(url, exc)
+            classified = self._classify_exception(url, exc)
+            if allow_refresh and classified.get("login_redirect") and self._refresh_after_auth_failure():
+                refreshed = self._credential_or_none()
+                if refreshed:
+                    return self._search_with_credential(refreshed, url, query, city, page, extra, allow_refresh=False)
+            return classified
         except Exception as exc:  # noqa: BLE001
             return self._error_result(url, exc)
 
@@ -737,9 +809,15 @@ class BossCliEngine:
         ]
         return any(str(marker).lower() in lowered for marker in markers if marker)
 
-    def _auth_redirect(self, url: str) -> dict[str, Any]:
+    def _auth_redirect(self, url: str, message: str | None = None) -> dict[str, Any]:
         self._auth_degraded = True
-        return {"payload": None, "risk_marker": None, "url": url, "login_redirect": True}
+        return {
+            "payload": None,
+            "risk_marker": None,
+            "url": url,
+            "login_redirect": True,
+            "error_message": message or "Boss 未登录或登录态失效，请扫码登录。",
+        }
 
     @staticmethod
     def _risk_result(url: str, exc: Exception) -> dict[str, Any]:

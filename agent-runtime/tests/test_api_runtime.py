@@ -19,9 +19,14 @@ def assert_success_envelope(response):
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     if TestClient is None:
         pytest.skip("fastapi.testclient 不可用")
+    # API 层测试必须自给自足，不能依赖本机 .env 里的真实 LLM 密钥：
+    # 注入确定性的本地配置，让 config 脱敏和 echo 语义回退在 CI（无密钥）下稳定复现。
+    monkeypatch.setattr(settings.config.llm_service, "api_key", "sk-test-runtime-key-1234")
+    monkeypatch.setattr(settings.config.runtime, "use_llm_planner", False)
+    monkeypatch.setattr("app.api.runtime._executor", None)
     return TestClient(create_app())
 
 

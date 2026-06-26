@@ -18,8 +18,9 @@ public class JobBuddyProperties {
     private int maxJobsPerScoring = 80;
 
     /** Boss live-search throttling and cache settings. */
-    private int bossSearchMaxPages = 1;
-    private int bossSearchTargetCandidates = 15;
+    private int bossSearchMaxPages = 2;
+    private int bossSearchTargetCandidates = 45;
+    private int bossSearchMaxPageDepth = 5;
     private int bossSearchPageDelayMillis = 5000;
     private int bossSearchCacheTtlMinutes = 30;
     private int bossSearchCooldownMinutesOnRisk = 30;
@@ -89,6 +90,14 @@ public class JobBuddyProperties {
 
     public void setBossSearchTargetCandidates(int bossSearchTargetCandidates) {
         this.bossSearchTargetCandidates = bossSearchTargetCandidates;
+    }
+
+    public int getBossSearchMaxPageDepth() {
+        return bossSearchMaxPageDepth;
+    }
+
+    public void setBossSearchMaxPageDepth(int bossSearchMaxPageDepth) {
+        this.bossSearchMaxPageDepth = bossSearchMaxPageDepth;
     }
 
     public int getBossSearchPageDelayMillis() {

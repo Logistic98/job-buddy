@@ -268,9 +268,30 @@ export const useChatStore = defineStore('chat', {
         this.bossAuthReplayKeys = this.bossAuthReplayKeys.filter(item => item !== authReplayKey)
         this.messages.push({ id: crypto.randomUUID(), role: 'user', content: text })
       }
-      if (!options.resumeAfterAuth) {
+      const fallbackFlipAssistantId = options.flipJobs
+        ? [...this.messages].reverse().find(item => item.role === 'assistant' && item.jobCards?.length)?.id
+        : ''
+      const reusableAssistantId = options.assistantId && (options.resumeAfterAuth || options.flipJobs)
+        ? options.assistantId
+        : (fallbackFlipAssistantId || '')
+      const reused = reusableAssistantId ? this.messages.find(item => item.id === reusableAssistantId) : null
+      if (options.resumeAfterAuth && reused) {
+        // 续跑复用同一条助手消息（同一个过程框）：清掉登录墙文案与上一轮残留工具事件，
+        // 让续跑后的搜索过程在同一个框里干净地接着展示，而不是又新开一个过程框。
+        reused.content = ''
+        reused.reasoning = ''
+        reused.toolEvents = []
+        reused.pending = false
         this.toolEvents = []
-        this.lastJobCardsEvent = []
+      } else if (options.flipJobs && reused) {
+        // 换一批复用当前岗位卡片所在的助手消息：保留旧岗位直到新 job_cards 到达，
+        // 只重置本轮工具过程，避免卡片区域闪空或追加新的助手消息。
+        reused.toolEvents = []
+        reused.pending = false
+        this.toolEvents = []
+      } else {
+        this.toolEvents = []
+        if (!options.flipJobs) this.lastJobCardsEvent = []
       }
       this.abortController?.abort()
       this.abortController = new AbortController()
@@ -278,8 +299,9 @@ export const useChatStore = defineStore('chat', {
       // 流式过程中若切换会话，openSession 会 abort 当前请求。此后任何迟到的 SSE 回调都不应再改动
       // this.messages（此时已是另一个会话的消息列表），否则会把上一个会话的流式内容/工具事件串进新会话。
       const isStreamStale = () => streamSignal.aborted
-      const assistantId = crypto.randomUUID()
-      let assistantCreated = false
+      const assistantId = reusableAssistantId || crypto.randomUUID()
+      // 续跑/换一批复用同一条助手消息时，视为已存在，避免收尾逻辑误判为空消息或漏清 pending。
+      let assistantCreated = !!(reusableAssistantId && this.messages.some(item => item.id === assistantId))
       let errorAppended = false
       let doneReceived = false
       const ensureAssistant = () => {
@@ -329,7 +351,7 @@ export const useChatStore = defineStore('chat', {
         if (msg?.pending) msg.pending = false
       }
       try {
-        await streamChat({ message: text, sessionId: this.sessionId, resumeId, resumeAfterAuth: !!options.resumeAfterAuth, selectedJob }, {
+        await streamChat({ message: text, sessionId: this.sessionId, resumeId, resumeAfterAuth: !!options.resumeAfterAuth, flipJobs: !!options.flipJobs, selectedJob }, {
           signal: this.abortController.signal,
           session: data => { this.sessionId = data.sessionId },
           intent: data => { this.intent = data },
@@ -374,10 +396,12 @@ export const useChatStore = defineStore('chat', {
             errorAppended = true
             appendAssistant(`请求失败：${errorText}`)
           },
-          done: () => {
+          done: data => {
             doneReceived = true
             finishRequest()
-            this.syncCurrentMessagesFromServer().catch(() => {})
+            // 失败态（例如换一批触发 auth_required）不立刻用服务端旧快照覆盖内存，
+            // 避免把当前卡片上的错误过程或已保留岗位闪回成上一轮状态。
+            if (data?.ok !== false) this.syncCurrentMessagesFromServer().catch(() => {})
             this.loadSessions().catch(() => {})
           },
           onEvent: (event, data) => {
@@ -496,7 +520,7 @@ export const useChatStore = defineStore('chat', {
         this.pendingAuthRequest = null
         return
       }
-      this.pendingAuthRequest = pending
+      this.pendingAuthRequest = { ...pending, assistantId }
       this.serviceError = '正在确认 Boss 登录状态，请稍候。'
       const status = await this.refreshBossAuthStatus()
       if (status?.authenticated) {
@@ -531,7 +555,7 @@ export const useChatStore = defineStore('chat', {
       // 仍未收尾则强制清理陈旧的在途请求，避免 send 因 loading/inFlightRequestKey 被静默拒绝，
       // 导致用户扫码后请求丢失、卡在登录态确认。
       if (this.loading || this.inFlightRequestKey) this.stop()
-      await this.send(pending.message, pending.resumeId, { replay: true, resumeAfterAuth: true, selectedJob: pending.selectedJob })
+      await this.send(pending.message, pending.resumeId, { replay: true, resumeAfterAuth: true, selectedJob: pending.selectedJob, assistantId: pending.assistantId })
     },
     upsertToolEvent(data, assistantId) {
       if (!data || !data.id) return

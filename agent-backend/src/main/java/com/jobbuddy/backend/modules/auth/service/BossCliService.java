@@ -9,6 +9,8 @@ public interface BossCliService {
     Map<String, Object> status();
     String readCredentialJson();
     boolean hasLocalCredential();
+    /** 本地登录标记缺失时物化一份最小化的 logged_in 标记并返回其内容，用于扫码成功后可靠落库与重启回填。 */
+    String ensureLoginMarker();
     boolean restoreCredentialIfMissing(String credentialJson);
     boolean writeCredential(String credentialJson);
     boolean isAuthenticated();

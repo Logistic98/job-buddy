@@ -7,8 +7,9 @@
         <p>维护对岗位筛选有用的信息，保存后用于推荐、匹配和问答上下文。</p>
       </div>
       <div class="profile-action-buttons">
-        <button class="primary-btn" :disabled="saving" @click="saveProfile">{{ saving ? '保存中' : '保存画像' }}</button>
-        <button class="secondary-btn" :disabled="saving" @click="clearForm">清空</button>
+        <button class="secondary-btn" :disabled="syncing || saving" @click="syncBoss">{{ syncing ? '同步中' : '同步 Boss 在线简历' }}</button>
+        <button class="primary-btn" :disabled="saving || syncing" @click="saveProfile">{{ saving ? '保存中' : '保存画像' }}</button>
+        <button class="secondary-btn" :disabled="saving || syncing" @click="clearForm">清空</button>
       </div>
     </header>
 
@@ -160,6 +161,7 @@ import { useResumeStore } from '../stores/resume'
 
 const resume = useResumeStore()
 const saving = ref(false)
+const syncing = ref(false)
 const generatingSummary = ref(false)
 const error = ref('')
 const saveHint = ref('')
@@ -413,6 +415,19 @@ async function requestAiSummary({ autoApply, showCompare, saveAfterApply }) {
     showWarning(error.value || 'AI 画像摘要生成失败')
   } finally {
     generatingSummary.value = false
+  }
+}
+async function syncBoss() {
+  if (syncing.value) return
+  syncing.value = true; error.value = ''; saveHint.value = '正在从 Boss 直聘拉取在线简历'
+  try {
+    await resume.syncBossOnline()
+    saveHint.value = '已从 Boss 直聘同步求职画像，可继续编辑后保存。'
+  } catch (err) {
+    error.value = err?.message || '从 Boss 直聘拉取求职画像失败'
+    showWarning(error.value)
+  } finally {
+    syncing.value = false
   }
 }
 async function saveProfile() {
