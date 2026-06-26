@@ -176,9 +176,13 @@ class RateLimiter:
             window.prune(now)
         return {
             "search_used_hour": len(self._windows["search"].hour),
+            "search_limit_hour": self._config.search_per_hour,
             "search_used_day": len(self._windows["search"].day),
+            "search_limit_day": self._config.search_per_day,
             "detail_used_hour": len(self._windows["detail"].hour),
+            "detail_limit_hour": self._config.detail_per_hour,
             "detail_used_day": len(self._windows["detail"].day),
+            "detail_limit_day": self._config.detail_per_day,
             "cooldown_active": now < self._cooldown_until,
             "cooldown_remaining_seconds": max(0, int(self._cooldown_until - now)),
             "consecutive_failures": self._consecutive_failures,

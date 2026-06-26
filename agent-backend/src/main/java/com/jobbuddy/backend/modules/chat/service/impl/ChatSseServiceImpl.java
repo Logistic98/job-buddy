@@ -155,6 +155,30 @@ public class ChatSseServiceImpl implements ChatSseService {
         });
     }
 
+    /** 顺序异步替换最近一条岗位助手消息；若历史中尚无岗位消息则回退为追加，保证新会话首屏仍可持久化。 */
+    private void replaceLatestJobMessageAsync(final String sessionId, final List<Map<String, Object>> jobs, final List<Map<String, Object>> toolEvents) {
+        final List<Map<String, Object>> jobsSnapshot = jobs == null ? Collections.<Map<String, Object>>emptyList() : new java.util.ArrayList<Map<String, Object>>(jobs);
+        final List<Map<String, Object>> toolEventsSnapshot = toolEvents == null ? Collections.<Map<String, Object>>emptyList() : new java.util.ArrayList<Map<String, Object>>(toolEvents);
+        persistExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    boolean replaced = sessionStore.replaceLatestAssistantJobMessage(sessionId, jobsSnapshot, toolEventsSnapshot);
+                    if (!replaced) {
+                        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+                        metadata.put("jobCards", jobsSnapshot);
+                        if (!toolEventsSnapshot.isEmpty()) {
+                            metadata.put("toolEvents", toolEventsSnapshot);
+                        }
+                        sessionStore.appendMessage(sessionId, "assistant", "", metadata);
+                    }
+                } catch (Exception e) {
+                    log.warn("异步替换岗位消息失败 sessionId={}: {}", sessionId, e.getMessage());
+                }
+            }
+        });
+    }
+
     /**
      * 等待持久化队列排空：persistExecutor 为单线程顺序执行，提交一个空屏障任务并等待其完成，
      * 即代表此前排队的用户消息/助手消息/会话状态落库均已结束。用于在 done 之前保证服务端一致。
@@ -241,29 +265,59 @@ public class ChatSseServiceImpl implements ChatSseService {
         String sessionId = request.getSessionId() == null || request.getSessionId().isEmpty()
                 ? "sess_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12)
                 : request.getSessionId();
-        // 首包优先：先把会话与“处理中”反馈直接写入 SSE，不做任何 DB/文件 IO，避免用户看到长时间空白。
-        // 这里的 running 状态只发流不落库，后续 success 状态会累积到内存状态并在本轮结束时统一落库。
+        // 首包优先：先把会话反馈直接写入 SSE，不做任何 DB/文件 IO，避免用户看到长时间空白。
         send(emitter, "session", Collections.singletonMap("sessionId", sessionId));
-        send(emitter, "tool_status", toolStatus("runtime_understanding", "Runtime 任务理解", "running", "已收到请求，正在理解你的问题并准备作答。", null));
 
         ChatSessionState state = sessionStore.getOrCreate(sessionId);
-        boolean resumeAfterAuth = Boolean.TRUE.equals(request.getResumeAfterAuth());
-        if (!resumeAfterAuth) {
-            state.toolEvents = new java.util.ArrayList<Map<String, Object>>();
-            state.resumeMatch = null;
+        // 扫码续跑与换一批都是确定性动作：必须存在上一轮检索条件才能短路，否则优雅回退到正常意图管线。
+        boolean resumeAfterAuthRequested = Boolean.TRUE.equals(request.getResumeAfterAuth());
+        boolean flipJobsRequested = Boolean.TRUE.equals(request.getFlipJobs());
+        boolean hasLastSlots = state.lastSlots != null && !state.lastSlots.isEmpty();
+        boolean resumeAfterAuth = resumeAfterAuthRequested && hasLastSlots;
+        boolean flipJobs = flipJobsRequested && hasLastSlots;
+        // 每轮（含扫码续跑、换一批）都重置本轮过程事件与匹配结果，避免上一轮过程被二次累积重复展示。
+        state.toolEvents = new java.util.ArrayList<Map<String, Object>>();
+        state.resumeMatch = null;
+        if (request.getResumeId() != null && !request.getResumeId().isEmpty()) {
+            state.resumeId = request.getResumeId();
         }
 
-        if (resumeAfterAuth && state.lastSlots != null && !state.lastSlots.isEmpty()) {
+        // 聊天岗位卡片上的“分析此岗位”是确定性的单岗位分析入口，直接进入流式分析，
+        // 不再走同步弹窗接口，也避免任务理解误把它扩展成整批岗位分析。
+        if (isSelectedJobAnalysis(request)) {
+            appendMessageAsync(sessionId, "user", request.getMessage(), null);
+            handleSelectedJobAnalysis(emitter, sessionId, state, request.getMessage(), request.getSelectedJob());
+            return;
+        }
+
+        // 扫码登录后的续跑：复用上一轮检索条件，跳过任务理解直接继续岗位搜索，与登录提示合并为同一段连续过程。
+        if (resumeAfterAuth) {
             sendToolStatus(emitter, sessionId, state, toolStatus("auth_resume", "登录后继续执行", "success", "Boss 登录完成，继续岗位搜索。", state.lastSlots));
             IntentResult resumedIntent = new IntentResult("job", "job.recommend", 1.0, Collections.<String>emptyList(), "low", false, "call_get_recommend_jobs", state.lastSlots);
             handleJobRecommend(emitter, sessionId, state, resumedIntent);
             return;
         }
+        // 换一批：复用上一轮检索条件并翻到候选池下一批，跳过意图预判与任务理解的模型往返，命中缓存即时刷新。
+        if (flipJobs) {
+            int nextPage = currentBossPage(state.lastSlots) + 1;
+            Map<String, Object> flipSlots = new LinkedHashMap<String, Object>(state.lastSlots);
+            flipSlots.put("boss_page", nextPage);
+            state.lastSlots = flipSlots;
+            sendToolStatus(emitter, sessionId, state, toolStatus("job_flip", "换一批", "success", "复用上一轮检索条件，直接翻到第 " + nextPage + " 批岗位。", flipSlots));
+            IntentResult flipIntent = new IntentResult("job", "job.recommend", 1.0, Collections.<String>emptyList(), "low", false, "call_get_recommend_jobs", flipSlots);
+            handleJobRecommend(emitter, sessionId, state, flipIntent, true);
+            return;
+        }
 
-        appendMessageAsync(sessionId, "user", request.getMessage(), null);
-        captureLongTermMemoryAsync(request.getMessage());
-        if (request.getResumeId() != null && !request.getResumeId().isEmpty()) {
-            state.resumeId = request.getResumeId();
+        // 仅正常路径提示“任务理解中”：确定性短路（续跑/换一批）不再出现该过程框。
+        // 该 running 状态只发流不落库，后续 success 状态会累积到内存状态并在本轮结束时统一落库。
+        send(emitter, "tool_status", toolStatus("runtime_understanding", "Runtime 任务理解", "running", "已收到请求，正在理解你的问题并准备作答。", null));
+
+        // 续跑/换一批是对已落库消息的重放或确定性动作，跳过用户消息落库与长程记忆写入，
+        // 否则会话历史会出现重复的用户气泡（“登录/换一批后又自动发了一次会话”），破坏“本就是一次会话”的语义。
+        if (!resumeAfterAuthRequested && !flipJobsRequested) {
+            appendMessageAsync(sessionId, "user", request.getMessage(), null);
+            captureLongTermMemoryAsync(request.getMessage());
         }
         // 选中岗位分析：把岗位关键信息注入 Runtime 消息上下文，回答仍走常规问答持久化链路。
         String effectiveMessage = withSelectedJobContext(request.getMessage(), request.getSelectedJob());
@@ -358,6 +412,148 @@ public class ChatSseServiceImpl implements ChatSseService {
             return;
         }
         handleRuntimeManagedTask(emitter, sessionId, rawMessage, state, directive, intent);
+    }
+
+    private boolean isSelectedJobAnalysis(ChatStreamRequest request) {
+        return request != null
+                && request.getSelectedJob() != null
+                && !request.getSelectedJob().isEmpty()
+                && !Boolean.TRUE.equals(request.getResumeAfterAuth())
+                && !Boolean.TRUE.equals(request.getFlipJobs());
+    }
+
+    private void handleSelectedJobAnalysis(SseEmitter emitter, String sessionId, ChatSessionState state, String rawMessage, Map<String, Object> selectedJob) throws IOException {
+        Map<String, Object> startDetail = new LinkedHashMap<String, Object>();
+        startDetail.put("job", compactSelectedJob(selectedJob));
+        sendToolStatus(emitter, sessionId, state, toolStatus("selected_job_analysis", "分析此岗位", "running", "正在读取当前简历并生成岗位匹配分析。", startDetail));
+
+        ResumeRecord resume = loadCurrentResume(state);
+        if (resume == null) {
+            sendAssistant(emitter, sessionId, state, "请先选择或上传 PDF 简历，再分析此岗位与简历的匹配度。", Collections.singletonMap("selectedJob", compactSelectedJob(selectedJob)));
+            return;
+        }
+
+        Map<String, Object> resumeSummary = resumeStorageService.summarize(resume);
+        String prompt = buildSelectedJobAnalysisPrompt(rawMessage, selectedJob, resumeSummary);
+        Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+        metadata.put("job_buddy", true);
+        metadata.put("entrypoint", "chat.selected_job_analysis");
+        metadata.put("runtime_execute", true);
+        metadata.put("resume_id", state == null ? null : state.resumeId);
+        metadata.put("selected_job", compactSelectedJob(selectedJob));
+        metadata.put("personal_context", buildPersonalContext(rawMessage, null, state));
+
+        final StringBuilder buffer = new StringBuilder();
+        final StringBuilder reasoningBuffer = new StringBuilder();
+        final String assistantId = "assistant_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        Map<String, Object> request = buildRuntimeManagedRequest(sessionId, prompt, "job-buddy", metadata, true);
+        Map<String, Object> runtimeResult = integrationService.runRuntimeStream(request, new java.util.function.Consumer<String>() {
+            @Override
+            public void accept(String piece) {
+                if (piece == null || piece.isEmpty()) return;
+                buffer.append(piece);
+                try {
+                    sendMessageDelta(emitter, sessionId, assistantId, piece);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }, new java.util.function.Consumer<String>() {
+            @Override
+            public void accept(String piece) {
+                if (piece == null || piece.isEmpty()) return;
+                reasoningBuffer.append(piece);
+                try {
+                    sendReasoningDelta(emitter, sessionId, assistantId, piece);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
+
+        String streamError = stringValue(firstPresent(runtimeResult, "error", "errorMessage"));
+        boolean streamFailed = !streamError.isEmpty();
+        String reasoning = stringValue(runtimeResult.get("reasoning"));
+        if (reasoning.isEmpty()) reasoning = reasoningBuffer.toString().trim();
+        String answer = stringValue(firstPresent(runtimeResult, "answer", "final_answer"));
+        if (answer.isEmpty()) answer = buffer.toString().trim();
+        // 部分推理模型在该短路路径下只返回 reasoning 增量而 final answer 为空。
+        // 选中岗位分析的 reasoning 内容本身就是面向用户的结构化分析，因此兜底写回主气泡，避免最终助手消息空白。
+        if (answer.isEmpty() && !reasoning.isEmpty()) answer = reasoning;
+        if (answer.isEmpty()) {
+            answer = "岗位分析暂未生成有效内容，请稍后重试。";
+        }
+
+        Map<String, Object> resultDetail = new LinkedHashMap<String, Object>();
+        resultDetail.put("status", runtimeResult.get("status"));
+        resultDetail.put("runId", firstPresent(runtimeResult, "run_id", "runId"));
+        resultDetail.put("stopReason", firstPresent(runtimeResult, "stop_reason", "stopReason"));
+        if (streamFailed) resultDetail.put("error", streamError);
+        sendToolStatus(emitter, sessionId, state, toolStatus(
+                "selected_job_analysis",
+                streamFailed ? "岗位分析中断" : "岗位分析完成",
+                streamFailed ? "error" : "success",
+                streamFailed ? "Runtime 流式中断，已展示内容可能不完整。" : "已完成当前岗位与简历的匹配分析。",
+                resultDetail));
+
+        Map<String, Object> finalMeta = new LinkedHashMap<String, Object>();
+        finalMeta.put("assistantId", assistantId);
+        finalMeta.put("selectedJob", compactSelectedJob(selectedJob));
+        if (!runtimeResult.isEmpty()) finalMeta.put("runtimeResult", resultDetail);
+        if (!reasoning.isEmpty()) finalMeta.put("reasoning", reasoning);
+        sendAssistant(emitter, sessionId, state, answer, finalMeta);
+    }
+
+    private Map<String, Object> compactSelectedJob(Map<String, Object> job) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (job == null) return result;
+        putSelectedJobField(result, "jobName", job, "jobName", "job_name", "title", "name");
+        putSelectedJobField(result, "company", job, "brandName", "companyName", "company");
+        putSelectedJobField(result, "salary", job, "salaryDesc", "salary", "salaryText", "jobSalary");
+        putSelectedJobField(result, "city", job, "cityName", "city", "location", "areaDistrict");
+        putSelectedJobField(result, "experience", job, "jobExperience", "experience", "experienceName");
+        putSelectedJobField(result, "degree", job, "jobDegree", "education", "degree", "degreeName");
+        putSelectedJobField(result, "description", job, "jobDescription", "description", "postDescription", "jobDesc", "jobSecText", "detailText", "jobRequire");
+        return result;
+    }
+
+    private void putSelectedJobField(Map<String, Object> target, String field, Map<String, Object> source, String... keys) {
+        for (String key : keys) {
+            Object value = source.get(key);
+            String text = normalizeSelectedJobText(value);
+            if (!text.isEmpty()) {
+                target.put(field, text.length() > 1200 ? text.substring(0, 1200) : text);
+                return;
+            }
+        }
+    }
+
+    private String normalizeSelectedJobText(Object value) {
+        if (value == null) return "";
+        String raw = String.valueOf(value).replace("\r\n", "\n").replace('\r', '\n');
+        StringBuilder builder = new StringBuilder();
+        for (String line : raw.split("\\n+")) {
+            String text = line == null ? "" : line.replace('\t', ' ').trim().replaceAll(" {2,}", " ");
+            if (text.isEmpty() || "null".equalsIgnoreCase(text)) continue;
+            if (builder.length() > 0) builder.append('\n');
+            builder.append(text);
+        }
+        return builder.toString();
+    }
+
+    private String buildSelectedJobAnalysisPrompt(String rawMessage, Map<String, Object> selectedJob, Map<String, Object> resumeSummary) {
+        Map<String, Object> job = compactSelectedJob(selectedJob);
+        StringBuilder builder = new StringBuilder();
+        builder.append("请对用户选中的单个岗位与当前简历做流式匹配分析。\n");
+        builder.append("要求：先给出 0-100 匹配评分和一句结论，再分段输出匹配优势、主要差距、面试准备建议和是否建议投递。\n");
+        builder.append("不要输出 JSON，不要等待全部分析完成后再集中输出，按自然语言逐步展开。\n");
+        builder.append("用户请求：").append(rawMessage == null ? "分析此岗位" : rawMessage).append("\n\n");
+        builder.append("岗位信息：\n");
+        for (Map.Entry<String, Object> entry : job.entrySet()) {
+            builder.append("- ").append(entry.getKey()).append(": ").append(entry.getValue()).append('\n');
+        }
+        builder.append("\n当前简历摘要：\n").append(resumeSummary == null ? "" : String.valueOf(resumeSummary)).append('\n');
+        return builder.toString();
     }
 
     private void handleResumeMatch(SseEmitter emitter, String sessionId, ChatSessionState state, IntentResult intent, String rawMessage) throws IOException {
@@ -628,7 +824,26 @@ public class ChatSseServiceImpl implements ChatSseService {
         return metadata;
     }
 
+    /** 读取上一轮检索条件中的候选池页码，缺省或非法时视为第 1 批，供换一批确定性翻页递增使用。 */
+    private int currentBossPage(Map<String, Object> slots) {
+        if (slots == null) return 1;
+        Object value = slots.get("boss_page");
+        if (value instanceof Number) return Math.max(1, ((Number) value).intValue());
+        if (value != null) {
+            try {
+                return Math.max(1, Integer.parseInt(String.valueOf(value).trim()));
+            } catch (NumberFormatException ignored) {
+                return 1;
+            }
+        }
+        return 1;
+    }
+
     private void handleJobRecommend(SseEmitter emitter, String sessionId, ChatSessionState state, IntentResult intent) throws IOException {
+        handleJobRecommend(emitter, sessionId, state, intent, false);
+    }
+
+    private void handleJobRecommend(SseEmitter emitter, String sessionId, ChatSessionState state, IntentResult intent, boolean replaceLatestJobTurn) throws IOException {
         Map<String, Object> searchPayload = new LinkedHashMap<String, Object>();
         searchPayload.put("stage", "prepare_cli");
         searchPayload.put("slots", intent.getSlots());
@@ -663,6 +878,20 @@ public class ChatSseServiceImpl implements ChatSseService {
         jobSearchDetail.put("sample", jobs.isEmpty() ? Collections.emptyList() : jobs.subList(0, Math.min(3, jobs.size())));
         sendToolStatus(emitter, sessionId, state, toolStatus("job_search", "岗位搜索完成", "success", "找到 " + jobs.size() + " 个候选岗位。", jobSearchDetail));
         send(emitter, "job_cards", jobs);
+        // 普通推荐保留独立助手消息，表示一轮新的用户意图；换一批是同一轮检索条件下的确定性翻页，
+        // 应直接替换最近的岗位卡片消息，避免聊天区和历史回放里出现“换一批又新开一轮会话”的错觉。
+        if (!jobs.isEmpty()) {
+            if (replaceLatestJobTurn) {
+                replaceLatestJobMessageAsync(sessionId, jobs, state.toolEvents);
+            } else {
+                Map<String, Object> turnMeta = new LinkedHashMap<String, Object>();
+                turnMeta.put("jobCards", jobs);
+                if (state.toolEvents != null && !state.toolEvents.isEmpty()) {
+                    turnMeta.put("toolEvents", new java.util.ArrayList<Map<String, Object>>(state.toolEvents));
+                }
+                appendMessageAsync(sessionId, "assistant", "", turnMeta);
+            }
+        }
         // 岗位列表与本轮推理过程统一异步落库，确保扫码搜索路径下首屏卡片即时呈现、不被持久化阻塞。
         saveStateAsync(state);
     }

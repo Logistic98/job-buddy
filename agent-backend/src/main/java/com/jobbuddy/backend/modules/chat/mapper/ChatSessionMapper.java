@@ -26,6 +26,12 @@ public interface ChatSessionMapper {
             @Param("metadataJson") String metadataJson,
             @Param("createdAt") Instant createdAt);
 
+    Map<String, Object> findLatestAssistantJobMessage(@Param("sessionId") String sessionId);
+
+    int updateMessageMetadata(
+            @Param("id") Long id,
+            @Param("metadataJson") String metadataJson);
+
     List<Map<String, Object>> listSessions();
 
     List<Map<String, Object>> listMessages(@Param("sessionId") String sessionId);

@@ -252,6 +252,11 @@ public class BossAuthServiceImpl implements BossAuthService {
 
     private void persistCurrentCredential(String status, Map<String, Object> source) {
         String credentialJson = bossCliService.readCredentialJson();
+        // 扫码成功落库时本地登录标记可能尚未生成：先物化一份 logged_in 标记，
+        // 确保 credential_json 可靠落库、进程重启后可从库回填，避免“登录完下次又要登录”。
+        if ((credentialJson == null || credentialJson.trim().isEmpty()) && "logged_in".equals(status)) {
+            credentialJson = bossCliService.ensureLoginMarker();
+        }
         if (credentialJson == null || credentialJson.trim().isEmpty()) {
             authStateRepository.updateStatus(PROVIDER, status, metadata(source));
             return;

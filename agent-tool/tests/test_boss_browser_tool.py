@@ -9,6 +9,7 @@ def test_boss_browser_rate_operation_returns_envelope():
     assert result.data["code"] == 200
     assert result.data["message"] == "success"
     assert "search_used_hour" in result.data["data"]
+    assert "search_limit_hour" in result.data["data"]
     assert "cooldown_active" in result.data["data"]
 
 

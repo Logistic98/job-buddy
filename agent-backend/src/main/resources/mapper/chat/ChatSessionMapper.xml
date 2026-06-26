@@ -74,6 +74,24 @@
     )
   </insert>
 
+  <select id="findLatestAssistantJobMessage" resultType="map">
+    SELECT
+      id,
+      metadata_json AS "metadataJson"
+    FROM chat_message_log
+    WHERE session_id = #{sessionId}
+      AND role = 'assistant'
+      AND metadata_json LIKE '%jobCards%'
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+  </select>
+
+  <update id="updateMessageMetadata">
+    UPDATE chat_message_log
+    SET metadata_json = #{metadataJson}
+    WHERE id = #{id}
+  </update>
+
   <select id="listSessions" resultType="map">
     SELECT
       s.session_id AS "sessionId",
@@ -83,7 +101,7 @@
         SELECT content
         FROM chat_message_log m
         WHERE m.session_id = s.session_id
-        ORDER BY m.created_at ASC
+        ORDER BY m.created_at ASC, m.id ASC
         LIMIT 1
       ) AS "firstMessage"
     FROM chat_session_state s
@@ -99,7 +117,7 @@
       created_at AS "createdAt"
     FROM chat_message_log
     WHERE session_id = #{sessionId}
-    ORDER BY created_at ASC
+    ORDER BY created_at ASC, id ASC
   </select>
 
   <delete id="deleteMessages">

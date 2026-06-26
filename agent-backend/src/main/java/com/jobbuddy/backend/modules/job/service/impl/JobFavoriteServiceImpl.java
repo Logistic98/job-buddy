@@ -90,7 +90,27 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
         if (row == null) {
             throw new IllegalArgumentException("收藏岗位不存在: " + jobKey);
         }
-        Map<String, Object> job = toJob(row);
+        Map<String, Object> job = attachAnalysis(toJob(row), resumeId);
+        mapper.updateAnalysis(userId(), jobKey.trim(), jsonCodec.toJson(job));
+        return job;
+    }
+
+    public Map<String, Object> analyzeJob(JobFavoriteSaveCommand command, String resumeId) {
+        Map<String, Object> body = command == null ? new LinkedHashMap<String, Object>() : command.toSnapshot();
+        if (body.isEmpty()) {
+            throw new IllegalArgumentException("缺少岗位信息");
+        }
+        String key = jobKey(body);
+        Map<String, Object> row = (key == null || key.trim().isEmpty()) ? null : mapper.findFavorite(userId(), key.trim());
+        Map<String, Object> job = row != null ? toJob(row) : new LinkedHashMap<String, Object>(body);
+        job = attachAnalysis(job, resumeId);
+        if (row != null) {
+            mapper.updateAnalysis(userId(), key.trim(), jsonCodec.toJson(job));
+        }
+        return job;
+    }
+
+    private Map<String, Object> attachAnalysis(Map<String, Object> job, String resumeId) {
         ResumeRecord resume = resolveResumeForAnalysis(resumeId);
         Map<String, Object> match = jobRuntimeService.matchResume(
                 resume, java.util.Collections.singletonList(job), null);
@@ -106,7 +126,6 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
         }
         job.put("analysis", analysis);
         job.put("analyzedAt", analysis.get("analyzedAt"));
-        mapper.updateAnalysis(userId(), jobKey.trim(), jsonCodec.toJson(job));
         return job;
     }
 

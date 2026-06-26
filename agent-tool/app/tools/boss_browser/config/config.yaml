@@ -423,26 +423,29 @@ boss_cli:
   data_dir: ""
   # 可选：指定从哪个本机浏览器读取 Boss Cookie，例如 chrome / firefox / edge / brave / arc。
   cookie_source: ""
-  # 默认不自动读取本机浏览器 Cookie，避免 macOS 弹出 Chrome Safe Storage 钥匙串授权。
-  # 如需显式导入浏览器 Cookie，可设置 BOSS_CLI_AUTO_IMPORT_BROWSER_COOKIES=true。
+  # 默认不在普通 status 中自动读取本机浏览器 Cookie，避免 macOS 弹出 Chrome Safe Storage 钥匙串授权。
+  # 真实搜索遇到登录降级时，工具会节流地尝试刷新一次浏览器 Cookie；也可手动调用 refresh_auth。
   auto_import_browser_cookies: false
   # 默认不让 status 触发真实 Boss 请求，避免周期性校验本身成为风控流量。
   status_verify: false
-  # 默认只允许第 1 页，避免登录后连续翻页。确需翻页时用环境变量显式放开。
-  max_search_page: 1
+  # 默认允许搜索前若干页，支撑"换一批"候选池跨页抓取；仍按页数本地拦截，避免无界连续翻页。
+  # 需要更严或更宽时用环境变量 BOSS_CLI_MAX_SEARCH_PAGE / BOSS_BROWSER_MAX_SEARCH_PAGE 覆盖。
+  max_search_page: 5
   # 传给 boss-cli BossClient 的请求间隔和超时；boss-cli 内部还会做高斯抖动、退避和 Cookie 合并。
   request_delay_s: 1.2
   timeout_s: 30.0
 
 rate_limit:
   # 拟人化限速与配额，全部可经环境变量覆盖。
-  search_per_hour: 6
-  search_per_day: 40
+  # 6 次/小时在“首屏单页直出 + 换一批缓存切片”优化后仍容易被少量调试耗尽；
+  # 默认放宽到 15 次/小时，同时保留风控冷却、连续失败硬停和环境变量覆盖能力。
+  search_per_hour: 15
+  search_per_day: 120
   # 详情为深链按需访问，是风控敏感面，配额刻意压低，配合站内点击与拟人节奏。
   detail_per_hour: 12
   detail_per_day: 60
-  action_delay_min_ms: 5000
-  action_delay_max_ms: 15000
+  action_delay_min_ms: 1500
+  action_delay_max_ms: 4000
   # 命中风控信号后的全局冷却（分钟）。
   cooldown_minutes_on_risk: 30
   # 连续失败多少次后进入"需人工"的硬停。

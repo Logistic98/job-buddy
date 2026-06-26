@@ -50,6 +50,10 @@ public class ChatSessionStore {
         chatSessionRepository.appendMessage(sessionId, role, content, metadata);
     }
 
+    public boolean replaceLatestAssistantJobMessage(String sessionId, List<Map<String, Object>> jobs, List<Map<String, Object>> toolEvents) {
+        return chatSessionRepository.replaceLatestAssistantJobMessage(sessionId, jobs, filterMemoryNoiseEvents(toolEvents));
+    }
+
     public void upsertToolEvent(String sessionId, Map<String, Object> event) {
         if (event == null || event.get("id") == null) return;
         ChatSessionState state = getOrCreate(sessionId);

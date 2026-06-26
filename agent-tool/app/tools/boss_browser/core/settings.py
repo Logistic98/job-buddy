@@ -53,7 +53,8 @@ class BossCliConfig(BaseModel):
     # “Chrome Safe Storage” 密码弹窗。需要显式导入时再通过环境变量开启。
     auto_import_browser_cookies: bool = False
     status_verify: bool = False
-    max_search_page: int = 1
+    # 默认允许搜索前若干页，支撑"换一批"候选池跨页抓取；按页数本地拦截的机制保留。
+    max_search_page: int = 5
     request_delay_s: float = 1.2
     timeout_s: float = 30.0
     # 二维码 dispatch 缺少 __zp_stoken__ 等 Web 关键 Cookie 时，用 headless 浏览器

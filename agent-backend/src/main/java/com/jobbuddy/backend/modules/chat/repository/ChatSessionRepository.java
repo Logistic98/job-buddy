@@ -53,6 +53,19 @@ public class ChatSessionRepository {
         mapper.appendMessage(sessionId, role, content, jsonCodec.toJson(metadata), Instant.now());
     }
 
+    public boolean replaceLatestAssistantJobMessage(String sessionId, List<Map<String, Object>> jobs, List<Map<String, Object>> toolEvents) {
+        Map<String, Object> row = mapper.findLatestAssistantJobMessage(sessionId);
+        if (row == null || row.get("id") == null) return false;
+        Map<String, Object> metadata = jsonCodec.toMap(string(row.get("metadataJson")));
+        metadata = metadata == null || metadata.isEmpty()
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(metadata);
+        metadata.put("jobCards", jobs == null ? new ArrayList<Map<String, Object>>() : jobs);
+        if (toolEvents != null && !toolEvents.isEmpty()) metadata.put("toolEvents", toolEvents);
+        Long id = longValue(row.get("id"));
+        return id != null && mapper.updateMessageMetadata(id, jsonCodec.toJson(metadata)) > 0;
+    }
+
     public List<Map<String, Object>> listSessions() {
         List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
         for (Map<String, Object> row : mapper.listSessions()) {
@@ -100,6 +113,10 @@ public class ChatSessionRepository {
     }
 
     private String string(Object value) { return value == null ? null : String.valueOf(value); }
+    private Long longValue(Object value) {
+        if (value instanceof Number) return ((Number) value).longValue();
+        try { return value == null ? null : Long.parseLong(String.valueOf(value)); } catch (Exception e) { return null; }
+    }
     private Object toInstantObject(Object value) {
         if (value instanceof Instant) return value;
         if (value instanceof java.sql.Timestamp) return ((java.sql.Timestamp) value).toInstant();

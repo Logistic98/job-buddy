@@ -23,7 +23,7 @@ from app.tools.boss_browser.core.response import (
 )
 from app.tools.boss_browser.core.service import AuthRequiredError, RiskControlError, get_service
 
-_ALLOWED_OPERATIONS = {"status", "qr_start", "qr_status", "search", "detail", "profile", "rate"}
+_ALLOWED_OPERATIONS = {"status", "refresh_auth", "qr_start", "qr_status", "search", "detail", "profile", "rate"}
 
 _T = TypeVar("_T")
 
@@ -71,7 +71,7 @@ def run_boss_browser(arguments: Dict[str, Any], trace_id: str | None = None) -> 
             code="invalid_arguments",
             message=f"不支持的 Boss 操作: {operation}",
             retryable=False,
-            suggested_action="operation 必须是 status、qr_start、qr_status、search、detail、profile 或 rate。",
+            suggested_action="operation 必须是 status、refresh_auth、qr_start、qr_status、search、detail、profile 或 rate。",
         )
     if not isinstance(payload, dict):
         return _tool_error(
@@ -111,6 +111,8 @@ async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         service = get_service()
         if operation == "status":
             return ok(await service.status())
+        if operation == "refresh_auth":
+            return ok(await service.refresh_auth())
         if operation == "qr_start":
             return ok(await service.qr_start())
         if operation == "qr_status":
@@ -177,7 +179,7 @@ def _error_code(code: int) -> str:
 
 def _suggested_action(code: int) -> str:
     if code == CODE_AUTH_REQUIRED:
-        return "请先在本机常用浏览器登录 Boss 后重试，以便 boss-cli 导入完整 Cookie；也可尝试二维码登录，但 HTTP 二维码可能缺少 __zp_stoken__。"
+        return "请先在本机常用浏览器登录 Boss 后重试；也可以调用 refresh_auth 重新导入浏览器 Cookie，或尝试二维码登录。"
     if code == CODE_RISK_CONTROL:
         return "已命中风控信号，请停止自动访问，等待账号自然恢复。"
     if code == CODE_RATE_LIMITED:
