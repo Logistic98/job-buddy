@@ -45,6 +45,25 @@ class OpenAICompatibleClient:
         self.understanding_thinking_disabled = bool(self._override(overrides, "understanding_thinking_disabled", getattr(llm_config, "understanding_thinking_disabled", True)))
         self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
         self.cache_metrics: Dict[str, int] = {"hits": 0, "misses": 0, "stores": 0}
+        # 进程内复用同一 AsyncClient：default_llm_client 在 Executor 构造期固定，跨请求
+        # 复用该实例即复用到模型服务的 keep-alive 连接，省掉每次调用重做 TLS/TCP 握手
+        # 带来的首字延迟（理解 + 合成两次调用各省一次握手）。
+        self._http: Optional[httpx.AsyncClient] = None
+
+    def _client(self) -> httpx.AsyncClient:
+        """惰性获取并复用 AsyncClient，保持到模型服务的连接池与 keep-alive。
+
+        仅以 timeout 构造，单次调用需要更短超时时在请求方法上以 timeout= 覆盖，
+        既不破坏按调用粒度的超时控制，又能跨调用复用底层连接。
+        """
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=self.timeout)
+        return self._http
+
+    async def aclose(self) -> None:
+        if self._http is not None:
+            await self._http.aclose()
+            self._http = None
 
     @classmethod
     def from_config(cls, config: Dict[str, Any]) -> "OpenAICompatibleClient":
@@ -85,8 +104,7 @@ class OpenAICompatibleClient:
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(self.chat_completions_url, headers=self._headers(), json=payload)
+                response = await self._client().post(self.chat_completions_url, headers=self._headers(), json=payload)
                 response.raise_for_status()
                 data = response.json()
                 message = self._parse_response(data)
@@ -117,24 +135,23 @@ class OpenAICompatibleClient:
         await self._ensure_model()
         payload = self._build_payload(messages, None, temperature, max_tokens, stream=True)
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                async with client.stream("POST", self.chat_completions_url, headers=self._headers(), json=payload) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line or not line.startswith("data:"):
-                            continue
-                        data_str = line[len("data:"):].strip()
-                        if not data_str or data_str == "[DONE]":
-                            if data_str == "[DONE]":
-                                break
-                            continue
-                        try:
-                            chunk = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
-                        kind, piece = self._parse_stream_event(chunk)
-                        if piece:
-                            yield {"type": kind, "text": piece}
+            async with self._client().stream("POST", self.chat_completions_url, headers=self._headers(), json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data_str = line[len("data:"):].strip()
+                    if not data_str or data_str == "[DONE]":
+                        if data_str == "[DONE]":
+                            break
+                        continue
+                    try:
+                        chunk = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        continue
+                    kind, piece = self._parse_stream_event(chunk)
+                    if piece:
+                        yield {"type": kind, "text": piece}
         except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as e:
             raise LLMServiceError(f"模型流式调用失败：{e}")
 
@@ -235,8 +252,7 @@ class OpenAICompatibleClient:
                 url = f"{self.base_url}/models"
             else:
                 url = f"{self.base_url.rstrip('/')}/v1/models"
-            async with httpx.AsyncClient(timeout=min(int(self.timeout), 20)) as client:
-                response = await client.get(url, headers=self._headers())
+            response = await self._client().get(url, headers=self._headers(), timeout=min(int(self.timeout), 20))
             response.raise_for_status()
             data = response.json()
             models = data.get("data") or data.get("models") or []

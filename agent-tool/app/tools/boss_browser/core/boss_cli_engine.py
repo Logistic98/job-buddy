@@ -27,6 +27,15 @@ from app.tools.boss_browser.core.settings import Settings
 PRIMARY_COOKIE = "wt2"
 STOKEN_COOKIE = "__zp_stoken__"
 REQUIRED_COOKIE_NAMES = {PRIMARY_COOKIE, STOKEN_COOKIE, "wbg", "zp_at"}
+# 持久登录身份 Cookie：扫码/浏览器登录后长期有效，进程重启与多次搜索间不失效。
+# __zp_stoken__ 是网页反爬动态下发的临时令牌，重复搜索时易被上游判失效；只要身份
+# Cookie 仍在，就说明用户仍处于登录态，可在不重新扫码的前提下静默重生令牌。
+LOGIN_IDENTITY_COOKIES = {PRIMARY_COOKIE, "zp_at"}
+
+# 交互翻页热路径上令牌重生的收紧参数：单页超时与加载后静置时间都比扫码补齐更短，
+# 避免冷启动后再多页等待把"换一批"拖到几十秒。
+_LEAN_COOKIE_VISIT_TIMEOUT_MS = 4000
+_LEAN_COOKIE_SETTLE_MS = 600
 
 # Boss 风控/安全相关上游码。boss-cli 会把部分码包装成 BossApiError，这里继续做
 # 本地归类，确保不会被当成普通空结果。
@@ -269,11 +278,15 @@ class BossCliEngine:
 
     def _refresh_after_auth_failure(self) -> bool:
         now = time.time()
-        # 避免一次失效请求触发多轮浏览器 Cookie 读取，既慢又可能反复弹系统授权。
+        # 避免一次失效请求触发多轮刷新，既慢又可能反复弹系统授权。
         if now - self._last_browser_refresh_at < 60:
             return False
         self._last_browser_refresh_at = now
-        logger.warning("Boss 搜索登录态降级，尝试从本机浏览器刷新 Cookie 后重试一次。")
+        # 优先复用已保存的持久登录 Cookie 静默重生 __zp_stoken__：用户本就处于登录态，
+        # 只是临时令牌失效，没必要弹系统钥匙串读取浏览器 Cookie，更不该强制重新扫码。
+        if self._refresh_stoken_from_persisted():
+            return True
+        logger.warning("Boss 搜索登录态降级，复用已保存登录态重生令牌未成功，回退从本机浏览器刷新 Cookie。")
         try:
             cred = self._import_browser_credential()
             refreshed = bool(cred and self._credential_has_required_cookies(cred))
@@ -286,6 +299,42 @@ class BossCliEngine:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Boss 浏览器 Cookie 刷新异常：{exc}")
             return False
+
+    def _has_login_identity(self, cred: Any) -> bool:
+        cookies = getattr(cred, "cookies", {}) or {}
+        return all(cookies.get(name) for name in LOGIN_IDENTITY_COOKIES)
+
+    def _refresh_stoken_from_persisted(self) -> bool:
+        """持久登录 Cookie 仍在、仅 __zp_stoken__ 失效时，复用已保存登录态静默重生令牌。
+
+        搜索/详情请求失败常常只是网页反爬令牌过期，而 wt2/zp_at 等身份 Cookie 仍然有效，
+        说明用户没有退出登录。这里带着磁盘上已保存的登录 Cookie 用 headless 浏览器访问
+        Boss 网页，让前端 JS 重新下发 __zp_stoken__ 后回收并落盘，避免“明明已登录却又弹
+        扫码”。补齐失败时返回 False，由上层回退到浏览器 Cookie 导入或最终引导扫码。
+        """
+        if not self._settings.boss_cli.headless_cookie_completion:
+            return False
+        existing = self._get_credential_without_browser_import()
+        if not existing or not self._has_login_identity(existing):
+            return False
+        cookies = dict(getattr(existing, "cookies", {}) or {})
+        # 移除可能过期的旧令牌，强制前端 JS 重新生成，避免带着失效令牌空跑一趟。
+        cookies.pop(STOKEN_COOKIE, None)
+        logger.info("Boss 令牌失效但持久登录 Cookie 仍在，尝试复用已保存登录态重生 __zp_stoken__。")
+        try:
+            completed = self._run_headless_cookie_completion(cookies, lean=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Boss 复用登录态重生令牌失败：{exc}")
+            return False
+        if not completed.get(STOKEN_COOKIE):
+            return False
+        credential = self._auth.Credential(cookies=completed)
+        self._auth.save_credential(credential)
+        self._auth_degraded = not self._credential_has_required_cookies(credential)
+        if not self._auth_degraded:
+            self._last_browser_refresh_at = time.time()
+            logger.info("Boss 复用已保存登录态重生 __zp_stoken__ 成功，准备重试当前请求。")
+        return not self._auth_degraded
 
     # ── 搜索 ─────────────────────────────────────────────────────────
 
@@ -669,7 +718,13 @@ class BossCliEngine:
             return self._auth.Credential(cookies=completed)
         return credential
 
-    def _run_headless_cookie_completion(self, cookies: dict[str, str]) -> dict[str, str]:
+    def _run_headless_cookie_completion(self, cookies: dict[str, str], *, lean: bool = False) -> dict[str, str]:
+        """用 headless Chromium 让前端 JS 下发 __zp_stoken__ 后回收 Cookie。
+
+        lean=True 用于交互翻页热路径上的令牌静默重生：只访问一次首页、用
+        domcontentloaded 而非 networkidle、收紧单页超时和等待，避免冷启动后再多页
+        等待把"换一批"拖到几十秒。lean=False 用于扫码登录后的一次性补齐，可多页兜底。
+        """
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
@@ -684,6 +739,8 @@ class BossCliEngine:
         user_data_dir = self._data_dir / "headless-browser"
         user_data_dir.mkdir(parents=True, exist_ok=True)
         timeout_ms = int(self._settings.boss_cli.headless_cookie_timeout_ms)
+        if lean:
+            timeout_ms = min(timeout_ms, _LEAN_COOKIE_VISIT_TIMEOUT_MS)
 
         with sync_playwright() as playwright:
             context = playwright.chromium.launch_persistent_context(
@@ -732,15 +789,20 @@ class BossCliEngine:
                         if name and value:
                             combined[name] = value
 
+                settle_ms = _LEAN_COOKIE_SETTLE_MS if lean else 1000
+
                 def visit(url: str, wait_until: str = "domcontentloaded") -> None:
                     try:
                         page.goto(url, wait_until=wait_until, timeout=timeout_ms)
                     except Exception:  # noqa: BLE001
                         pass
-                    page.wait_for_timeout(1000)
+                    page.wait_for_timeout(settle_ms)
                     collect()
 
                 visit(f"{base_url}/")
+                if lean:
+                    # 热路径只开首页让 JS 重生令牌，绝不再做 networkidle 多页兜底。
+                    return combined
                 if STOKEN_COOKIE not in combined:
                     visit(f"{base_url}/web/geek/job-recommend", "networkidle")
                 if STOKEN_COOKIE not in combined:

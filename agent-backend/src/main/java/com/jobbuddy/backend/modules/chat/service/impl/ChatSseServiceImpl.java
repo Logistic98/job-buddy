@@ -741,7 +741,8 @@ public class ChatSseServiceImpl implements ChatSseService {
         if (answer.isEmpty() && !streamFailed) {
             // 仅在流式连接正常但无产出（偶发空 done）时回退非流式托管调用。流式已报错时不再整请求重跑，
             // 否则会对已部分执行的任务（含 Boss 实时检索/详情）二次触发，既重复消耗预算又增加账号风控风险。
-            Map<String, Object> fallback = runRuntimeManagedAnswer(sessionId, rawMessage, state, directive, intent);
+            // 复用流式阶段已装配好的 metadata（含 personal_context），避免回退时对画像/简历/记忆做一次完全相同的二次装配。
+            Map<String, Object> fallback = runRuntimeManagedAnswerWithProfile(sessionId, rawMessage, "job-buddy", metadata);
             String fallbackAnswer = stringValue(firstPresent(fallback, "answer", "final_answer"));
             if (!fallbackAnswer.isEmpty()) {
                 runtimeResult = fallback;
@@ -776,11 +777,6 @@ public class ChatSseServiceImpl implements ChatSseService {
         // 推理过程随助手消息一并落库，刷新或切换会话后仍可回看本轮的思考过程。
         if (!reasoning.isEmpty()) finalMeta.put("reasoning", reasoning);
         sendAssistant(emitter, sessionId, state, answer, finalMeta);
-    }
-
-    private Map<String, Object> runRuntimeManagedAnswer(String sessionId, String message, ChatSessionState state, Map<String, Object> directive, IntentResult intent) {
-        Map<String, Object> metadata = runtimeManagedMetadata(message, state, directive, intent);
-        return runRuntimeManagedAnswerWithProfile(sessionId, message, "job-buddy", metadata);
     }
 
     private Map<String, Object> runRuntimeManagedAnswerWithProfile(String sessionId, String message, String profile, Map<String, Object> extraMetadata) {

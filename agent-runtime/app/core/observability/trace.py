@@ -1,4 +1,5 @@
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -31,7 +32,9 @@ class TraceRecorder:
         max_events = settings.config.observability.max_events
         if max_events > 0 and len(self.events) > max_events:
             self.events = self.events[-max_events:]
-        self._persist(item)
+        # 落盘是阻塞文件 IO；放到线程池执行，避免在流式问答期间反复卡住事件循环、
+        # 拖慢逐字下发。record 仍被顺序 await，单个 run 内的事件写入顺序保持不变。
+        await asyncio.to_thread(self._persist, item)
         if settings.config.observability.log_events:
             logger.info(f"Trace 事件：trace_id={trace_id}, run_id={run_id}, event={event}")
 
