@@ -26,8 +26,8 @@ class RateLimitConfig(BaseModel):
     search_per_day: int = 120
     detail_per_hour: int = 12
     detail_per_day: int = 120
-    action_delay_min_ms: int = 3000
-    action_delay_max_ms: int = 10000
+    action_delay_min_ms: int = 800
+    action_delay_max_ms: int = 2000
     cooldown_minutes_on_risk: int = 30
     consecutive_failure_backstop: int = 5
     # 限速/风控状态持久化文件路径；为空时由运行期解析到仓库根 .run 下。

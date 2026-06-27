@@ -444,8 +444,11 @@ rate_limit:
   # 详情为深链按需访问，是风控敏感面，配额刻意压低，配合站内点击与拟人节奏。
   detail_per_hour: 12
   detail_per_day: 60
-  action_delay_min_ms: 1500
-  action_delay_max_ms: 4000
+  # 拟人化动作间隔：跨页抓取时每页都要凑满该随机间隔，过长会让"换一批"明显卡顿。
+  # 收紧到 0.8-2s 以保证翻页可用，同时保留抖动、风控冷却与连续失败硬停的账号保护；
+  # 需要更保守可经 BOSS_BROWSER_DELAY_MIN_MS / BOSS_BROWSER_DELAY_MAX_MS 调高。
+  action_delay_min_ms: 800
+  action_delay_max_ms: 2000
   # 命中风控信号后的全局冷却（分钟）。
   cooldown_minutes_on_risk: 30
   # 连续失败多少次后进入"需人工"的硬停。

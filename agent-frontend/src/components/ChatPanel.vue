@@ -205,6 +205,9 @@ const visibleToolEvents = computed(() => chat.toolEvents.filter(item => item && 
 const latestToolEvent = computed(() => visibleToolEvents.value[visibleToolEvents.value.length - 1] || null)
 const currentToolEvent = computed(() => [...visibleToolEvents.value].reverse().find(item => item.status === 'running') || latestToolEvent.value || null)
 const completedToolCount = computed(() => visibleToolEvents.value.filter(item => item.status === 'success').length)
+// 工具事件签名独立成 computed：答案逐 token 流式期间工具事件不变，签名命中缓存，
+// 避免滚动跟随的 watch 在每个 token 上对全部工具事件重复做 map+join 字符串拼接。
+const toolEventsSignature = computed(() => visibleToolEvents.value.map(item => `${item.id}:${item.status}:${item.detail || ''}`).join('|'))
 const lastAssistantId = computed(() => {
   for (let i = chat.messages.length - 1; i >= 0; i--) {
     if (chat.messages[i]?.role === 'assistant') return chat.messages[i].id
@@ -499,7 +502,7 @@ watch(
     chat.messages[chat.messages.length - 1]?.content || '',
     chat.messages[chat.messages.length - 1]?.reasoning || '',
     visibleToolEvents.value.length,
-    visibleToolEvents.value.map(item => `${item.id}:${item.status}:${item.detail || ''}`).join('|'),
+    toolEventsSignature.value,
   ],
   () => {
     scrollToBottom()

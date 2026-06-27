@@ -24,6 +24,10 @@ Boss 直聘相关能力需要在本地求职工作台中保持低频、可控、
 
 该能力由 `BossCliConfig.headless_cookie_completion`（环境变量 `BOSS_CLI_HEADLESS_COOKIE`，默认开启）与 `headless_cookie_timeout_ms`（环境变量 `BOSS_CLI_HEADLESS_COOKIE_TIMEOUT_MS`，默认 8000）控制。补齐失败时保留原凭证，由上层落到 `auth_required` 终态并提示用户改用浏览器 Cookie 导入；前端据此停止轮询，避免对同一张已确认二维码无限轮询触发风控。
 
+### 搜索登录态失效后的令牌静默重生
+
+`__zp_stoken__` 是 Boss 网页反爬动态下发的临时令牌，多次搜索（典型如“换一批”跨页抓取）时容易被上游判为失效，而 `wt2`、`zp_at` 等持久登录身份 Cookie 仍然有效，说明用户并未退出登录。`boss_cli_engine.py` 的 `_refresh_after_auth_failure` 在搜索/详情登录态失效时，先经 `_refresh_stoken_from_persisted` 复用磁盘上已保存的登录身份 Cookie，调用 `_run_headless_cookie_completion` 让前端 JS 重新下发 `__zp_stoken__` 后回收落盘并重试当前请求；只有该路径也失败时才回退到本机浏览器 Cookie 导入，最终仍不可用才落到 `auth_required` 引导扫码。判定持久登录的身份 Cookie 集合由 `LOGIN_IDENTITY_COOKIES`（`wt2` + `zp_at`）定义。该路径复用既有 headless 补齐能力，受同一组 `BOSS_CLI_HEADLESS_COOKIE` 开关与 60 秒刷新节流约束，避免“用户明明已登录、换一批却又被要求重新扫码”，同时不放宽串行、低频、风控立即停手的账号保护约束。区别于扫码登录后的一次性补齐，交互翻页热路径上的令牌重生走 `_run_headless_cookie_completion(..., lean=True)` 轻量分支：只访问一次 Boss 首页、用 `domcontentloaded` 而非 `networkidle`、收紧单页超时（`_LEAN_COOKIE_VISIT_TIMEOUT_MS`，4000ms）与加载后静置时间（`_LEAN_COOKIE_SETTLE_MS`，600ms），绝不再做多页兜底，避免冷启动后再多页等待把“换一批”拖到几十秒；扫码登录补齐仍走 `lean=False` 的多页兜底以保证首次拿到可用搜索登录态。
+
 ## 涉及模块和接口
 
 涉及 `agent-tool` 的 Boss 工具实现、配置、依赖和单元测试，`agent-runtime` 的工具描述，`agent-backend` 的 Boss 登录态代理和启动脚本，前端二维码登录弹窗和 Boss API 封装。对外接口仍是 `POST /v1/tools/boss_browser/execute` 与 `POST /v1/runtime/tools/boss_browser/invoke`，操作类型保留 `status`、`qr_start`、`qr_status`、`search`、`detail`、`profile` 和 `rate`。

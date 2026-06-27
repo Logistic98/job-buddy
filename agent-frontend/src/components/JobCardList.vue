@@ -254,10 +254,36 @@ function favoriteTime(item) {
 }
 function jobId(item, idx) { return String(item.favoriteKey || item.securityId || item.id || item.jobId || item.encryptJobId || `job_${idx}`) }
 function favoriteKey(item) { return String(item?.favoriteKey || item?.securityId || item?.id || item?.jobId || item?.encryptJobId || `${item?.jobName || item?.title || 'job'}_${item?.brandName || item?.companyName || ''}`) }
+// 匹配与企业核验结果按 id/公司预建索引：模板对每张卡片会多次调用 matchOf/researchOf，
+// 若每次都对结果数组做线性 find，单次列表渲染的复杂度是 O(卡片数 * 结果数 * 调用次数)。
+// 这里把数组一次性收敛成 Map，命中缓存后查找降为 O(1)，且仅在 job.match 变化时重建，渲染语义不变。
+const matchById = computed(() => {
+  const map = new Map()
+  for (const m of (job.match?.matches || [])) {
+    const key = String(m?.id)
+    if (key && !map.has(key)) map.set(key, m)
+  }
+  return map
+})
+const researchByJobId = computed(() => {
+  const map = new Map()
+  for (const row of (job.match?.companyResearch || [])) {
+    const key = String(row?.jobId)
+    if (key && !map.has(key)) map.set(key, row)
+  }
+  return map
+})
+const researchByCompany = computed(() => {
+  const map = new Map()
+  for (const row of (job.match?.companyResearch || [])) {
+    if (row?.company != null && !map.has(row.company)) map.set(row.company, row)
+  }
+  return map
+})
 function matchOf(item, idx) {
   const matches = job.match?.matches || []
   const id = jobId(item, idx)
-  return matches.find(m => String(m.id) === id) || matches[idx] || (item.matchScore ? {
+  return matchById.value.get(id) || matches[idx] || (item.matchScore ? {
     score: item.matchScore,
     recommendation: item.matchRecommendation,
     reasoning: item.matchReasoning,
@@ -266,9 +292,8 @@ function matchOf(item, idx) {
   } : null)
 }
 function researchOf(item, idx) {
-  const rows = job.match?.companyResearch || []
   const id = jobId(item, idx)
-  return rows.find(row => String(row.jobId) === id) || rows.find(row => row.company === company(item)) || item.companyResearch || {}
+  return researchByJobId.value.get(id) || researchByCompany.value.get(company(item)) || item.companyResearch || {}
 }
 function favoriteAnalysis(item) {
   const analysis = item?.analysis

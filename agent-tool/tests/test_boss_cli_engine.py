@@ -160,6 +160,69 @@ def test_successful_fetch_clears_degraded(tmp_path, monkeypatch):
     assert engine._status_sync()["status"] == "logged_in"  # noqa: SLF001
 
 
+def test_refresh_reuses_persisted_login_to_regenerate_stoken(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    # 持久登录 Cookie 仍在、仅 __zp_stoken__ 失效的磁盘凭证。
+    persisted = _FakeCredential({PRIMARY_COOKIE: "x", "wbg": "w", "zp_at": "z"}, has_required=False)
+    saved: list = []
+
+    class _Auth:
+        @staticmethod
+        def Credential(cookies):
+            return _FakeCredential(cookies)
+
+        @staticmethod
+        def save_credential(value):
+            saved.append(value)
+
+    engine._auth = _Auth  # noqa: SLF001
+    monkeypatch.setattr(engine, "_get_credential_without_browser_import", lambda: persisted)
+    completion_seed: dict = {}
+
+    def _fake_completion(cookies, *, lean=False):
+        completion_seed.update(cookies)
+        completion_seed["lean"] = lean
+        # 重生令牌：headless 访问后回收到完整 Cookie。
+        return {**cookies, "__zp_stoken__": "fresh-token"}
+
+    monkeypatch.setattr(engine, "_run_headless_cookie_completion", _fake_completion)
+    # 身份 Cookie 仍在时绝不能回退去读浏览器 Cookie。
+    monkeypatch.setattr(
+        engine,
+        "_import_browser_credential",
+        lambda: (_ for _ in ()).throw(AssertionError("不应回退浏览器 Cookie 导入")),
+    )
+
+    assert engine._refresh_after_auth_failure() is True  # noqa: SLF001
+    assert saved and saved[0].cookies.get("__zp_stoken__") == "fresh-token"
+    # 失效的旧令牌应被剔除后再交给 headless 重生，避免带着废令牌空跑。
+    assert "__zp_stoken__" not in completion_seed
+    # 交互翻页热路径必须走轻量单次访问，避免冷启动后多页等待拖慢"换一批"。
+    assert completion_seed.get("lean") is True
+
+
+def test_refresh_falls_back_to_browser_when_no_login_identity(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    # 身份 Cookie 缺失：不属于“已登录只是令牌失效”，不应触发 headless 重生。
+    monkeypatch.setattr(engine, "_get_credential_without_browser_import", lambda: None)
+    monkeypatch.setattr(
+        engine,
+        "_run_headless_cookie_completion",
+        lambda cookies: (_ for _ in ()).throw(AssertionError("无身份 Cookie 时不应重生令牌")),
+    )
+    imported: list = []
+
+    def _fake_import():
+        cred = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"})
+        imported.append(cred)
+        return cred
+
+    monkeypatch.setattr(engine, "_import_browser_credential", _fake_import)
+
+    assert engine._refresh_after_auth_failure() is True  # noqa: SLF001
+    assert len(imported) == 1
+
+
 def test_search_page_limit_blocks_without_network(tmp_path):
     engine = _engine(tmp_path)
     engine._settings.boss_cli.max_search_page = 1  # noqa: SLF001
