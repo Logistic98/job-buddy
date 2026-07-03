@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from loguru import logger
 from pydantic import BaseModel
 
-from .grader import grade_capability_inventory, grade_run, grade_trace
+from .grader import grade_capability_inventory, grade_latency, grade_run, grade_trace
 from .judge import judge_enabled, judge_run
 
 app = FastAPI(title="agent-eval", version="0.2.0")
@@ -36,6 +36,11 @@ class CapabilityInventoryEvalRequest(BaseModel):
     profile: dict
 
 
+class LatencyEvalRequest(BaseModel):
+    metrics: dict
+    budget: dict | None = None
+
+
 @app.get("/health")
 def health() -> dict:
     return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-eval", "judge_enabled": judge_enabled()}}
@@ -54,6 +59,11 @@ def eval_run(request: RunEvalRequest) -> dict:
 @app.post("/v1/eval/capabilities")
 def eval_capabilities(request: CapabilityInventoryEvalRequest) -> dict:
     return _graded("capabilities", lambda: grade_capability_inventory(request.profile))
+
+
+@app.post("/v1/eval/latency")
+def eval_latency(request: LatencyEvalRequest) -> dict:
+    return _graded("latency", lambda: grade_latency(request.metrics, request.budget or {}))
 
 
 @app.post("/v1/eval/judge")

@@ -5,6 +5,13 @@ from typing import Any
 LEGACY_REQUIRED_NODES = {"A", "D1", "E", "F", "Z", "AH"}
 RUNTIME_REQUIRED_EVENTS = {"run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"}
 
+# 速度评估的时延指标键与默认权重/严重级别。target 内满分，达到 max 记 0，区间内线性衰减。
+LATENCY_METRIC_SPECS = (
+    ("ttft_ms", 1.0, "high"),
+    ("done_ms", 0.8, "medium"),
+    ("ttfb_ms", 0.4, "low"),
+)
+
 FORBIDDEN_FAKE_MARKERS = [
     "读取岗位 Fixture",
     "使用本地 fixture/mock 验证卡片和流程",
@@ -96,6 +103,7 @@ def grade_run(run: dict, expected: dict | None = None) -> dict:
     checks.extend(_grade_output_dimension(run, expected))
     checks.extend(_grade_safety_dimension(run, expected))
     checks.extend(_grade_feature_readiness_dimension(run, expected))
+    checks.extend(_grade_latency_dimension(run, expected))
 
     dimensions: dict[str, dict] = {}
     for check in checks:
@@ -246,6 +254,73 @@ def _grade_feature_readiness_dimension(run: dict, expected: dict) -> list[dict]:
     return [
         _check("feature_readiness", "unsupported_not_marked_success", 0.0 if says_unsupported and success_status else 1.0, 0.8, "未实现能力没有标记为成功" if not (says_unsupported and success_status) else "未实现能力被标记为成功", "critical", {"next_action": next_action, "status": run.get("status")}),
     ]
+
+
+def grade_latency(metrics: dict, budget: dict | None = None) -> dict:
+    """速度维度独立评估入口。
+
+    metrics 至少包含 ttft_ms（首 token）、done_ms（总时延），可选 ttfb_ms（首个可见反馈）。
+    budget 用 <metric>_target / <metric>_max 表达预算：低于 target 满分，达到 max 记 0，区间线性衰减。
+    未在 budget 声明的指标不参与评分，避免无预算用例被误判。
+    """
+
+    checks = _grade_latency_checks(metrics or {}, budget or {})
+    if not checks:
+        return {"passed": True, "score": 1.0, "issues": [], "summary": "no latency budget declared"}
+    weight = sum(check["weight"] for check in checks)
+    score = sum(check["score"] * check["weight"] for check in checks) / weight if weight else 1.0
+    issues = [check for check in checks if check["score"] < 1.0]
+    passed = score >= float((budget or {}).get("min_score", 0.6))
+    return {
+        "passed": passed,
+        "score": round(score, 4),
+        "issues": issues,
+        "summary": "latency within budget" if passed else "latency exceeds budget",
+    }
+
+
+def _grade_latency_dimension(run: dict, expected: dict) -> list[dict]:
+    budget = _dict(expected.get("latency_budget"))
+    if not budget:
+        return []
+    metrics = _dict(run.get("metrics") or run.get("latency") or {})
+    return _grade_latency_checks(metrics, budget)
+
+
+def _grade_latency_checks(metrics: dict, budget: dict) -> list[dict]:
+    checks: list[dict] = []
+    for key, weight, severity in LATENCY_METRIC_SPECS:
+        target = budget.get(f"{key}_target")
+        hard = budget.get(f"{key}_max")
+        if target is None and hard is None:
+            continue
+        actual = metrics.get(key)
+        if actual is None:
+            checks.append(_check("latency", f"{key}_measured", 0.0, weight, f"缺少 {key} 指标，无法评估速度", severity, {"budget": {"target": target, "max": hard}}))
+            continue
+        actual_f = _float(actual, -1.0)
+        if actual_f < 0:
+            checks.append(_check("latency", f"{key}_measured", 0.0, weight, f"{key} 指标非法：{actual}", severity))
+            continue
+        score = _latency_score(actual_f, target, hard)
+        message = f"{key}={int(actual_f)}ms 在预算内" if score >= 1.0 else f"{key}={int(actual_f)}ms 超出速度预算（target={target}, max={hard}）"
+        checks.append(_check("latency", f"{key}_within_budget", score, weight, message, severity, {"actual_ms": int(actual_f), "target_ms": target, "max_ms": hard}))
+    return checks
+
+
+def _latency_score(actual_ms: float, target_ms: Any, hard_ms: Any) -> float:
+    target = _float(target_ms, None) if target_ms is not None else None
+    hard = _float(hard_ms, None) if hard_ms is not None else None
+    if target is not None and actual_ms <= target:
+        return 1.0
+    if hard is not None and actual_ms >= hard:
+        return 0.0
+    if target is not None and hard is not None and hard > target:
+        return max(0.0, min(1.0, (hard - actual_ms) / (hard - target)))
+    # 只声明了 target：超出即按线性惩罚到 2 倍 target 处归零；只声明 max：未达 max 即满分。
+    if hard is None and target is not None:
+        return max(0.0, min(1.0, (2 * target - actual_ms) / target))
+    return 1.0
 
 
 def _event_order_issues(events: list[str]) -> list[str]:

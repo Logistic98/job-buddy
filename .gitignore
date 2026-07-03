@@ -14,5 +14,6 @@ target/
 .claude/
 .codegraph/
 agent-backend/data/
+agent-eval/reports/
 .agent-harness/runs/
 .agent-harness/**/*.log
