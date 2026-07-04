@@ -11,7 +11,6 @@ import org.springframework.web.servlet.HandlerInterceptor;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Map;
 
 @Component
 public class ApiAuthenticationInterceptor implements HandlerInterceptor {
@@ -42,7 +41,7 @@ public class ApiAuthenticationInterceptor implements HandlerInterceptor {
         }
 
         String token = extractToken(request);
-        Map<String, Object> user = userLoginService.currentUser(token);
+        AuthenticatedUser user = userLoginService.currentUser(token);
         if (user == null) {
             writeUnauthorized(response);
             return false;
@@ -78,22 +77,12 @@ public class ApiAuthenticationInterceptor implements HandlerInterceptor {
         return configured.trim().equals(provided == null ? "" : provided.trim());
     }
 
-    private Map<String, Object> internalUser() {
-        java.util.Map<String, Object> user = new java.util.LinkedHashMap<String, Object>();
-        user.put("userId", properties.getDefaultUserId());
-        user.put("username", "internal");
-        user.put("displayName", "Internal Service");
-        user.put("role", "system");
-        return user;
+    private AuthenticatedUser internalUser() {
+        return new AuthenticatedUser(properties.getDefaultUserId(), "internal", "Internal Service", "system");
     }
 
-    private Map<String, Object> localUser() {
-        java.util.Map<String, Object> user = new java.util.LinkedHashMap<String, Object>();
-        user.put("userId", properties.getDefaultUserId());
-        user.put("username", "local");
-        user.put("displayName", "Local User");
-        user.put("role", "local");
-        return user;
+    private AuthenticatedUser localUser() {
+        return new AuthenticatedUser(properties.getDefaultUserId(), "local", "Local User", "local");
     }
 
     private String extractToken(HttpServletRequest request) {

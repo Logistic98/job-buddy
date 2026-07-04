@@ -184,7 +184,7 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
             resilience.recordSuccess("agent-runtime-stream");
             return doneData;
         } catch (Exception e) {
-            log.warn("Agent Runtime 流式调用异常：url={}, error={}", url, e.getMessage());
+            log.warn("Agent Runtime 流式调用异常：url={}", url, e);
             resilience.recordFailure("agent-runtime-stream");
             return Collections.emptyMap();
         } finally {

@@ -1,20 +1,21 @@
 package com.jobbuddy.backend.modules.auth.dto.response;
 
+import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class CurrentUserResponse extends MapBackedDto {
-    public CurrentUserResponse() {
-    }
+public class CurrentUserResponse {
+    private String userId;
+    private String username;
+    private String displayName;
+    private String role;
 
-    public CurrentUserResponse(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static CurrentUserResponse from(Map<String, Object> fields) {
-        return new CurrentUserResponse(fields);
+    public static CurrentUserResponse from(AuthenticatedUser user) {
+        CurrentUserResponse response = new CurrentUserResponse();
+        response.setUserId(user.getUserId());
+        response.setUsername(user.getUsername());
+        response.setDisplayName(user.getDisplayName());
+        response.setRole(user.getRole());
+        return response;
     }
 }

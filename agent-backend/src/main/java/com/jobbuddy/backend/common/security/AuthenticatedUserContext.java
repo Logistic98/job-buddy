@@ -1,7 +1,6 @@
 package com.jobbuddy.backend.common.security;
 
 import javax.servlet.http.HttpServletRequest;
-import java.util.Map;
 
 public final class AuthenticatedUserContext {
     public static final String USER_ATTRIBUTE = "jobBuddy.authenticatedUser";
@@ -10,19 +9,18 @@ public final class AuthenticatedUserContext {
     }
 
     public static String userId(HttpServletRequest request) {
-        Map<String, Object> user = user(request);
-        Object userId = user.get("userId");
-        if (userId == null || String.valueOf(userId).trim().isEmpty()) {
+        AuthenticatedUser user = user(request);
+        String userId = user.getUserId();
+        if (userId == null || userId.trim().isEmpty()) {
             throw new IllegalArgumentException("未登录或登录已过期");
         }
-        return String.valueOf(userId);
+        return userId;
     }
 
-    @SuppressWarnings("unchecked")
-    public static Map<String, Object> user(HttpServletRequest request) {
+    public static AuthenticatedUser user(HttpServletRequest request) {
         Object value = request == null ? null : request.getAttribute(USER_ATTRIBUTE);
-        if (value instanceof Map) {
-            return (Map<String, Object>) value;
+        if (value instanceof AuthenticatedUser) {
+            return (AuthenticatedUser) value;
         }
         throw new IllegalArgumentException("未登录或登录已过期");
     }

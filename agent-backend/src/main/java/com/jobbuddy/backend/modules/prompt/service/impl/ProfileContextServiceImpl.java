@@ -32,7 +32,7 @@ public class ProfileContextServiceImpl implements ProfileContextService {
             if (!parsed.isEmpty()) profile.putAll(parsed);
         } catch (RuntimeException e) {
             // 动态画像读取失败时不阻断主问答，但需留痕以便定位画像缺失。
-            log.warn("读取求职画像失败 userId={}: {}", userId, e.getMessage());
+            log.warn("读取求职画像失败 userId={}", userId, e);
         }
         if (resumeId != null && !resumeId.trim().isEmpty()) {
             try {
@@ -40,7 +40,7 @@ public class ProfileContextServiceImpl implements ProfileContextService {
                 if (record != null && record.getParsed() != null) profile.put("current_resume", record.getParsed());
             } catch (RuntimeException e) {
                 // 当前简历读取失败时降级为不带简历的画像，留痕便于排查。
-                log.warn("读取当前简历失败 resumeId={}: {}", resumeId, e.getMessage());
+                log.warn("读取当前简历失败 resumeId={}", resumeId, e);
             }
         }
         return new UserProfileContext(profile, summarize(profile));

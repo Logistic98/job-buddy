@@ -264,7 +264,7 @@ uv run python -m pytest
 ## Java / Spring Boot 开发规范
 
 - 推荐目录按 `controller`、`service`、`domain`、`repository`、`config`、`common`、`client` 组织，避免 Controller 直接承载业务逻辑。
-- 请求和响应对象使用 DTO / VO 明确定义，禁止跨层传递无 schema 的 Map。
+- 请求和响应对象使用 DTO / VO 明确定义，禁止跨层传递无 schema 的 Map。存量 `Map<String, Object>` 逐步治理，新代码一律不允许新增跨层 Map（Controller、Service、Client 之间），也不允许新增 `MapBackedDto` 子类；Map 只允许出现在 Repository/Mapper 行数据和 JSON 编解码等边界内部。
 - 外部 HTTP、模型服务、检索服务、Runtime 服务调用必须设置超时、重试上限和熔断/降级边界。
 - 日志需包含 request_id、session_id、run_id、operator_id 等关键字段，禁止输出密钥和完整敏感请求体。
 - 单元测试覆盖 Service 层核心逻辑，接口测试覆盖 Controller 参数校验、统一响应和异常路径。

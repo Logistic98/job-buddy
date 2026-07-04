@@ -2,14 +2,13 @@ package com.jobbuddy.backend;
 
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.security.ApiAuthenticationInterceptor;
+import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import com.jobbuddy.backend.common.security.AuthenticatedUserContext;
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.auth.service.UserLoginService;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,9 +28,9 @@ class ApiAuthenticationInterceptorUnitTest {
         boolean accepted = interceptor.preHandle(request, response, new Object());
 
         assertTrue(accepted);
-        Map<String, Object> user = AuthenticatedUserContext.user(request);
-        assertEquals("default-user", user.get("userId"));
-        assertEquals("local", user.get("role"));
+        AuthenticatedUser user = AuthenticatedUserContext.user(request);
+        assertEquals("default-user", user.getUserId());
+        assertEquals("local", user.getRole());
         verifyNoInteractions(userLoginService);
     }
 }

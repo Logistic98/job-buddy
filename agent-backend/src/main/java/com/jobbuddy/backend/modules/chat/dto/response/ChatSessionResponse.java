@@ -1,20 +1,26 @@
 package com.jobbuddy.backend.modules.chat.dto.response;
 
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
 
 import java.util.Map;
 
 @Data
-public class ChatSessionResponse extends MapBackedDto {
-    public ChatSessionResponse() {
+public class ChatSessionResponse {
+    private String sessionId;
+    private String resumeId;
+    private Object updatedAt;
+    private String title;
+
+    public static ChatSessionResponse from(Map<String, Object> row) {
+        ChatSessionResponse response = new ChatSessionResponse();
+        response.setSessionId(stringOrNull(row.get("sessionId")));
+        response.setResumeId(stringOrNull(row.get("resumeId")));
+        response.setUpdatedAt(row.get("updatedAt"));
+        response.setTitle(stringOrNull(row.get("title")));
+        return response;
     }
 
-    public ChatSessionResponse(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static ChatSessionResponse from(Map<String, Object> fields) {
-        return new ChatSessionResponse(fields);
+    private static String stringOrNull(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }

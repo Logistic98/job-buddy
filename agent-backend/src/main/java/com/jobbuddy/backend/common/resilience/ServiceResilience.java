@@ -50,7 +50,7 @@ public class ServiceResilience {
                 return result;
             } catch (RuntimeException e) {
                 int failures = circuit.failures.incrementAndGet();
-                log.warn("{} 调用失败（第 {}/{} 次，累计失败 {}）：{}", service, attempt, maxAttempts, failures, e.getMessage());
+                log.warn("{} 调用失败（第 {}/{} 次，累计失败 {}）", service, attempt, maxAttempts, failures, e);
                 if (failures >= threshold) {
                     circuit.openUntil = System.currentTimeMillis() + openMs;
                     log.warn("{} 连续失败达阈值 {}，熔断 {}ms 后再试", service, threshold, openMs);

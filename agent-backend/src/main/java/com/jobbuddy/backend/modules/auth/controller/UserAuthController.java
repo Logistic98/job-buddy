@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.jobbuddy.backend.common.dto.response.BooleanResultResponse;
 import com.jobbuddy.backend.common.result.ApiResponse;
+import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import com.jobbuddy.backend.modules.auth.dto.response.CurrentUserResponse;
 import com.jobbuddy.backend.modules.auth.dto.request.LoginRequest;
 import com.jobbuddy.backend.modules.auth.dto.response.LoginResponse;
@@ -15,8 +16,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 /**
  * 用户认证接口，提供登录、当前用户查询和退出登录能力。
@@ -42,7 +41,7 @@ public class UserAuthController {
         try {
             String username = body == null || body.getUsername() == null ? "" : body.getUsername();
             String password = body == null || body.getPassword() == null ? "" : body.getPassword();
-            return ApiResponse.success(LoginResponse.from(userLoginService.login(username, password)));
+            return ApiResponse.success(userLoginService.login(username, password));
         } catch (IllegalArgumentException e) {
             return ApiResponse.error(401, e.getMessage());
         }
@@ -56,7 +55,7 @@ public class UserAuthController {
     @Operation(summary = "获取当前登录用户")
     @GetMapping("/me")
     public ApiResponse<CurrentUserResponse> me(@RequestHeader(value = "Authorization", required = false) String authorization) {
-        Map<String, Object> user = userLoginService.currentUser(extractToken(authorization));
+        AuthenticatedUser user = userLoginService.currentUser(extractToken(authorization));
         if (user == null) return ApiResponse.error(401, "未登录或登录已过期");
         return ApiResponse.success(CurrentUserResponse.from(user));
     }

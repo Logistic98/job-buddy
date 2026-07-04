@@ -5,7 +5,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import com.jobbuddy.backend.common.dto.response.HealthResponse;
 import com.jobbuddy.backend.common.dto.response.NamedValueResponse;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
 import com.jobbuddy.backend.common.result.ApiResponse;
 import com.jobbuddy.backend.modules.chat.dto.response.ChatMessageResponse;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatRequest;
@@ -26,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 对话接口，提供健康检查、普通问答、流式问答和会话管理能力。
@@ -85,7 +85,7 @@ public class ChatController {
     @Operation(summary = "查询对话会话列表")
     @GetMapping("/chat/sessions")
     public ApiResponse<List<ChatSessionResponse>> sessions() {
-        return ApiResponse.success(MapBackedDto.fromMapList(chatSessionStore.listSessions(), ChatSessionResponse::from));
+        return ApiResponse.success(chatSessionStore.listSessions().stream().map(ChatSessionResponse::from).collect(Collectors.toList()));
     }
 
     /**
@@ -96,7 +96,7 @@ public class ChatController {
     @Operation(summary = "查询会话消息列表")
     @GetMapping("/chat/sessions/{sessionId}/messages")
     public ApiResponse<List<ChatMessageResponse>> messages(@PathVariable String sessionId) {
-        return ApiResponse.success(MapBackedDto.fromMapList(chatSessionStore.listMessages(sessionId), ChatMessageResponse::from));
+        return ApiResponse.success(chatSessionStore.listMessages(sessionId).stream().map(ChatMessageResponse::from).collect(Collectors.toList()));
     }
 
     /**

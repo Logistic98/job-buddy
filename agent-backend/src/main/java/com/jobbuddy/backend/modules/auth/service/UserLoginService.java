@@ -1,5 +1,8 @@
 package com.jobbuddy.backend.modules.auth.service;
 
+import com.jobbuddy.backend.common.security.AuthenticatedUser;
+import com.jobbuddy.backend.modules.auth.dto.response.CurrentUserResponse;
+import com.jobbuddy.backend.modules.auth.dto.response.LoginResponse;
 import com.jobbuddy.backend.modules.auth.repository.UserAuthRepository;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -10,7 +13,6 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
@@ -23,7 +25,7 @@ public class UserLoginService {
         this.repository = repository;
     }
 
-    public Map<String, Object> login(String username, String password) {
+    public LoginResponse login(String username, String password) {
         String safeUsername = username == null ? "" : username.trim();
         String safePassword = password == null ? "" : password;
         if (safeUsername.isEmpty() || safePassword.isEmpty()) {
@@ -42,14 +44,14 @@ public class UserLoginService {
         String token = newToken();
         Instant expiresAt = Instant.now().plus(7, ChronoUnit.DAYS);
         repository.saveSession(token, String.valueOf(user.get("userId")), expiresAt);
-        Map<String, Object> result = new LinkedHashMap<String, Object>();
-        result.put("token", token);
-        result.put("expiresAt", expiresAt.toString());
-        result.put("user", publicUser(user));
+        LoginResponse result = new LoginResponse();
+        result.setToken(token);
+        result.setExpiresAt(expiresAt.toString());
+        result.setUser(CurrentUserResponse.from(publicUser(user)));
         return result;
     }
 
-    public Map<String, Object> currentUser(String token) {
+    public AuthenticatedUser currentUser(String token) {
         if (token == null || token.trim().isEmpty()) return null;
         repository.deleteExpiredSessions();
         Map<String, Object> user = repository.findUserByToken(token.trim());
@@ -65,13 +67,16 @@ public class UserLoginService {
         if (token != null && !token.trim().isEmpty()) repository.deleteSession(token.trim());
     }
 
-    private Map<String, Object> publicUser(Map<String, Object> user) {
-        Map<String, Object> result = new LinkedHashMap<String, Object>();
-        result.put("userId", user.get("userId"));
-        result.put("username", user.get("username"));
-        result.put("displayName", user.get("displayName"));
-        result.put("role", user.get("role"));
-        return result;
+    private AuthenticatedUser publicUser(Map<String, Object> user) {
+        return new AuthenticatedUser(
+                stringOrNull(user.get("userId")),
+                stringOrNull(user.get("username")),
+                stringOrNull(user.get("displayName")),
+                stringOrNull(user.get("role")));
+    }
+
+    private String stringOrNull(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 
     private String newToken() {
