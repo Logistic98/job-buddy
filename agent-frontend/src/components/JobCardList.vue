@@ -126,6 +126,7 @@ import { useJobStore } from '../stores/job'
 import { useResumeStore } from '../stores/resume'
 import { useChatStore } from '../stores/chat'
 import { compactJobSummaryText, firstJobDescriptionText, normalizeJobDescriptionText } from '../utils/jobText'
+import { bossDetailUrl } from '../utils/zhipinUrl'
 
 const props = defineProps({ mode: { type: String, default: 'workspace' } })
 const job = useJobStore()
@@ -172,24 +173,6 @@ function originalUrl(item) {
   const url = item.originalUrl || item.jobUrl || item.url || item.href || item.link || item.detailUrl || ''
   if (url && String(url).includes('/job_detail/')) return url
   return bossDetailUrl(item)
-}
-function bossDetailUrl(item) {
-  const pathId = firstUsableJobPathId(item)
-  if (!pathId) return ''
-  const params = new URLSearchParams()
-  const securityId = item.securityId || item.security_id || ''
-  const lid = item.lid || item.listId || ''
-  if (securityId) params.set('securityId', securityId)
-  if (lid) params.set('lid', lid)
-  const query = params.toString()
-  return `https://www.zhipin.com/job_detail/${encodeURIComponent(pathId)}.html${query ? `?${query}` : ''}`
-}
-function firstUsableJobPathId(item) {
-  for (const key of ['encryptJobId', 'encrypt_job_id', 'jobId', 'job_id', 'id']) {
-    const value = String(item[key] || '').trim()
-    if (value && !/^\d{4,}$/.test(value)) return value
-  }
-  return ''
 }
 function locationText(item) { return item.cityName || item.city || item.location || item.areaDistrict || '城市未标注' }
 function experienceText(item) { return item.jobExperience || item.experience || '经验不限' }

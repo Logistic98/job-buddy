@@ -150,7 +150,7 @@ const LINE_HEIGHT_KEY = 'job-buddy.resume-writer.line-height'
 const PHOTO_KEY = 'job-buddy.resume-writer.photo'
 const PHOTO_SETTINGS_KEY = 'job-buddy.resume-writer.photo-settings'
 const PHOTO_LIBRARY_KEY = 'job-buddy.resume-writer.photo-library'
-const DEFAULT_PHOTO_URL = 'https://dummyimage.com/110x140/1890ff/ffffff&text=PHOTO'
+const DEFAULT_PHOTO_URL = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="110" height="140"><rect width="110" height="140" fill="#1890ff"/><text x="55" y="74" font-family="sans-serif" font-size="16" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">PHOTO</text></svg>')}`
 const TAG_KEY = 'job-buddy.resume-writer.tags'
 const PROFILE_KEY = 'job-buddy.resume-writer.profile'
 const selectedTags = ref(JSON.parse(localStorage.getItem(TAG_KEY) || '[]'))

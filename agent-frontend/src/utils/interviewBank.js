@@ -2,6 +2,16 @@
 // so tag parsing, coding-template generation and formatting can be unit-tested in isolation while
 // the component keeps only its reactive state and API orchestration.
 
+export const codingLanguageOptions = [
+  { value: 'python', label: 'Python' },
+  { value: 'java', label: 'Java' },
+  { value: 'javascript', label: 'JavaScript' },
+]
+
+export function codingMeta(item) {
+  return item?.codingMeta && typeof item.codingMeta === 'object' ? item.codingMeta : {}
+}
+
 export function cleanTagText(value) {
   let text = String(value || '').trim()
   const labelMatch = text.match(/(?:^|[\{,\s])label\s*[:=]\s*([^,}\]]+)/i)
