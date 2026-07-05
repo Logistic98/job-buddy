@@ -214,85 +214,14 @@
       </div>
     </section>
 
-    <div v-if="showPracticeModal" class="modal-mask" @click.self="closePracticeModal">
-      <div class="modal-card interview-modal-card practice-create-modal">
-        <button class="close" @click="closePracticeModal">×</button>
-        <div class="practice-modal-head"><h2>随机组卷</h2><p>设置练习名称、限时和练习模式，再按题库、分类、难度、题型组合抽题。</p></div>
-
-        <div class="practice-form">
-          <div class="practice-section">
-            <label class="practice-field">
-              <span class="practice-field-label">练习名称</span>
-              <input v-model="examConfig.title" placeholder="例如：Java 后端算法与理论组合练习" />
-              <small class="field-hint">建议写清方向和题型组合，便于练习记录复盘。</small>
-            </label>
-            <div class="practice-field">
-              <span class="practice-field-label">限时时长</span>
-              <div class="practice-duration">
-                <button
-                  v-for="min in durationPresets"
-                  :key="min"
-                  type="button"
-                  :class="['practice-chip', { active: examConfig.durationMinutes === min }]"
-                  @click="examConfig.durationMinutes = min"
-                >
-                  {{ min }} 分钟
-                </button>
-                <label class="practice-duration-custom">
-                  <input v-model.number="examConfig.durationMinutes" type="number" min="1" max="240" />
-                  <span>分钟</span>
-                </label>
-                <small class="field-hint inline">限时范围 1-240 分钟。</small>
-              </div>
-            </div>
-          </div>
-
-          <div class="practice-section">
-            <span class="practice-field-label">练习模式</span>
-            <div class="practice-mode-cards">
-              <label :class="['practice-mode-card', { active: examConfig.answerMode === 'hidden' }]">
-                <input type="radio" value="hidden" v-model="examConfig.answerMode" />
-                <b>考试模式</b>
-                <small>先独立作答，提交后再看参考答案</small>
-              </label>
-              <label :class="['practice-mode-card', { active: examConfig.answerMode === 'visible' }]">
-                <input type="radio" value="visible" v-model="examConfig.answerMode" />
-                <b>学习模式</b>
-                <small>练习中展示参考答案，适合快速巩固</small>
-              </label>
-            </div>
-          </div>
-
-          <div class="practice-section">
-            <div class="practice-section-head">
-              <span class="practice-field-label">组卷规则</span>
-              <span class="practice-total-pill">共 {{ examRuleTotal }} 题</span>
-            </div>
-            <div class="practice-rule-table">
-              <div class="practice-rule-head">
-                <span>题库</span><span>分类</span><span>难度</span><span>题型</span><span>题数</span><span></span>
-              </div>
-              <div v-for="(rule, index) in examConfig.rules" :key="rule.id" class="practice-rule-row">
-                <select v-model="rule.bankType"><option value="">全部题库</option><option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select>
-                <select v-model="rule.category"><option value="">全部分类</option><option v-for="item in categories" :key="item" :value="item">{{ item }}</option></select>
-                <select v-model="rule.difficulty"><option value="">全部难度</option><option v-for="item in difficulties" :key="item" :value="item">{{ item }}</option></select>
-                <select v-model="rule.questionType"><option value="">全部题型</option><option v-for="item in questionTypes" :key="item" :value="item">{{ item }}</option></select>
-                <input v-model.number="rule.count" type="number" min="1" max="50" />
-                <button type="button" class="practice-rule-remove" :disabled="examConfig.rules.length <= 1" title="删除该组合" @click="removeExamRule(index)">×</button>
-              </div>
-            </div>
-            <p class="section-hint">可参考主流题单和套卷的设计方式，按题库、分类、难度、题型组合抽题；留空表示不限制。</p>
-            <button type="button" class="practice-add-rule" @click="addExamRule">+ 添加规则</button>
-          </div>
-        </div>
-
-        <p v-if="practiceModalError" class="error settings-error">{{ practiceModalError }}</p>
-        <div class="modal-actions practice-modal-actions">
-          <button class="secondary-btn" @click="closePracticeModal">取消</button>
-          <button class="primary-btn" :disabled="examLoading || !examRuleTotal" @click="startExam">{{ examLoading ? '组卷中…' : `开始练习（${examRuleTotal} 题）` }}</button>
-        </div>
-      </div>
-    </div>
+    <PracticeConfigModal
+      ref="practiceModalRef"
+      :bank-type-options="bankTypeOptions"
+      :categories="categories"
+      :difficulties="difficulties"
+      :question-types="questionTypes"
+      @created="handlePracticeCreated"
+    />
 
     <div v-if="deleteDialog.visible" class="modal-mask interview-delete-mask" @click.self="closeDeleteDialog">
       <div class="interview-delete-modal">
@@ -307,94 +236,25 @@
       </div>
     </div>
 
-    <div v-if="showModal" class="modal-mask" @click.self="showModal = false">
-      <div class="modal-card interview-modal-card practice-create-modal maintain-modal">
-        <button class="close" @click="showModal = false">×</button>
-        <div class="practice-modal-head"><h2>{{ modalTitle }}</h2><p>维护算法题和问答题，可手动录入，也可上传资料后由 AI 辅助生成。</p></div>
-        <div class="interview-modal-tabs">
-          <button :class="{ active: modalMode === 'manual' }" @click="modalMode = 'manual'">手动录入</button>
-          <button :class="{ active: modalMode === 'ai' }" @click="modalMode = 'ai'">AI 生成</button>
-        </div>
-
-        <div v-if="modalMode === 'manual'" class="practice-form">
-          <div class="practice-section">
-            <span class="practice-field-label">基本信息</span>
-            <div class="maintain-field-grid">
-              <label class="practice-field wide"><span class="practice-field-label">标题</span><input v-model="form.title" placeholder="例如：Java HashMap 扩容机制" /><small class="field-hint">标题用于列表检索和练习展示，建议保持短句且明确知识点。</small></label>
-              <label class="practice-field"><span class="practice-field-label">题库</span><select v-model="form.bankType" @change="syncFormBankType"><option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-              <label class="practice-field"><span class="practice-field-label">分类</span><input v-model="form.category" placeholder="Java / Spring / MySQL / 数组" /></label>
-              <label class="practice-field"><span class="practice-field-label">难度</span><select v-model="form.difficulty"><option>简单</option><option>中等</option><option>困难</option></select></label>
-              <label v-if="form.bankType !== 'leetcode'" class="practice-field"><span class="practice-field-label">题型</span><select v-model="form.questionType"><option v-for="item in formQuestionTypes" :key="item" :value="item">{{ item }}</option></select></label>
-              <label class="practice-field"><span class="practice-field-label">标签</span><input v-model="form.tagsText" placeholder="逗号分隔，如 Java,集合" /><small class="field-hint">用于后续筛选与组卷，可填写多个。</small></label>
-            </div>
-          </div>
-
-          <div class="practice-section">
-            <span class="practice-field-label">{{ isChoiceForm ? '题干与选项' : '题目内容' }}</span>
-            <label class="practice-field"><span class="practice-field-label">{{ isChoiceForm ? '题干' : '内容' }}</span><textarea v-model="form.content" :placeholder="isChoiceForm ? '请输入选择题题干，选项在下方填写' : '请输入笔试题内容'" /><small class="field-hint">题干只写问题本身，选择项在下方独立维护，避免重复解析出错。</small></label>
-            <div v-if="isChoiceForm" class="choice-option-editor">
-              <div class="choice-option-head"><span>选项</span><button type="button" class="secondary-btn" @click="addOption">新增选项</button></div>
-              <label v-for="(option, index) in form.options" :key="option.key" class="choice-option-row">
-                <b>{{ option.key }}</b>
-                <input v-model="option.text" :placeholder="`选项 ${option.key}`" />
-                <button type="button" class="danger-text" :disabled="form.options.length <= 2" @click="removeOption(index)">删除</button>
-              </label>
-              <label class="practice-field"><span class="practice-field-label">正确答案</span><input v-model="form.answer" :placeholder="form.questionType === '多选' ? '例如：A,C' : '例如：A'" /></label>
-            </div>
-            <div v-else-if="form.bankType === 'leetcode'" class="coding-meta-editor">
-              <label class="practice-field"><span class="practice-field-label">默认语言</span><select v-model="form.codingLanguage" @change="resetCodingTemplateForLanguage"><option v-for="item in codingLanguageOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-              <label class="practice-field wide"><span class="practice-field-label">初始代码模板</span><textarea v-model="form.codingTemplate" :placeholder="buildDefaultTemplate('solution', form.codingLanguage)" /></label>
-              <label class="practice-field wide"><span class="practice-field-label">测试用例 JSON</span><textarea v-model="form.codingTestsText" placeholder="[{&quot;name&quot;:&quot;示例&quot;,&quot;args&quot;:[[2,7],9],&quot;expected&quot;:[0,1],&quot;sample&quot;:true}]" /><small class="field-hint">每条用例需包含 name、args、expected；sample=true 会作为练习中的样例运行。</small></label>
-              <label class="practice-field wide"><span class="practice-field-label">参考答案 / 判分说明</span><textarea v-model="form.answer" placeholder="以测试用例通过情况作为主要评分依据" /></label>
-            </div>
-            <label v-else class="practice-field"><span class="practice-field-label">参考答案 / 判分关键词</span><textarea v-model="form.answer" placeholder="练习提交时会用参考答案做简单自动判分" /></label>
-          </div>
-        </div>
-
-        <div v-else class="practice-form ai-generate-panel">
-          <div class="practice-section">
-            <span class="practice-field-label">生成设置</span>
-            <div class="maintain-field-grid">
-              <label class="practice-field wide"><span class="practice-field-label">方向 / 主题</span><input v-model="aiForm.topic" placeholder="例如：Java 后端、Agent 工程" /></label>
-              <label class="practice-field"><span class="practice-field-label">题库</span><select v-model="aiForm.bankType" @change="syncAiBankType"><option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-              <label class="practice-field"><span class="practice-field-label">分类</span><input v-model="aiForm.category" placeholder="Java" /></label>
-              <label class="practice-field"><span class="practice-field-label">难度</span><select v-model="aiForm.difficulty"><option>简单</option><option>中等</option><option>困难</option></select></label>
-              <label v-if="aiForm.bankType !== 'leetcode'" class="practice-field"><span class="practice-field-label">题型</span><select v-model="aiForm.questionType"><option v-for="item in aiQuestionTypes" :key="item" :value="item">{{ item }}</option></select></label>
-              <label class="practice-field"><span class="practice-field-label">数量</span><input v-model.number="aiForm.count" type="number" min="1" max="20" /></label>
-            </div>
-          </div>
-
-          <div class="practice-section">
-            <span class="practice-field-label">参考资料</span>
-            <div class="doc-upload-field">
-              <label class="doc-upload-box">
-                <input type="file" accept=".txt,.md,.markdown,.json,.csv" @change="handleAiDocumentChange" />
-                <b>选择文档</b>
-                <small>{{ aiForm.documentName || '支持 TXT / MD / JSON / CSV，上传后自动填入下方资料区' }}</small>
-              </label>
-              <button v-if="aiForm.documentName" type="button" class="doc-clear-btn" @click="clearAiDocument">清除文档</button>
-            </div>
-            <label class="practice-field"><span class="practice-field-label">文档内容 / 补充资料</span><textarea v-model="aiForm.documentText" placeholder="可上传文档自动填入，也可以粘贴岗位 JD、技术文档、知识点材料" /></label>
-            <label class="practice-field"><span class="practice-field-label">补充要求</span><textarea v-model="aiForm.requirements" placeholder="例如：偏工程实践，包含性能优化、排障、系统设计" /></label>
-          </div>
-        </div>
-
-        <p v-if="modalError" class="error settings-error">{{ modalError }}</p>
-        <div class="modal-actions practice-modal-actions">
-          <button class="secondary-btn" @click="showModal = false">取消</button>
-          <button class="primary-btn" :disabled="saving" @click="submitModal">{{ saving ? '处理中' : modalSubmitText }}</button>
-        </div>
-      </div>
-    </div>
+    <QuestionEditModal ref="editModalRef" :bank-type-options="bankTypeOptions" @saved="handleQuestionSaved" />
   </section>
 </template>
 
 <script setup>
+// Interview bank container: composes the bank list (useQuestionBank), shared metadata
+// (useQuestionMeta) and countdown timer (useExamTimer) with the practice desk state that
+// remains local (current exam, answers, coding runs). Modal editing and random-exam
+// configuration live in QuestionEditModal / PracticeConfigModal.
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { batchQuestions, createQuestion, createRandomExam, deleteQuestion, generateQuestions, getExam, getQuestionMeta, listExams, listQuestions, runCodeSample, submitExam, updateQuestion } from '../api/interview'
+import { getExam, listExams, runCodeSample, submitExam } from '../api/interview'
 import InterviewBankHeader from './interview/InterviewBankHeader.vue'
-import { buildDefaultTemplate, defaultOptions, defaultSignature, difficultyClass, displayTitle, extractFunctionName, formatCodingTests, formatRemainingTime, isChoiceType, isCodingQuestion, isMultiChoice, normalizeCodingLanguage, optionItems, questionStem, splitCleanTags, tagLabels } from '../utils/interviewBank'
-import { assertManualPracticeMatches, buildQuestionPayload, codingResultSummary as codingResultSummaryUtil, defaultPracticeTitle, displayExamTitle, examRuleTotal as computeExamRuleTotal, selectedAnswerKeys as selectedAnswerKeysUtil, validateAiForm, validatePracticeConfig, validateQuestionForm } from '../utils/interviewForm'
+import PracticeConfigModal from './interview/PracticeConfigModal.vue'
+import QuestionEditModal from './interview/QuestionEditModal.vue'
+import { useExamTimer } from '../composables/useExamTimer'
+import { useQuestionBank } from '../composables/useQuestionBank'
+import { useQuestionMeta } from '../composables/useQuestionMeta'
+import { buildDefaultTemplate, codingLanguageOptions, codingMeta, defaultSignature, difficultyClass, displayTitle, extractFunctionName, isCodingQuestion, isMultiChoice, normalizeCodingLanguage, optionItems, questionStem, tagLabels } from '../utils/interviewBank'
+import { codingResultSummary as codingResultSummaryUtil, displayExamTitle, selectedAnswerKeys as selectedAnswerKeysUtil } from '../utils/interviewForm'
 
 const props = defineProps({
   mode: { type: String, default: 'bank' },
@@ -405,15 +265,25 @@ const props = defineProps({
 const emit = defineEmits(['practice-created', 'back-to-bank'])
 
 const activeMode = computed(() => props.mode === 'exam' ? 'exam' : 'bank')
-const loading = ref(false)
-const saving = ref(false)
-const examLoading = ref(false)
+
+const {
+  loading, saving, examLoading, error, questions, selectedIds, filters, pagination, batchForm, showBatchEditor, deleteDialog,
+  filteredQuestions, selectedSet, allCurrentPageSelected, visiblePages,
+  loadQuestions, goPage, changePageSize, normalizeQuestionRow, rowNumber,
+  toggleSelection, toggleCurrentPage, clearSelection,
+  applyBatchUpdate, applyBatchDelete, createManualPractice, upsertQuestionRow,
+  removeQuestion, closeDeleteDialog, confirmDelete,
+} = useQuestionBank(props.mode === 'bank' ? 'leetcode' : '')
+
+const { loadQuestionMeta, bankTypeOptions, categories, difficulties, questionTypes, bankTypeLabel } =
+  useQuestionMeta(() => Array.from(new Set(questions.value.map(item => item.category).filter(Boolean))))
+
+const { timerRemaining, remainingTimeText, startExamTimer, stopExamTimer } = useExamTimer(submitCurrentExam)
+
+const practiceModalRef = ref(null)
+const editModalRef = ref(null)
 const recordsLoading = ref(false)
 const examDetailLoading = ref(false)
-const error = ref('')
-const modalError = ref('')
-const questions = ref([])
-const selectedIds = ref([])
 const exams = ref([])
 const currentExam = ref(null)
 const activeQuestionId = ref('')
@@ -421,65 +291,13 @@ const answers = reactive({})
 const codingResults = reactive({})
 const codingRunning = reactive({})
 const codingLanguageByQuestion = reactive({})
-const questionMeta = reactive({ bankTypeOptions: [], categories: [], difficulties: [], questionTypes: [] })
-const filters = reactive({ keyword: '', bankType: props.mode === 'bank' ? 'leetcode' : '', category: '', difficulty: '' })
-const pagination = reactive({ page: 1, size: 20, total: 0, pages: 1 })
-const batchForm = reactive({ category: '', difficulty: '', tagsText: '' })
-const showBatchEditor = ref(false)
-const examConfig = reactive({ title: '', durationMinutes: 30, answerMode: 'hidden', rules: [newExamRule()] })
-const durationPresets = [15, 30, 45, 60, 90]
-const showPracticeModal = ref(false)
-const practiceModalError = ref('')
-const showModal = ref(false)
-const modalMode = ref('manual')
-const editingId = ref('')
-const form = reactive({ title: '', bankType: 'baguwen', category: 'Java', difficulty: '中等', questionType: '单选', tagsText: '', content: '', answer: '', options: defaultOptions(), codingLanguage: 'python', codingFunctionName: '', codingSignature: '', codingTemplate: '', codingTestsText: '' })
-const aiForm = reactive({ topic: 'Java 后端', bankType: 'baguwen', category: 'Java', difficulty: '中等', questionType: '单选', count: 5, requirements: '', documentName: '', documentText: '' })
-const deleteDialog = reactive({ visible: false, mode: 'single', questionId: '', count: 0 })
 
-const codingLanguageOptions = [
-  { value: 'python', label: 'Python' },
-  { value: 'java', label: 'Java' },
-  { value: 'javascript', label: 'JavaScript' },
-]
-const bankTypeDisplayName = { leetcode: '算法题库', baguwen: '问答题库' }
-const bankTypeOptions = computed(() => {
-  const options = questionMeta.bankTypeOptions?.length ? questionMeta.bankTypeOptions : [
-    { value: 'leetcode', label: bankTypeDisplayName.leetcode },
-    { value: 'baguwen', label: bankTypeDisplayName.baguwen },
-  ]
-  return options.map(item => ({ ...item, label: bankTypeDisplayName[item.value] || item.label }))
-})
-const categories = computed(() => (questionMeta.categories?.length ? questionMeta.categories : Array.from(new Set(questions.value.map(item => item.category).filter(Boolean)))).sort())
-const difficulties = computed(() => (questionMeta.difficulties?.length ? questionMeta.difficulties : ['简单', '中等', '困难']))
-const questionTypes = computed(() => (questionMeta.questionTypes?.length ? questionMeta.questionTypes : ['编程题', '单选', '多选', '判断', '简答']))
-const formQuestionTypes = computed(() => form.bankType === 'leetcode' ? ['编程题'] : ['单选', '多选', '判断', '简答'])
-const aiQuestionTypes = computed(() => aiForm.bankType === 'leetcode' ? ['编程题'] : ['单选', '多选', '判断', '简答'])
-const examRuleTotal = computed(() => computeExamRuleTotal(examConfig.rules))
 const timerExpired = computed(() => Boolean(currentExam.value && currentExam.value.status !== 'submitted' && timerRemaining.value <= 0))
-const remainingTimeText = computed(() => formatRemainingTime(timerRemaining.value))
-const timerRemaining = ref(0)
-let timerId = null
-const filteredQuestions = computed(() => questions.value)
-const selectedSet = computed(() => new Set(selectedIds.value))
-const allCurrentPageSelected = computed(() => questions.value.length > 0 && questions.value.every(item => selectedSet.value.has(item.questionId)))
-const visiblePages = computed(() => {
-  const total = Math.max(1, pagination.pages || 1)
-  const current = Math.min(Math.max(1, pagination.page), total)
-  const start = Math.max(1, Math.min(current - 2, total - 4))
-  const end = Math.min(total, start + 4)
-  const pages = []
-  for (let page = start; page <= end; page++) pages.push(page)
-  return pages
-})
 const pageEyebrow = computed(() => activeMode.value === 'exam' ? 'Practice Desk' : 'Question Bank')
 const pageTitle = computed(() => activeMode.value === 'exam' ? '练习台' : '题库')
 const pageDescription = computed(() => activeMode.value === 'exam'
   ? '查看练习记录、继续作答或通过随机组卷开始新练习。'
   : '按题库维护题目，支持单题练习、勾选后练习和批量设置。')
-const modalTitle = computed(() => editingId.value ? '编辑题目' : '新增题目')
-const modalSubmitText = computed(() => modalMode.value === 'manual' ? (editingId.value ? '保存修改' : '保存题目') : '生成并入库')
-const isChoiceForm = computed(() => isChoiceType(form.questionType))
 const showAnswerMode = computed(() => Boolean(currentExam.value?.strategy?.showAnswer))
 const examTotalCount = computed(() => currentExam.value?.questions?.length || 0)
 const answeredCount = computed(() => (currentExam.value?.questions || []).filter(isQuestionAnswered).length)
@@ -508,37 +326,14 @@ watch(() => props.initialExamId, async examId => {
 }, { immediate: true })
 
 async function loadAll() {
-  if (activeMode.value === 'exam') await Promise.all([loadQuestionMeta(), loadExams()])
-  else await Promise.all([loadQuestionMeta(), loadQuestions()])
-}
-async function loadQuestionMeta() {
-  try {
-    const data = await getQuestionMeta({ bankType: filters.bankType, _ts: Date.now() })
-    Object.assign(questionMeta, {
-      bankTypeOptions: Array.isArray(data.bankTypeOptions) ? data.bankTypeOptions : questionMeta.bankTypeOptions,
-      categories: Array.isArray(data.categories) ? data.categories : [],
-      difficulties: Array.isArray(data.difficulties) ? data.difficulties : [],
-      questionTypes: Array.isArray(data.questionTypes) ? data.questionTypes : [],
-    })
-  } catch (_) {}
-}
-async function loadQuestions() {
-  loading.value = true
-  error.value = ''
-  try {
-    const data = await listQuestions({ ...filters, page: pagination.page, size: pagination.size, _ts: Date.now() })
-    questions.value = (data.items || []).map(normalizeQuestionRow)
-    pagination.total = Number(data.total || questions.value.length || 0)
-    pagination.page = Number(data.page || pagination.page || 1)
-    pagination.size = Number(data.size || pagination.size || 20)
-    pagination.pages = Math.max(1, Number(data.pages || Math.ceil(pagination.total / pagination.size) || 1))
-  } catch (err) { error.value = err.message || '题库加载失败' } finally { loading.value = false }
+  if (activeMode.value === 'exam') await Promise.all([loadQuestionMeta(filters.bankType), loadExams()])
+  else await Promise.all([loadQuestionMeta(filters.bankType), loadQuestions()])
 }
 async function searchQuestions() {
   pagination.page = 1
   clearSelection()
   questions.value = []
-  return Promise.all([loadQuestionMeta(), loadQuestions()])
+  return Promise.all([loadQuestionMeta(filters.bankType), loadQuestions()])
 }
 function switchBankTab(value) {
   if (filters.bankType === value) return
@@ -546,83 +341,39 @@ function switchBankTab(value) {
   filters.category = ''
   return searchQuestions()
 }
-function goPage(page) {
-  pagination.page = Math.max(1, Math.min(page, pagination.pages || 1))
-  questions.value = []
-  return loadQuestions()
+function handleGlobalKeydown(event) {
+  if (!['Escape', 'Esc'].includes(event.key)) return
+  if (deleteDialog.visible) closeDeleteDialog()
 }
-function changePageSize() { pagination.page = 1; clearSelection(); questions.value = []; return loadQuestions() }
-function normalizeQuestionRow(item) {
-  if (!item || typeof item !== 'object') return item
-  const bankType = item.bankType || (item.questionType === '编程题' ? 'leetcode' : 'baguwen')
-  return { ...item, bankType, tags: tagLabels(item).map(label => ({ label })), codingMeta: item.codingMeta || {} }
+
+function openCreateModal() { editModalRef.value?.openCreate(filters.bankType) }
+function openEditModal(item) { editModalRef.value?.openEdit(item) }
+async function handleQuestionSaved(saved) {
+  if (saved) upsertQuestionRow(normalizeQuestionRow(saved))
+  await loadQuestions()
 }
-function rowNumber(index) { return (pagination.page - 1) * pagination.size + index + 1 }
-function toggleSelection(questionId, checked) {
-  const set = new Set(selectedIds.value)
-  checked ? set.add(questionId) : set.delete(questionId)
-  selectedIds.value = Array.from(set)
-}
-function toggleCurrentPage(checked) {
-  const set = new Set(selectedIds.value)
-  for (const item of questions.value) checked ? set.add(item.questionId) : set.delete(item.questionId)
-  selectedIds.value = Array.from(set)
-}
-function clearSelection() {
-  selectedIds.value = []
-  showBatchEditor.value = false
-}
-async function applyBatchUpdate() {
-  if (!selectedIds.value.length) return
-  saving.value = true
+
+function openPracticeModal() { practiceModalRef.value?.open() }
+async function handlePracticeCreated(exam, fallbackSeconds) {
   error.value = ''
-  try {
-    await batchQuestions({
-      action: 'update',
-      questionIds: selectedIds.value,
-      category: batchForm.category,
-      difficulty: batchForm.difficulty,
-      tags: splitCleanTags(batchForm.tagsText),
-    })
-    Object.assign(batchForm, { category: '', difficulty: '', tagsText: '' })
-    clearSelection()
-    await loadQuestions()
-  } catch (err) { error.value = err.message || '批量修改失败' } finally { saving.value = false }
+  currentExam.value = exam
+  resetPracticeAnswers(exam)
+  startExamTimer(Number(exam.remainingSeconds || fallbackSeconds), true)
+  await loadExams()
 }
-function applyBatchDelete() {
-  if (!selectedIds.value.length) return
-  Object.assign(deleteDialog, { visible: true, mode: 'batch', questionId: '', count: selectedIds.value.length })
-}
+
 async function startSelectedPractice() {
   if (!selectedIds.value.length || examLoading.value) return
   const selectedQuestions = questions.value.filter(item => selectedSet.value.has(item.questionId))
   const title = `${currentBankTypeLabel()} 所选题练习（${selectedIds.value.length} 题）`
-  await createManualPractice(selectedIds.value, title, selectedQuestions.length === 1)
+  await createManualPractice(selectedIds.value, title, selectedQuestions.length === 1, exam => emit('practice-created', exam))
 }
 async function startSingleQuestionPractice(item) {
   if (!item?.questionId || examLoading.value) return
-  await createManualPractice([item.questionId], `${displayTitle(item, 0)} 单题练习`, true)
-}
-async function createManualPractice(questionIds, title, showAnswer = true) {
-  examLoading.value = true
-  error.value = ''
-  try {
-    const exam = await createRandomExam({
-      title,
-      durationMinutes: questionIds.length > 1 ? 45 : 30,
-      showAnswer,
-      questionIds,
-    })
-    assertManualPracticeMatches(exam, questionIds)
-    clearSelection()
-    emit('practice-created', exam)
-  } catch (err) {
-    error.value = err.message || '创建练习失败'
-  } finally {
-    examLoading.value = false
-  }
+  await createManualPractice([item.questionId], `${displayTitle(item, 0)} 单题练习`, true, exam => emit('practice-created', exam))
 }
 function currentBankTypeLabel() { return bankTypeLabel(filters.bankType) || '题库' }
+
 async function loadExams() {
   recordsLoading.value = true
   try {
@@ -634,115 +385,7 @@ async function loadExams() {
   }
 }
 function examShowAnswer(exam) { return Boolean(exam?.strategy?.showAnswer) }
-function openPracticeModal() {
-  practiceModalError.value = ''
-  if (!examConfig.title.trim()) examConfig.title = defaultPracticeTitle()
-  showPracticeModal.value = true
-}
-function closePracticeModal() {
-  if (examLoading.value) return
-  showPracticeModal.value = false
-}
-function newExamRule(data = {}) { return { id: crypto.randomUUID(), bankType: '', category: '', difficulty: '', questionType: '', count: 5, ...data } }
-function addExamRule() { examConfig.rules.push(newExamRule({ count: 3 })) }
-function removeExamRule(index) {
-  if (examConfig.rules.length <= 1) return
-  examConfig.rules.splice(index, 1)
-}
 
-function handleGlobalKeydown(event) {
-  if (!['Escape', 'Esc'].includes(event.key)) return
-  if (deleteDialog.visible) return closeDeleteDialog()
-  if (showPracticeModal.value) return closePracticeModal()
-  if (showModal.value && !saving.value) showModal.value = false
-}
-
-function openCreateModal() {
-  editingId.value = ''
-  modalMode.value = 'manual'
-  modalError.value = ''
-  resetForm()
-  if (filters.bankType) {
-    form.bankType = filters.bankType
-    aiForm.bankType = filters.bankType
-    syncFormBankType()
-    syncAiBankType()
-  }
-  showModal.value = true
-}
-function openEditModal(item) {
-  editingId.value = item.questionId
-  modalMode.value = 'manual'
-  modalError.value = ''
-  const meta = codingMeta(item)
-  Object.assign(form, {
-    title: item.title || '', bankType: item.bankType || 'baguwen', category: item.category || 'Java', difficulty: item.difficulty || '中等', questionType: item.questionType || (item.bankType === 'leetcode' ? '编程题' : '单选'),
-    tagsText: tagLabels(item).join(','), content: questionStem(item), answer: item.answer || '', options: optionItems(item).length ? optionItems(item) : defaultOptions(),
-    codingLanguage: normalizeCodingLanguage(meta.language || 'python'), codingFunctionName: meta.functionName || '', codingSignature: meta.signature || '', codingTemplate: meta.template || '', codingTestsText: formatCodingTests(meta.tests),
-  })
-  syncFormBankType()
-  if (form.bankType === 'leetcode' && !form.codingTemplate) form.codingTemplate = buildDefaultTemplate(form.codingFunctionName || 'solution', form.codingLanguage)
-  showModal.value = true
-}
-function resetForm() { Object.assign(form, { title: '', bankType: 'baguwen', category: 'Java', difficulty: '中等', questionType: '单选', tagsText: '', content: '', answer: '', options: defaultOptions(), codingLanguage: 'python', codingFunctionName: '', codingSignature: '', codingTemplate: '', codingTestsText: '' }) }
-async function submitModal() {
-  modalError.value = ''
-  if (modalMode.value === 'manual') return saveQuestion()
-  return submitAiGenerate()
-}
-async function saveQuestion() {
-  saving.value = true
-  try {
-    validateQuestionForm(form)
-    const payload = buildQuestionPayload(form)
-    const saved = normalizeQuestionRow(editingId.value ? await updateQuestion(editingId.value, payload) : await createQuestion(payload))
-    upsertQuestionRow(saved)
-    showModal.value = false
-    await loadQuestions()
-  } catch (err) { modalError.value = err.message || '保存失败' } finally { saving.value = false }
-}
-function upsertQuestionRow(saved) {
-  if (!saved?.questionId) return
-  const idx = questions.value.findIndex(item => item.questionId === saved.questionId)
-  if (idx >= 0) questions.value.splice(idx, 1, saved)
-  else questions.value.unshift(saved)
-}
-function addOption() {
-  const key = String.fromCharCode(65 + form.options.length)
-  form.options.push({ key, text: '' })
-}
-function removeOption(index) {
-  if (form.options.length <= 2) return
-  form.options.splice(index, 1)
-  form.options.forEach((item, idx) => { item.key = String.fromCharCode(65 + idx) })
-}
-function bankTypeLabel(value) {
-  const option = bankTypeOptions.value.find(item => item.value === value)
-  if (option) return option.label
-  return bankTypeDisplayName[value] || value || '题库'
-}
-function syncFormBankType() {
-  if (form.bankType === 'leetcode') {
-    form.questionType = '编程题'
-    if (!form.codingLanguage) form.codingLanguage = 'python'
-    if (!form.codingFunctionName) form.codingFunctionName = 'solution'
-    if (!form.codingTemplate) form.codingTemplate = buildDefaultTemplate(form.codingFunctionName, form.codingLanguage)
-  } else if (form.questionType === '编程题') {
-    form.questionType = '单选'
-  }
-}
-function resetCodingTemplateForLanguage() {
-  const functionName = extractFunctionName(form.codingTemplate, form.codingLanguage) || form.codingFunctionName || 'solution'
-  form.codingFunctionName = functionName
-  form.codingTemplate = buildDefaultTemplate(functionName, form.codingLanguage)
-}
-function syncAiBankType() {
-  if (aiForm.bankType === 'leetcode') aiForm.questionType = '编程题'
-  else if (aiForm.questionType === '编程题') aiForm.questionType = '单选'
-}
-function codingMeta(item) {
-  return item?.codingMeta && typeof item.codingMeta === 'object' ? item.codingMeta : {}
-}
 function currentCodingLanguage(questionId) {
   return normalizeCodingLanguage(codingLanguageByQuestion[questionId] || 'python')
 }
@@ -796,78 +439,7 @@ function updateOptionAnswer(item, key, checked) {
     answers[item.questionId] = key
   }
 }
-function handleAiDocumentChange(event) {
-  modalError.value = ''
-  const file = event.target.files?.[0]
-  event.target.value = ''
-  if (!file) return
-  const reader = new FileReader()
-  reader.onload = () => {
-    aiForm.documentName = file.name
-    aiForm.documentText = String(reader.result || '').slice(0, 20000)
-  }
-  reader.onerror = () => { modalError.value = '文档读取失败，请换成 txt、md 或可读取的文本文件' }
-  reader.readAsText(file, 'utf-8')
-}
-function clearAiDocument() {
-  aiForm.documentName = ''
-  aiForm.documentText = ''
-}
 
-async function submitAiGenerate() {
-  saving.value = true
-  try {
-    validateAiForm(aiForm)
-    await generateQuestions(aiForm)
-    showModal.value = false
-    await loadQuestions()
-  } catch (err) { modalError.value = err.message || 'AI 生成失败' } finally { saving.value = false }
-}
-function removeQuestion(questionId) {
-  Object.assign(deleteDialog, { visible: true, mode: 'single', questionId, count: 1 })
-}
-function closeDeleteDialog() {
-  if (saving.value) return
-  Object.assign(deleteDialog, { visible: false, mode: 'single', questionId: '', count: 0 })
-}
-async function confirmDelete() {
-  saving.value = true
-  error.value = ''
-  try {
-    if (deleteDialog.mode === 'batch') {
-      await batchQuestions({ action: 'delete', questionIds: selectedIds.value })
-      clearSelection()
-    } else if (deleteDialog.questionId) {
-      await deleteQuestion(deleteDialog.questionId)
-    }
-    Object.assign(deleteDialog, { visible: false, mode: 'single', questionId: '', count: 0 })
-    await loadQuestions()
-  } catch (err) {
-    error.value = err.message || '删除失败'
-  } finally {
-    saving.value = false
-  }
-}
-
-async function startExam() {
-  examLoading.value = true
-  practiceModalError.value = ''
-  error.value = ''
-  try {
-    validatePracticeConfig(examConfig)
-    const payload = {
-      title: examConfig.title,
-      durationMinutes: Number(examConfig.durationMinutes || 30),
-      showAnswer: examConfig.answerMode === 'visible',
-      rules: examConfig.rules.map(rule => ({ bankType: rule.bankType, category: rule.category, difficulty: rule.difficulty, questionType: rule.questionType, count: Number(rule.count || 0) })).filter(rule => rule.count > 0),
-    }
-    currentExam.value = await createRandomExam(payload)
-    resetPracticeAnswers(currentExam.value)
-    startExamTimer(Number(currentExam.value.remainingSeconds || payload.durationMinutes * 60), true)
-    showPracticeModal.value = false
-    await loadExams()
-  } catch (err) { practiceModalError.value = err.message || '随机组卷失败' } finally { examLoading.value = false }
-}
 async function openExam(examId) {
   stopExamTimer()
   examDetailLoading.value = true
@@ -957,20 +529,4 @@ function codingSubmitPayload() {
 }
 function codingResultRows(questionId) { return codingResults[questionId]?.rows || [] }
 function codingResultSummary(questionId) { return codingResultSummaryUtil(codingResults[questionId]) }
-function startExamTimer(value, secondsMode = false) {
-  stopExamTimer()
-  timerRemaining.value = secondsMode ? Math.max(0, Number(value || 0)) : Math.max(1, Number(value || 30)) * 60
-  timerId = window.setInterval(() => {
-    timerRemaining.value = Math.max(0, timerRemaining.value - 1)
-    if (timerRemaining.value <= 0) {
-      stopExamTimer(false)
-      submitCurrentExam()
-    }
-  }, 1000)
-}
-function stopExamTimer(reset = true) {
-  if (timerId) window.clearInterval(timerId)
-  timerId = null
-  if (reset) timerRemaining.value = 0
-}
 </script>
