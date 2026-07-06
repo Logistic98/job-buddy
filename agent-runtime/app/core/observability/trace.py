@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 
 from app.core.common.settings import settings
+from app.core.observability.otel import OtelExporter
 from app.core.utils.time_utils import TimeUtils
 from app.models.schemas import TraceEvent
 
@@ -14,9 +15,10 @@ from app.models.schemas import TraceEvent
 class TraceRecorder:
     """Trace 记录器：内存窗口供实时查询，JSONL 落盘支撑回放与评估取证。"""
 
-    def __init__(self, persist_dir: Optional[str] = None):
+    def __init__(self, persist_dir: Optional[str] = None, otel_exporter: Optional[OtelExporter] = None):
         self.events: List[TraceEvent] = []
         self._persist_dir = persist_dir
+        self._otel = otel_exporter or OtelExporter()
 
     async def record(self, trace_id: str, event: str, payload: Dict[str, Any] = None, run_id: Optional[str] = None):
         if not settings.config.observability.enabled:
@@ -35,6 +37,7 @@ class TraceRecorder:
         # 落盘是阻塞文件 IO；放到线程池执行，避免在流式问答期间反复卡住事件循环、
         # 拖慢逐字下发。record 仍被顺序 await，单个 run 内的事件写入顺序保持不变。
         await asyncio.to_thread(self._persist, item)
+        self._otel.submit(item)
         if settings.config.observability.log_events:
             logger.info(f"Trace 事件：trace_id={trace_id}, run_id={run_id}, event={event}")
 

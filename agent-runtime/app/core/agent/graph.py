@@ -9,6 +9,7 @@ from app.core.checkpoint.store import CheckpointStore
 from app.core.common.constants import PermissionMode, RuntimeStatus, StopReason, TraceEventName
 from app.core.common.settings import settings
 from app.core.context.assembler import ContextAssembler
+from app.core.context.compactor import ContextCompactor
 from app.core.intent.task_understanding import TaskUnderstandingService
 from app.core.observability.trace import TraceRecorder
 from app.core.planner.planner import RuntimePlanner
@@ -39,6 +40,7 @@ class AgentGraphBuilder:
         loop_controller: LoopController = None,
         tool_gateway: ToolGateway = None,
         context_assembler: ContextAssembler = None,
+        context_compactor: ContextCompactor = None,
     ):
         self.planner = planner
         self.tool_search = tool_search
@@ -49,6 +51,7 @@ class AgentGraphBuilder:
         self.loop_controller = loop_controller or LoopController()
         self.tool_gateway = tool_gateway or ToolGateway(self.tool_runtime.registry, self.tool_search, self.tool_runtime)
         self.context_assembler = context_assembler or ContextAssembler()
+        self.context_compactor = context_compactor or ContextCompactor()
 
     def build(self):
         builder = StateGraph(AgentGraphState)
@@ -182,6 +185,7 @@ class AgentGraphBuilder:
             observations=state.get("observations", []),
             tool_results=state.get("tool_results", []),
             metadata=state.get("metadata", {}) or {},
+            compaction=state.get("compaction"),
         )
         state["context_summary"] = assembled["summary"]
         state["context_payload"] = assembled["payload"]
@@ -320,6 +324,15 @@ class AgentGraphBuilder:
                 state.setdefault("observations", []).append(f"工具 {latest.tool_name} 执行成功：{latest.output}")
             else:
                 state.setdefault("observations", []).append(f"工具 {latest.tool_name} 执行失败：{latest.error}")
+
+        compaction_report = self.context_compactor.maybe_compact(state)
+        if compaction_report:
+            await self.trace_recorder.record(
+                state["trace_id"],
+                TraceEventName.CONTEXT_COMPACTION.value,
+                compaction_report.model_dump(),
+                state["run_id"],
+            )
 
         if self.loop_controller.failure_budget_reached(state):
             state["should_stop"] = True

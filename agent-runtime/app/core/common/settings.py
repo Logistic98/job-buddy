@@ -58,6 +58,14 @@ class RuntimeConfig(BaseModel):
     max_turns: int = 12
     max_tool_calls: int = 20
     max_failures: int = 3
+    # 单次 run 的 token 预算默认值，0 表示不限，可被请求 budget.max_tokens 覆盖。
+    max_run_tokens: int = 0
+    # Loop 内观察列表的结构化压缩（Compaction）配置：条数或总字符任一达到阈值即触发，
+    # 触发后保留最近 keep_recent 条原始观察，其余折叠为五要素快照。
+    compaction_enabled: bool = True
+    compaction_trigger_observations: int = 12
+    compaction_trigger_chars: int = 6000
+    compaction_keep_recent: int = 4
     tool_timeout_seconds: int = 30
     use_llm_planner: bool = True
     workspace_dir: str = "."
@@ -98,6 +106,10 @@ class ToolRuntimeConfig(BaseModel):
     retry_backoff_seconds: float = 0.5
     shell_allow_prefixes: List[str] = Field(default_factory=list)
     shell_deny_patterns: List[str] = Field(default_factory=list)
+    shell_sandbox_enabled: bool = True
+    shell_sandbox_base_url: str = "http://localhost:8061"
+    shell_sandbox_timeout_seconds: float = 30.0
+    injection_probe_enabled: bool = True
 
 
 class ObservabilityConfig(BaseModel):
@@ -108,6 +120,11 @@ class ObservabilityConfig(BaseModel):
     max_events: int = 1000
     persist_enabled: bool = True
     persist_dir: str = ".runtime_traces"
+    # OpenTelemetry 导出为纯增量旁路，默认关闭；开启后失败静默降级，权威取证数据仍在 JSONL。
+    otel_enabled: bool = False
+    otel_endpoint: str = "http://localhost:4318/v1/traces"
+    otel_service_name: str = "job-buddy-runtime"
+    otel_timeout_seconds: float = 3.0
 
 
 class MemoryConfig(BaseModel):
@@ -215,6 +232,10 @@ class RuntimeSettings(BaseModel):
     @property
     def max_failures(self) -> int:
         return self.config.runtime.max_failures
+
+    @property
+    def max_run_tokens(self) -> int:
+        return self.config.runtime.max_run_tokens
 
     @property
     def tool_timeout_seconds(self) -> int:

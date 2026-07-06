@@ -1,11 +1,16 @@
 
 import asyncio
+import shlex
 from pathlib import Path
 from typing import Any, Dict
+
+import httpx
 
 from app.core.common.constants import ToolKind, ToolRiskLevel
 from app.core.common.settings import settings
 from app.core.tool.base import BaseTool, ToolExecutionContext, ValidationResult
+
+_SENSITIVE_DENY_READ = ["~/.ssh", "~/.aws", "~/.config/gcloud", "~/.kube"]
 
 
 class ShellTool(BaseTool):
@@ -49,6 +54,53 @@ class ShellTool(BaseTool):
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
         command = arguments["command"]
         cwd = self._resolve_cwd(arguments.get("cwd"), context)
+        if settings.config.tool_runtime.shell_sandbox_enabled:
+            return await self._run_in_sandbox(command, cwd)
+        return await self._run_on_host(command, cwd)
+
+    async def _run_in_sandbox(self, command: str, cwd: Path) -> Dict[str, Any]:
+        config = settings.config.tool_runtime
+        base_url = config.shell_sandbox_base_url.rstrip("/")
+        timeout = float(config.shell_sandbox_timeout_seconds)
+        payload = {
+            "command": f"cd {shlex.quote(str(cwd))} && {command}",
+            "policy": {
+                "network": {"allowedDomains": []},
+                "filesystem": {
+                    "allowRead": [str(cwd)],
+                    "denyRead": _SENSITIVE_DENY_READ,
+                    "allowWrite": [],
+                    "denyWrite": [".env", "secrets/"],
+                },
+            },
+            "options": {"timeout": float(self.timeout_seconds), "check": False},
+        }
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(f"{base_url}/v1/shell", json=payload)
+                response.raise_for_status()
+                body = response.json()
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                f"agent-sandbox 执行超时（{base_url}，{timeout}s），命令未在宿主机回退执行"
+            ) from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise RuntimeError(
+                f"agent-sandbox 不可用（{base_url}）：{exc}。"
+                "请确认 agent-sandbox 服务已启动，或检查 JOB_BUDDY_SANDBOX_BASE_URL 配置；"
+                "沙箱不可用时命令不会在宿主机回退执行"
+            ) from exc
+        if not isinstance(body, dict):
+            raise RuntimeError("agent-sandbox 返回结构非法，命令未在宿主机回退执行")
+        return {
+            "exit_code": body.get("returncode"),
+            "stdout": str(body.get("stdout") or "")[-12000:],
+            "stderr": str(body.get("stderr") or "")[-12000:],
+            "sandboxed": True,
+        }
+
+    async def _run_on_host(self, command: str, cwd: Path) -> Dict[str, Any]:
+        # 仅限本地调试：shell_sandbox_enabled=false 时的宿主机直执路径。
         proc = await asyncio.create_subprocess_shell(
             command,
             cwd=str(cwd),
@@ -60,6 +112,7 @@ class ShellTool(BaseTool):
             "exit_code": proc.returncode,
             "stdout": stdout.decode("utf-8", errors="ignore")[-12000:],
             "stderr": stderr.decode("utf-8", errors="ignore")[-12000:],
+            "sandboxed": False,
         }
 
     def _resolve_cwd(self, raw_cwd: Any, context: ToolExecutionContext) -> Path:

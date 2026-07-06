@@ -1,6 +1,8 @@
 
+import httpx
 import pytest
 
+import app.tools_builtin.shell_tool as shell_tool_module
 from app.core.common.constants import PermissionMode
 from app.core.tool.runtime import ToolRuntime
 from app.models.schemas import ToolCall
@@ -91,13 +93,82 @@ async def test_glob_and_grep(fresh_registry, tool_context, workspace):
     assert any(m["path"] == "a.py" for m in grep_result.output["matches"])
 
 
+class _FakeSandboxResponse:
+    def __init__(self, status_code=200, body=None):
+        self.status_code = status_code
+        self._body = body or {"ok": True, "returncode": 0, "stdout": "/tmp\n", "stderr": "", "args": []}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError("error", request=None, response=None)
+
+    def json(self):
+        return self._body
+
+
+class _FakeSandboxClient:
+    last_payload = None
+    fail_with = None
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, json=None):
+        if _FakeSandboxClient.fail_with is not None:
+            raise _FakeSandboxClient.fail_with
+        _FakeSandboxClient.last_payload = {"url": url, "json": json}
+        return _FakeSandboxResponse()
+
+
 @pytest.mark.asyncio
-async def test_shell_allow_prefix_runs(fresh_registry, tool_context):
+async def test_shell_allow_prefix_runs_in_sandbox(fresh_registry, tool_context, monkeypatch):
+    _FakeSandboxClient.fail_with = None
+    _FakeSandboxClient.last_payload = None
+    monkeypatch.setattr(shell_tool_module.httpx, "AsyncClient", _FakeSandboxClient)
     runtime = ToolRuntime(fresh_registry)
     call = ToolCall(id="s1", name="shell_exec", arguments={"command": "pwd"})
     result = await runtime.execute(call, PermissionMode.AUTO, tool_context)
     assert result.success
     assert result.output["exit_code"] == 0
+    assert result.output["sandboxed"] is True
+    payload = _FakeSandboxClient.last_payload
+    assert payload["url"].endswith("/v1/shell")
+    assert payload["json"]["command"].startswith("cd ")
+    assert payload["json"]["command"].endswith("&& pwd")
+    assert payload["json"]["policy"]["filesystem"]["allowWrite"] == []
+    assert payload["json"]["policy"]["network"]["allowedDomains"] == []
+
+
+@pytest.mark.asyncio
+async def test_shell_sandbox_unavailable_fails_without_host_fallback(fresh_registry, tool_context, monkeypatch):
+    _FakeSandboxClient.fail_with = httpx.ConnectError("connection refused")
+    monkeypatch.setattr(shell_tool_module.httpx, "AsyncClient", _FakeSandboxClient)
+    runtime = ToolRuntime(fresh_registry)
+    call = ToolCall(id="s1b", name="shell_exec", arguments={"command": "pwd"})
+    result = await runtime.execute(call, PermissionMode.AUTO, tool_context)
+    _FakeSandboxClient.fail_with = None
+    assert not result.success
+    assert "agent-sandbox" in (result.error or "")
+    assert "回退" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_shell_host_path_only_when_sandbox_disabled(fresh_registry, tool_context, monkeypatch):
+    from app.core.common.settings import settings as runtime_settings
+
+    monkeypatch.setattr(runtime_settings.config.tool_runtime, "shell_sandbox_enabled", False)
+    runtime = ToolRuntime(fresh_registry)
+    call = ToolCall(id="s1c", name="shell_exec", arguments={"command": "pwd"})
+    result = await runtime.execute(call, PermissionMode.AUTO, tool_context)
+    assert result.success
+    assert result.output["exit_code"] == 0
+    assert result.output["sandboxed"] is False
 
 
 @pytest.mark.asyncio

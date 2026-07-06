@@ -172,6 +172,19 @@ tool_runtime:
     - "mkfs"
     - "dd if="
 
+  # Shell 命令沙箱执行。开启后 shell_exec 通过 agent-sandbox 执行，
+  # 沙箱不可用时直接失败，不回退宿主机直接执行。
+  shell_sandbox_enabled: true
+
+  # agent-sandbox 服务地址。
+  shell_sandbox_base_url: "${JOB_BUDDY_SANDBOX_BASE_URL:http://localhost:8061}"
+
+  # 调用 agent-sandbox 的请求超时，单位秒。
+  shell_sandbox_timeout_seconds: 30
+
+  # 工具结果 Prompt Injection 探针。命中特征时只打标与告警，不阻断主流程、不截断内容。
+  injection_probe_enabled: true
+
 mcp:
   # 是否启用 MCP 工具接入。Boss 直聘链路通过 agent-tool 的 boss_browser 工具接入，Runtime 默认关闭 Boss MCP。
   enabled: false

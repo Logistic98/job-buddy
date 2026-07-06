@@ -36,10 +36,11 @@ class LoopController:
         return self._budget_value(state, "max_tool_calls", settings.max_tool_calls)
 
     def evaluate_budget(self, state: AgentGraphState) -> BudgetDecision:
-        """工具执行前的硬预算检查：轮数、工具调用次数、连续失败次数。
+        """工具执行前的硬预算检查：轮数、工具调用次数、连续失败次数、token 用量。
 
-        语义与重构前 `_budget_check` 完全一致（turn 用严格大于，工具/失败用大于等于），
-        作为预算阈值的唯一来源，避免在多个节点重复硬编码。
+        轮数/工具/失败语义与重构前 `_budget_check` 完全一致（turn 用严格大于，工具/失败用
+        大于等于），token 预算与工具预算同语义（达到即停）；本方法是预算阈值的唯一来源，
+        避免在多个节点重复硬编码。
         """
         turn = int(state.get("turn_count", 0))
         tool_calls = int(state.get("tool_call_count", 0))
@@ -50,6 +51,11 @@ class LoopController:
             return BudgetDecision(blocked=True, reason="达到工具调用预算", stop_reason=StopReason.TOOL_BUDGET_EXCEEDED.value)
         if failures >= self._budget_value(state, "max_failures", settings.max_failures):
             return BudgetDecision(blocked=True, reason="连续失败次数过多", stop_reason=StopReason.MAX_FAILURES.value)
+        max_tokens = self._budget_value(state, "max_tokens", settings.max_run_tokens)
+        if max_tokens > 0:
+            total_tokens = int((state.get("token_usage") or {}).get("total_tokens") or 0)
+            if total_tokens >= max_tokens:
+                return BudgetDecision(blocked=True, reason="达到 Token 预算", stop_reason=StopReason.TOKEN_BUDGET_EXCEEDED.value)
         return BudgetDecision(blocked=False)
 
     def failure_budget_reached(self, state: AgentGraphState) -> bool:

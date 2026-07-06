@@ -40,6 +40,21 @@ def test_budget_blocks_on_turns_tools_failures():
     assert controller.evaluate_budget({"turn_count": 1, "budget": {"max_turns": 5, "max_tool_calls": 5, "max_failures": 3}}).blocked is False
 
 
+def test_budget_blocks_on_token_usage():
+    controller = LoopController()
+    state = {"budget": {"max_tokens": 1000}, "token_usage": {"total_tokens": 1000}}
+    decision = controller.evaluate_budget(state)
+    assert decision.blocked is True
+    assert decision.stop_reason == StopReason.TOKEN_BUDGET_EXCEEDED.value
+    # 未达阈值不阻断
+    assert controller.evaluate_budget({"budget": {"max_tokens": 1000}, "token_usage": {"total_tokens": 999}}).blocked is False
+    # max_tokens 为 0 或缺省表示不限
+    assert controller.evaluate_budget({"budget": {"max_tokens": 0}, "token_usage": {"total_tokens": 999999}}).blocked is False
+    assert controller.evaluate_budget({"budget": {}, "token_usage": {"total_tokens": 999999}}).blocked is False
+    # 无 token_usage 状态不阻断
+    assert controller.evaluate_budget({"budget": {"max_tokens": 1000}}).blocked is False
+
+
 def test_turn_budget_reached_is_inclusive_unlike_hard_budget():
     controller = LoopController()
     state = {"turn_count": 5, "budget": {"max_turns": 5}}

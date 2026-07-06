@@ -12,6 +12,7 @@ from app.core.common.settings import settings
 from app.core.context.assembler import ContextAssembler
 from app.core.intent.task_understanding import TaskUnderstandingService
 from app.core.llm.openai_client import OpenAICompatibleClient
+from app.core.llm.usage import current_usage, start_usage_tracking
 from app.core.observability.trace import TraceRecorder
 from app.core.planner.planner import RuntimePlanner
 from app.core.prompt.loader import PromptTemplateLoader
@@ -87,6 +88,7 @@ class AgentExecutor:
         logger.info(f"Agent 执行开始：trace_id={trace_id}, run_id={run_id}, session_id={session_id}")
         await self.trace_recorder.record(trace_id, TraceEventName.RUN_START.value, {"session_id": session_id}, run_id)
         self._apply_request_llm(request)
+        start_usage_tracking()
 
         state = await self._initial_state(request, session_id, run_id, trace_id)
 
@@ -176,6 +178,7 @@ class AgentExecutor:
         await self.trace_recorder.record(trace_id, TraceEventName.RUN_START.value, {"session_id": session_id, "stream": True}, run_id)
         # 流式路径按请求解析本地客户端，不写实例属性，避免进程级单例执行器并发污染。
         llm_client = self._resolve_request_llm(request)
+        start_usage_tracking()
 
         accumulated: List[str] = []
         reasoning_acc: List[str] = []
@@ -386,10 +389,11 @@ class AgentExecutor:
                 state["_resumed_from_run_id"] = previous_run_id
                 state.pop("answer", None)
                 state.pop("error", None)
+                self._attach_token_usage(state)
                 logger.info(f"从 checkpoint 恢复：session_id={session_id}, stage={checkpoint.get('stage')}, previous_run_id={previous_run_id}")
                 return state
 
-        return {
+        state = {
             "run_id": run_id,
             "trace_id": trace_id,
             "session_id": session_id,
@@ -410,6 +414,18 @@ class AgentExecutor:
             "logs": [],
             "metrics": {},
         }
+        self._attach_token_usage(state)
+        return state
+
+    def _attach_token_usage(self, state) -> None:
+        """把当前 run 的 token 累计器挂到 state，供 LoopController 做预算仲裁。
+
+        累计器与客户端写入是同一可变字典对象，state 读取即为最新值；checkpoint 恢复
+        路径同样覆盖旧快照，token 预算按当前 run 重新累计，不跨 run 叠加。
+        """
+        usage = current_usage()
+        if usage is not None:
+            state["token_usage"] = usage
 
     def _hydrate_state(self, state):
         hydrated = dict(state)
@@ -459,6 +475,9 @@ class AgentExecutor:
         client = llm_client or self.llm_client
         if client and hasattr(client, "get_cache_metrics"):
             metrics["llm_cache"] = client.get_cache_metrics()
+        token_usage = current_usage() or state.get("token_usage")
+        if token_usage:
+            metrics["token_usage"] = dict(token_usage)
         return metrics
 
     def _model(self, cls, value):

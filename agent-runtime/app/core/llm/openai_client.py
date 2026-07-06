@@ -10,6 +10,7 @@ import httpx
 from loguru import logger
 
 from app.core.common.settings import settings
+from app.core.llm.usage import record_usage
 from app.models.schemas import ChatMessage, ToolDefinition
 
 
@@ -109,6 +110,8 @@ class OpenAICompatibleClient:
                 data = response.json()
                 message = self._parse_response(data)
                 message["cache"] = {"hit": False, "key": cache_key[:12]}
+                # 请求缓存命中不计入 run 级 token 用量：命中时未真实消耗 token。
+                record_usage(message.get("usage") or {})
                 self._store_cache(cache_key, message)
                 logger.debug(f"模型响应完成：provider={self.provider}, model={self.model}, prompt_cache={self.prompt_cache_enabled}/{self.prompt_cache_strategy}, usage: {message.get('usage') or {}}")
                 return message
@@ -149,6 +152,7 @@ class OpenAICompatibleClient:
                         chunk = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
+                    self._record_stream_usage(chunk)
                     kind, piece = self._parse_stream_event(chunk)
                     if piece:
                         yield {"type": kind, "text": piece}
@@ -178,6 +182,10 @@ class OpenAICompatibleClient:
             payload["tool_choice"] = "auto"
         if stream:
             payload["stream"] = True
+            # 流式末帧携带 usage，用于 run 级 token 用量统计。部分兼容端点不支持
+            # stream_options，保守起见仅对 DeepSeek OpenAI 兼容接口开启。
+            if self.provider == "deepseek_api":
+                payload["stream_options"] = {"include_usage": True}
         # 路由/分类类调用关闭推理模型的隐藏思考链，避免首字延迟被思考阶段拉长。
         # 仅 DeepSeek OpenAI 兼容接口支持 thinking 开关，其他提供方忽略以免请求被拒。
         if disable_thinking and self.understanding_thinking_disabled and self.provider == "deepseek_api":
@@ -227,6 +235,26 @@ class OpenAICompatibleClient:
         if reasoning:
             return "reasoning", reasoning
         return "answer", delta.get("content")
+
+    def _record_stream_usage(self, chunk: Dict[str, Any]) -> None:
+        """从流式帧中提取 usage 写入 run 级累计器。
+
+        OpenAI 兼容协议：开启 stream_options.include_usage 后末帧携带完整 usage，记一次调用。
+        Anthropic 协议：message_start 携带 input_tokens（记调用），message_delta 携带
+        output_tokens 终态累计值（不再记调用，避免重复计数）。
+        """
+        if self._is_anthropic():
+            chunk_type = chunk.get("type")
+            if chunk_type == "message_start":
+                usage = (chunk.get("message") or {}).get("usage") or {}
+                record_usage({"input_tokens": usage.get("input_tokens")}, count_call=True)
+            elif chunk_type == "message_delta":
+                usage = chunk.get("usage") or {}
+                record_usage({"output_tokens": usage.get("output_tokens")}, count_call=False)
+            return
+        usage = chunk.get("usage")
+        if isinstance(usage, dict) and usage:
+            record_usage(usage)
 
     def _to_anthropic_messages(self, messages: List[ChatMessage]) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         system_blocks: List[Dict[str, Any]] = []
