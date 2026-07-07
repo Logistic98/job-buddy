@@ -5,6 +5,7 @@ from loguru import logger
 
 from .models import IntentRequest, IntentResult
 from .service import classify_intent
+from .transcript_review import TranscriptReviewRequest, TranscriptReviewResult, review_transcript
 
 app = FastAPI(title="agent-intent", version="0.1.0")
 
@@ -26,5 +27,22 @@ def classify(request: IntentRequest) -> dict:
     bound.info(
         f"意图分类完成 domain={result.domain} intent={result.intent} "
         f"confidence={result.confidence} risk={result.risk} needs_clarification={result.needs_clarification}"
+    )
+    return {"code": 200, "message": "success", "data": result.model_dump()}
+
+
+@app.post("/v1/intent/review-transcript", response_model=dict)
+def review(request: TranscriptReviewRequest) -> dict:
+    """高风险动作的独立复核：只看用户消息与工具调用，剥离 assistant 解释。"""
+    request_id = uuid.uuid4().hex[:12]
+    bound = logger.bind(service="agent-intent", request_id=request_id)
+    try:
+        result: TranscriptReviewResult = review_transcript(request)
+    except Exception as exc:  # noqa: BLE001 统一兜底，保证返回标准信封而非裸 500
+        bound.exception(f"transcript 复核异常 error={exc}")
+        return {"code": 500, "message": "transcript 复核失败，请稍后重试", "data": {}}
+    bound.info(
+        f"transcript 复核完成 decision={result.decision} risk={result.risk} "
+        f"user_messages={result.reviewed_user_messages} tool_calls={result.reviewed_tool_calls}"
     )
     return {"code": 200, "message": "success", "data": result.model_dump()}

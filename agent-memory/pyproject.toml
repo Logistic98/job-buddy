@@ -8,6 +8,7 @@ dependencies = ["fastapi>=0.110.0,<1.0.0", "uvicorn[standard]>=0.27.0,<1.0.0", "
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0,<8.0.0",
+    "pytest-asyncio>=0.21.0,<0.22.0",
     "ruff>=0.15.0,<1.0.0",
 ]
 
@@ -20,3 +21,4 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

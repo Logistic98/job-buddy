@@ -3,10 +3,10 @@
 针对中英文混合的求职语料提供统一的分词、BM25 词法打分与时间衰减信号，供
 PostgreSQL 与内存两套存储共用，保证候选召回后的重排行为一致且可单测。
 
-排序采用 RRF（Reciprocal Rank Fusion）融合多路信号：当前内置"BM25 词法排序"
-与"时间衰减排序"两路，融合框架对后续接入向量召回、图召回保持开放，新增一路
-只需把其排序结果并入融合即可，不改动调用方。完整的向量库与图召回依赖 Embedding
-等外部基础设施，属于后续演进。
+排序采用 RRF（Reciprocal Rank Fusion）融合多路信号：内置"BM25 词法排序"与
+"时间衰减排序"两路，调用方可经 vector_scores 并入第三路向量相似度（由
+app.embedding 提供，默认关闭）。融合框架对图召回等后续信号保持开放，新增一路
+只需把其排序结果并入融合即可。
 """
 
 from __future__ import annotations
@@ -137,6 +137,18 @@ def bm25_scores(query_terms: set[str], docs_tokens: list[list[str]], k1: float =
     return scores
 
 
+def cosine_similarity(a: list[float] | None, b: list[float] | None) -> float:
+    """余弦相似度，维度不符或零向量返回 0.0。"""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(y * y for y in b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
 def _rrf_accumulate(fused: list[float], order: list[int], rrf_k: int) -> None:
     """按 RRF 公式把一路排序结果的贡献累加到融合分。"""
     for position, index in enumerate(order):
@@ -152,11 +164,15 @@ def rank(
     now: datetime | None = None,
     half_life_days: float = 30.0,
     rrf_k: int = _DEFAULT_RRF_K,
+    vector_scores: list[float] | None = None,
+    vector_min_score: float = 0.3,
 ) -> list:
-    """对候选项做 BM25 + 时间衰减的 RRF 混合排序并截断 top-K。
+    """对候选项做 BM25 + 时间衰减（+ 可选向量相似度）的 RRF 混合排序并截断 top-K。
 
-    有显著查询词时只对命中词法的候选参与融合，避免不相关的近期记忆被时间信号
-    带入结果；查询无词时退化为按时间排序。平局时按创建时间降序，保证稳定可复现。
+    有显著查询词时，参与融合的候选为"词法命中 ∪ 向量达标"：向量一路负责补召回
+    语义相近但用词不同的记忆，达标门槛 vector_min_score 防止弱相关候选借名次噪声
+    挤入结果。vector_scores 缺省时行为与两路融合完全一致。查询无词时退化为按时间
+    排序。平局时按创建时间降序，保证稳定可复现。
     """
     total = len(items)
     if total == 0:
@@ -169,17 +185,27 @@ def rank(
 
     lexical = bm25_scores(query_terms, docs_tokens) if query_terms else [0.0] * total
     recency = [_recency_boost(created or None, now, half_life_days) for created in createds]
+    if vector_scores is not None and len(vector_scores) != total:
+        vector_scores = None
+    vector = [score if score >= vector_min_score else 0.0 for score in vector_scores] if vector_scores else [0.0] * total
 
     if query_terms:
-        eligible = [i for i in range(total) if lexical[i] > 0]
+        eligible = [i for i in range(total) if lexical[i] > 0 or vector[i] > 0]
     else:
         eligible = list(range(total))
     if not eligible:
         return []
 
     fused = [0.0] * total
-    lexical_order = sorted(eligible, key=lambda i: (lexical[i], recency[i], createds[i]), reverse=True)
+    lexical_order = sorted(
+        (i for i in eligible if lexical[i] > 0 or not query_terms),
+        key=lambda i: (lexical[i], recency[i], createds[i]),
+        reverse=True,
+    )
     _rrf_accumulate(fused, lexical_order, rrf_k)
+    vector_eligible = [i for i in eligible if vector[i] > 0]
+    vector_order = sorted(vector_eligible, key=lambda i: (vector[i], lexical[i], createds[i]), reverse=True)
+    _rrf_accumulate(fused, vector_order, rrf_k)
     # 时间信号只在存在真实时间差异的候选间融合：无时间戳（recency 全为 0）时不参与，
     # 否则等值时间会以任意稳定顺序注入名次噪声，抵消词法排序。平局按词法分回退。
     recency_eligible = [i for i in eligible if recency[i] > 0]

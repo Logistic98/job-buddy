@@ -1,11 +1,12 @@
 from app.store import MemoryStore, PostgresMemoryStore
 
 
-def test_add_and_search_memory():
+async def test_add_and_search_memory():
     store = MemoryStore()
     item = store.add("session", "Agent Loop needs trace")
     assert item.id.startswith("mem_")
-    assert store.search("trace", "session")[0].content == "Agent Loop needs trace"
+    results = await store.search("trace", "session")
+    assert results[0].content == "Agent Loop needs trace"
 
 
 def test_postgres_store_derives_dsn_from_spring_datasource(monkeypatch):

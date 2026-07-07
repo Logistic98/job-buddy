@@ -6,7 +6,8 @@ from uuid import uuid4
 
 import asyncpg
 
-from .relevance import rank, significant_terms
+from .embedding import EmbeddingClient, vector_min_similarity
+from .relevance import cosine_similarity, rank, significant_terms
 
 # 记忆信息分层取值：步骤态 / 任务态 / 跨任务长期 / 跨会话语义。
 # Runtime Core 不感知具体业务语义，仅用该枚举区分记忆生命周期与召回策略。
@@ -29,6 +30,32 @@ def _search_pool() -> int:
 
 def _search_half_life_days() -> float:
     return float(os.getenv("AGENT_MEMORY_SEARCH_HALF_LIFE_DAYS", "30"))
+
+
+_embedding_client = EmbeddingClient()
+
+
+async def hybrid_rank(query: str, candidates: list["MemoryItem"]) -> list["MemoryItem"]:
+    """候选池内的混合重排：词法 + 时间恒定参与，向量一路在 Embedding 开启且调用成功时并入。
+
+    Embedding 关闭、无候选或调用失败时退化为两路融合，行为与向量接入前完全一致。
+    """
+    vector_scores: list[float] | None = None
+    if candidates and _embedding_client.enabled:
+        embedded = await _embedding_client.embed([query, *[item.content for item in candidates]])
+        if embedded is not None:
+            query_vector, doc_vectors = embedded[0], embedded[1:]
+            vector_scores = [cosine_similarity(query_vector, doc_vector) for doc_vector in doc_vectors]
+    return rank(
+        query,
+        candidates,
+        _item_content,
+        _item_created,
+        _search_top_k(),
+        half_life_days=_search_half_life_days(),
+        vector_scores=vector_scores,
+        vector_min_score=vector_min_similarity(),
+    )
 
 
 def _item_content(item: "MemoryItem") -> str:
@@ -103,10 +130,10 @@ class MemoryStore:
         self.items.append(item)
         return item
 
-    def search(self, query: str, scope: str | None = None) -> list[MemoryItem]:
+    async def search(self, query: str, scope: str | None = None) -> list[MemoryItem]:
         self.purge_expired()
         candidates = [item for item in self.items if scope is None or item.scope == scope]
-        return rank(query, candidates, _item_content, _item_created, _search_top_k(), half_life_days=_search_half_life_days())
+        return await hybrid_rank(query, candidates)
 
     def _record_revision(self, item: MemoryItem, operator_id: str | None) -> None:
         self.revisions.setdefault(item.id, []).append(
@@ -345,7 +372,7 @@ class PostgresMemoryStore:
                         pool_size,
                     )
         candidates = [self._row_to_item(row) for row in rows]
-        return rank(query, candidates, _item_content, _item_created, _search_top_k(), half_life_days=_search_half_life_days())
+        return await hybrid_rank(query, candidates)
 
     async def update(
         self,

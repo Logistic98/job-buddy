@@ -6,16 +6,23 @@
 结果中的 router 字段标记命中层级:rule / scorer / llm / fallback。
 """
 
+from .clarification import apply_clarification_gate
 from .domains.job import classify_job
 from .llm_classifier import classify_with_llm
 from .models import IntentResult
 from .scorer import score_intent
 
-_HIGH_RISK_KEYWORDS = ["删除", "delete", "drop", "生产", "prod", "密钥", "token"]
+# 入口高风险意图表达，transcript 复核在此基础上扩展破坏性标记。
+HIGH_RISK_KEYWORDS = ["删除", "delete", "drop", "生产", "prod", "密钥", "token"]
 _ENGINEERING_KEYWORDS = ["代码", "实现", "开发", "修复", "重构", "mvp", "workflow", "工作流"]
 
 
 def classify_intent(message: str) -> IntentResult:
+    # 出口统一过澄清门：任何一层给出的低置信结果都被兜住，高风险结果不降级。
+    return apply_clarification_gate(_classify_intent(message))
+
+
+def _classify_intent(message: str) -> IntentResult:
     text = (message or "").strip()
     if not text:
         return _clarify_result()
@@ -48,7 +55,7 @@ def classify_intent(message: str) -> IntentResult:
 
 def _classify_by_rules(text: str) -> IntentResult | None:
     lower = text.lower()
-    if any(k in lower for k in _HIGH_RISK_KEYWORDS):
+    if any(k in lower for k in HIGH_RISK_KEYWORDS):
         return IntentResult(
             domain="security",
             intent="high_risk_request",
