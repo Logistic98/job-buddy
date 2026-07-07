@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from app.relevance import bm25_scores, rank, relevance_score, significant_terms, tokenize
+from app.relevance import bm25_scores, cosine_similarity, rank, relevance_score, significant_terms, tokenize
 from app.store import MemoryStore
 
 
@@ -75,10 +75,59 @@ def test_rank_excludes_non_lexical_match_for_specific_query():
     assert ranked == ["Java 后端 微服务经验"]
 
 
-def test_memory_store_search_returns_ranked():
+async def test_memory_store_search_returns_ranked():
     store = MemoryStore()
     store.add("session", "前端 Vue 项目经验")
     store.add("session", "Java 后端 高并发 微服务经验")
-    results = store.search("Java 后端", "session")
+    results = await store.search("Java 后端", "session")
     assert results
     assert "Java" in results[0].content
+
+
+def test_cosine_similarity_basics():
+    assert cosine_similarity([1.0, 0.0], [1.0, 0.0]) == 1.0
+    assert cosine_similarity([1.0, 0.0], [0.0, 1.0]) == 0.0
+    assert cosine_similarity([1.0, 0.0], [1.0, 0.0, 0.0]) == 0.0  # 维度不符
+    assert cosine_similarity([0.0, 0.0], [1.0, 0.0]) == 0.0  # 零向量
+    assert cosine_similarity(None, [1.0]) == 0.0
+
+
+def test_vector_leg_recalls_semantic_match_without_lexical_hit():
+    # "在家上班" 与查询"远程办公"无词法交集，向量达标后应被补召回。
+    items = ["在家上班 弹性 工作", "Java 后端 微服务经验"]
+    ranked = rank(
+        "远程办公",
+        items,
+        lambda x: x,
+        lambda x: None,
+        top_k=10,
+        vector_scores=[0.9, 0.0],
+    )
+    assert "在家上班 弹性 工作" in ranked
+
+
+def test_vector_below_threshold_does_not_admit_candidate():
+    items = ["在家上班 弹性 工作"]
+    ranked = rank("远程办公", items, lambda x: x, lambda x: None, top_k=10, vector_scores=[0.1], vector_min_score=0.3)
+    assert ranked == []
+
+
+def test_vector_leg_boosts_semantic_match_over_weak_lexical():
+    # 两条都词法命中，向量分高者应排前。
+    strong_semantic = "Java 远程 团队协作"
+    weak = "Java 培训 课程"
+    ranked = rank(
+        "Java 远程",
+        [weak, strong_semantic],
+        lambda x: x,
+        lambda x: None,
+        top_k=10,
+        vector_scores=[0.31, 0.95],
+    )
+    assert ranked[0] == strong_semantic
+
+
+def test_mismatched_vector_scores_length_is_ignored():
+    items = ["Java 后端 微服务经验", "今天天气晴朗心情不错"]
+    ranked = rank("Java 后端", items, lambda x: x, lambda x: None, top_k=10, vector_scores=[0.9])
+    assert ranked == ["Java 后端 微服务经验"]

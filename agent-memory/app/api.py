@@ -87,7 +87,7 @@ async def search_local_memories(query: str, scope: str | None = None) -> list[di
     if postgres_store.enabled:
         items = await postgres_store.search(query, scope)
     else:
-        items = local_store.search(query, scope)
+        items = await local_store.search(query, scope)
     return [item.__dict__ for item in items]
 
 
