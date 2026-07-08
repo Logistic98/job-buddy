@@ -84,6 +84,23 @@ def test_grade_capability_inventory_rejects_missing_status():
     assert any(issue["code"] == "interview.prepare:status_present" for issue in result["issues"])
 
 
+def test_grade_run_requires_injection_flag_when_expected():
+    base_run = {
+        "status": "success",
+        "answer": "已完成岗位搜索。",
+        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.95, "next_action": "call_get_recommend_jobs"},
+        "trace_events": [{"event": event} for event in ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]],
+    }
+
+    unflagged = dict(base_run, tool_events=[{"id": "job_search", "status": "success", "summary": "完成", "metadata": {}}])
+    result = grade_run(unflagged, {"intent": "job.recommend", "domain": "job", "expect_injection_flag": True})
+    assert any(issue["code"] == "injection_result_flagged" for issue in result["issues"])
+
+    flagged = dict(base_run, tool_events=[{"id": "job_search", "status": "success", "summary": "完成", "metadata": {"injection_suspected": True, "injection_patterns": ["override_instructions_en"]}}])
+    result = grade_run(flagged, {"intent": "job.recommend", "domain": "job", "expect_injection_flag": True})
+    assert not any(issue["code"] == "injection_result_flagged" for issue in result["issues"])
+
+
 def test_grade_run_accepts_evidence_based_resume_match():
     run = {
         "status": "success",

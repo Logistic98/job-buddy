@@ -259,6 +259,17 @@ npm run dev
 5. 涉及前端或交互的任务，检查浏览器验证证据是否完整。
 6. 满意后再创建 PR 或合并分支。
 
+## 可选的本地 pre-commit hook
+
+`.agent-harness/scripts/pre-commit-hook.sh` 会根据本次 `git commit` 暂存文件所属模块，只对改动到的模块跑 `verify.sh <module> --quick`，未改动的模块不执行，保持提交速度。该 hook 默认不安装，需要本人显式启用：
+
+```bash
+ln -s ../../.agent-harness/scripts/pre-commit-hook.sh .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+卸载只需删除 `.git/hooks/pre-commit`。hook 校验失败会阻断提交，紧急情况下可用 `git commit --no-verify` 跳过（不建议常态化使用）。CI 的 `quality-gate.yml` 仍是最终把关，pre-commit hook 只是本地提前发现问题的可选手段。
+
 ## 常用命令
 
 ```bash
@@ -288,6 +299,8 @@ agent-backend/scripts/quality-gate.sh --quick
 ./.agent-harness/scripts/evaluate.sh agent-intent
 ./.agent-harness/scripts/evaluate.sh agent-tool
 ./.agent-harness/scripts/evaluate.sh agent-eval
+./.agent-harness/scripts/evaluate.sh agent-memory
+./.agent-harness/scripts/evaluate.sh agent-sandbox
 
 # 运行 smoke goal，默认使用 gate.sh all --quick；Goal 可通过 verify_cmd 覆盖
 ./.agent-harness/scripts/run_goal.sh .agent-harness/goals/harness_smoke.md --max-turns 1 --max-minutes 10

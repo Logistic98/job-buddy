@@ -8,6 +8,8 @@
 #   evaluate.sh agent-eval      # run eval service tests only
 #   evaluate.sh agent-intent    # run intent regression tests
 #   evaluate.sh agent-tool      # run tool execution contract evals
+#   evaluate.sh agent-memory    # run retrieval ranking + memory lifecycle evals
+#   evaluate.sh agent-sandbox   # run sandbox isolation boundary evals
 
 set -euo pipefail
 
@@ -87,11 +89,11 @@ run_intent_eval() {
     log "agent-intent directory missing, skipping"
     return
   fi
-  log "agent-intent: job-domain and layered-routing regression evals"
+  log "agent-intent: job-domain, layered-routing, clarification-gate and transcript-review regression evals"
   pushd agent-intent >/dev/null
   need_cmd uv "agent-intent"
   uv sync --extra dev --quiet || fail "agent-intent: uv sync --extra dev failed"
-  env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER uv run python -m pytest -q tests/test_job_domain.py tests/test_service.py || fail "agent-intent: regression failed"
+  env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER uv run python -m pytest -q || fail "agent-intent: regression failed"
   popd >/dev/null
 }
 
@@ -108,12 +110,40 @@ run_tool_eval() {
   popd >/dev/null
 }
 
+run_memory_eval() {
+  if [[ ! -d agent-memory ]]; then
+    log "agent-memory directory missing, skipping"
+    return
+  fi
+  log "agent-memory: retrieval ranking and memory lifecycle contract evals"
+  pushd agent-memory >/dev/null
+  need_cmd uv "agent-memory"
+  uv sync --extra dev --quiet || fail "agent-memory: uv sync --extra dev failed"
+  uv run python -m pytest -q tests/test_relevance.py tests/test_memory_api.py || fail "agent-memory: retrieval/lifecycle eval failed"
+  popd >/dev/null
+}
+
+run_sandbox_eval() {
+  if [[ ! -d agent-sandbox ]]; then
+    log "agent-sandbox directory missing, skipping"
+    return
+  fi
+  log "agent-sandbox: isolation boundary contract evals (policy hardening, env isolation)"
+  pushd agent-sandbox >/dev/null
+  need_cmd uv "agent-sandbox"
+  uv sync --extra dev --quiet || fail "agent-sandbox: uv sync --extra dev failed"
+  uv run python -m pytest -q tests/test_server.py || fail "agent-sandbox: isolation boundary eval failed"
+  popd >/dev/null
+}
+
 case "$TARGET" in
   all)
     run_runtime_eval
     run_backend_eval
     run_intent_eval
     run_tool_eval
+    run_memory_eval
+    run_sandbox_eval
     ;;
   agent-backend|backend)
     run_backend_eval
@@ -130,7 +160,13 @@ case "$TARGET" in
   agent-tool|tool)
     run_tool_eval
     ;;
-  agent-memory|agent-sandbox|agent-frontend)
+  agent-memory|memory)
+    run_memory_eval
+    ;;
+  agent-sandbox|sandbox)
+    run_sandbox_eval
+    ;;
+  agent-frontend)
     log "no behavioral evals defined for $TARGET yet, skipping"
     ;;
   *)
