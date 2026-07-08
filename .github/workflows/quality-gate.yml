@@ -8,40 +8,183 @@ on:
   workflow_dispatch:
 
 jobs:
-  gate:
-    name: harness gate
+  changes:
+    name: detect changed modules
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      MAVEN_OPTS: -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8
-
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      runtime: ${{ steps.filter.outputs.runtime }}
+      intent: ${{ steps.filter.outputs.intent }}
+      sandbox: ${{ steps.filter.outputs.sandbox }}
+      eval: ${{ steps.filter.outputs.eval }}
+      memory: ${{ steps.filter.outputs.memory }}
+      tool: ${{ steps.filter.outputs.tool }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Filter paths by module
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
+              - 'agent-backend/**'
+            frontend:
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
+              - 'agent-frontend/**'
+            runtime:
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
+              - 'agent-runtime/**'
+            intent:
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
+              - 'agent-intent/**'
+            sandbox:
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
+              - 'agent-sandbox/**'
+            eval:
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
+              - 'agent-eval/**'
+            memory:
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
+              - 'agent-memory/**'
+            tool:
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
+              - 'agent-tool/**'
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
+  gate-backend:
+    name: agent-backend gate
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MAVEN_OPTS: -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "8"
           cache: maven
+      - run: ./.agent-harness/scripts/gate.sh agent-backend --quick
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10.16"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+  gate-frontend:
+    name: agent-frontend gate
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
           cache: npm
           cache-dependency-path: agent-frontend/package-lock.json
+      - run: ./.agent-harness/scripts/gate.sh agent-frontend --quick
 
-      - name: Run quick quality gate
-        run: ./.agent-harness/scripts/gate.sh all --quick
+  gate-runtime:
+    name: agent-runtime gate
+    needs: changes
+    if: needs.changes.outputs.runtime == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.16"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: ./.agent-harness/scripts/gate.sh agent-runtime --quick
+
+  gate-intent:
+    name: agent-intent gate
+    needs: changes
+    if: needs.changes.outputs.intent == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.16"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: ./.agent-harness/scripts/gate.sh agent-intent --quick
+
+  gate-sandbox:
+    name: agent-sandbox gate
+    needs: changes
+    if: needs.changes.outputs.sandbox == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.16"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: ./.agent-harness/scripts/gate.sh agent-sandbox --quick
+
+  gate-eval:
+    name: agent-eval gate
+    needs: changes
+    if: needs.changes.outputs.eval == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.16"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: ./.agent-harness/scripts/gate.sh agent-eval --quick
+
+  gate-memory:
+    name: agent-memory gate
+    needs: changes
+    if: needs.changes.outputs.memory == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.16"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: ./.agent-harness/scripts/gate.sh agent-memory --quick
+
+  gate-tool:
+    name: agent-tool gate
+    needs: changes
+    if: needs.changes.outputs.tool == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10.16"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: ./.agent-harness/scripts/gate.sh agent-tool --quick

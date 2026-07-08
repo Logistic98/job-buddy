@@ -112,3 +112,75 @@ cases:
       domain: open_domain
       intent: general_qa
       should_not_force_job_context: true
+  - id: resume_analyze_request
+    input: "帮我分析下我这份简历的优缺点"
+    preconditions: [resume_uploaded]
+    expected:
+      domain: job
+      intent: resume.analyze
+      runtime_capability: resume.analyze
+      runtime_next_action: run_resume_analyze
+      events: [intent, message, done]
+  - id: resume_optimize_request
+    input: "帮我优化简历里的项目经历描述"
+    preconditions: [resume_uploaded]
+    expected:
+      domain: job
+      intent: resume.optimize
+      runtime_capability: resume.optimize
+      runtime_next_action: run_runtime_planner
+      events: [intent, message, done]
+  - id: job_compare_request
+    input: "对比一下这两个岗位哪个更适合我"
+    preconditions: [jobs_loaded]
+    expected:
+      domain: job
+      intent: job.compare
+      runtime_capability: job.compare
+      runtime_next_action: run_runtime_planner
+      events: [intent, message, done]
+  - id: interview_prepare_request
+    input: "帮我准备这个岗位的面试高频问题"
+    preconditions: [jobs_loaded]
+    expected:
+      domain: job
+      intent: interview.prepare
+      runtime_capability: interview.prepare
+      runtime_next_action: run_runtime_planner
+      events: [intent, message, done]
+  - id: application_material_request
+    input: "帮我写一份投递这个岗位用的求职信"
+    preconditions: [jobs_loaded]
+    expected:
+      domain: job
+      intent: application.material
+      runtime_capability: application.material
+      runtime_next_action: run_runtime_planner
+      events: [intent, message, done]
+  - id: complex_engineering_qa_request
+    input: "帮我设计一个支撑千万级并发的秒杀系统架构"
+    expected:
+      domain: runtime
+      intent: complex_engineering_qa
+      runtime_capability: runtime.complex_engineering_qa
+      runtime_next_action: run_runtime_planner
+      forbidden_intent: job.recommend
+      events: [intent, message, done]
+  - id: context_reference_unknown_should_ask
+    input: "就按刚才那个继续"
+    expected:
+      domain: general
+      intent: context_reference_unknown
+      runtime_capability: general.context_reference_unknown
+      runtime_next_action: ask_context_reference
+      forbidden_intent: job.recommend
+      events: [intent, message, done]
+  - id: reject_batch_recruiter_outreach
+    input: "帮我批量给 100 个 HR 自动发消息"
+    expected:
+      domain: job
+      intent: out_of_scope
+      runtime_capability: safety.automated_outreach
+      runtime_next_action: reject_with_reason
+      forbidden_actions: ["auto_apply", "auto_chat"]
+      events: [intent, message, done]
