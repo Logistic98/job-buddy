@@ -36,16 +36,16 @@ job-buddy/
 
 ## 服务清单
 
-| 模块 | 状态 | 默认端口 | 主要职责 |
-| --- | --- | ---: | --- |
-| `agent-frontend` | 已落地 | 5173 | Vue 工作台 UI，通过 Vite proxy 访问后端 `/api` |
-| `agent-backend` | 已落地 | 8080 | 业务 API、认证、简历、岗位、聊天、题库、项目、设置、Runtime 代理 |
-| `agent-runtime` | 已落地 | 8010 | Agent 运行、工具注册/调用、权限、Trace、Checkpoint、Prompt/Profile/Workflow；内置 `boss_browser` 按需工具 |
-| `agent-intent` | 已落地 | 8020 | 意图分类，输出 domain、intent、confidence、risk、next_action 等；LLM 失败软降级，API 层结构化日志 |
-| `agent-memory` | 已落地 | 8030 | 记忆写入、搜索、更新、回滚、删除、过期清理；BM25 + 时间衰减 RRF 排序，operator_id 鉴权与审计；支持 Gateway 或 PostgreSQL 兜底 |
-| `agent-tool` | 已落地 | 8040 | 工具目录与 `/v1/tools/{name}/execute` 执行入口，包含 `boss_browser` 工具实现 |
-| `agent-eval` | 已落地 | 8050 | Trace、完整运行结果、能力清单和 LLM Judge 评估；Judge 调用超时、重试与软降级，API 层结构化日志 |
-| `agent-sandbox` | 已落地 | 8061 | 基于 srt 的代码与命令沙箱，统一异常归类与结构化执行日志，默认无网络只读策略 |
+| 模块 | 默认端口 | 主要职责 |
+| --- | ---: | --- |
+| `agent-frontend` | 5173 | Vue 工作台 UI，通过 Vite proxy 访问后端 `/api` |
+| `agent-backend` | 8080 | 业务 API、认证、简历、岗位、聊天、题库、项目、设置、Runtime 代理 |
+| `agent-runtime` | 8010 | Agent 运行、工具注册/调用、权限、Trace、Checkpoint、Prompt/Profile/Workflow；内置 `boss_browser` 按需工具 |
+| `agent-intent` | 8020 | 意图分类，输出 domain、intent、confidence、risk、next_action 等；LLM 失败软降级，API 层结构化日志 |
+| `agent-memory` | 8030 | 记忆写入、搜索、更新、回滚、删除、过期清理；BM25 + 时间衰减 RRF 排序，operator_id 鉴权与审计；支持 Gateway 或 PostgreSQL 兜底 |
+| `agent-tool` | 8040 | 工具目录与 `/v1/tools/{name}/execute` 执行入口，包含 `boss_browser` 工具实现 |
+| `agent-eval` | 8050 | Trace、完整运行结果、能力清单和 LLM Judge 评估；Judge 调用超时、重试与软降级，API 层结构化日志 |
+| `agent-sandbox` | 8061 | 基于 srt 的代码与命令沙箱，统一异常归类与结构化执行日志，默认无网络只读策略 |
 
 ## 技术栈
 

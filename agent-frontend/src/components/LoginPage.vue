@@ -1,5 +1,21 @@
 <template>
   <section class="login-page">
+    <div class="login-bg" aria-hidden="true">
+      <span class="login-orb login-orb-primary"></span>
+      <span class="login-orb login-orb-secondary"></span>
+      <span class="login-orb login-orb-tertiary"></span>
+      <span class="login-grid"></span>
+      <span class="login-beam"></span>
+      <span class="login-halo"></span>
+      <span class="login-ring login-ring-a"></span>
+      <span class="login-ring login-ring-b"></span>
+      <span class="login-glass-chip login-glass-chip-a"></span>
+      <span class="login-glass-chip login-glass-chip-b"></span>
+      <span class="login-glass-chip login-glass-chip-c"></span>
+      <span class="login-particle login-particle-a"></span>
+      <span class="login-particle login-particle-b"></span>
+      <span class="login-particle login-particle-c"></span>
+    </div>
     <div class="login-card">
       <div class="login-brand">
         <div class="login-logo">JA</div>

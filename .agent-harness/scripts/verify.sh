@@ -91,7 +91,7 @@ run_python_module() {
     fi
   done
   if [[ "${#lint_targets[@]}" -gt 0 ]]; then
-    uv run ruff check --select E9,F63,F7,F82 "${lint_targets[@]}" || fail "$module: ruff critical lint failed"
+    uv run ruff check "${lint_targets[@]}" || fail "$module: ruff lint failed"
   fi
 
   if [[ -d tests ]]; then

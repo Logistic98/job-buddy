@@ -24,7 +24,7 @@ job-buddy/
 - Flyway 迁移：全量验证和 `agent-backend` 验证会先执行 `check_flyway_migrations.py`，检查迁移脚本命名、版本唯一性，以及相对基线只允许追加更高版本新脚本。
 - `agent-backend`：优先识别 Maven Wrapper / Maven / Gradle Wrapper / Gradle，执行 `test` 或 `verify/build`。
 - `agent-frontend`：识别 `package.json`，执行 `npm ci/install`、`lint`、`test`、`build`。
-- Python 模块：识别 `pyproject.toml`，执行 `uv sync` 与 `python -m pytest`。
+- Python 模块：识别 `pyproject.toml`，执行 `uv sync`、全量 `ruff check`（规则以各模块 `pyproject.toml` 配置为准）与 `python -m pytest`。
 - `agent-intent`：按实际落地的构建文件自动识别 Python / Node / Java 验证方式。
 - 尚未落地构建文件的规划模块会被明确跳过，不会误报失败。
 

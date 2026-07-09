@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
-from app.tools.boss_browser.core import boss_cli_engine as engine_mod
 from app.tools.boss_browser.core.boss_cli_engine import BossCliEngine, PRIMARY_COOKIE
 from app.tools.boss_browser.core.settings import Settings
 

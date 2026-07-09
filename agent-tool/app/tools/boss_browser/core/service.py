@@ -21,8 +21,6 @@ from app.tools.boss_browser.core.extract import assemble_profile, extract_jobs, 
 from app.tools.boss_browser.core.rate_limiter import (
     BackstopError,
     RateLimiter,
-    RateLimitError,
-    RiskCooldownError,
 )
 from app.tools.boss_browser.core.settings import Settings, get_settings
 

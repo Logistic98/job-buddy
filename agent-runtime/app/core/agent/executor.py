@@ -85,7 +85,14 @@ class AgentExecutor:
         trace_id = TimeUtils.gen_trace_id(request.trace_id)
         run_id = TimeUtils.gen_run_id()
         session_id = request.session_id or f"session_{uuid4().hex[:16]}"
-        logger.info(f"Agent 执行开始：trace_id={trace_id}, run_id={run_id}, session_id={session_id}")
+        # 日志上下文贯穿整次 run：graph、工具、LLM 客户端等嵌套模块日志自动携带链路字段。
+        with logger.contextualize(run_id=run_id, session_id=session_id, trace_id=trace_id):
+            return await self._execute_inner(request, timer, trace_id, run_id, session_id)
+
+    async def _execute_inner(
+        self, request: AgentRunRequest, timer: ExecutionTimer, trace_id: str, run_id: str, session_id: str
+    ) -> AgentRunResponse:
+        logger.info("Agent 执行开始")
         await self.trace_recorder.record(trace_id, TraceEventName.RUN_START.value, {"session_id": session_id}, run_id)
         self._apply_request_llm(request)
         start_usage_tracking()
@@ -102,7 +109,7 @@ class AgentExecutor:
                 {"status": final_state.get("status"), "latency_ms": timer.get_latency_ms()},
                 run_id,
             )
-            logger.info(f"Agent 执行完成：trace_id={trace_id}, status={final_state.get('status')}")
+            logger.info(f"Agent 执行完成：status={final_state.get('status')}")
             return AgentRunResponse(
                 run_id=run_id,
                 trace_id=trace_id,
@@ -142,7 +149,7 @@ class AgentExecutor:
             await self.checkpoint_store.save(session_id, run_id, "runtime_error", state)
             await self._record_llm_usage(trace_id, run_id)
             await self.trace_recorder.record(trace_id, TraceEventName.RUN_END.value, {"error": str(e)}, run_id)
-            logger.exception(f"Agent 执行失败：trace_id={trace_id}")
+            logger.exception("Agent 执行失败")
             return AgentRunResponse(
                 run_id=run_id,
                 trace_id=trace_id,
@@ -176,7 +183,15 @@ class AgentExecutor:
         trace_id = TimeUtils.gen_trace_id(request.trace_id)
         run_id = TimeUtils.gen_run_id()
         session_id = request.session_id or f"session_{uuid4().hex[:16]}"
-        logger.info(f"Agent 流式执行开始：trace_id={trace_id}, run_id={run_id}, session_id={session_id}")
+        # 同 execute：日志上下文贯穿整次流式 run，消费方 await 间隙产生的日志同样携带链路字段。
+        with logger.contextualize(run_id=run_id, session_id=session_id, trace_id=trace_id):
+            async for event in self._execute_stream_inner(request, timer, trace_id, run_id, session_id):
+                yield event
+
+    async def _execute_stream_inner(
+        self, request: AgentRunRequest, timer: ExecutionTimer, trace_id: str, run_id: str, session_id: str
+    ) -> AsyncIterator[Dict]:
+        logger.info("Agent 流式执行开始")
         await self.trace_recorder.record(trace_id, TraceEventName.RUN_START.value, {"session_id": session_id, "stream": True}, run_id)
         # 流式路径按请求解析本地客户端，不写实例属性，避免进程级单例执行器并发污染。
         llm_client = self._resolve_request_llm(request)
@@ -279,7 +294,7 @@ class AgentExecutor:
             await self.trace_recorder.record(
                 trace_id, TraceEventName.RUN_END.value, {"status": status, "latency_ms": timer.get_latency_ms(), "stream": True}, run_id
             )
-            logger.info(f"Agent 流式执行完成：trace_id={trace_id}, chars={len(answer)}")
+            logger.info(f"Agent 流式执行完成：chars={len(answer)}")
             yield {
                 "event": "done",
                 "data": {
@@ -297,7 +312,7 @@ class AgentExecutor:
             }
         except Exception as e:
             timer.end()
-            logger.exception(f"Agent 流式执行失败：trace_id={trace_id}")
+            logger.exception("Agent 流式执行失败")
             await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(trace_id, TraceEventName.RUN_END.value, {"error": str(e), "stream": True}, run_id)
             yield {"event": "error", "data": {"message": str(e), "trace_id": trace_id, "session_id": session_id, "run_id": run_id}}
