@@ -1,7 +1,9 @@
 
+import time
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from loguru import logger
 
 from app.api.agent import router as agent_router
@@ -24,8 +26,32 @@ async def lifespan(app: FastAPI):
     yield
 
 
+async def request_logging_middleware(request: Request, call_next):
+    """统一请求日志：request_id 透传 + 方法/路径/状态码/耗时，支撑全端点的量化观测。
+
+    /health 探活高频且无业务信息，降为 debug 避免日志噪声。
+    """
+    request_id = request.headers.get("X-Request-Id") or f"req_{uuid4().hex[:16]}"
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        logger.exception(f"HTTP 请求异常：request_id={request_id}, method={request.method}, path={request.url.path}, elapsed_ms={elapsed_ms}")
+        raise
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    log = logger.debug if request.url.path == "/health" else logger.info
+    log(
+        f"HTTP 请求完成：request_id={request_id}, method={request.method}, path={request.url.path}, "
+        f"status={response.status_code}, elapsed_ms={elapsed_ms}"
+    )
+    response.headers["X-Request-Id"] = request_id
+    return response
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+    app.middleware("http")(request_logging_middleware)
     app.include_router(health_router)
     app.include_router(agent_router)
     app.include_router(runtime_router)

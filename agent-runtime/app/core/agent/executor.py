@@ -95,6 +95,7 @@ class AgentExecutor:
         try:
             final_state = await self.graph.ainvoke(state)
             timer.end()
+            await self._record_llm_usage(trace_id, run_id)
             await self.trace_recorder.record(
                 trace_id,
                 TraceEventName.RUN_END.value,
@@ -139,6 +140,7 @@ class AgentExecutor:
             state["stop_reason"] = "runtime_error"
             state["error"] = str(e)
             await self.checkpoint_store.save(session_id, run_id, "runtime_error", state)
+            await self._record_llm_usage(trace_id, run_id)
             await self.trace_recorder.record(trace_id, TraceEventName.RUN_END.value, {"error": str(e)}, run_id)
             logger.exception(f"Agent 执行失败：trace_id={trace_id}")
             return AgentRunResponse(
@@ -273,6 +275,7 @@ class AgentExecutor:
             answer = "".join(accumulated)
             reasoning = "".join(reasoning_acc)
             await self.trace_recorder.record(trace_id, TraceEventName.FINALIZE.value, {"status": status}, run_id)
+            await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(
                 trace_id, TraceEventName.RUN_END.value, {"status": status, "latency_ms": timer.get_latency_ms(), "stream": True}, run_id
             )
@@ -295,6 +298,7 @@ class AgentExecutor:
         except Exception as e:
             timer.end()
             logger.exception(f"Agent 流式执行失败：trace_id={trace_id}")
+            await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(trace_id, TraceEventName.RUN_END.value, {"error": str(e), "stream": True}, run_id)
             yield {"event": "error", "data": {"message": str(e), "trace_id": trace_id, "session_id": session_id, "run_id": run_id}}
 
@@ -469,6 +473,20 @@ class AgentExecutor:
         self.llm_client = client
         self.task_understanding.llm_client = client
         self.planner.llm_client = client
+
+    async def _record_llm_usage(self, trace_id: str, run_id: str, llm_client=None) -> None:
+        """把 run 级 token 用量与缓存命中写入 Trace，供评估与成本归因使用。
+
+        无模型调用（纯规则路径 / 无客户端）时不产生事件，保持 Trace 无噪声。
+        """
+        usage = current_usage()
+        if not usage or not usage.get("llm_calls"):
+            return
+        payload: Dict = dict(usage)
+        client = llm_client or self.llm_client
+        if client and hasattr(client, "get_cache_metrics"):
+            payload["llm_cache"] = client.get_cache_metrics()
+        await self.trace_recorder.record(trace_id, TraceEventName.LLM_USAGE.value, payload, run_id)
 
     def _collect_metrics(self, state, llm_client=None):
         metrics = dict(state.get("metrics") or {})

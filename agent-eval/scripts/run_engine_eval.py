@@ -225,6 +225,8 @@ def _grader_expected(case: dict) -> dict:
         out["requires_evidence"] = True
     if exp.get("disallow_boss"):
         out["disallow_boss"] = True
+    if exp.get("expect_llm_usage"):
+        out["expect_llm_usage"] = True
     if case.get("latency_budget"):
         out["latency_budget"] = case["latency_budget"]
     out["min_score"] = float(exp.get("min_score", 0.7))

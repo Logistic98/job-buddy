@@ -1,5 +1,6 @@
 
 import asyncio
+import time
 from typing import Literal
 
 from langgraph.graph import END, StateGraph
@@ -278,15 +279,21 @@ class AgentGraphBuilder:
         await self.trace_recorder.record(
             state["trace_id"], TraceEventName.TOOL_EXECUTE_START.value, {"tools": [call.name for call in calls]}, state["run_id"]
         )
-        gateway_results = []
+        async def _timed_execute(call):
+            started = time.perf_counter()
+            gateway_result = await self.tool_gateway.execute(call, mode, context, state.get("task_understanding"))
+            return gateway_result, int((time.perf_counter() - started) * 1000)
+
+        timed_results = []
         if self._can_execute_in_parallel(calls):
-            gateway_results = await asyncio.gather(*[
-                self.tool_gateway.execute(call, mode, context, state.get("task_understanding")) for call in calls
-            ])
+            timed_results = await asyncio.gather(*[_timed_execute(call) for call in calls])
         else:
             for call in calls:
-                gateway_results.append(await self.tool_gateway.execute(call, mode, context, state.get("task_understanding")))
+                timed_results.append(await _timed_execute(call))
+        gateway_results = [item[0] for item in timed_results]
+        tool_durations = {id(item[0]): item[1] for item in timed_results}
 
+        tool_stats = []
         for gateway_result in gateway_results:
             result = gateway_result.result
             if gateway_result.permission_record:
@@ -299,15 +306,33 @@ class AgentGraphBuilder:
                 )
             state.setdefault("tool_results", []).append(result)
             state["tool_call_count"] = int(state.get("tool_call_count", 0)) + 1
+            duration_ms = tool_durations.get(id(gateway_result), 0)
+            tool_stats.append({"tool": result.tool_name, "success": result.success, "duration_ms": duration_ms})
             if not result.success:
                 state["failure_count"] = int(state.get("failure_count", 0)) + 1
+                await self.trace_recorder.record(
+                    state["trace_id"],
+                    TraceEventName.TOOL_EXECUTE_FAILED.value,
+                    {
+                        "tool": result.tool_name,
+                        "error": str(result.error or ""),
+                        "duration_ms": duration_ms,
+                        "permission_denied": bool(result.metadata.get("permission_denied")),
+                    },
+                    state["run_id"],
+                )
                 if result.metadata.get("permission_denied"):
                     state["stop_reason"] = StopReason.PERMISSION_DENIED.value
                     state["should_stop"] = True
         await self.trace_recorder.record(
             state["trace_id"],
             TraceEventName.TOOL_EXECUTE_END.value,
-            {"tools": [item.result.tool_name for item in gateway_results], "success": all(item.result.success for item in gateway_results)},
+            {
+                "tools": [item.result.tool_name for item in gateway_results],
+                "success": all(item.result.success for item in gateway_results),
+                "duration_ms": sum(stat["duration_ms"] for stat in tool_stats),
+                "results": tool_stats,
+            },
             state["run_id"],
         )
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "execute_tool", state)

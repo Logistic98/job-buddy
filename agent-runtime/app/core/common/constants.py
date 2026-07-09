@@ -67,6 +67,8 @@ class TraceEventName(str, Enum):
     PERMISSION_CHECK = "permission_check"
     TOOL_EXECUTE_START = "tool_execute_start"
     TOOL_EXECUTE_END = "tool_execute_end"
+    TOOL_EXECUTE_FAILED = "tool_execute_failed"
+    LLM_USAGE = "llm_usage"
     OBSERVE = "observe"
     REFLECT = "reflect"
     FINALIZE = "finalize"

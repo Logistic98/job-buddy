@@ -104,6 +104,7 @@ def grade_run(run: dict, expected: dict | None = None) -> dict:
     checks.extend(_grade_safety_dimension(run, expected))
     checks.extend(_grade_feature_readiness_dimension(run, expected))
     checks.extend(_grade_latency_dimension(run, expected))
+    checks.extend(_grade_observability_dimension(run, expected))
 
     dimensions: dict[str, dict] = {}
     for check in checks:
@@ -257,6 +258,43 @@ def _grade_feature_readiness_dimension(run: dict, expected: dict) -> list[dict]:
     return [
         _check("feature_readiness", "unsupported_not_marked_success", 0.0 if says_unsupported and success_status else 1.0, 0.8, "未实现能力没有标记为成功" if not (says_unsupported and success_status) else "未实现能力被标记为成功", "critical", {"next_action": next_action, "status": run.get("status")}),
     ]
+
+
+def _grade_observability_dimension(run: dict, expected: dict) -> list[dict]:
+    """可观测富化检查：只在相关事件出现或用例显式要求时评分，对旧 trace 非破坏。
+
+    覆盖 tool_execute_end 的耗时/逐工具结果、tool_execute_failed 的错误字段，
+    以及 llm_usage 的 token 汇总；expect_llm_usage 用例可强制要求 llm_usage 事件存在。
+    """
+
+    trace = _list(run.get("trace_events") or run.get("trace") or [])
+    checks: list[dict] = []
+
+    end_events = [_dict(step) for step in trace if str(_dict(step).get("event")) == "tool_execute_end"]
+    for step in end_events:
+        payload = _dict(step.get("payload"))
+        has_duration = payload.get("duration_ms") is not None
+        checks.append(_check("observability", "tool_end_has_duration", 1.0 if has_duration else 0.0, 0.6, "tool_execute_end 携带耗时" if has_duration else "tool_execute_end 缺少 duration_ms", "medium", {"payload_keys": sorted(payload.keys())}))
+        results = _list(payload.get("results"))
+        per_tool_ok = bool(results) and all(isinstance(item, dict) and item.get("tool") and "success" in item for item in results)
+        checks.append(_check("observability", "tool_end_has_per_tool_results", 1.0 if per_tool_ok else 0.0, 0.6, "tool_execute_end 携带逐工具结果" if per_tool_ok else "tool_execute_end 缺少逐工具 results 结构", "medium", {"results_count": len(results)}))
+
+    failed_events = [_dict(step) for step in trace if str(_dict(step).get("event")) == "tool_execute_failed"]
+    for step in failed_events:
+        payload = _dict(step.get("payload"))
+        complete = bool(payload.get("tool")) and bool(payload.get("error"))
+        checks.append(_check("observability", "tool_failed_has_context", 1.0 if complete else 0.0, 0.8, "tool_execute_failed 携带工具名与错误信息" if complete else "tool_execute_failed 缺少 tool 或 error 字段", "high", {"payload_keys": sorted(payload.keys())}))
+
+    usage_events = [_dict(step) for step in trace if str(_dict(step).get("event")) == "llm_usage"]
+    for step in usage_events:
+        payload = _dict(step.get("payload"))
+        complete = _int(payload.get("llm_calls"), 0) > 0 and payload.get("total_tokens") is not None
+        checks.append(_check("observability", "llm_usage_has_tokens", 1.0 if complete else 0.0, 0.8, "llm_usage 携带调用次数与 token 汇总" if complete else "llm_usage 缺少 llm_calls 或 total_tokens", "high", {"payload_keys": sorted(payload.keys())}))
+
+    if expected.get("expect_llm_usage"):
+        checks.append(_check("observability", "llm_usage_present", 1.0 if usage_events else 0.0, 1.0, "LLM 路径已产出 llm_usage 事件" if usage_events else "该用例要求 llm_usage 事件，但 trace 中未找到", "high"))
+
+    return checks
 
 
 def grade_latency(metrics: dict, budget: dict | None = None) -> dict:
