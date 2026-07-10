@@ -1,0 +1,119 @@
+# Docker Compose 应用与基础设施部署
+
+## 目标与边界
+
+本方案用于在具备 Docker Engine 与 Docker Compose 的开发机或 Linux 服务器上部署 Job Buddy。仓库不再使用单一 Compose 项目同时管理应用与有状态基础设施，而是由 `docker-compose-infra.yml` 独立编排 PostgreSQL、Redis、MinIO，由标准入口 `docker-compose.yml` 编排 Backend、Frontend、Runtime、Intent、Memory、Tool、Eval 与 Sandbox。两个项目通过 `JOB_BUDDY_NETWORK_NAME` 指定的显式命名网络通信，但容器、数据卷和启停生命周期互相独立；应用重建或执行应用项目的 `down` 不会停止基础设施，也不会删除数据库、缓存和对象存储卷。
+
+PostgreSQL 只创建 `POSTGRES_APP_DB` 指定的业务数据库，Backend 与 Memory 使用同一角色连接该数据库。Memory 表统一使用 `agent_memory_` 前缀，与其他业务表保持命名隔离；Memory 服务启动时以幂等 DDL 确保自身表和索引存在。Backend 关闭 `baseline-on-migrate`，只允许规范基线初始化空业务数据库；非空且没有 Flyway 历史记录的 Schema 必须失败关闭。Redis 使用官方启动流程初始化空数据集，无需预建逻辑数据库。MinIO 数据卷由 Compose 创建，Backend 启动时检查 `JOB_BUDDY_MINIO_BUCKET`，缺失时自动创建。所有初始化仅创建缺失资源，不导入、删除、覆盖或转换已有数据。
+
+## 配置准备
+
+根目录 `.env.example` 是配置项的唯一模板，`.env` 必须与其保持相同键集合，只允许值不同。首次部署执行：
+
+```bash
+cp .env.example .env
+./scripts/sync-env.py
+unset COMPOSE_PROJECT_NAME
+```
+
+至少必须替换 PostgreSQL、Redis、MinIO、LLM、内部服务令牌和 Boss 凭据加密密钥。`AGENT_INTERNAL_SERVICE_TOKEN` 应使用高熵随机值；`JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY` 必须是 Base64 编码的 32 字节 AES 密钥，可通过 `openssl rand -base64 32` 生成。Flyway 会创建 `admin` 管理员和 `user` 普通用户，初始密码均为 `12345678`，首次部署成功后必须立即通过平台设置的用户管理重置默认密码。`.env` 包含真实密钥且被 Git 忽略，不得提交、复制到文档或输出到日志；`.env.example` 只用于模板和配置渲染验证，不能作为容器运行配置。
+
+本地默认将应用和基础设施端口绑定到 `127.0.0.1`。服务器部署应在 `.env` 中显式设置浏览器访问地址和绑定策略，例如：
+
+```dotenv
+JOB_BUDDY_SERVER_HOST=job-buddy.example.com
+JOB_BUDDY_BIND_HOST=127.0.0.1
+JOB_BUDDY_INFRA_BIND_HOST=127.0.0.1
+```
+
+使用同机 HTTPS 反向代理时，应用端口继续绑定回环地址即可。只有确实需要从外部主机直接访问时，才将对应绑定地址改为指定网卡 IP 或 `0.0.0.0`，并同时配置防火墙、TLS 和访问控制。容器健康检查及内部调用中的 `127.0.0.1` 是容器自身回环地址，不得机械替换为服务器 IP。
+
+## 启动与停止
+
+先启动基础设施并等待健康检查通过：
+
+```bash
+docker compose --env-file .env -f docker-compose-infra.yml up -d --wait
+```
+
+基础设施项目创建 PostgreSQL、Redis、MinIO 的独立命名卷和共享网络。首次使用空卷时会自动创建应用数据库、Memory 数据库和 Redis 空数据集；随后 Backend 启动会自动创建缺失的 MinIO Bucket。重复执行启动命令只做幂等检查，不会清空或覆盖已有数据。确认状态：
+
+```bash
+docker compose --env-file .env -f docker-compose-infra.yml ps
+docker compose --env-file .env -f docker-compose-infra.yml logs --tail=200
+```
+
+随后构建并启动应用：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml up -d --build --wait
+```
+
+查看应用状态与日志：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml ps
+docker compose --env-file .env -f docker-compose.yml logs -f --tail=200
+```
+
+停止、更新或删除应用容器不影响基础设施：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml down
+```
+
+需要停止完整环境时，必须先停止应用，再停止基础设施：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml down
+docker compose --env-file .env -f docker-compose-infra.yml down
+```
+
+不得把 `down --volumes` 作为常规停止命令。只有在完成 PostgreSQL 和 MinIO 可恢复备份、明确确认环境已经退役且数据可永久删除后，才允许对基础设施项目执行卷删除：
+
+```bash
+docker compose --env-file .env -f docker-compose-infra.yml down --volumes
+```
+
+该操作不可恢复，不属于应用发布、回滚或日常清理流程。
+
+## 网络、端口与反向代理
+
+两个 Compose 项目分别由 `APPLICATION_COMPOSE_PROJECT_NAME` 与 `INFRASTRUCTURE_COMPOSE_PROJECT_NAME` 命名，共享 `${JOB_BUDDY_NETWORK_NAME}` 网络。不得在 `.env` 中定义或在宿主 Shell 中导出 Docker Compose 保留变量 `COMPOSE_PROJECT_NAME`，否则它会覆盖两个文件的顶层 `name` 并把原本独立的项目合并；执行部署命令前应显式运行 `unset COMPOSE_PROJECT_NAME`。基础设施在网络内提供 `postgres:5432`、`redis:6379`、`minio:9000`，应用服务使用 `agent-backend`、`agent-runtime` 等 Compose DNS 名称互相调用。应用项目把共享网络声明为 external，因此必须先启动基础设施项目创建网络；这项约束用于明确基础设施先于应用存在，而不是重新耦合两者的生命周期。
+
+Frontend 容器使用 Nginx 提供静态资源，并将相对路径 `/api` 代理到 `agent-backend:8080`，浏览器不需要知道 Backend 容器地址，也不需要为不同服务器重新构建前端。SSE 代理关闭响应缓冲并设置长连接超时。默认只发布 Frontend 与 Backend 应用端口；Python 服务只在共享网络可见。基础设施端口虽然可供本地开发使用，但默认绑定 `JOB_BUDDY_INFRA_BIND_HOST=127.0.0.1`，生产环境不应将 PostgreSQL、Redis、MinIO API 或 MinIO Console 直接暴露到公网。
+
+生产环境建议在应用 Compose 前增加 HTTPS 反向代理，只公开 80/443，并通过防火墙限制 Backend 端口。服务间请求通过 `AGENT_INTERNAL_SERVICE_TOKEN` 鉴权；Sandbox 容器只接收自身运行所需的令牌与限制配置，不注入数据库、模型和对象存储密钥。
+
+## 镜像构建与受限网络
+
+所有 Dockerfile 与 Compose 基础镜像均支持 `DOCKER_REGISTRY` 前缀，Python、uv、npm 和 Maven 下载源可独立配置。默认使用官方源；网络受限环境可以在 `.env` 中切换到组织内部可信 Registry 或代理：
+
+```dotenv
+DOCKER_REGISTRY=docker.m.daocloud.io
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+MAVEN_REPO_URL=https://maven.aliyun.com/repository/public
+```
+
+应用镜像采用构建与运行分阶段设计。普通 Python 服务的运行镜像只包含锁定后的虚拟环境和必要源码，不包含 uv、测试与构建缓存；Backend 使用独立 JRE 运行阶段；Frontend 只复制 Vite 产物；Tool 仅安装 Boss 登录链路需要的 Chromium headless shell；Sandbox 保留 srt、Node.js、bubblewrap、socat 与 ripgrep，但移除 npm 和构建工具。不能通过删除健康检查、内部鉴权、Boss 浏览器能力或沙箱隔离组件换取体积下降。
+
+## 数据、升级与回滚
+
+PostgreSQL、Redis、MinIO 卷归基础设施项目管理，卷名分别由 `JOB_BUDDY_POSTGRES_VOLUME_NAME`、`JOB_BUDDY_REDIS_VOLUME_NAME` 和 `JOB_BUDDY_MINIO_VOLUME_NAME` 显式指定，不依赖 Compose 项目名；Runtime workspace 卷归应用项目管理。Backend 启动时在空业务数据库执行 V1.0.0 至 V1.0.7 规范基线及后续追加迁移，Memory 在同一数据库中维护带 `agent_memory_` 前缀的表。应用升级前应保留可回滚镜像和配置，并对 PostgreSQL、MinIO 完成可恢复备份；回滚应用时只切换应用镜像与配置，不删除或重建基础设施卷。
+
+## 验证
+
+提交部署修改前至少执行：
+
+```bash
+./scripts/sync-env.py
+unset COMPOSE_PROJECT_NAME
+python3 -m py_compile scripts/sync-env.py
+JOB_BUDDY_ENV_FILE=.env.example docker compose --env-file .env.example -f docker-compose.yml config --quiet
+docker compose --env-file .env.example -f docker-compose-infra.yml config --quiet
+./.agent-harness/scripts/gate.sh all --quick
+```
+
+Docker 网络可用时还必须完整构建八个应用镜像，验证 Tool 的 Chromium headless 启动、Sandbox 的 srt/Node/bwrap 命令、Backend JRE 与所有服务健康检查，并使用隔离项目名验证“停止应用不影响基础设施”。若镜像代理、Maven Central、外部模型或系统网络不可用，必须准确记录阻塞项，不得把配置渲染或部分测试通过描述为完整部署通过。
