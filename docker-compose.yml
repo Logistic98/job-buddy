@@ -1,0 +1,161 @@
+name: ${APPLICATION_COMPOSE_PROJECT_NAME:-job-buddy}
+
+x-service-base: &service-base
+  restart: unless-stopped
+  networks:
+    - job-buddy
+
+x-agent-service: &agent-service
+  <<: *service-base
+  env_file:
+    - ${JOB_BUDDY_ENV_FILE:-.env}
+
+x-build-args: &build-args
+  DOCKER_REGISTRY: ${DOCKER_REGISTRY:-docker.io}
+  PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+  UV_DEFAULT_INDEX: ${UV_DEFAULT_INDEX:-https://pypi.org/simple}
+  NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmjs.org}
+  MAVEN_REPO_URL: ${MAVEN_REPO_URL:-https://repo.maven.apache.org/maven2}
+
+services:
+  agent-sandbox:
+    <<: *service-base
+    build:
+      context: ./agent-sandbox
+      args: *build-args
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8061
+      JOB_BUDDY_ENVIRONMENT: ${JOB_BUDDY_ENVIRONMENT:-development}
+      AGENT_INTERNAL_SERVICE_TOKEN: ${AGENT_INTERNAL_SERVICE_TOKEN:-}
+      AGENT_SANDBOX_MAX_CONCURRENCY: ${AGENT_SANDBOX_MAX_CONCURRENCY:-4}
+      AGENT_SANDBOX_MAX_OUTPUT_CHARS: ${AGENT_SANDBOX_MAX_OUTPUT_CHARS:-200000}
+    expose:
+      - "8061"
+
+  agent-memory:
+    <<: *agent-service
+    build:
+      context: ./agent-memory
+      args: *build-args
+    environment:
+      AGENT_MEMORY_DATABASE_URL: ""
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_APP_DB:-job_buddy}
+      AGENT_MEMORY_DB_SSL_MODE: disable
+    expose:
+      - "8030"
+
+  agent-tool:
+    <<: *agent-service
+    build:
+      context: ./agent-tool
+      args: *build-args
+    environment:
+      AGENT_TOOL_MEMORY_BASE_URL: http://agent-memory:8030
+      AGENT_TOOL_SANDBOX_BASE_URL: http://agent-sandbox:8061
+    depends_on:
+      agent-memory:
+        condition: service_healthy
+      agent-sandbox:
+        condition: service_healthy
+    expose:
+      - "8040"
+
+  agent-runtime:
+    <<: *agent-service
+    build:
+      context: ./agent-runtime
+      args: *build-args
+    environment:
+      AGENT_TOOL_URL: http://agent-tool:8040
+      JOB_BUDDY_MEMORY_BASE_URL: http://agent-memory:8030
+      JOB_BUDDY_SANDBOX_BASE_URL: http://agent-sandbox:8061
+      JOB_BUDDY_RUNTIME_WORKSPACE_DIR: /workspace
+    volumes:
+      - runtime-workspace:/workspace
+    depends_on:
+      agent-tool:
+        condition: service_healthy
+      agent-memory:
+        condition: service_healthy
+      agent-sandbox:
+        condition: service_healthy
+    expose:
+      - "8010"
+
+  agent-intent:
+    <<: *agent-service
+    build:
+      context: ./agent-intent
+      args: *build-args
+    expose:
+      - "8020"
+
+  agent-eval:
+    <<: *agent-service
+    build:
+      context: ./agent-eval
+      args: *build-args
+    expose:
+      - "8050"
+
+  agent-backend:
+    <<: *agent-service
+    build:
+      context: ./agent-backend
+      args: *build-args
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_APP_DB:-job_buddy}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      JOB_BUDDY_MINIO_ENDPOINT: http://minio:9000
+      JOB_BUDDY_MINIO_SECURE: "false"
+      AGENT_RUNTIME_URL: http://agent-runtime:8010
+      AGENT_INTENT_URL: http://agent-intent:8020
+      AGENT_MEMORY_URL: http://agent-memory:8030
+      AGENT_TOOL_URL: http://agent-tool:8040
+      AGENT_EVAL_URL: http://agent-eval:8050
+      AGENT_SANDBOX_URL: http://agent-sandbox:8061
+      JOB_BUDDY_MEMORY_BASE_URL: http://agent-memory:8030
+      JOB_BUDDY_RESUME_RUNTIME_WORKSPACE: /workspace
+    volumes:
+      - runtime-workspace:/workspace
+    depends_on:
+      agent-runtime:
+        condition: service_healthy
+      agent-intent:
+        condition: service_healthy
+      agent-memory:
+        condition: service_healthy
+      agent-tool:
+        condition: service_healthy
+      agent-eval:
+        condition: service_healthy
+      agent-sandbox:
+        condition: service_healthy
+    ports:
+      - "${JOB_BUDDY_BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
+
+  agent-frontend:
+    build:
+      context: ./agent-frontend
+      args: *build-args
+    restart: unless-stopped
+    environment:
+      BACKEND_UPSTREAM: agent-backend:8080
+    depends_on:
+      agent-backend:
+        condition: service_healthy
+    ports:
+      - "${JOB_BUDDY_BIND_HOST:-127.0.0.1}:${FRONTEND_PORT:-5173}:80"
+    networks:
+      - job-buddy
+
+networks:
+  job-buddy:
+    external: true
+    name: ${JOB_BUDDY_NETWORK_NAME:-job-buddy-network}
+
+volumes:
+  runtime-workspace:

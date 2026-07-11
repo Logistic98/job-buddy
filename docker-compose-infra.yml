@@ -1,0 +1,70 @@
+name: ${INFRASTRUCTURE_COMPOSE_PROJECT_NAME:-job-buddy-infrastructure}
+
+x-infrastructure-service: &infrastructure-service
+  restart: unless-stopped
+  networks:
+    - job-buddy
+
+services:
+  postgres:
+    <<: *infrastructure-service
+    image: ${DOCKER_REGISTRY:-docker.io}/library/postgres:17.5-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_APP_DB:-job_buddy}
+      POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME:-job_buddy}
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD in .env}
+    ports:
+      - "${JOB_BUDDY_INFRA_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    <<: *infrastructure-service
+    image: ${DOCKER_REGISTRY:-docker.io}/library/redis:7.4.5-alpine
+    environment:
+      REDIS_PASSWORD: ${SPRING_REDIS_PASSWORD:?Set SPRING_REDIS_PASSWORD in .env}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    ports:
+      - "${JOB_BUDDY_INFRA_BIND_HOST:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    <<: *infrastructure-service
+    image: ${DOCKER_REGISTRY:-docker.io}/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    environment:
+      MINIO_ROOT_USER: ${JOB_BUDDY_MINIO_ACCESS_KEY:?Set JOB_BUDDY_MINIO_ACCESS_KEY in .env}
+      MINIO_ROOT_PASSWORD: ${JOB_BUDDY_MINIO_SECRET_KEY:?Set JOB_BUDDY_MINIO_SECRET_KEY in .env}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${JOB_BUDDY_INFRA_BIND_HOST:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000"
+      - "${JOB_BUDDY_INFRA_BIND_HOST:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+networks:
+  job-buddy:
+    name: ${JOB_BUDDY_NETWORK_NAME:-job-buddy-network}
+
+volumes:
+  postgres-data:
+    name: ${JOB_BUDDY_POSTGRES_VOLUME_NAME:-job-buddy-postgres-data}
+  redis-data:
+    name: ${JOB_BUDDY_REDIS_VOLUME_NAME:-job-buddy-redis-data}
+  minio-data:
+    name: ${JOB_BUDDY_MINIO_VOLUME_NAME:-job-buddy-minio-data}
