@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.resume.mapper.ResumeAssetMapper">
+  <select id="findByAssetIdAndUser" resultType="map">
+    SELECT
+      asset_id AS "assetId",
+      storage_path AS "storagePath",
+      content_type AS "contentType",
+      size_bytes AS "sizeBytes"
+    FROM resume_asset
+    WHERE asset_id = #{assetId} AND user_id = #{userId}
+    LIMIT 1
+  </select>
+
+  <insert id="insertAsset">
+    INSERT INTO resume_asset(
+      asset_id, tenant_id, user_id, resume_id, file_name, content_type,
+      storage_path, size_bytes, sha256, created_at
+    ) VALUES (
+      #{assetId}, #{tenantId}, #{userId}, NULL, #{fileName}, #{contentType},
+      #{storagePath}, #{sizeBytes}, #{sha256}, #{createdAt}
+    )
+  </insert>
+</mapper>

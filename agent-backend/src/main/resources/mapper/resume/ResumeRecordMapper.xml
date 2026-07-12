@@ -3,6 +3,7 @@
 <mapper namespace="com.jobbuddy.backend.modules.resume.mapper.ResumeRecordMapper">
   <sql id="resumeColumns">
     resume_id AS "resumeId",
+    tenant_id AS "tenantId",
     user_id AS "userId",
     original_name AS "originalName",
     storage_path AS "storagePath",
@@ -26,6 +27,38 @@
       <include refid="resumeColumns" />
     FROM resume_record
     WHERE user_id = #{userId}
+    <if test="tenantId != null and tenantId != ''">
+      AND tenant_id = #{tenantId}
+    </if>
+    ORDER BY uploaded_at DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="findLatestSummariesByUserId" resultType="map">
+    SELECT
+      resume_id AS "resumeId",
+      user_id AS "userId",
+      original_name AS "originalName",
+      size_bytes AS "sizeBytes",
+      suffix,
+      uploaded_at AS "uploadedAt",
+      parse_status AS "parseStatus",
+      parse_error AS "parseError",
+      jsonb_strip_nulls(jsonb_build_object(
+        'folder', parsed_json::jsonb -> 'folder',
+        'resumeFolder', parsed_json::jsonb -> 'resumeFolder',
+        'version', parsed_json::jsonb -> 'version',
+        'resumeVersion', parsed_json::jsonb -> 'resumeVersion',
+        'labels', parsed_json::jsonb -> 'labels',
+        'manageTags', parsed_json::jsonb -> 'manageTags'
+      ))::text AS "parsedJson"
+    FROM resume_record
+    WHERE user_id = #{userId}
+    <if test="tenantId != null and tenantId != ''">
+      AND tenant_id = #{tenantId}
+    </if>
+      AND LOWER(COALESCE(suffix, '')) = 'pdf'
+      AND COALESCE(parsed_json::jsonb -> 'source' ->> 'type', '') NOT IN ('job_profile', 'boss_online_resume')
     ORDER BY uploaded_at DESC
     LIMIT #{limit}
   </select>
@@ -36,9 +69,16 @@
     WHERE resume_id = #{resumeId}
   </select>
 
+  <select id="findTenantIdByUserId" resultType="string">
+    SELECT tenant_id
+    FROM app_user
+    WHERE user_id = #{userId}
+  </select>
+
   <insert id="insertRecord">
     INSERT INTO resume_record(
       resume_id,
+      tenant_id,
       user_id,
       original_name,
       storage_path,
@@ -51,6 +91,7 @@
     )
     VALUES (
       #{record.resumeId},
+      #{record.tenantId},
       #{record.userId},
       #{record.originalName},
       #{record.storagePath},

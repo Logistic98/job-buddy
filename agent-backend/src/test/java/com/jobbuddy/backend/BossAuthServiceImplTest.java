@@ -1,15 +1,8 @@
 package com.jobbuddy.backend;
 
-import com.jobbuddy.backend.modules.auth.repository.AuthStateRepository;
-import com.jobbuddy.backend.modules.auth.service.BossCliService;
-import com.jobbuddy.backend.modules.auth.service.impl.BossAuthServiceImpl;
-import org.junit.jupiter.api.Test;
-
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -19,97 +12,200 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jobbuddy.backend.common.security.AuthenticationScope;
+import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.auth.dto.internal.BossCliQrResult;
+import com.jobbuddy.backend.modules.auth.dto.internal.BossCliStatusResult;
+import com.jobbuddy.backend.modules.auth.repository.AuthStateRepository;
+import com.jobbuddy.backend.modules.auth.service.BossCliService;
+import com.jobbuddy.backend.modules.auth.service.impl.BossAuthServiceImpl;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+
 class BossAuthServiceImplTest {
+  private static final JsonCodec JSON = new JsonCodec();
 
-    @Test
-    void restorePersistedLoginStateShouldWriteCredentialWithoutQr() {
-        BossCliService bossCli = mock(BossCliService.class);
-        AuthStateRepository repository = mock(AuthStateRepository.class);
-        when(repository.findByProvider("jackwener/boss-cli")).thenReturn(savedState("logged_in", "{\"cookies\":{}}"));
+  @AfterEach
+  void clearScope() {
+    AuthenticationScope.clear();
+  }
 
-        BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
-        service.restorePersistedLoginState();
+  @Test
+  void loginStatusCheckFailureShouldNotMarkCredentialInvalid() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    BossCliStatusResult failed = status("error", false);
+    failed.setError(JSON.toTree("runtime unavailable"));
+    when(bossCli.status()).thenReturn(failed);
 
-        verify(bossCli).writeCredential("{\"cookies\":{}}");
-        verify(bossCli, never()).qrStart();
-    }
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
-    @Test
-    void loginStatusShouldUseCacheWithinTtlAndAvoidRepeatedStatusCalls() {
-        BossCliService bossCli = mock(BossCliService.class);
-        AuthStateRepository repository = mock(AuthStateRepository.class);
-        when(bossCli.hasLocalCredential()).thenReturn(true);
-        when(bossCli.status()).thenReturn(status("logged_in", true));
-        when(bossCli.readCredentialJson()).thenReturn("{\"cookies\":{}}");
+    assertThrows(RuntimeException.class, () -> service.loginStatus("s1", null));
+    verify(repository, never())
+        .updateStatus(eq("jackwener/boss-cli"), eq("auth_required"), any(Map.class));
+  }
 
-        BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
-        Map<String, Object> first = service.loginStatus("s1", null);
-        Map<String, Object> second = service.loginStatus("s1", null);
+  @Test
+  void authenticationCacheMustBeIsolatedByTenantAndUser() {
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(bossCli.status()).thenReturn(status("logged_in", true), status("auth_required", false));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
-        assertTrue(Boolean.TRUE.equals(first.get("ok")));
-        assertTrue(Boolean.TRUE.equals(second.get("ok")));
-        verify(bossCli, times(1)).status();
-        verify(repository, times(1)).save(eq("jackwener/boss-cli"), eq("logged_in"), eq("{\"cookies\":{}}"), any(Map.class));
-    }
+    AuthenticationScope.set("tenant-a", "user-a");
+    Map<String, Object> first = JSON.toMap(service.loginStatus("s1", null));
+    Map<String, Object> cached = JSON.toMap(service.loginStatus("s1", null));
+    AuthenticationScope.set("tenant-a", "user-b");
+    Map<String, Object> secondUser = JSON.toMap(service.loginStatus("s2", null));
 
-    @Test
-    void invalidStatusShouldUpdateRepositoryAndRequireQr() {
-        BossCliService bossCli = mock(BossCliService.class);
-        AuthStateRepository repository = mock(AuthStateRepository.class);
-        when(bossCli.hasLocalCredential()).thenReturn(true);
-        when(bossCli.status()).thenReturn(status("auth_required", false));
+    assertTrue(Boolean.TRUE.equals(first.get("ok")));
+    assertTrue(Boolean.TRUE.equals(cached.get("ok")));
+    assertFalse(Boolean.TRUE.equals(secondUser.get("ok")));
+    verify(bossCli, times(2)).status();
+  }
 
-        BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
-        Map<String, Object> response = service.loginStatus("s1", null);
+  @Test
+  void qrStartMustPersistCurrentOwnerWithServerSideExpiry() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(bossCli.status()).thenReturn(status("auth_required", false));
+    Map<String, Object> data = new LinkedHashMap<String, Object>();
+    data.put("session_id", "qr-a");
+    data.put("status", "qr_ready");
+    when(bossCli.qrStart()).thenReturn(envelope(data));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
-        assertFalse(Boolean.TRUE.equals(response.get("ok")));
-        assertEquals("auth_required", response.get("status"));
-        verify(repository).updateStatus(eq("jackwener/boss-cli"), eq("auth_required"), any(Map.class));
-    }
+    Map<String, Object> response = JSON.toMap(service.startQrLogin("chat-a"));
 
-    @Test
-    void qrLoggedInShouldPersistCredentialAndClearAuthRequired() {
-        BossCliService bossCli = mock(BossCliService.class);
-        AuthStateRepository repository = mock(AuthStateRepository.class);
-        Map<String, Object> qrStartData = new LinkedHashMap<String, Object>();
-        qrStartData.put("session_id", "qr1");
-        qrStartData.put("status", "qr_ready");
-        when(bossCli.hasLocalCredential()).thenReturn(false);
-        when(bossCli.status()).thenReturn(status("auth_required", false));
-        when(bossCli.qrStart()).thenReturn(envelope(qrStartData));
-        Map<String, Object> qrStatusData = new LinkedHashMap<String, Object>();
-        qrStatusData.put("status", "logged_in");
-        when(bossCli.qrStatus("qr1")).thenReturn(envelope(qrStatusData));
-        when(bossCli.readCredentialJson()).thenReturn("{\"cookies\":{\"a\":\"b\"}}");
+    assertEquals("qr-a", response.get("qrSessionId"));
+    verify(repository)
+        .saveQrSession(eq("tenant-a"), eq("user-a"), eq("chat-a"), eq("qr-a"), any(Instant.class));
+  }
 
-        BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
-        Map<String, Object> start = service.startQrLogin("s1");
-        Map<String, Object> done = service.loginStatus("s1", String.valueOf(start.get("qrSessionId")));
+  @Test
+  void activeQrSessionShouldBeSharedAcrossEntryPoints() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(bossCli.status()).thenReturn(status("auth_required", false));
+    when(repository.findActiveQrSession("tenant-a", "user-a"))
+        .thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    when(repository.findQrSession("qr-a")).thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    Map<String, Object> waiting = new LinkedHashMap<String, Object>();
+    waiting.put("status", "waiting");
+    waiting.put("image_base64", "shared-qr-image");
+    when(bossCli.qrStatus("qr-a")).thenReturn(envelope(waiting));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
-        assertEquals("qr1", start.get("qrSessionId"));
-        assertTrue(Boolean.TRUE.equals(done.get("ok")));
-        verify(repository).save(eq("jackwener/boss-cli"), eq("logged_in"), eq("{\"cookies\":{\"a\":\"b\"}}"), any(Map.class));
-    }
+    Map<String, Object> response = JSON.toMap(service.startQrLogin("jobs-import"));
 
-    private Map<String, Object> savedState(String status, String credentialJson) {
-        Map<String, Object> row = new LinkedHashMap<String, Object>();
-        row.put("status", status);
-        row.put("credentialJson", credentialJson);
-        return row;
-    }
+    assertEquals("qr-a", response.get("qrSessionId"));
+    assertEquals("shared-qr-image", response.get("imageBase64"));
+    verify(bossCli, never()).qrStart();
+  }
 
-    private Map<String, Object> status(String status, boolean ok) {
-        Map<String, Object> data = new LinkedHashMap<String, Object>();
-        data.put("ok", ok);
-        data.put("authenticated", ok);
-        data.put("status", status);
-        return data;
-    }
+  @Test
+  void qrOwnerMismatchMustFailBeforePollingTool() {
+    AuthenticationScope.set("tenant-b", "user-b");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(repository.findQrSession("qr-a")).thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
-    private Map<String, Object> envelope(Map<String, Object> data) {
-        Map<String, Object> envelope = new LinkedHashMap<String, Object>();
-        envelope.put("ok", true);
-        envelope.put("data", data);
-        return envelope;
-    }
+    assertThrows(IllegalArgumentException.class, () -> service.loginStatus("chat-b", "qr-a"));
+    verify(bossCli, never()).qrStatus("qr-a");
+  }
+
+  @Test
+  void missingQrOwnerMustFailClosed() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(repository.findQrSession("unknown")).thenReturn(null);
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
+
+    assertThrows(IllegalArgumentException.class, () -> service.loginStatus("chat-a", "unknown"));
+    verify(bossCli, never()).qrStatus("unknown");
+  }
+
+  @Test
+  void qrLoggedInMustPersistReturnedCredentialForExactOwner() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(repository.findQrSession("qr-a")).thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    Map<String, Object> data = new LinkedHashMap<String, Object>();
+    data.put("status", "logged_in");
+    data.put("credential_json", "{\"cookies\":{\"wt2\":\"owner-a\"}}");
+    when(bossCli.qrStatus("qr-a")).thenReturn(envelope(data));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
+
+    Map<String, Object> done = JSON.toMap(service.loginStatus("chat-a", "qr-a"));
+
+    assertTrue(Boolean.TRUE.equals(done.get("ok")));
+    Map<String, Object> otherEntry =
+        JSON.toMap(service.loginStatus("settings", "qr-from-other-entry"));
+    assertTrue(Boolean.TRUE.equals(otherEntry.get("ok")));
+    verify(bossCli, times(1)).qrStatus("qr-a");
+    verify(repository)
+        .save(
+            eq("tenant-a"),
+            eq("user-a"),
+            eq("jackwener/boss-cli"),
+            eq("logged_in"),
+            eq("{\"cookies\":{\"wt2\":\"owner-a\"}}"),
+            any(Map.class));
+    verify(repository).deleteQrSession("tenant-a", "user-a", "qr-a");
+  }
+
+  @Test
+  void qrLoggedInWithoutCredentialMustNotCreateFakeLoginMarker() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(repository.findQrSession("qr-a")).thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    Map<String, Object> data = new LinkedHashMap<String, Object>();
+    data.put("status", "logged_in");
+    when(bossCli.qrStatus("qr-a")).thenReturn(envelope(data));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
+
+    assertThrows(IllegalStateException.class, () -> service.loginStatus("chat-a", "qr-a"));
+    verify(repository, never())
+        .save(
+            eq("tenant-a"),
+            eq("user-a"),
+            eq("jackwener/boss-cli"),
+            eq("logged_in"),
+            any(),
+            any(Map.class));
+  }
+
+  private Map<String, Object> qrOwner(String tenantId, String userId, String qrSessionId) {
+    Map<String, Object> row = new LinkedHashMap<String, Object>();
+    row.put("tenantId", tenantId);
+    row.put("userId", userId);
+    row.put("qrSessionId", qrSessionId);
+    row.put("expiresAt", Instant.now().plusSeconds(120));
+    return row;
+  }
+
+  private BossCliStatusResult status(String status, boolean ok) {
+    BossCliStatusResult data = new BossCliStatusResult();
+    data.setOk(ok);
+    data.setAuthenticated(ok);
+    data.setStatus(status);
+    return data;
+  }
+
+  private BossCliQrResult envelope(Map<String, Object> data) {
+    BossCliQrResult envelope = new BossCliQrResult();
+    envelope.setOk(true);
+    envelope.setData(JSON.toTree(data));
+    return envelope;
+  }
 }

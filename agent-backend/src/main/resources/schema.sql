@@ -1,2 +1,0 @@
--- Database schema is managed by Flyway migrations under classpath:db/migration.
--- Initial job_buddy tables: db/migration/V1_0_0__Create_job_buddy_tables.sql

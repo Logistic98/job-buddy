@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.auth.mapper.RbacMapper">
+  <sql id="roleColumns">role_id AS "roleId", role_code AS "roleCode", role_name AS "roleName", description, enabled, created_at AS "createdAt", updated_at AS "updatedAt"</sql>
+  <sql id="menuColumns">menu_id AS "menuId", parent_id AS "parentId", menu_code AS "menuCode", menu_name AS "menuName", menu_type AS "menuType", route_path AS "routePath", component_key AS "componentKey", external_url AS "externalUrl", icon_key AS "iconKey", permission_code AS "permissionCode", display_order AS "displayOrder", visible, enabled, created_at AS "createdAt", updated_at AS "updatedAt"</sql>
+
+  <select id="listRoles" resultType="map">SELECT <include refid="roleColumns"/> FROM rbac_role WHERE tenant_id=#{tenantId} ORDER BY created_at, role_name</select>
+  <select id="findRole" resultType="map">SELECT <include refid="roleColumns"/> FROM rbac_role WHERE tenant_id=#{tenantId} AND role_id=#{roleId}</select>
+  <select id="findRoleMenuIds" resultType="string">SELECT menu_id FROM role_menu WHERE tenant_id=#{tenantId} AND role_id=#{roleId} ORDER BY menu_id</select>
+  <insert id="insertRole">INSERT INTO rbac_role(role_id,tenant_id,role_code,role_name,description,enabled,created_at,updated_at) VALUES(#{role.roleId},#{role.tenantId},#{role.roleCode},#{role.roleName},#{role.description},#{role.enabled},#{role.createdAt},#{role.updatedAt})</insert>
+  <update id="updateRole">UPDATE rbac_role SET role_code=#{roleCode},role_name=#{roleName},description=#{description},enabled=#{enabled},updated_at=#{now} WHERE tenant_id=#{tenantId} AND role_id=#{roleId}</update>
+  <delete id="deleteRole">DELETE FROM rbac_role WHERE tenant_id=#{tenantId} AND role_id=#{roleId}</delete>
+  <select id="countRoleUsers" resultType="int">SELECT COUNT(*) FROM user_role WHERE tenant_id=#{tenantId} AND role_id=#{roleId}</select>
+  <delete id="deleteRoleMenus">DELETE FROM role_menu WHERE tenant_id=#{tenantId} AND role_id=#{roleId}</delete>
+  <insert id="insertRoleMenu">INSERT INTO role_menu(tenant_id,role_id,menu_id,created_at) VALUES(#{tenantId},#{roleId},#{menuId},#{now}) ON CONFLICT DO NOTHING</insert>
+  <select id="findUserIdsByRole" resultType="string">SELECT user_id FROM user_role WHERE tenant_id=#{tenantId} AND role_id=#{roleId}</select>
+
+  <select id="listMenus" resultType="map">SELECT <include refid="menuColumns"/> FROM rbac_menu WHERE tenant_id=#{tenantId} ORDER BY display_order, menu_id</select>
+  <select id="findMenu" resultType="map">SELECT <include refid="menuColumns"/> FROM rbac_menu WHERE tenant_id=#{tenantId} AND menu_id=#{menuId}</select>
+  <select id="countMenusByIds" resultType="int">SELECT COUNT(*) FROM rbac_menu WHERE tenant_id=#{tenantId} AND menu_id IN <foreach collection="menuIds" item="id" open="(" separator="," close=")">#{id}</foreach></select>
+  <insert id="insertMenu">INSERT INTO rbac_menu(menu_id,tenant_id,parent_id,menu_code,menu_name,menu_type,route_path,component_key,external_url,icon_key,permission_code,display_order,visible,enabled,created_at,updated_at) VALUES(#{menu.menuId},#{menu.tenantId},#{menu.parentId},#{menu.menuCode},#{menu.menuName},#{menu.menuType},#{menu.routePath},#{menu.componentKey},#{menu.externalUrl},#{menu.iconKey},#{menu.permissionCode},#{menu.displayOrder},#{menu.visible},#{menu.enabled},#{menu.createdAt},#{menu.updatedAt})</insert>
+  <update id="updateMenu">UPDATE rbac_menu SET parent_id=#{parentId},menu_code=#{menuCode},menu_name=#{menuName},menu_type=#{menuType},route_path=#{routePath},component_key=#{componentKey},external_url=#{externalUrl},icon_key=#{iconKey},permission_code=#{permissionCode},display_order=#{displayOrder},visible=#{visible},enabled=#{enabled},updated_at=#{now} WHERE tenant_id=#{tenantId} AND menu_id=#{menuId}</update>
+  <delete id="deleteMenu">DELETE FROM rbac_menu WHERE tenant_id=#{tenantId} AND menu_id=#{menuId}</delete>
+  <select id="countMenuChildren" resultType="int">SELECT COUNT(*) FROM rbac_menu WHERE tenant_id=#{tenantId} AND parent_id=#{menuId}</select>
+  <select id="countMenuRoles" resultType="int">SELECT COUNT(*) FROM role_menu WHERE tenant_id=#{tenantId} AND menu_id=#{menuId}</select>
+  <select id="findUserIdsByMenu" resultType="string">SELECT DISTINCT ur.user_id FROM role_menu rm JOIN user_role ur ON ur.tenant_id=rm.tenant_id AND ur.role_id=rm.role_id WHERE rm.tenant_id=#{tenantId} AND rm.menu_id=#{menuId}</select>
+
+  <select id="findUserRoleIds" resultType="string">SELECT role_id FROM user_role WHERE tenant_id=#{tenantId} AND user_id=#{userId} ORDER BY role_id</select>
+  <select id="findUserRoleNames" resultType="string">SELECT r.role_name FROM user_role ur JOIN rbac_role r ON r.tenant_id=ur.tenant_id AND r.role_id=ur.role_id WHERE ur.tenant_id=#{tenantId} AND ur.user_id=#{userId} ORDER BY r.role_name</select>
+  <select id="countRolesByIds" resultType="int">SELECT COUNT(*) FROM rbac_role WHERE tenant_id=#{tenantId} AND role_id IN <foreach collection="roleIds" item="id" open="(" separator="," close=")">#{id}</foreach></select>
+  <delete id="deleteUserRoles">DELETE FROM user_role WHERE tenant_id=#{tenantId} AND user_id=#{userId}</delete>
+  <insert id="insertUserRole">INSERT INTO user_role(tenant_id,user_id,role_id,created_at) VALUES(#{tenantId},#{userId},#{roleId},#{now}) ON CONFLICT DO NOTHING</insert>
+
+  <select id="countManagementUsers" resultType="int">
+    SELECT COUNT(*) FROM app_user u
+    WHERE u.tenant_id=#{tenantId} AND u.enabled=TRUE
+      AND NOT EXISTS (
+        SELECT 1 FROM (VALUES ('users:manage'),('roles:manage'),('menus:manage')) required(permission_code)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM user_role ur
+          JOIN rbac_role r ON r.tenant_id=ur.tenant_id AND r.role_id=ur.role_id AND r.enabled=TRUE
+          JOIN role_menu rm ON rm.tenant_id=r.tenant_id AND rm.role_id=r.role_id
+          JOIN rbac_menu m ON m.tenant_id=rm.tenant_id AND m.menu_id=rm.menu_id AND m.enabled=TRUE
+          WHERE ur.tenant_id=u.tenant_id AND ur.user_id=u.user_id AND m.permission_code=required.permission_code
+        )
+      )
+  </select>
+  <select id="countPermissionCode" resultType="int">SELECT COUNT(*) FROM permission_definition WHERE permission_code=#{permissionCode}</select>
+</mapper>

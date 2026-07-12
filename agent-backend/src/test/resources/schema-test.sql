@@ -39,8 +39,18 @@ CREATE TABLE IF NOT EXISTS job_buddy_auth_state (
 CREATE INDEX IF NOT EXISTS idx_job_buddy_auth_state_updated
   ON job_buddy_auth_state (updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS tenant (
+  tenant_id VARCHAR(64) PRIMARY KEY,
+  tenant_code VARCHAR(64) NOT NULL UNIQUE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+MERGE INTO tenant(tenant_id, tenant_code, enabled) KEY(tenant_id)
+VALUES ('default-tenant', 'default', TRUE);
+
 CREATE TABLE IF NOT EXISTS app_user (
   user_id VARCHAR(64) PRIMARY KEY,
+  tenant_id VARCHAR(64) NOT NULL DEFAULT 'default-tenant',
   username VARCHAR(128) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   display_name VARCHAR(128),
@@ -48,6 +58,69 @@ CREATE TABLE IF NOT EXISTS app_user (
   enabled BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS permission_definition (
+  permission_code VARCHAR(64) PRIMARY KEY,
+  permission_name VARCHAR(128) NOT NULL,
+  grantable BOOLEAN NOT NULL DEFAULT TRUE,
+  display_order INT DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS user_permission (
+  tenant_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  permission_code VARCHAR(64) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (tenant_id, user_id, permission_code)
+);
+
+CREATE TABLE IF NOT EXISTS rbac_role (
+  role_id VARCHAR(64) PRIMARY KEY,
+  tenant_id VARCHAR(64) NOT NULL,
+  role_code VARCHAR(64) NOT NULL,
+  role_name VARCHAR(128) NOT NULL,
+  description VARCHAR(512),
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(tenant_id, role_code)
+);
+
+CREATE TABLE IF NOT EXISTS rbac_menu (
+  menu_id VARCHAR(64) PRIMARY KEY,
+  tenant_id VARCHAR(64) NOT NULL,
+  parent_id VARCHAR(64),
+  menu_code VARCHAR(64) NOT NULL,
+  menu_name VARCHAR(128) NOT NULL,
+  menu_type VARCHAR(16) NOT NULL,
+  route_path VARCHAR(256),
+  component_key VARCHAR(128),
+  external_url VARCHAR(512),
+  icon_key VARCHAR(64),
+  permission_code VARCHAR(64),
+  display_order INT DEFAULT 0,
+  visible BOOLEAN DEFAULT TRUE,
+  enabled BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(tenant_id, menu_code)
+);
+
+CREATE TABLE IF NOT EXISTS user_role (
+  tenant_id VARCHAR(64) NOT NULL,
+  user_id VARCHAR(64) NOT NULL,
+  role_id VARCHAR(64) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(tenant_id, user_id, role_id)
+);
+
+CREATE TABLE IF NOT EXISTS role_menu (
+  tenant_id VARCHAR(64) NOT NULL,
+  role_id VARCHAR(64) NOT NULL,
+  menu_id VARCHAR(64) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(tenant_id, role_id, menu_id)
 );
 
 CREATE TABLE IF NOT EXISTS user_login_session (
@@ -112,7 +185,7 @@ CREATE TABLE IF NOT EXISTS job_buddy_blacklist_item (
 
 CREATE TABLE IF NOT EXISTS interview_question (
   question_id VARCHAR(64) PRIMARY KEY,
-  bank_type VARCHAR(32) NOT NULL DEFAULT 'baguwen',
+  bank_type VARCHAR(32) NOT NULL DEFAULT 'qa',
   title VARCHAR(512) NOT NULL,
   category VARCHAR(128),
   difficulty VARCHAR(32),
@@ -127,6 +200,8 @@ CREATE TABLE IF NOT EXISTS interview_question (
 );
 
 CREATE TABLE IF NOT EXISTS interview_exam (
+  tenant_id VARCHAR(64) NOT NULL DEFAULT 'default-tenant',
+  user_id VARCHAR(64) NOT NULL DEFAULT 'default-user',
   exam_id VARCHAR(64) PRIMARY KEY,
   title VARCHAR(512),
   status VARCHAR(32),
@@ -149,4 +224,33 @@ CREATE TABLE IF NOT EXISTS interview_exam_question (
   correct BOOLEAN,
   score DECIMAL(8,2),
   evaluated_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS platform_setting (
+  scope_id VARCHAR(128) NOT NULL,
+  setting_key VARCHAR(128) NOT NULL,
+  setting_json JSON NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (scope_id, setting_key)
+);
+
+CREATE TABLE IF NOT EXISTS user_workspace_state (
+  user_id VARCHAR(128) NOT NULL,
+  state_key VARCHAR(128) NOT NULL,
+  state_json JSON NOT NULL,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, state_key)
+);
+
+CREATE TABLE IF NOT EXISTS profile_document (
+  document_id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(128) NOT NULL,
+  title VARCHAR(512) NOT NULL,
+  document_type VARCHAR(64) NOT NULL,
+  content CLOB NOT NULL,
+  storage_path VARCHAR(1024),
+  sha256 VARCHAR(64) NOT NULL,
+  metadata_json JSON NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

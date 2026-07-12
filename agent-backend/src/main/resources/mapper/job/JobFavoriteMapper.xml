@@ -5,6 +5,8 @@
     SELECT
       job_key AS "jobKey",
       job_json AS "jobJson",
+      analysis_json AS "analysisJson",
+      analyzed_at AS "analyzedAt",
       favorited_at AS "favoritedAt",
       updated_at AS "updatedAt"
     FROM job_favorite
@@ -16,6 +18,8 @@
     SELECT
       job_key AS "jobKey",
       job_json AS "jobJson",
+      analysis_json AS "analysisJson",
+      analyzed_at AS "analyzedAt",
       favorited_at AS "favoritedAt",
       updated_at AS "updatedAt"
     FROM job_favorite
@@ -25,7 +29,8 @@
 
   <update id="updateAnalysis">
     UPDATE job_favorite
-    SET job_json = #{jobJson},
+    SET analysis_json = #{analysisJson},
+        analyzed_at = #{analyzedAt},
         updated_at = CURRENT_TIMESTAMP
     WHERE user_id = #{userId}
       AND job_key = #{jobKey}

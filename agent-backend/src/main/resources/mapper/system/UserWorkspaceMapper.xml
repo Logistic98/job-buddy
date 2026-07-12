@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.system.mapper.UserWorkspaceMapper">
+  <select id="findStateJson" resultType="string">
+    SELECT state_json::text
+    FROM user_workspace_state
+    WHERE user_id = #{userId}
+      AND state_key = #{stateKey}
+  </select>
+
+  <insert id="upsertState">
+    INSERT INTO user_workspace_state(user_id, state_key, state_json, updated_at)
+    VALUES (#{userId}, #{stateKey}, CAST(#{stateJson} AS jsonb), CURRENT_TIMESTAMP)
+    ON CONFLICT (user_id, state_key)
+    DO UPDATE SET
+      state_json = EXCLUDED.state_json,
+      updated_at = CURRENT_TIMESTAMP
+  </insert>
+
+  <delete id="deleteState">
+    DELETE FROM user_workspace_state
+    WHERE user_id = #{userId}
+      AND state_key = #{stateKey}
+  </delete>
+</mapper>

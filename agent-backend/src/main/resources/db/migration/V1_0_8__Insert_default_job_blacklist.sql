@@ -1,0 +1,55 @@
+-- System-level company blacklist limited to widely recognized IT outsourcing and staffing providers.
+INSERT INTO blacklist_item (item_id, name, item_type, reason, source, enabled)
+VALUES
+  ('system-company-001', '中电金信', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-002', '中电文思海辉', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-003', '文思海辉', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-004', '德科', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-005', '海隆软件', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-006', '上海海隆', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-007', '赛意', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-008', '神州信息', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-009', '科锐国际', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-010', '亚信', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-011', '法本信息', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-012', '纬创软件', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-013', '京北方', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-014', '中软国际', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-015', '东软集团', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-016', '中科软科技', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-017', '软通动力', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-018', '柯莱特', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-019', '上海新致软件', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-020', '博彦科技', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-021', '大连华信', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-022', '信华信', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-023', '同方鼎欣', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-024', '易思博', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-025', '润和', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-026', '中科创达', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-027', '科蓝软件', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-028', '开目佰钧成', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-029', '武汉佰钧成', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-030', '天阳宏业', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-031', '凌志软件', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-032', '普联软件', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-033', '人瑞', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-034', '赛科斯', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-035', '上海汉得', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-036', '微创软件', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-037', '信必优', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-038', '南天信息', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-039', '长亮科技', 'company', '系统初始化', 'system', TRUE),
+  ('system-company-040', '宇信', 'company', '系统初始化', 'system', TRUE)
+ON CONFLICT (name, item_type) DO NOTHING;
+
+INSERT INTO blacklist_item (item_id, name, item_type, reason, source, enabled)
+VALUES
+  ('system-keyword-outsourcing', '外包', 'keyword', '屏蔽外包性质岗位', 'system', TRUE),
+  ('system-keyword-onsite', '驻场', 'keyword', '屏蔽驻场性质岗位', 'system', TRUE),
+  ('system-keyword-od', 'OD', 'keyword', '屏蔽OD性质岗位', 'system', TRUE),
+  ('system-keyword-internal-outsourcing', '内包', 'keyword', '屏蔽内包性质岗位', 'system', TRUE),
+  ('system-keyword-labor-dispatch', '劳务派遣', 'keyword', '屏蔽劳务派遣岗位', 'system', TRUE),
+  ('system-keyword-external-assignment', '外派', 'keyword', '屏蔽外派性质岗位', 'system', TRUE),
+  ('system-keyword-third-party-contract', '第三方合同', 'keyword', '屏蔽第三方合同岗位', 'system', TRUE)
+ON CONFLICT (name, item_type) DO NOTHING;

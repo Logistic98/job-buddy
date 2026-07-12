@@ -1,70 +1,116 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.jobbuddy.backend.modules.auth.mapper.UserAuthMapper">
-  <select id="findUserByUsername" resultType="map">
-    SELECT
-      user_id AS "userId",
-      username,
-      password_hash AS "passwordHash",
-      display_name AS "displayName",
-      role,
-      enabled,
-      created_at AS "createdAt",
-      updated_at AS "updatedAt"
-    FROM app_user
-    WHERE username = #{username}
-  </select>
+  <sql id="userColumns">
+    u.user_id AS "userId", u.tenant_id AS "tenantId", t.tenant_code AS "tenantCode",
+    u.username, u.password_hash AS "passwordHash", u.display_name AS "displayName",
+    u.role, u.enabled, u.created_at AS "createdAt", u.updated_at AS "updatedAt"
+  </sql>
 
-  <update id="updatePasswordHash">
-    UPDATE app_user
-    SET password_hash = #{passwordHash},
-        updated_at = #{now}
-    WHERE user_id = #{userId}
-  </update>
+  <select id="findUserByUsername" resultType="map">
+    SELECT <include refid="userColumns"/>
+    FROM app_user u JOIN tenant t ON t.tenant_id = u.tenant_id
+    WHERE t.enabled = TRUE AND lower(u.username) = lower(#{username})
+  </select>
 
   <select id="findUserByToken" resultType="map">
-    SELECT
-      u.user_id AS "userId",
-      u.username,
-      u.display_name AS "displayName",
-      u.role,
-      u.enabled,
-      s.expires_at AS "expiresAt"
+    SELECT <include refid="userColumns"/>, s.expires_at AS "expiresAt"
     FROM user_login_session s
     JOIN app_user u ON s.user_id = u.user_id
-    WHERE s.token = #{token}
+    JOIN tenant t ON t.tenant_id = u.tenant_id
+    WHERE s.token = #{token} AND t.enabled = TRUE
   </select>
 
-  <insert id="saveSession">
-    INSERT INTO user_login_session(
-      token,
-      user_id,
-      expires_at,
-      created_at,
-      last_seen_at
-    )
-    VALUES (
-      #{token},
-      #{userId},
-      #{expiresAt},
-      #{now},
-      #{now}
-    )
+  <select id="findRoleCodesByUserId" resultType="string">
+    SELECT DISTINCT r.role_code
+    FROM user_role ur
+    JOIN rbac_role r ON r.role_id = ur.role_id AND r.tenant_id = ur.tenant_id
+    JOIN app_user u ON u.user_id = ur.user_id AND u.tenant_id = ur.tenant_id
+    WHERE ur.user_id = #{userId} AND r.enabled = TRUE AND u.enabled = TRUE
+    ORDER BY r.role_code
+  </select>
+
+  <select id="findPermissionsByUserId" resultType="string">
+    SELECT DISTINCT m.permission_code
+    FROM user_role ur
+    JOIN rbac_role r ON r.role_id = ur.role_id AND r.tenant_id = ur.tenant_id AND r.enabled = TRUE
+    JOIN role_menu rm ON rm.role_id = r.role_id AND rm.tenant_id = r.tenant_id
+    JOIN rbac_menu m ON m.menu_id = rm.menu_id AND m.tenant_id = rm.tenant_id AND m.enabled = TRUE
+    WHERE ur.user_id = #{userId} AND m.permission_code IS NOT NULL
+    ORDER BY m.permission_code
+  </select>
+
+  <select id="findMenusByUserId" resultType="map">
+    SELECT DISTINCT m.menu_id AS "menuId", m.parent_id AS "parentId", m.menu_code AS "menuCode",
+           m.menu_name AS "menuName", m.menu_type AS "menuType", m.route_path AS "routePath",
+           m.component_key AS "componentKey", m.external_url AS "externalUrl", m.icon_key AS "iconKey",
+           m.permission_code AS "permissionCode", m.display_order AS "displayOrder"
+    FROM user_role ur
+    JOIN rbac_role r ON r.role_id = ur.role_id AND r.tenant_id = ur.tenant_id AND r.enabled = TRUE
+    JOIN role_menu rm ON rm.role_id = r.role_id AND rm.tenant_id = r.tenant_id
+    JOIN rbac_menu m ON m.menu_id = rm.menu_id AND m.tenant_id = rm.tenant_id
+    WHERE ur.user_id = #{userId} AND m.enabled = TRUE AND m.visible = TRUE
+    ORDER BY m.display_order, m.menu_id
+  </select>
+
+  <select id="listUsers" resultType="map">
+    SELECT u.user_id AS "userId", u.username, u.display_name AS "displayName", u.role, u.enabled,
+           u.created_at AS "createdAt", u.updated_at AS "updatedAt"
+    FROM app_user u WHERE u.tenant_id = #{tenantId} ORDER BY u.created_at, u.username
+  </select>
+
+  <select id="findUserById" resultType="map">
+    SELECT u.user_id AS "userId", u.tenant_id AS "tenantId", u.username,
+           u.display_name AS "displayName", u.role, u.enabled,
+           u.created_at AS "createdAt", u.updated_at AS "updatedAt"
+    FROM app_user u WHERE u.tenant_id = #{tenantId} AND u.user_id = #{userId}
+  </select>
+
+  <select id="listGrantablePermissions" resultType="map">
+    SELECT permission_code AS "permissionCode", permission_name AS "permissionName", grantable,
+           display_order AS "displayOrder"
+    FROM permission_definition WHERE grantable = TRUE ORDER BY display_order, permission_code
+  </select>
+
+  <select id="listPermissionDefinitions" resultType="map">
+    SELECT permission_code AS "permissionCode", permission_name AS "permissionName", grantable,
+           display_order AS "displayOrder"
+    FROM permission_definition ORDER BY display_order, permission_code
+  </select>
+
+  <select id="countEnabledAdmins" resultType="int">
+    SELECT COUNT(*) FROM app_user WHERE tenant_id = #{tenantId} AND role = 'admin' AND enabled = TRUE
+  </select>
+
+  <insert id="insertUser">
+    INSERT INTO app_user(user_id, tenant_id, username, password_hash, display_name, role, enabled, created_at, updated_at)
+    VALUES(#{userId}, #{tenantId}, #{username}, #{passwordHash}, #{displayName}, #{role}, #{enabled}, #{now}, #{now})
   </insert>
 
-  <update id="touchSession">
-    UPDATE user_login_session
-    SET last_seen_at = #{now}
-    WHERE token = #{token}
+  <update id="updateUser">
+    UPDATE app_user SET display_name = #{displayName}, role = #{role}, enabled = #{enabled}, updated_at = #{now}
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId}
   </update>
 
-  <delete id="deleteSession">
-    DELETE FROM user_login_session
-    WHERE token = #{token}
+  <update id="updatePasswordHash">
+    UPDATE app_user SET password_hash = #{passwordHash}, updated_at = #{now} WHERE user_id = #{userId}
+  </update>
+
+  <delete id="deleteUserPermissions">
+    DELETE FROM user_permission WHERE tenant_id = #{tenantId} AND user_id = #{userId}
   </delete>
 
-  <delete id="deleteExpiredSessions">
-    DELETE FROM user_login_session
-    WHERE expires_at &lt; #{now}
-  </delete>
+  <insert id="insertUserPermission">
+    INSERT INTO user_permission(tenant_id, user_id, permission_code, created_at)
+    VALUES(#{tenantId}, #{userId}, #{permissionCode}, #{now}) ON CONFLICT DO NOTHING
+  </insert>
+
+  <insert id="saveSession">
+    INSERT INTO user_login_session(token, user_id, expires_at, created_at, last_seen_at)
+    VALUES(#{token}, #{userId}, #{expiresAt}, #{now}, #{now})
+  </insert>
+  <update id="touchSession">UPDATE user_login_session SET last_seen_at = #{now} WHERE token = #{token}</update>
+  <delete id="deleteSession">DELETE FROM user_login_session WHERE token = #{token}</delete>
+  <delete id="deleteSessionsByUserId">DELETE FROM user_login_session WHERE user_id = #{userId}</delete>
+  <delete id="deleteExpiredSessions">DELETE FROM user_login_session WHERE expires_at &lt; #{now}</delete>
 </mapper>

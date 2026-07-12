@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.resume.mapper.ResumeWriterVersionMapper">
+  <sql id="versionMetaColumns">
+    version_id AS "versionId",
+    tenant_id AS "tenantId",
+    user_id AS "userId",
+    resume_id AS "resumeId",
+    version_no AS "versionNo",
+    source,
+    title,
+    created_at AS "createdAt"
+  </sql>
+
+  <select id="listByOwner" resultType="map">
+    SELECT
+      <include refid="versionMetaColumns" />,
+      LENGTH(snapshot_json) AS "snapshotBytes"
+    FROM resume_writer_version
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId}
+    ORDER BY version_no DESC
+    LIMIT #{limit}
+  </select>
+
+  <select id="findByIdAndOwner" resultType="map">
+    SELECT
+      <include refid="versionMetaColumns" />,
+      snapshot_json AS "snapshotJson"
+    FROM resume_writer_version
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId} AND version_id = #{versionId}
+  </select>
+
+  <select id="maxVersionNo" resultType="long">
+    SELECT MAX(version_no)
+    FROM resume_writer_version
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId}
+  </select>
+
+  <insert id="insertVersion">
+    INSERT INTO resume_writer_version(
+      version_id, tenant_id, user_id, resume_id,
+      version_no, source, title, snapshot_json, created_at
+    ) VALUES (
+      #{version.versionId}, #{version.tenantId}, #{version.userId}, #{version.resumeId},
+      #{version.versionNo}, #{version.source}, #{version.title}, #{version.snapshotJson}, #{version.createdAt}
+    )
+  </insert>
+
+  <delete id="deleteByIdAndOwner">
+    DELETE FROM resume_writer_version
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId} AND version_id = #{versionId}
+  </delete>
+
+  <delete id="deleteBeyondLimit">
+    DELETE FROM resume_writer_version
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId}
+      AND version_id NOT IN (
+        SELECT version_id
+        FROM resume_writer_version
+        WHERE tenant_id = #{tenantId} AND user_id = #{userId}
+        ORDER BY version_no DESC
+        LIMIT #{keep}
+      )
+  </delete>
+</mapper>

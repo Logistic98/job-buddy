@@ -1,164 +1,32 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.jobbuddy.backend.modules.project.mapper.ProjectDeepDiveMapper">
-  <sql id="projectColumns">
-    project_id AS "projectId",
-    name,
-    role,
-    summary,
-    tech_stack AS "techStack",
-    enabled,
-    created_at AS "createdAt",
-    updated_at AS "updatedAt"
-  </sql>
-
+  <sql id="projectColumns">project_id AS "projectId",name,role,summary,tech_stack AS "techStack",project_period AS "projectPeriod",team_size AS "teamSize",project_type AS "projectType",business_domain AS "businessDomain",project_status AS "projectStatus",background,responsibilities,highlights,challenges,outcomes,enabled,created_at AS "createdAt",updated_at AS "updatedAt"</sql>
+  <sql id="materialColumns">material_id AS "materialId",project_id AS "projectId",file_name AS "fileName",content_type AS "contentType",storage_path AS "storagePath",size_bytes AS "sizeBytes",sha256,created_at AS "createdAt"</sql>
+  <sql id="questionColumns">question_id AS "questionId",project_id AS "projectId",question,answer,category,difficulty,source,created_at AS "createdAt"</sql>
   <select id="listProjects" resultType="map">
-    SELECT
-      <include refid="projectColumns" />
-    FROM project_deep_dive_project
-    WHERE enabled = TRUE
+    SELECT <include refid="projectColumns"/>,
+      (SELECT COUNT(*) FROM project_deep_dive_material m WHERE m.project_id=p.project_id) AS "materialCount",
+      (SELECT COUNT(*) FROM project_deep_dive_question q WHERE q.project_id=p.project_id) AS "questionCount"
+    FROM project_deep_dive_project p
+    WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND enabled=TRUE
     ORDER BY updated_at DESC
   </select>
-
-  <select id="findProject" resultType="map">
-    SELECT
-      <include refid="projectColumns" />
-    FROM project_deep_dive_project
-    WHERE project_id = #{projectId}
-  </select>
-
-  <select id="countProject" resultType="int">
-    SELECT COUNT(*)
-    FROM project_deep_dive_project
-    WHERE project_id = #{projectId}
-  </select>
-
-  <insert id="insertProject">
-    INSERT INTO project_deep_dive_project(
-      project_id,
-      name,
-      role,
-      summary,
-      tech_stack,
-      enabled,
-      created_at,
-      updated_at
-    )
-    VALUES (
-      #{project.projectId},
-      #{project.name},
-      #{project.role},
-      #{project.summary},
-      #{project.techStack},
-      TRUE,
-      #{now},
-      #{now}
-    )
-  </insert>
-
-  <update id="updateProject">
-    UPDATE project_deep_dive_project
-    SET
-      name = #{project.name},
-      role = #{project.role},
-      summary = #{project.summary},
-      tech_stack = #{project.techStack},
-      enabled = TRUE,
-      updated_at = #{now}
-    WHERE project_id = #{project.projectId}
-  </update>
-
-  <update id="deleteProject">
-    UPDATE project_deep_dive_project
-    SET
-      enabled = FALSE,
-      updated_at = #{now}
-    WHERE project_id = #{projectId}
-  </update>
-
-  <insert id="saveMaterial">
-    INSERT INTO project_deep_dive_material(
-      material_id,
-      project_id,
-      file_name,
-      content_type,
-      content,
-      created_at
-    )
-    VALUES (
-      #{material.materialId},
-      #{material.projectId},
-      #{material.fileName},
-      #{material.contentType},
-      #{material.content},
-      #{now}
-    )
-  </insert>
-
-  <delete id="deleteMaterial">
-    DELETE FROM project_deep_dive_material
-    WHERE material_id = #{materialId}
-  </delete>
-
-  <select id="listMaterials" resultType="map">
-    SELECT
-      material_id AS "materialId",
-      project_id AS "projectId",
-      file_name AS "fileName",
-      content_type AS "contentType",
-      content,
-      created_at AS "createdAt"
-    FROM project_deep_dive_material
-    WHERE project_id = #{projectId}
-    ORDER BY created_at DESC
-  </select>
-
-  <delete id="deleteQuestionsByProject">
-    DELETE FROM project_deep_dive_question
-    WHERE project_id = #{projectId}
-  </delete>
-
-  <insert id="insertQuestion">
-    INSERT INTO project_deep_dive_question(
-      question_id,
-      project_id,
-      question,
-      answer,
-      category,
-      difficulty,
-      source,
-      created_at
-    )
-    VALUES (
-      #{question.questionId},
-      #{projectId},
-      #{question.question},
-      #{question.answer},
-      #{question.category},
-      #{question.difficulty},
-      #{question.source},
-      #{now}
-    )
-  </insert>
-
-  <select id="listQuestions" resultType="map">
-    SELECT
-      question_id AS "questionId",
-      project_id AS "projectId",
-      question,
-      answer,
-      category,
-      difficulty,
-      source,
-      created_at AS "createdAt"
-    FROM project_deep_dive_question
-    WHERE project_id = #{projectId}
-    ORDER BY created_at DESC
-  </select>
-
-  <update id="touchProject">
-    UPDATE project_deep_dive_project
-    SET updated_at = #{now}
-    WHERE project_id = #{projectId}
-  </update>
+  <select id="findProject" resultType="map">SELECT <include refid="projectColumns"/> FROM project_deep_dive_project WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND project_id=#{projectId}</select>
+  <select id="countProject" resultType="int">SELECT COUNT(*) FROM project_deep_dive_project WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND project_id=#{projectId}</select>
+  <insert id="insertProject">INSERT INTO project_deep_dive_project(tenant_id,user_id,project_id,name,role,summary,tech_stack,project_period,team_size,project_type,business_domain,project_status,background,responsibilities,highlights,challenges,outcomes,enabled,created_at,updated_at) VALUES(#{tenantId},#{userId},#{projectId},#{name},#{role},#{summary},#{techStack},#{projectPeriod},#{teamSize},#{projectType},#{businessDomain},#{projectStatus},#{background},#{responsibilities},#{highlights},#{challenges},#{outcomes},TRUE,#{createdAt},#{updatedAt})</insert>
+  <update id="updateProject">UPDATE project_deep_dive_project SET name=#{name},role=#{role},summary=#{summary},tech_stack=#{techStack},project_period=#{projectPeriod},team_size=#{teamSize},project_type=#{projectType},business_domain=#{businessDomain},project_status=#{projectStatus},background=#{background},responsibilities=#{responsibilities},highlights=#{highlights},challenges=#{challenges},outcomes=#{outcomes},enabled=TRUE,updated_at=#{updatedAt} WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND project_id=#{projectId}</update>
+  <update id="deleteProject">UPDATE project_deep_dive_project SET enabled=FALSE,updated_at=#{updatedAt} WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND project_id=#{projectId}</update>
+  <insert id="insertMaterial">INSERT INTO project_deep_dive_material(material_id,project_id,file_name,content_type,storage_path,size_bytes,sha256,created_at) VALUES(#{materialId},#{projectId},#{fileName},#{contentType},#{storagePath},#{sizeBytes},#{sha256},#{createdAt})</insert>
+  <delete id="deleteMaterial">DELETE FROM project_deep_dive_material m USING project_deep_dive_project p WHERE m.project_id=p.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId} AND m.material_id=#{materialId}</delete>
+  <select id="findMaterial" resultType="map">SELECT <include refid="materialColumns"/> FROM project_deep_dive_material m WHERE m.material_id=#{materialId} AND EXISTS(SELECT 1 FROM project_deep_dive_project p WHERE p.project_id=m.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId})</select>
+  <select id="findMaterialBySha256" resultType="map">SELECT <include refid="materialColumns"/> FROM project_deep_dive_material m WHERE m.project_id=#{projectId} AND m.sha256=#{sha256} AND EXISTS(SELECT 1 FROM project_deep_dive_project p WHERE p.project_id=m.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId})</select>
+  <select id="listMaterials" resultType="map">SELECT <include refid="materialColumns"/> FROM project_deep_dive_material m WHERE m.project_id=#{projectId} AND EXISTS(SELECT 1 FROM project_deep_dive_project p WHERE p.project_id=m.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId}) ORDER BY created_at DESC</select>
+  <delete id="deleteQuestions">DELETE FROM project_deep_dive_question q USING project_deep_dive_project p WHERE q.project_id=p.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId} AND q.project_id=#{projectId} AND COALESCE(q.source,'generated') &lt;&gt; 'manual'</delete>
+  <insert id="insertQuestion">INSERT INTO project_deep_dive_question(question_id,project_id,question,answer,category,difficulty,source,created_at) VALUES(#{questionId},#{projectId},#{question},#{answer},#{category},#{difficulty},#{source},#{createdAt})</insert>
+  <select id="findQuestion" resultType="map">SELECT <include refid="questionColumns"/> FROM project_deep_dive_question q WHERE q.question_id=#{questionId} AND EXISTS(SELECT 1 FROM project_deep_dive_project p WHERE p.project_id=q.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId})</select>
+  <update id="updateQuestion">UPDATE project_deep_dive_question q SET question=#{question},answer=#{answer},category=#{category},difficulty=#{difficulty},source=#{source} FROM project_deep_dive_project p WHERE q.project_id=p.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId} AND q.question_id=#{questionId}</update>
+  <delete id="deleteQuestion">DELETE FROM project_deep_dive_question q USING project_deep_dive_project p WHERE q.project_id=p.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId} AND q.question_id=#{questionId}</delete>
+  <select id="listQuestions" resultType="map">SELECT <include refid="questionColumns"/> FROM project_deep_dive_question q WHERE q.project_id=#{projectId} AND EXISTS(SELECT 1 FROM project_deep_dive_project p WHERE p.project_id=q.project_id AND p.tenant_id=#{tenantId} AND p.user_id=#{userId}) ORDER BY created_at DESC</select>
+  <update id="touchProject">UPDATE project_deep_dive_project SET updated_at=#{updatedAt} WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND project_id=#{projectId}</update>
 </mapper>

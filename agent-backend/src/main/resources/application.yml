@@ -9,25 +9,34 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME}
     password: ${SPRING_DATASOURCE_PASSWORD}
     driver-class-name: ${SPRING_DATASOURCE_DRIVER:org.postgresql.Driver}
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:10}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:2}
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT:10000}
+      validation-timeout: ${SPRING_DATASOURCE_HIKARI_VALIDATION_TIMEOUT:3000}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:300000}
+      max-lifetime: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:600000}
+      keepalive-time: ${SPRING_DATASOURCE_HIKARI_KEEPALIVE_TIME:120000}
   sql:
     init:
       mode: never
   flyway:
     enabled: ${SPRING_FLYWAY_ENABLED:true}
     locations: classpath:db/migration
-    baseline-on-migrate: true
+    baseline-on-migrate: false
     encoding: UTF-8
     placeholder-replacement: false
-  redis:
-    host: ${SPRING_REDIS_HOST}
-    port: ${SPRING_REDIS_PORT:6379}
-    password: ${SPRING_REDIS_PASSWORD:}
-    database: ${SPRING_REDIS_DATABASE:0}
-    timeout: ${SPRING_REDIS_TIMEOUT:3s}
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST}
+      port: ${SPRING_REDIS_PORT:6379}
+      password: ${SPRING_REDIS_PASSWORD:}
+      database: ${SPRING_REDIS_DATABASE:0}
+      timeout: ${SPRING_REDIS_TIMEOUT:3s}
   servlet:
     multipart:
-      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:10MB}
-      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:12MB}
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:1GB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:1025MB}
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
@@ -38,7 +47,9 @@ mybatis-plus:
     banner: false
 
 knife4j:
-  enable: ${KNIFE4J_ENABLE:true}
+  # Knife4j 4.5 enhancement customizer is incompatible with SpringDoc 2.8;
+  # keep the doc.html UI while SpringDoc provides the OpenAPI document.
+  enable: ${KNIFE4J_ENABLE:false}
   setting:
     enableOpenApi: true
     enableOperationSecurity: true
@@ -62,15 +73,14 @@ management:
         enabled: true
 
 agent:
-  mvp:
-    max-loop-steps: ${AGENT_MVP_MAX_LOOP_STEPS:3}
   services:
     intent-url: ${AGENT_INTENT_URL}
     memory-url: ${AGENT_MEMORY_URL}
     tool-url: ${AGENT_TOOL_URL}
     eval-url: ${AGENT_EVAL_URL}
     runtime-url: ${AGENT_RUNTIME_URL:http://127.0.0.1:8010}
-    sandbox-url: ${AGENT_SANDBOX_URL:http://127.0.0.1:8000}
+    sandbox-url: ${AGENT_SANDBOX_URL:http://127.0.0.1:8061}
+    internal-service-token: ${AGENT_INTERNAL_SERVICE_TOKEN:}
     connect-timeout: ${AGENT_SERVICE_CONNECT_TIMEOUT:2s}
     read-timeout: ${AGENT_SERVICE_READ_TIMEOUT:75s}
     stream-connect-timeout: ${AGENT_SERVICE_STREAM_CONNECT_TIMEOUT:10s}
@@ -82,8 +92,16 @@ agent:
 
 job-buddy:
   default-user-id: ${JOB_BUDDY_DEFAULT_USER_ID:default-user}
+  chat:
+    redis-failure-cooldown: ${CHAT_REDIS_FAILURE_COOLDOWN:30s}
   max-jobs-per-recommend: ${JOB_BUDDY_MAX_JOBS_PER_RECOMMEND:15}
-  boss-live-enabled: ${JOB_BUDDY_BOSS_LIVE_ENABLED:true}
+  recommend-overfetch-factor: ${JOB_BUDDY_RECOMMEND_OVERFETCH_FACTOR:5}
+  max-jobs-per-scoring: ${JOB_BUDDY_MAX_JOBS_PER_SCORING:80}
+  minimum-recommended-match-score: ${JOB_BUDDY_MINIMUM_RECOMMENDED_MATCH_SCORE:60}
+  boss-search-max-pages: ${BOSS_SEARCH_MAX_PAGES:2}
+  boss-search-max-page-depth: ${BOSS_SEARCH_MAX_PAGE_DEPTH:5}
+  boss-search-cache-ttl-minutes: ${BOSS_SEARCH_CACHE_TTL_MINUTES:30}
+  boss-search-cooldown-minutes-on-risk: ${BOSS_SEARCH_COOLDOWN_MINUTES_ON_RISK:30}
   boss-web-base-url: ${JOB_BUDDY_BOSS_WEB_BASE_URL:https://www.zhipin.com}
   intent-safety-gate-enabled: ${JOB_BUDDY_INTENT_SAFETY_GATE_ENABLED:false}
   runtime-max-turns: ${JOB_BUDDY_RUNTIME_MAX_TURNS:4}
@@ -91,11 +109,13 @@ job-buddy:
   runtime-max-failures: ${JOB_BUDDY_RUNTIME_MAX_FAILURES:2}
   max-resume-bytes: ${JOB_BUDDY_MAX_RESUME_BYTES:5242880}
   resume-runtime-workspace: ${JOB_BUDDY_RESUME_RUNTIME_WORKSPACE:}
+  resume-writer-version-limit: ${JOB_BUDDY_RESUME_WRITER_VERSION_LIMIT:30}
   auth:
     enabled: ${JOB_BUDDY_AUTH_ENABLED:true}
     internal-api-token: ${JOB_BUDDY_INTERNAL_API_TOKEN:}
     asset-url-signing-key: ${JOB_BUDDY_ASSET_URL_SIGNING_KEY:}
     asset-url-ttl-seconds: ${JOB_BUDDY_ASSET_URL_TTL_SECONDS:3600}
+    boss-credential-encryption-key: ${JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY:}
   minio:
     endpoint: ${JOB_BUDDY_MINIO_ENDPOINT}
     access-key: ${JOB_BUDDY_MINIO_ACCESS_KEY}
@@ -103,7 +123,10 @@ job-buddy:
     bucket: ${JOB_BUDDY_MINIO_BUCKET}
     region: ${JOB_BUDDY_MINIO_REGION:}
     secure: ${JOB_BUDDY_MINIO_SECURE:true}
+    signature-version: ${JOB_BUDDY_MINIO_SIGNATURE_VERSION:v4}
 
 logging:
+  level:
+    org.apache.catalina.connector.CoyoteAdapter: WARN
   pattern:
     console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr([req=%X{request_id:-},sess=%X{session_id:-},op=%X{operator_id:-},run=%X{run_id:-}]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"

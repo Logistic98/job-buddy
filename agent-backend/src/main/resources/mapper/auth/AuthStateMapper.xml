@@ -2,49 +2,85 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.jobbuddy.backend.modules.auth.mapper.AuthStateMapper">
   <select id="findByProvider" resultType="map">
-    SELECT
-      provider,
-      status,
-      credential_json AS "credentialJson",
-      metadata_json AS "metadataJson",
-      created_at AS "createdAt",
-      updated_at AS "updatedAt"
+    SELECT tenant_id AS "tenantId", user_id AS "userId", provider, status,
+           credential_json AS "credentialJson", metadata_json AS "metadataJson",
+           created_at AS "createdAt", updated_at AS "updatedAt"
     FROM auth_state
-    WHERE provider = #{provider}
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId} AND provider = #{provider}
   </select>
 
   <select id="countByProvider" resultType="int">
-    SELECT COUNT(*)
-    FROM auth_state
-    WHERE provider = #{provider}
+    SELECT COUNT(*) FROM auth_state
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId} AND provider = #{provider}
   </select>
 
   <insert id="insertState">
-    INSERT INTO auth_state(
-      provider,
-      status,
-      credential_json,
-      metadata_json,
-      created_at,
-      updated_at
-    )
-    VALUES (
-      #{state.provider},
-      #{state.status},
-      #{state.credentialJson},
-      #{state.metadataJson},
-      #{state.createdAt},
-      #{state.updatedAt}
-    )
+    INSERT INTO auth_state(tenant_id, user_id, provider, status, credential_json, metadata_json, created_at, updated_at)
+    VALUES(#{state.tenantId}, #{state.userId}, #{state.provider}, #{state.status}, #{state.credentialJson},
+           #{state.metadataJson}, #{state.createdAt}, #{state.updatedAt})
   </insert>
 
   <update id="updateState">
     UPDATE auth_state
-    SET
-      status = #{state.status},
-      credential_json = #{state.credentialJson},
-      metadata_json = #{state.metadataJson},
-      updated_at = #{state.updatedAt}
-    WHERE provider = #{state.provider}
+    SET status = #{state.status}, credential_json = #{state.credentialJson},
+        metadata_json = #{state.metadataJson}, updated_at = #{state.updatedAt}
+    WHERE tenant_id = #{state.tenantId} AND user_id = #{state.userId} AND provider = #{state.provider}
   </update>
+
+  <insert id="upsertQrSession">
+    INSERT INTO boss_qr_login_session(
+      qr_session_id, tenant_id, user_id, chat_session_id, expires_at, created_at, updated_at
+    ) VALUES (
+      #{state.qrSessionId}, #{state.tenantId}, #{state.userId}, #{state.chatSessionId},
+      #{state.expiresAt}, #{state.createdAt}, #{state.updatedAt}
+    )
+    ON CONFLICT (qr_session_id) DO UPDATE SET
+      tenant_id = EXCLUDED.tenant_id,
+      user_id = EXCLUDED.user_id,
+      chat_session_id = EXCLUDED.chat_session_id,
+      expires_at = EXCLUDED.expires_at,
+      updated_at = EXCLUDED.updated_at
+  </insert>
+
+  <select id="findQrSession" resultType="map">
+    SELECT qr_session_id AS "qrSessionId", tenant_id AS "tenantId", user_id AS "userId",
+           chat_session_id AS "chatSessionId", expires_at AS "expiresAt",
+           created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM boss_qr_login_session
+    WHERE qr_session_id = #{qrSessionId}
+  </select>
+
+  <select id="findActiveQrSession" resultType="map">
+    SELECT qr_session_id AS "qrSessionId", tenant_id AS "tenantId", user_id AS "userId",
+           chat_session_id AS "chatSessionId", expires_at AS "expiresAt",
+           created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM boss_qr_login_session
+    WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
+      AND expires_at &gt; #{now}
+    ORDER BY created_at DESC
+    LIMIT 1
+  </select>
+
+  <select id="findQrSessionByChat" resultType="map">
+    SELECT qr_session_id AS "qrSessionId", tenant_id AS "tenantId", user_id AS "userId",
+           chat_session_id AS "chatSessionId", expires_at AS "expiresAt",
+           created_at AS "createdAt", updated_at AS "updatedAt"
+    FROM boss_qr_login_session
+    WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
+      AND chat_session_id = #{chatSessionId}
+      AND expires_at &gt; #{now}
+    ORDER BY created_at DESC
+    LIMIT 1
+  </select>
+
+  <delete id="deleteQrSession">
+    DELETE FROM boss_qr_login_session
+    WHERE qr_session_id = #{qrSessionId} AND tenant_id = #{tenantId} AND user_id = #{userId}
+  </delete>
+
+  <delete id="deleteExpiredQrSessions">
+    DELETE FROM boss_qr_login_session WHERE expires_at &lt;= #{now}
+  </delete>
 </mapper>
