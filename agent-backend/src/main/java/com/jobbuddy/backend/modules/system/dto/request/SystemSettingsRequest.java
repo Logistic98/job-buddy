@@ -1,20 +1,11 @@
 package com.jobbuddy.backend.modules.system.dto.request;
 
-import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
+import com.jobbuddy.backend.modules.system.dto.response.SystemSettingsResponse;
 
-import java.util.Map;
-
-@Data
-public class SystemSettingsRequest extends MapBackedDto {
-    public SystemSettingsRequest() {
-    }
-
-    public SystemSettingsRequest(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static SystemSettingsRequest from(Map<String, Object> fields) {
-        return new SystemSettingsRequest(fields);
-    }
+/**
+ * 系统设置更新请求。
+ *
+ * <p>与设置查询响应共享字段结构，独立请求类型避免 Controller 直接暴露响应模型语义。
+ */
+public class SystemSettingsRequest extends SystemSettingsResponse {
 }
