@@ -1,20 +1,16 @@
 package com.jobbuddy.backend.modules.journey.dto.request;
 
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class JobTargetRequest extends MapBackedDto {
-    public JobTargetRequest() {
-    }
-
-    public JobTargetRequest(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static JobTargetRequest from(Map<String, Object> fields) {
-        return new JobTargetRequest(fields);
-    }
+public class JobTargetRequest {
+  private String targetId;
+  private String companyNature;
+  private String companyScale;
+  private String location;
+  private String salaryRange;
+  private String domains;
+  private String positions;
+  private String preferredCompanies;
+  private String notes;
 }

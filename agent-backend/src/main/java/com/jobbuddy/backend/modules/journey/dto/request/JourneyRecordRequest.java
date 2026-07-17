@@ -1,20 +1,28 @@
 package com.jobbuddy.backend.modules.journey.dto.request;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class JourneyRecordRequest extends MapBackedDto {
-    public JourneyRecordRequest() {
-    }
-
-    public JourneyRecordRequest(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static JourneyRecordRequest from(Map<String, Object> fields) {
-        return new JourneyRecordRequest(fields);
-    }
+public class JourneyRecordRequest {
+  private String company;
+  private String city;
+  private String companyNature;
+  private String companyScale;
+  private String positionName;
+  private String salaryRange;
+  private String favoriteKey;
+  private String businessDirection;
+  private String interviewRound;
+  private String interviewTime;
+  private String interviewContent;
+  private String interviewFormat;
+  private String result;
+  private String reflection;
+  private String jobDescription;
+  private String interviewProcess;
+  private String nextAction;
+  private String status;
+  private String priority;
+  private JsonNode tags;
 }

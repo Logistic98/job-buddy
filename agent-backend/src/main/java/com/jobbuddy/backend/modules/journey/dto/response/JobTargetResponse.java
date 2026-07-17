@@ -1,20 +1,19 @@
 package com.jobbuddy.backend.modules.journey.dto.response;
 
+import java.time.Instant;
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class JobTargetResponse extends MapBackedDto {
-    public JobTargetResponse() {
-    }
-
-    public JobTargetResponse(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static JobTargetResponse from(Map<String, Object> fields) {
-        return new JobTargetResponse(fields);
-    }
+public class JobTargetResponse {
+  private String targetId;
+  private String userId;
+  private String companyNature;
+  private String companyScale;
+  private String location;
+  private String salaryRange;
+  private String domains;
+  private String positions;
+  private String preferredCompanies;
+  private String notes;
+  private Instant updatedAt;
 }

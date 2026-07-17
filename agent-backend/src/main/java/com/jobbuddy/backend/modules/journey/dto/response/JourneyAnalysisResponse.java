@@ -1,20 +1,38 @@
 package com.jobbuddy.backend.modules.journey.dto.response;
 
+import java.util.List;
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class JourneyAnalysisResponse extends MapBackedDto {
-    public JourneyAnalysisResponse() {
-    }
+public class JourneyAnalysisResponse {
+  private String summary;
+  private Metrics metrics;
+  private List<ScoreGroup> scoreGroups;
+  private List<String> strengths;
+  private List<String> risks;
+  private List<String> nextActions;
+  private List<String> preparationPlan;
+  private String followUpMessage;
+  private String generatedAt;
 
-    public JourneyAnalysisResponse(Map<String, Object> fields) {
-        super(fields);
-    }
+  @Data
+  public static class Metrics {
+    private Integer total;
+    private Integer active;
+    private Integer passed;
+    private Integer failed;
+    private Integer pending;
+    private Integer offer;
+    private Integer score;
+    private String topRound;
+    private String topDomain;
+  }
 
-    public static JourneyAnalysisResponse from(Map<String, Object> fields) {
-        return new JourneyAnalysisResponse(fields);
-    }
+  @Data
+  public static class ScoreGroup {
+    private String key;
+    private String label;
+    private Integer score;
+    private String description;
+  }
 }

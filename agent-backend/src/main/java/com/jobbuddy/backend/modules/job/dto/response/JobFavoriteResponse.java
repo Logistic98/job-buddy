@@ -1,20 +1,17 @@
 package com.jobbuddy.backend.modules.job.dto.response;
 
-import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
+import com.fasterxml.jackson.annotation.JsonValue;
+import com.fasterxml.jackson.databind.JsonNode;
 
-import java.util.Map;
+public class JobFavoriteResponse {
+  private final JsonNode value;
 
-@Data
-public class JobFavoriteResponse extends MapBackedDto {
-    public JobFavoriteResponse() {
-    }
+  public JobFavoriteResponse(JsonNode value) {
+    this.value = value;
+  }
 
-    public JobFavoriteResponse(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static JobFavoriteResponse from(Map<String, Object> fields) {
-        return new JobFavoriteResponse(fields);
-    }
+  @JsonValue
+  public JsonNode value() {
+    return value;
+  }
 }

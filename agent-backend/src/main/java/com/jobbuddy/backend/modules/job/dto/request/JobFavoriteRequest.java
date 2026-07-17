@@ -1,44 +1,41 @@
 package com.jobbuddy.backend.modules.job.dto.request;
 
-import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.databind.JsonNode;
 
-import java.util.Map;
+public class JobFavoriteRequest {
+  private final JsonNode snapshot;
 
-@Data
-public class JobFavoriteRequest extends MapBackedDto {
-    public JobFavoriteRequest() {
+  @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+  public JobFavoriteRequest(JsonNode snapshot) {
+    this.snapshot = snapshot;
+  }
+
+  public JsonNode snapshot() {
+    return snapshot == null ? null : snapshot.deepCopy();
+  }
+
+  public String jobKey() {
+    return firstText("jobKey", "favoriteKey", "securityId", "id", "jobId", "encryptJobId");
+  }
+
+  public String resumeId() {
+    return text("resumeId");
+  }
+
+  private String firstText(String... names) {
+    for (String name : names) {
+      String value = text(name);
+      if (value != null) return value;
     }
+    return null;
+  }
 
-    public JobFavoriteRequest(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static JobFavoriteRequest from(Map<String, Object> fields) {
-        return new JobFavoriteRequest(fields);
-    }
-
-    public String jobKey() {
-        return stringValue(firstPresent("jobKey", "favoriteKey", "securityId", "id", "jobId", "encryptJobId"));
-    }
-
-    public String resumeId() {
-        return stringValue(get("resumeId"));
-    }
-
-    private Object firstPresent(String... keys) {
-        for (String key : keys) {
-            Object value = get(key);
-            if (value != null && !String.valueOf(value).trim().isEmpty()) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private String stringValue(Object value) {
-        if (value == null) return null;
-        String text = String.valueOf(value).trim();
-        return text.isEmpty() ? null : text;
-    }
+  private String text(String name) {
+    if (snapshot == null) return null;
+    JsonNode value = snapshot.get(name);
+    if (value == null || value.isNull()) return null;
+    String text = value.asText().trim();
+    return text.isEmpty() ? null : text;
+  }
 }
