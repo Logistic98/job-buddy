@@ -1,20 +1,27 @@
 package com.jobbuddy.backend.modules.interview.dto.request;
 
+import java.util.List;
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class InterviewExamRequest extends MapBackedDto {
-    public InterviewExamRequest() {
-    }
+public class InterviewExamRequest {
+  private List<String> questionIds;
+  private List<Rule> rules;
+  private String bankType;
+  private String category;
+  private String difficulty;
+  private String questionType;
+  private Integer count;
+  private String title;
+  private Integer durationMinutes;
+  private Boolean showAnswer;
 
-    public InterviewExamRequest(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static InterviewExamRequest from(Map<String, Object> fields) {
-        return new InterviewExamRequest(fields);
-    }
+  @Data
+  public static class Rule {
+    private Integer count;
+    private String bankType;
+    private String category;
+    private String difficulty;
+    private String questionType;
+  }
 }
