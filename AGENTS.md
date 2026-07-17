@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-`job-buddy` 当前是一个面向求职场景的本地 Agent 工作台，核心形态为"Vue 前端 + Spring Boot 业务后端 + Python Agent Runtime + agent-tool 工具服务 + 评估/记忆/沙箱辅助服务"。项目主线聚焦登录与同步 Boss 在线简历、简历管理、岗位收藏与详情懒加载、岗位/简历分析、对话式问答、求职旅程、面试题库、项目深挖、系统设置与记忆管理。Agent 核心能力逐步下沉到 agent-runtime，Java 后端主要负责业务 API、登录态、文件与数据管理，以及对各 Python 服务的代理编排；Boss 直聘浏览器能力作为 agent-tool 工具注入。
+`job-buddy` 是面向求职场景的本地 Agent 工作台，采用 Vue 前端、Spring Boot 业务后端、Python Agent Runtime、agent-tool 工具服务，以及意图识别、评估、记忆和沙箱服务组成的多服务架构。系统支持 Boss 在线简历同步、简历管理、岗位收藏与详情加载、岗位和简历分析、对话式问答、求职旅程、面试题库、项目深挖、系统设置与记忆管理。Agent 执行、规划、工具治理和上下文能力由 agent-runtime 承载；Java 后端负责业务 API、认证、文件与数据管理及下游服务编排；Boss 直聘浏览器能力由 agent-tool 提供。
 
 核心原则：
 
@@ -37,18 +37,18 @@ job-buddy/
 
 ## 开发文档优先规则
 
-后续关键改动必须先阅读并遵循 `agent-doc/开发文档/` 下的相关方案文档；如果缺少对应文档，或当前实现目标与既有文档不一致，应先补充或更新开发文档，再进入代码实现。关键改动包括但不限于架构边界、核心链路、意图识别、能力路由、Planner、工具路由、Prompt、Workflow、Profile、Java 后端与 Runtime 的接口契约、Trace、Checkpoint、Memory、Eval、Harness、SSE 主流程和登录态处理。
+关键改动必须先阅读并遵循 `agent-doc/` 对应主题目录下的架构或能力文档；如果缺少对应文档，或实现目标与既有文档不一致，应先补充或更新语义化命名的主题文档，再进入代码实现。禁止使用 `README.md` 作为主题文档名。关键改动包括但不限于架构边界、核心链路、意图识别、能力路由、Planner、工具路由、Prompt、Workflow、Profile、Java 后端与 Runtime 的接口契约、Trace、Checkpoint、Memory、Eval、Harness、SSE 主流程和登录态处理。
 
-开发文档必须说明“为什么做、方案是什么、具体怎么做、涉及哪些模块和接口、需要注意什么风险、如何验证、后续如何演进”。当前 Agent 核心逻辑迁移和 Runtime 职责边界的基准方案为 [`agent-doc/开发文档/Agent核心逻辑迁移与Runtime职责边界方案.md`](agent-doc/开发文档/Agent核心逻辑迁移与Runtime职责边界方案.md)。后续涉及 Agent 架构、Prompt 迁移、Java 后端瘦身或 Runtime 代理执行的任务，必须先阅读该文档。
+开发文档必须说明能力目标、正式方案、模块与接口、风险边界和验证方法，不得记录迭代历史、过渡方案或路线图。系统架构、核心链路和 Runtime 职责边界的基准文档为 [`agent-doc/架构设计/系统架构与核心链路.md`](agent-doc/架构设计/系统架构与核心链路.md)。涉及 Agent 架构、Prompt、Java Backend 与 Runtime 职责边界的任务必须先阅读该文档。
 
 ## 技术栈与运行约束
 
 ### Java 后端模块（agent-backend）
 
 - agent-backend 采用 Java + Spring Boot，定位为业务后端、BFF/API 网关和 Agent Runtime 代理层，不再承载 Agent 核心调度逻辑。
-- 依赖通过 Maven 管理；当前仓库未提供 `mvnw` Wrapper，使用全局 `mvn` 执行构建与测试。新增依赖必须锁定版本或由 BOM 统一管理。
+- 依赖通过 Maven 管理；仓库未提供 `mvnw` Wrapper，使用全局 `mvn` 执行构建与测试。新增依赖必须锁定版本或由 BOM 统一管理。
 - Controller 层负责参数校验和接口协议，Service 层负责业务编排，底层异常必须转换为统一响应结构。
-- Java 端应保留用户、Boss 登录态、简历、岗位收藏、投递旅程、面试题库、文件、数据库等业务能力；意图识别、Planner、Agent Loop、工具路由、Prompt 编排、上下文装配等 Agent 核心逻辑应迁移到 agent-runtime，通过代理接口执行。
+- Java 端应保留用户、Boss 登录态、简历、岗位收藏、投递旅程、面试题库、文件、数据库等业务能力；执行期权威任务理解、Planner、Agent Loop、工具路由、Prompt 编排、上下文装配等 Agent 核心逻辑应位于 agent-runtime，通过代理接口执行。agent-intent 保留为 Backend 调用的轻量前置分类与高风险复核服务，其结果只作路由提示和安全辅助，不能替代 Runtime 的执行期理解或授予工具权限。
 - 配置通过 `application-*.yml`、环境变量、Profile 或 Secret 注入，禁止在代码或默认配置中写入真实密钥、生产地址。
 - 对外服务必须提供 `/health` 或 Spring Actuator 健康检查，并维护 Dockerfile。
 
@@ -58,7 +58,7 @@ job-buddy/
 - 依赖使用 `uv` 管理，依赖必须带版本号，禁止使用不带版本的隐式依赖。
 - Web 框架优先使用 FastAPI + Uvicorn，数据建模使用 Pydantic，日志使用 Loguru。
 - agent-runtime 使用 LangGraph 组织 Agent 状态图，OpenAI 兼容协议对接模型服务，定位为通用 Agent 运行时和 Agent Core 承载层。
-- agent-runtime 应承载 Agent Loop、Planner、Task Understanding、Intent Routing、Tool Registry、Tool Router、Tool Permission、Prompt Runtime、Profile、Workflow、Memory、Context、Trace、Checkpoint 和 LLM 适配等通用能力；业务定制通过 tools / profiles / workflows / prompts 注入，不应在 runtime 核心代码中硬编码 Boss 直聘、简历、岗位收藏等业务概念。
+- agent-runtime 应承载 Agent Loop、Planner、Task Understanding、Intent Routing、Tool Registry、Tool Router、Tool Permission、Prompt Runtime、Profile、Workflow 注册与路由、Memory、Context、Trace、Checkpoint 和 LLM 适配等通用能力；业务定制通过 tools / profiles / workflows / prompts 注入，不应在 runtime 核心代码中硬编码 Boss 直聘、简历、岗位收藏等业务概念。Workflow 中声明的 Backend 业务动作或前端事件由对应服务执行，Runtime 只负责加载校验、能力匹配、执行期治理和元数据透传，不得越过服务边界直接执行业务事务。
 - agent-intent 负责意图识别与路由，输出结构至少包含 `domain`、`intent`、`confidence`、`risk`、`needs_clarification`、`next_action`。
 - agent-sandbox 通过 `@anthropic-ai/sandbox-runtime` 的 `srt` CLI 执行不可信代码，禁止在沙箱外执行用户提供的命令。
 
@@ -74,7 +74,8 @@ job-buddy/
 - MySQL / Redis / Elasticsearch / Kafka / MinIO / Milvus 等中间件按模块按需启用。
 - 中间件连接信息、密钥、模型 API Key 等敏感配置必须通过环境变量或挂载的配置文件注入。
 - 任何对生产数据库的结构变更必须通过迁移脚本管理，不允许直接手工改库。
-- 后端 Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。已合并或已发布的 `V*.sql` 迁移脚本视为不可变资产，只能追加更高版本的新脚本，禁止修改、删除、重命名旧脚本，禁止复用版本号；否则会触发 Flyway checksum/hash 校验失败。文件命名遵循 `V<major>_<minor>_<patch>__<English_description>.sql`，描述使用英文单词、数字和下划线。
+- 后端 Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。V1.0.0 至 V1.0.7 构成面向空数据库的规范基线，属于不可变资产；数据库变更只能追加更高版本的新脚本，禁止修改、删除、重命名或复用版本号，也禁止 repair、baseline 或手工覆盖绕过版本校验。文件命名遵循 `V<major>_<minor>_<patch>__<English_description>.sql`，描述使用英文单词、数字和下划线。
+- Flyway 只允许初始化系统基线数据，以及由指定迁移维护的默认 `admin`、`user` 账号与对应角色关联。项目经历、简历、岗位收藏、求职进展、聊天记录、认证状态等用户私有业务数据必须通过受鉴权 API 写入，禁止进入 Flyway 和 Git；除受控默认身份种子迁移外，新迁移对私有业务表执行 `INSERT`、`UPDATE` 或 `DELETE` 均会被门禁拒绝。
 
 ## 常用命令
 
@@ -98,13 +99,13 @@ uv run python server.py
 
 ### Boss 按需工具
 
-Boss 具体实现位于 `agent-tool` 的 `boss_browser` 工具中，`agent-runtime` 只保留工具选择、权限和代理调用。底层取数复用 jackwener/boss-cli（PyPI 包 `kabi-boss-cli`）的本地 Cookie 提取、HTTP API Client、请求抖动、退避和上游异常归类能力。推荐先复用本机常用浏览器的 Boss 登录态；二维码扫码登录作为兜底能力，dispatch 后若缺少必要 Web Cookie，会临时拉起一次性 headless Chromium 补齐 Cookie 后立即关闭。该步骤由 `BOSS_CLI_HEADLESS_COOKIE`（默认开启）控制，详见 [`agent-doc/开发文档/Boss直聘取数引擎迁移至boss-cli方案.md`](agent-doc/开发文档/Boss直聘取数引擎迁移至boss-cli方案.md)。
+Boss 具体实现位于 `agent-tool` 的 `boss_browser` 工具中，`agent-runtime` 只保留工具选择、权限和代理调用。底层取数复用 jackwener/boss-cli（PyPI 包 `kabi-boss-cli`）的本地 Cookie 提取、HTTP API Client、请求抖动、退避和上游异常归类能力。推荐先复用本机常用浏览器的 Boss 登录态；二维码扫码登录作为兜底能力，dispatch 后若缺少必要 Web Cookie，会临时拉起一次性 headless Chromium 补齐 Cookie 后立即关闭。该步骤由 `BOSS_CLI_HEADLESS_COOKIE`（默认开启）控制，详见 [`agent-doc/业务能力/Boss直聘集成与岗位检索.md`](agent-doc/业务能力/Boss直聘集成与岗位检索.md)。
 
-推荐登录方式是先在本机常用浏览器中正常登录 Boss 直聘网页端，然后让 agent-tool 通过 boss-cli 导入 Cookie。共享凭证目录统一使用仓库根目录 `.run/boss-cli-home`：
+默认推荐二维码登录。登录成功后的 Cookie 由后端持久化到 PostgreSQL `auth_state`，每次调用时通过请求载荷注入 agent-tool 内存；禁止创建本地凭证目录或 `credential.json`。浏览器 Cookie 导入默认关闭，只有明确接受钥匙串授权时才能显式开启。
 
 ```bash
 cd agent-tool
-BOSS_CLI_HOME="$(cd .. && pwd)/.run/boss-cli-home" ./scripts/start.sh
+./scripts/start.sh
 ```
 
 工具服务入口为 `POST /v1/tools/boss_browser/execute`；Runtime 代理入口为 `POST /v1/runtime/tools/boss_browser/invoke`。该工具负责登录态判断、岗位搜索、详情懒加载和在线简历读取。`status` 默认只读本地凭证，不主动请求 Boss；真实访问仍需要人工低频验证，命中验证码、安全验证、访问异常、限速或账号异常时立即停手。
@@ -131,16 +132,16 @@ npm run dev
 推荐验证流程：
 
 ```bash
-# 后端，确保使用项目根目录的共享运行环境
+# 后端，Boss 凭证从 PostgreSQL auth_state 注入 Tool 内存
 cd agent-backend
-BOSS_CLI_HOME="$(cd .. && pwd)/.run/boss-cli-home" mvn spring-boot:run
+mvn spring-boot:run
 
 # 前端
 cd agent-frontend
 npm run dev
 ```
 
-浏览器验证至少覆盖：页面能打开、登录态判断符合预期、弹窗只在状态确认后出现、关键按钮可点击、SSE/加载态会结束、错误提示可见且不循环、用户可见结果符合需求。对于 Boss 直聘相关功能，还必须确认后端读取的是仓库根目录 `.run/boss-cli-home`，不要因为从 `agent-backend` 目录启动而读到另一份 cookie。
+浏览器验证至少覆盖：页面能打开、登录态判断符合预期、弹窗只在状态确认后出现、关键按钮可点击、SSE/加载态会结束、错误提示可见且不循环、用户可见结果符合需求。对于 Boss 直聘相关功能，还必须确认 `auth_state` 可恢复登录态、Tool 仅在内存中使用凭证、仓库和用户目录没有生成凭证文件。
 
 交付说明必须写明浏览器验证的访问地址、执行的用户路径、观察到的结果，以及无法覆盖的原因。若没有完成浏览器验证，不允许声称“交互已走通”。
 
@@ -157,7 +158,7 @@ uv run python server.py
 uv run python -m pytest
 ```
 
-当前提供 `GET /health`、`POST /v1/eval/trace`（Trace 规则评分）、`POST /v1/eval/run`（用例批量评估）、`POST /v1/eval/capabilities`（能力评估）与 `POST /v1/eval/judge`（裁判评估）。修改核心链路节点、Trace 字段、工具事件、意图路由或 Agent 输出结构时，必须同步更新 `agent-eval/app/grader.py`、`agent-eval/cases/` 与 `agent-eval/tests/`。
+服务提供 `GET /health`、`POST /v1/eval/trace`（Trace 规则评分）、`POST /v1/eval/run`（用例批量评估）、`POST /v1/eval/capabilities`（能力评估）与 `POST /v1/eval/judge`（裁判评估）。修改核心链路节点、Trace 字段、工具事件、意图路由或 Agent 输出结构时，必须同步更新 `agent-eval/app/grader.py`、`agent-eval/cases/` 与 `agent-eval/tests/`。
 
 ### .agent-harness
 
@@ -193,7 +194,7 @@ uv run python -m pytest
 ## 总体开发规范
 
 1. 禁止硬编码：环境地址、账号、密钥、模型参数、数据库连接、对外域名等必须放入配置文件或环境变量。
-2. 多环境配置：至少区分 dev / prod，通过 `.env` 或挂载配置文件实现切换，不允许通过修改代码切换环境。
+2. 多环境配置：至少区分 dev / prod，通过 `.env` 或挂载配置文件实现切换，不允许通过修改代码切换环境。`.env` 和 `.env.example` 只允许位于仓库根目录，任何子目录均不得创建这两个文件。
 3. 依赖管理：新增依赖必须带版本号，Python 走 `uv` 与 `pyproject.toml`，Java 走 Maven 与 `pom.xml`，前端走 `package.json` 与 lock 文件。
 4. 命名语义化：变量、函数、模块命名必须能在不读注释的情况下让人理解意图，避免无意义缩写。
 5. 异常路径必做：禁止只实现 happy path，外部 HTTP、模型调用、检索调用必须设置超时、重试边界和错误处理。
@@ -264,7 +265,7 @@ uv run python -m pytest
 ## Java / Spring Boot 开发规范
 
 - 推荐目录按 `controller`、`service`、`domain`、`repository`、`config`、`common`、`client` 组织，避免 Controller 直接承载业务逻辑。
-- 请求和响应对象使用 DTO / VO 明确定义，禁止跨层传递无 schema 的 Map。存量 `Map<String, Object>` 逐步治理，新代码一律不允许新增跨层 Map（Controller、Service、Client 之间），也不允许新增 `MapBackedDto` 子类；Map 只允许出现在 Repository/Mapper 行数据和 JSON 编解码等边界内部。
+- 请求和响应对象使用 DTO / VO 明确定义，禁止在 Controller、Service、Client 等跨层接口新增无 schema 的 `Map<String, Object>` 或 `MapBackedDto`；Map 只允许出现在 Repository/Mapper 行数据和 JSON 编解码等边界内部。
 - 外部 HTTP、模型服务、检索服务、Runtime 服务调用必须设置超时、重试上限和熔断/降级边界。
 - 日志需包含 request_id、session_id、run_id、operator_id 等关键字段，禁止输出密钥和完整敏感请求体。
 - 单元测试覆盖 Service 层核心逻辑，接口测试覆盖 Controller 参数校验、统一响应和异常路径。
@@ -280,13 +281,13 @@ uv run python -m pytest
 
 ## Agent 开发理念
 
-本仓库的 Agent 工程实践遵循 `agent-doc/开发理念/` 下的总体方向，可总结为以下几条。
+本仓库的 Agent 工程实践遵循 [`agent-doc/工程规范/AI协作开发与质量验证规范.md`](agent-doc/工程规范/AI协作开发与质量验证规范.md) 的总体方向，可总结为以下几条。
 
 ### 文档即代码
 
 - 在开始编码之前，先把架构、模块设计、库表、接口等文档写清楚，作为 AI 生成代码的输入。
 - 文档随实现持续维护，禁止文档与代码长期不一致。
-- 关键设计决策记录在仓库内，作为未来 AI 与人共同的上下文。
+- 关键设计决策记录在仓库内，作为 AI 与人工协作的统一上下文。
 
 ### 规范驱动开发
 
@@ -314,7 +315,7 @@ uv run python -m pytest
 
 ## Agent 设计原则
 
-以下原则提炼自 `agent-doc/设计原则/`、`agent-doc/工具体系/`、`agent-doc/核心链路/`，在涉及 Agent 运行时、工具、检索、记忆、权限、观测等改动时必须遵守。完整论述参见对应文档。
+以下原则提炼自 [`系统架构与核心链路`](agent-doc/架构设计/系统架构与核心链路.md)、[`意图路由与工具安全`](agent-doc/运行时能力/意图路由与工具安全.md) 和 [`记忆管理与混合检索`](agent-doc/运行时能力/记忆管理与混合检索.md)，在涉及 Agent 运行时、工具、检索、记忆、权限、观测等改动时必须遵守。
 
 ### 运行时与 Agent Loop
 
@@ -408,11 +409,13 @@ uv run python -m pytest
 
 ## 测试、Harness 与评估联动
 
+提交前先执行 `./scripts/format-code.sh` 统一格式，或执行 `./scripts/format-code.sh --check` 进行只读检查。Java 使用 Maven Spotless，Python 使用 Ruff，Vue/JavaScript/CSS 使用 Prettier；空 `record`、空类和空接口必须保留多行类型体，不得压缩为单行声明。注释应解释职责、协议语义、边界条件和非直观设计，禁止逐行复述代码或批量生成无信息量的模板注释。
+
 提交前按修改范围执行最小必要验证：
 
-- Java / Spring Boot 模块：执行 `mvn test` / `mvn verify`（仓库未提供 mvnw Wrapper）。
-- Python 模块：`uv run python -m pytest`，必要时附带覆盖率检查。
-- Vue 前端：`npm run lint`、`npm test`、`npm run build`，关键页面需本地 `npm run dev` 联调。
+- Java / Spring Boot 模块：执行 `mvn test` / `mvn verify`（仓库未提供 mvnw Wrapper，Maven 生命周期会自动执行 Spotless 检查）。
+- Python 模块：执行 `uv run ruff check`、`uv run ruff format --check` 和 `uv run python -m pytest`，必要时附带覆盖率检查。
+- Vue 前端：执行 `npm run format:check`、`npm run lint`、`npm test`、`npm run build`，关键页面需本地 `npm run dev` 联调。
 - Flyway 迁移变更：必须运行 `./.agent-harness/scripts/check_flyway_migrations.py`；`verify.sh agent-backend --quick` 和 `gate.sh agent-backend --quick` 会自动执行该检查。
 - 接口变更：补充或更新 curl 示例、Mock 数据、接口文档。
 - 配置变更：在 dev 环境验证启动流程，确认健康检查通过。
