@@ -1,34 +1,57 @@
 package com.jobbuddy.backend.modules.auth.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.jobbuddy.backend.modules.auth.dto.internal.BossCliCancelResult;
+import com.jobbuddy.backend.modules.auth.dto.internal.BossCliQrResult;
+import com.jobbuddy.backend.modules.auth.dto.internal.BossCliStatusResult;
+import com.jobbuddy.backend.modules.auth.dto.internal.BossFavoriteListResult;
+import com.jobbuddy.backend.modules.auth.dto.response.BossLoginStatusResponse;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
-
 import java.util.List;
 import java.util.Map;
 
 public interface BossCliService {
-    Map<String, Object> status();
-    String readCredentialJson();
-    boolean hasLocalCredential();
-    /** 本地登录标记缺失时物化一份最小化的 logged_in 标记并返回其内容，用于扫码成功后可靠落库与重启回填。 */
-    String ensureLoginMarker();
-    boolean restoreCredentialIfMissing(String credentialJson);
-    boolean writeCredential(String credentialJson);
-    boolean isAuthenticated();
-    Map<String, Object> loginInstructions();
-    Map<String, Object> qrStart();
-    Map<String, Object> qrStatus(String sessionId);
-    Map<String, Object> qrCancel(String sessionId);
-    Map<String, Object> cancelLogin();
-    Map<String, Object> fetchOnlineProfile();
-    Map<String, Object> jobDetail(String securityId, String url);
-    List<Map<String, Object>> searchJobs(IntentResult intent);
-    List<Map<String, Object>> searchJobs(IntentResult intent, int targetCount);
-    List<Map<String, Object>> searchJobsFirstPage(IntentResult intent, JobBatchConsumer consumer);
-    List<Map<String, Object>> searchJobsPage(IntentResult intent, int page);
-    List<Map<String, Object>> searchJobsBatches(IntentResult intent, int targetCount, JobBatchConsumer consumer);
-    List<Map<String, Object>> enrichJobDetails(List<Map<String, Object>> jobs, int maxDetails);
+  BossCliStatusResult status();
 
-    interface JobBatchConsumer {
-        void accept(List<Map<String, Object>> accumulated, List<Map<String, Object>> latestBatch, String query, int page);
-    }
+  boolean isAuthenticated();
+
+  BossLoginStatusResponse loginInstructions();
+
+  BossCliQrResult qrStart();
+
+  BossCliQrResult qrStatus(String sessionId);
+
+  BossCliCancelResult qrCancel(String sessionId);
+
+  BossCliCancelResult cancelLogin();
+
+  // 画像、岗位详情和搜索结果来自 agent-tool/Boss，字段不稳定，属于明确外部 JSON 边界。
+  JsonNode fetchOnlineProfile();
+
+  JsonNode jobDetail(String securityId, String url);
+
+  BossFavoriteListResult favoriteJobs(int page);
+
+  BossFavoriteListResult favoriteJobs(int page, boolean forceRefresh);
+
+  List<Map<String, Object>> searchJobs(IntentResult intent);
+
+  List<Map<String, Object>> searchJobs(IntentResult intent, int targetCount);
+
+  List<Map<String, Object>> searchJobsFirstPage(IntentResult intent);
+
+  List<Map<String, Object>> searchJobsPage(IntentResult intent, int page);
+
+  List<Map<String, Object>> searchJobsBatches(
+      IntentResult intent, int targetCount, JobBatchConsumer consumer);
+
+  List<Map<String, Object>> enrichJobDetails(List<Map<String, Object>> jobs, int maxDetails);
+
+  interface JobBatchConsumer {
+    void accept(
+        List<Map<String, Object>> accumulated,
+        List<Map<String, Object>> latestBatch,
+        String query,
+        int page);
+  }
 }
