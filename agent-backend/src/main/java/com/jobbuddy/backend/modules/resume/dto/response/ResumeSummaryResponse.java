@@ -1,20 +1,18 @@
 package com.jobbuddy.backend.modules.resume.dto.response;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.time.Instant;
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class ResumeSummaryResponse extends MapBackedDto {
-    public ResumeSummaryResponse() {
-    }
-
-    public ResumeSummaryResponse(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static ResumeSummaryResponse from(Map<String, Object> fields) {
-        return new ResumeSummaryResponse(fields);
-    }
+public class ResumeSummaryResponse {
+  private String resumeId;
+  private String userId;
+  private String originalName;
+  private Long sizeBytes;
+  private String suffix;
+  private Instant uploadedAt;
+  private String parseStatus;
+  private JsonNode parsed;
+  private String parseError;
 }

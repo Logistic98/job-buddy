@@ -1,19 +1,19 @@
 package com.jobbuddy.backend.modules.resume.dto.request;
 
-import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.databind.JsonNode;
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+public class ResumeProfileRequest {
+  private final JsonNode payload;
 
-@Data
-public class ResumeProfileRequest extends MapBackedDto {
-    @SuppressWarnings("unchecked")
-    public Map<String, Object> parsedPayload() {
-        Object parsed = get("parsed");
-        if (parsed instanceof Map) {
-            return new LinkedHashMap<String, Object>((Map<String, Object>) parsed);
-        }
-        return toMap();
-    }
+  @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
+  public ResumeProfileRequest(JsonNode payload) {
+    this.payload = payload;
+  }
+
+  public JsonNode parsedPayload() {
+    if (payload == null || payload.isNull()) return null;
+    JsonNode parsed = payload.get("parsed");
+    return parsed != null && parsed.isObject() ? parsed.deepCopy() : payload.deepCopy();
+  }
 }
