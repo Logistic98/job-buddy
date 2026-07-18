@@ -1,4 +1,3 @@
-
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -55,8 +54,6 @@ class CapabilityCard(BaseModel):
     clarification_question: Optional[str] = None
     answer_template: Optional[str] = None
     planner_needed: bool = False
-    implementation_status: str = "implemented"  # implemented|partial|planned|unsupported
-    implementation_notes: Optional[str] = None
     required_tools: List[str] = Field(default_factory=list)
     allowed_tools: List[str] = Field(default_factory=list)
     evidence_requirements: List[str] = Field(default_factory=list)

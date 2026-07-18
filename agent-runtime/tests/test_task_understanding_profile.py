@@ -1,4 +1,3 @@
-
 import pytest
 
 from app.core.capability.registry import CapabilityRegistry
@@ -15,6 +14,7 @@ class FakeIntentLLM:
         self.last_kwargs = kwargs
         self.calls += 1
         import json
+
         return {"content": json.dumps(self.payload, ensure_ascii=False)}
 
 
@@ -93,23 +93,25 @@ async def test_task_understanding_without_llm_does_not_semantic_route_by_default
 
 @pytest.mark.asyncio
 async def test_task_understanding_uses_llm_result_before_semantic_fallback():
-    llm = FakeIntentLLM({
-        "resolved_query": "分析当前简历是否匹配 Agent 应用开发岗位",
-        "retrieval_query": "简历匹配分析",
-        "planner_query": "对当前简历和 Agent 应用开发岗位做匹配分析",
-        "context_dependency": "required",
-        "context_type": ["resume"],
-        "selected_capability_id": "resume.match",
-        "confidence": 0.91,
-        "secondary": [],
-        "slots": {"role": "Agent 应用开发"},
-        "missing_required": [],
-        "needs_clarification": False,
-        "clarification_question": None,
-        "risk_level": "low",
-        "answer": None,
-        "reason": "用户要求做简历与岗位方向匹配分析，不是岗位搜索",
-    })
+    llm = FakeIntentLLM(
+        {
+            "resolved_query": "分析当前简历是否匹配 Agent 应用开发岗位",
+            "retrieval_query": "简历匹配分析",
+            "planner_query": "对当前简历和 Agent 应用开发岗位做匹配分析",
+            "context_dependency": "required",
+            "context_type": ["resume"],
+            "selected_capability_id": "resume.match",
+            "confidence": 0.91,
+            "secondary": [],
+            "slots": {"role": "Agent 应用开发"},
+            "missing_required": [],
+            "needs_clarification": False,
+            "clarification_question": None,
+            "risk_level": "low",
+            "answer": None,
+            "reason": "用户要求做简历与岗位方向匹配分析，不是岗位搜索",
+        }
+    )
     service = TaskUnderstandingService(llm_client=llm, allow_semantic_fallback=True)
     request = AgentRunRequest(
         messages=[ChatMessage(role="user", content="分析当前简历是否匹配 Agent 应用开发岗位")],
@@ -158,24 +160,26 @@ async def test_understanding_prompt_truncates_long_recent_messages():
 
 
 @pytest.mark.asyncio
-async def test_task_understanding_routes_partial_interview_capability_to_runtime_planner():
-    llm = FakeIntentLLM({
-        "resolved_query": "围绕我的大模型应用项目生成面试深挖问题",
-        "retrieval_query": "面试准备",
-        "planner_query": "生成大模型应用项目面试问题",
-        "context_dependency": "required",
-        "context_type": ["resume"],
-        "selected_capability_id": "interview.prepare",
-        "confidence": 0.93,
-        "secondary": [],
-        "slots": {},
-        "missing_required": [],
-        "needs_clarification": False,
-        "clarification_question": None,
-        "risk_level": "low",
-        "answer": None,
-        "reason": "用户请求面试准备",
-    })
+async def test_task_understanding_routes_interview_capability_to_runtime_planner():
+    llm = FakeIntentLLM(
+        {
+            "resolved_query": "围绕我的大模型应用项目生成面试深挖问题",
+            "retrieval_query": "面试准备",
+            "planner_query": "生成大模型应用项目面试问题",
+            "context_dependency": "required",
+            "context_type": ["resume"],
+            "selected_capability_id": "interview.prepare",
+            "confidence": 0.93,
+            "secondary": [],
+            "slots": {},
+            "missing_required": [],
+            "needs_clarification": False,
+            "clarification_question": None,
+            "risk_level": "low",
+            "answer": None,
+            "reason": "用户请求面试准备",
+        }
+    )
     service = TaskUnderstandingService(llm_client=llm)
     request = AgentRunRequest(
         messages=[ChatMessage(role="user", content="围绕我的大模型应用项目生成面试深挖问题")],
@@ -190,5 +194,5 @@ async def test_task_understanding_routes_partial_interview_capability_to_runtime
     assert result.planner_constraints.planner_needed is True
     assert result.clarification.needed is False
     assert result.answer is None
-    assert directive["implementation_status"] == "partial"
-    assert directive["implementation"]["implemented"] is True
+    assert directive["capability_contract"]["evidence_requirements"]
+    assert directive["capability_contract"]["allowed_tools"] == ["web_search", "web_fetch"]

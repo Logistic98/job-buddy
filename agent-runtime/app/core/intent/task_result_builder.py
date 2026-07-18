@@ -1,4 +1,3 @@
-
 """TaskUnderstandingResult 组装器。
 
 把“路由结果 + 槽位”组装为稳定协议 TaskUnderstandingResult 是任务理解中独立于
@@ -47,15 +46,14 @@ class TaskResultBuilder:
     ) -> TaskUnderstandingResult:
         missing_required = self.missing_required(capability, slots)
         missing_optional = [slot for slot in capability.optional_slots if slot not in slots]
-        implementation_status = (capability.implementation_status or "implemented").lower()
-        implemented = implementation_status in {"implemented", "partial"}
-        unsupported_answer = self.capability_unavailable_answer(capability)
-        clarification_needed = bool(missing_required) or not implemented
-        clarification_question = unsupported_answer if not implemented else (capability.clarification_question or self._default_clarification_question(missing_required))
+        clarification_needed = bool(missing_required)
+        clarification_question = capability.clarification_question or self._default_clarification_question(
+            missing_required
+        )
         risk_level = capability.risk or "low"
-        planner_needed = bool(implemented and (capability.planner_needed or capability.next_action == "run_runtime_planner"))
-        next_action = "capability_not_implemented" if not implemented else ("clarify" if missing_required else capability.next_action)
-        answer = unsupported_answer if not implemented else (capability.answer_template if capability.answer_template and not missing_required else None)
+        planner_needed = bool(capability.planner_needed or capability.next_action == "run_runtime_planner")
+        next_action = "clarify" if missing_required else capability.next_action
+        answer = capability.answer_template if capability.answer_template and not missing_required else None
         selected = candidates[0] if candidates else self.candidate(capability, confidence, reason, missing_required)
 
         slot_source = "llm" if router == "llm" else "semantic_fallback"
@@ -80,7 +78,10 @@ class TaskResultBuilder:
             context=ContextUnderstanding(
                 dependency="required" if capability.context_dependencies else "optional",
                 context_type=list(capability.context_dependencies),
-                memory_policy={"need_session_memory": bool(capability.context_dependencies), "need_user_preference": "profile" in capability.context_dependencies},
+                memory_policy={
+                    "need_session_memory": bool(capability.context_dependencies),
+                    "need_user_preference": "profile" in capability.context_dependencies,
+                },
             ),
             intent=IntentUnderstanding(
                 execution_intent=capability.execution_intent,
@@ -107,7 +108,7 @@ class TaskResultBuilder:
             clarification=ClarificationDecision(
                 needed=clarification_needed,
                 blocking=clarification_needed,
-                reason="capability_not_implemented" if not implemented else ("missing_required_slots" if clarification_needed else None),
+                reason="missing_required_slots" if clarification_needed else None,
                 question=clarification_question if clarification_needed else None,
                 suggested_options=[],
             ),
@@ -115,7 +116,7 @@ class TaskResultBuilder:
                 risk_level=risk_level,
                 high_risk_operation=risk_level == "high",
                 need_secondary_confirmation=risk_level == "high",
-                safety_blocked=capability.next_action == "reject_with_reason" or not implemented,
+                safety_blocked=capability.next_action == "reject_with_reason",
             ),
             planner_constraints=PlannerConstraints(
                 planner_needed=planner_needed,
@@ -127,10 +128,7 @@ class TaskResultBuilder:
             answer=answer,
             metadata={
                 "capability_reason": reason,
-                "implementation": {
-                    "status": implementation_status,
-                    "implemented": implemented,
-                    "notes": capability.implementation_notes,
+                "capability_contract": {
                     "required_tools": capability.required_tools,
                     "allowed_tools": capability.allowed_tools,
                     "evidence_requirements": capability.evidence_requirements,
@@ -161,7 +159,9 @@ class TaskResultBuilder:
         result.metadata["llm_required"] = True
         return result
 
-    def candidate(self, capability: CapabilityCard, score: float, reason: str, missing_slots: Iterable[str]) -> CapabilityCandidate:
+    def candidate(
+        self, capability: CapabilityCard, score: float, reason: str, missing_slots: Iterable[str]
+    ) -> CapabilityCandidate:
         return CapabilityCandidate(
             capability_id=capability.id,
             domain=capability.domain,
@@ -185,11 +185,6 @@ class TaskResultBuilder:
         if profile.capabilities:
             return sorted(profile.capabilities, key=lambda item: item.id)[0]
         return self.capability_registry.get_profile("default").capabilities[0]
-
-    def capability_unavailable_answer(self, capability: CapabilityCard) -> str:
-        status = capability.implementation_status or "planned"
-        notes = capability.implementation_notes or "该能力尚未接入执行链路。"
-        return f"能力“{capability.name}”当前状态为 {status}。{notes}"
 
     def _build_retrieval_query(self, message: str, capability: CapabilityCard) -> str:
         return message.strip()

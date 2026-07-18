@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,7 +18,12 @@ class CapabilityRegistry:
     """
 
     def __init__(self, profiles_dir: str | None = None):
-        self.profiles_dir = Path(profiles_dir or settings.profiles_dir)
+        configured_dir = Path(profiles_dir or settings.profiles_dir)
+        if not configured_dir.is_absolute() and not configured_dir.exists():
+            module_relative = Path(__file__).resolve().parents[3] / configured_dir
+            if module_relative.exists():
+                configured_dir = module_relative
+        self.profiles_dir = configured_dir
         self._profiles: Dict[str, ProfileDefinition] = {}
         self.reload()
 
@@ -48,7 +52,9 @@ class CapabilityRegistry:
         profile = self.get_profile(profile_id)
         return sorted(profile.capabilities, key=lambda item: item.id)
 
-    def find_capability(self, profile_id: str | None, capability_id: str | None = None, intent: str | None = None) -> Optional[CapabilityCard]:
+    def find_capability(
+        self, profile_id: str | None, capability_id: str | None = None, intent: str | None = None
+    ) -> Optional[CapabilityCard]:
         profile = self.get_profile(profile_id)
         if capability_id:
             found = profile.capability_by_id(capability_id)

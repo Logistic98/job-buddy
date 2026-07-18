@@ -1,4 +1,3 @@
-
 """配置驱动的槽位抽取器。
 
 槽位抽取是任务理解中一个独立职责：根据 Profile 声明的 keyword_map / regex 抽取器，
@@ -26,7 +25,9 @@ class SlotExtractor:
                 self._extract_regex_slots(extractor, message, slots)
         return slots
 
-    def _extract_keyword_map_slots(self, extractor: SlotExtractorConfig, normalized_message: str, slots: Dict[str, Any]) -> None:
+    def _extract_keyword_map_slots(
+        self, extractor: SlotExtractorConfig, normalized_message: str, slots: Dict[str, Any]
+    ) -> None:
         for row in extractor.values:
             aliases = [str(item) for item in row.get("aliases", [])]
             value = row.get("value")

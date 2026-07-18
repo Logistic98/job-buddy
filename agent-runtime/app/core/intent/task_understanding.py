@@ -1,4 +1,3 @@
-
 """任务理解与能力路由编排器。
 
 本服务只负责"选哪个能力卡 + 抽哪些槽位 + 用哪条路由路径"的编排：
@@ -32,6 +31,7 @@ from app.core.intent.text_match import (
     tokens,
 )
 from app.core.prompt.loader import PromptTemplateLoader
+from app.core.workflow.registry import WorkflowRegistry
 from app.models.schemas import (
     AgentRunRequest,
     ChatMessage,
@@ -84,15 +84,19 @@ class TaskUnderstandingService:
         llm_client=None,
         prompt_loader: PromptTemplateLoader | None = None,
         allow_semantic_fallback: bool = False,
+        workflow_registry: WorkflowRegistry | None = None,
     ):
         self.capability_registry = capability_registry or CapabilityRegistry()
         self.llm_client = llm_client
         self.prompt_loader = prompt_loader or PromptTemplateLoader()
         self.allow_semantic_fallback = allow_semantic_fallback
+        self.workflow_registry = workflow_registry or WorkflowRegistry(capability_registry=self.capability_registry)
         self.slot_extractor = SlotExtractor()
         self.result_builder = TaskResultBuilder(self.capability_registry)
 
-    async def understand(self, request: AgentRunRequest, session_id: str, run_id: str, trace_id: str) -> TaskUnderstandingResult:
+    async def understand(
+        self, request: AgentRunRequest, session_id: str, run_id: str, trace_id: str
+    ) -> TaskUnderstandingResult:
         metadata = request.metadata or {}
         profile_id = str(metadata.get("profile") or metadata.get("agent_profile") or "default")
         profile = self.capability_registry.get_profile(profile_id)
@@ -101,7 +105,9 @@ class TaskUnderstandingService:
 
         # 高频会话捷径（如“换一批”）先于 LLM 命中：规则可判定的稳定意图直接短路，
         # 把一次任务理解 LLM 往返从首字延迟链路上移除。
-        result: Optional[TaskUnderstandingResult] = self._understand_with_shortcut(profile, message, previous_slots, trace_id)
+        result: Optional[TaskUnderstandingResult] = self._understand_with_shortcut(
+            profile, message, previous_slots, trace_id
+        )
         if result is None and self.llm_client:
             result = await self._understand_with_model(profile, request, message, previous_slots, trace_id)
         if result is None and (self.allow_semantic_fallback or self.llm_client):
@@ -113,6 +119,10 @@ class TaskUnderstandingService:
         result.trace_id = trace_id
         result.profile = profile.id
         result.metadata.update({"session_id": session_id, "run_id": run_id})
+        selected = result.routing.selected_capability
+        workflow = self.workflow_registry.match(selected.capability_id if selected else None, profile.id)
+        if workflow is not None:
+            result.metadata["workflow"] = workflow.metadata()
         return result
 
     def build_directive(self, profile: ProfileDefinition, result: TaskUnderstandingResult) -> Optional[Dict[str, Any]]:
@@ -126,17 +136,27 @@ class TaskUnderstandingService:
 
         selected = result.routing.selected_capability
         task_payload = result.model_dump()
-        # 兼容 Java BFF 消费结构，并保留完整 TaskUnderstandingResult。
+        # 构造 Java BFF 消费结构，并保留完整 TaskUnderstandingResult。
         task_payload.setdefault("routing", {})
-        implementation = result.metadata.get("implementation", {}) if isinstance(result.metadata.get("implementation"), dict) else {}
-        task_payload["routing"].update({
-            "domain": result.intent.domain,
-            "intent": result.intent.intent,
-            "execution_mode": selected.execution_mode if selected else result.planner_constraints.execution_mode,
-            "next_action": result.next_action,
-            "implementation": implementation,
-        })
-        task_payload["context_dependencies"] = selected and self._safe_list(selected.model_dump().get("context_dependencies")) or result.context.context_type
+        capability_contract = (
+            result.metadata.get("capability_contract", {})
+            if isinstance(result.metadata.get("capability_contract"), dict)
+            else {}
+        )
+        task_payload["routing"].update(
+            {
+                "domain": result.intent.domain,
+                "intent": result.intent.intent,
+                "execution_mode": selected.execution_mode if selected else result.planner_constraints.execution_mode,
+                "next_action": result.next_action,
+                "capability_contract": capability_contract,
+            }
+        )
+        task_payload["context_dependencies"] = (
+            selected
+            and self._safe_list(selected.model_dump().get("context_dependencies"))
+            or result.context.context_type
+        )
         task_payload["planner_constraints"] = result.planner_constraints.model_dump()
 
         directive = {
@@ -151,9 +171,11 @@ class TaskUnderstandingService:
             "slots": slots,
             "task": task_payload,
             "router": result.router,
-            "implementation_status": implementation.get("status"),
-            "implementation": implementation,
+            "capability_contract": capability_contract,
         }
+        workflow = result.metadata.get("workflow") if isinstance(result.metadata, dict) else None
+        if isinstance(workflow, dict):
+            directive["workflow"] = dict(workflow)
         if result.answer:
             directive["answer"] = result.answer
         return directive
@@ -186,7 +208,11 @@ class TaskUnderstandingService:
             response = await self.llm_client.chat(
                 [
                     ChatMessage(role="system", content=system_prompt),
-                    ChatMessage(role="system", content="能力卡目录按 id 稳定排序：\n" + json.dumps(capability_payload, ensure_ascii=False, sort_keys=True)),
+                    ChatMessage(
+                        role="system",
+                        content="能力卡目录按 id 稳定排序：\n"
+                        + json.dumps(capability_payload, ensure_ascii=False, sort_keys=True),
+                    ),
                     ChatMessage(role="user", content=json.dumps(user_payload, ensure_ascii=False, sort_keys=True)),
                 ],
                 temperature=0,
@@ -214,7 +240,10 @@ class TaskUnderstandingService:
         slots = self.slot_extractor.extract(profile, message)
         scored = self._score_capabilities(profile, message, slots)
         capability = scored[0][2] if scored else self.result_builder.default_capability(profile)
-        candidates = [self.result_builder.candidate(card, score, reason, self.result_builder.missing_required(card, slots)) for score, reason, card in scored[:5]]
+        candidates = [
+            self.result_builder.candidate(card, score, reason, self.result_builder.missing_required(card, slots))
+            for score, reason, card in scored[:5]
+        ]
         confidence = scored[0][0] if scored else 0.35
         reason = scored[0][1] if scored else "default capability"
         return self.result_builder.build(
@@ -239,12 +268,20 @@ class TaskUnderstandingService:
     ) -> TaskUnderstandingResult:
         capability_id = str(data.get("selected_capability_id") or data.get("capability_id") or "")
         intent = str(data.get("intent") or "")
-        capability = profile.capability_by_id(capability_id) or profile.capability_by_intent(intent) or self.result_builder.default_capability(profile)
+        capability = (
+            profile.capability_by_id(capability_id)
+            or profile.capability_by_intent(intent)
+            or self.result_builder.default_capability(profile)
+        )
         model_slots = data.get("slots") if isinstance(data.get("slots"), dict) else {}
         reusable_slots = previous_slots if data.get("reuse_previous_slots") else {}
         slots = {**reusable_slots, **model_slots}
         confidence = self._clamp_float(data.get("confidence"), 0.8)
-        candidates = [self.result_builder.candidate(capability, confidence, str(data.get("reason") or "llm selected"), data.get("missing_required") or [])]
+        candidates = [
+            self.result_builder.candidate(
+                capability, confidence, str(data.get("reason") or "llm selected"), data.get("missing_required") or []
+            )
+        ]
         result = self.result_builder.build(
             profile=profile,
             message=message,
@@ -261,9 +298,7 @@ class TaskUnderstandingService:
             retrieval_query=str(data.get("retrieval_query") or result.rewritten_query.retrieval_query),
             planner_query=str(data.get("planner_query") or result.rewritten_query.planner_query),
         )
-        implementation = result.metadata.get("implementation") if isinstance(result.metadata.get("implementation"), dict) else {}
-        capability_blocked = implementation.get("implemented") is False
-        if data.get("needs_clarification") is not None and not capability_blocked:
+        if data.get("needs_clarification") is not None:
             result.clarification.needed = bool(data.get("needs_clarification"))
             result.clarification.blocking = result.clarification.needed
             result.clarification.question = data.get("clarification_question") or result.clarification.question
@@ -273,7 +308,9 @@ class TaskUnderstandingService:
             result.risk_flags.risk_level = str(data.get("risk_level"))
         return result
 
-    def _score_capabilities(self, profile: ProfileDefinition, message: str, slots: Dict[str, Any]) -> List[Tuple[float, str, CapabilityCard]]:
+    def _score_capabilities(
+        self, profile: ProfileDefinition, message: str, slots: Dict[str, Any]
+    ) -> List[Tuple[float, str, CapabilityCard]]:
         rows: List[Tuple[float, str, CapabilityCard]] = []
         normalized_message = normalize_text(message)
         message_tokens = set(tokens(message))
@@ -332,7 +369,9 @@ class TaskUnderstandingService:
             reason=shortcut.reason,
         )
 
-    def _match_shortcut(self, profile: ProfileDefinition, message: str, previous_slots: Dict[str, Any]) -> Optional[ConversationShortcut]:
+    def _match_shortcut(
+        self, profile: ProfileDefinition, message: str, previous_slots: Dict[str, Any]
+    ) -> Optional[ConversationShortcut]:
         if not previous_slots:
             return None
         text = normalize_text(message)

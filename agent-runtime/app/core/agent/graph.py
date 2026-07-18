@@ -1,13 +1,12 @@
-
 import asyncio
 import time
-from typing import Literal
+from typing import Dict, List, Literal, Optional
 
 from langgraph.graph import END, StateGraph
 
 from app.core.agent.loop_controller import LoopController
 from app.core.checkpoint.store import CheckpointStore
-from app.core.common.constants import PermissionMode, RuntimeStatus, StopReason, TraceEventName
+from app.core.common.constants import PermissionMode, RuntimeStatus, StepStatus, StopReason, TraceEventName
 from app.core.common.settings import settings
 from app.core.context.assembler import ContextAssembler
 from app.core.context.compactor import ContextCompactor
@@ -18,7 +17,7 @@ from app.core.tool.base import ToolExecutionContext
 from app.core.tool.gateway import ToolGateway
 from app.core.tool.runtime import ToolRuntime
 from app.core.tool.search import ToolSearchService
-from app.models.schemas import AgentStepLog, TaskUnderstandingResult, ToolDefinition, ToolResult
+from app.models.schemas import AgentPlan, AgentStepLog, ToolCall, ToolResult
 from app.models.state import AgentGraphState
 
 
@@ -55,6 +54,7 @@ class AgentGraphBuilder:
         self.context_compactor = context_compactor or ContextCompactor()
 
     def build(self):
+        """构建并编译 Agent 状态图；节点顺序和条件边用于约束唯一执行链路。"""
         builder = StateGraph(AgentGraphState)
 
         builder.add_node("understand_goal", self._understand_goal)
@@ -100,7 +100,13 @@ class AgentGraphBuilder:
     async def _understand_goal(self, state: AgentGraphState) -> AgentGraphState:
         if self._should_skip_resume_stage(state, "understand_goal"):
             return state
-        await self.trace_recorder.record(state["trace_id"], TraceEventName.UNDERSTAND_GOAL.value, run_id=state["run_id"])
+        await self.trace_recorder.record(
+            state["trace_id"],
+            TraceEventName.UNDERSTAND_GOAL.value,
+            run_id=state["run_id"],
+            node_id="understand_goal",
+            status="success",
+        )
         messages = state.get("messages", [])
         objective = state.get("objective")
         if not objective and messages:
@@ -131,7 +137,9 @@ class AgentGraphBuilder:
                 budget=BudgetConfig(**(state.get("budget") or {})),
                 metadata=state.get("metadata", {}),
             )
-        result = await self.task_understanding.understand(request, state["session_id"], state["run_id"], state["trace_id"])
+        result = await self.task_understanding.understand(
+            request, state["session_id"], state["run_id"], state["trace_id"]
+        )
         profile = self.task_understanding.get_profile(result.profile)
         directive = self.task_understanding.build_directive(profile, result)
         state["task_understanding"] = result
@@ -149,29 +157,41 @@ class AgentGraphBuilder:
                 "next_action": result.next_action,
                 "needs_clarification": result.clarification.needed,
             },
-            state["run_id"],
+            run_id=state["run_id"],
+            node_id="task_understanding_node",
+            status="success",
         )
+        route_payload = result.routing.model_dump()
+        workflow = result.metadata.get("workflow") if isinstance(result.metadata, dict) else None
+        if isinstance(workflow, dict):
+            route_payload["workflow"] = dict(workflow)
         await self.trace_recorder.record(
             state["trace_id"],
             TraceEventName.CAPABILITY_ROUTE.value,
-            result.routing.model_dump(),
-            state["run_id"],
+            route_payload,
+            run_id=state["run_id"],
+            node_id="task_understanding_node",
+            status="success",
         )
         if directive:
-            state.setdefault("tool_results", []).append(ToolResult(
-                tool_call_id="task_understanding",
-                tool_name=f"{result.profile}.task_understanding",
-                success=True,
-                output=directive,
-                metadata={"profile": result.profile, "router": result.router, "synthetic": True},
-            ))
-        state.setdefault("logs", []).append(AgentStepLog(
-            step_id="task_understanding",
-            name="Task Understanding / Capability Routing",
-            status="success",
-            input={"objective": state.get("objective"), "profile": result.profile},
-            output=directive or result.model_dump(),
-        ))
+            state.setdefault("tool_results", []).append(
+                ToolResult(
+                    tool_call_id="task_understanding",
+                    tool_name=f"{result.profile}.task_understanding",
+                    success=True,
+                    output=directive,
+                    metadata={"profile": result.profile, "router": result.router, "synthetic": True},
+                )
+            )
+        state.setdefault("logs", []).append(
+            AgentStepLog(
+                step_id="task_understanding",
+                name="Task Understanding / Capability Routing",
+                status="success",
+                input={"objective": state.get("objective"), "profile": result.profile},
+                output=directive or result.model_dump(),
+            )
+        )
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "task_understanding", state)
         return state
 
@@ -180,7 +200,8 @@ class AgentGraphBuilder:
             return state
         messages = state.get("messages", [])
         task = state.get("task_understanding")
-        assembled = self.context_assembler.assemble(
+        assembled = await asyncio.to_thread(
+            self.context_assembler.assemble,
             messages=messages,
             task=task,
             observations=state.get("observations", []),
@@ -196,6 +217,8 @@ class AgentGraphBuilder:
             TraceEventName.CONTEXT_COLLECTED.value,
             {"context_summary": state["context_summary"], "metrics": assembled["metrics"]},
             run_id=state["run_id"],
+            node_id="collect_context",
+            status="success",
         )
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "collect_context", state)
         return state
@@ -210,12 +233,14 @@ class AgentGraphBuilder:
             TraceEventName.TOOL_SEARCH.value,
             {"query": query, "objective": state.get("objective")},
             run_id=state["run_id"],
+            node_id="tool_search",
+            status="success",
         )
         tool_search_config = settings.config.tool_search
         if tool_search_config.enabled:
             tools = await self.tool_gateway.search(query or "", task, limit=tool_search_config.limit)
         else:
-            tools = self.tool_runtime.registry.list_definitions()[:tool_search_config.limit]
+            tools = self.tool_runtime.registry.list_definitions()[: tool_search_config.limit]
         state["candidate_tools"] = tools
         state.setdefault("metrics", {})["tool_search"] = {"candidate_count": len(tools), "query": query}
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "tool_search", state)
@@ -225,7 +250,12 @@ class AgentGraphBuilder:
         if self._should_skip_resume_stage(state, "plan"):
             return state
         await self.trace_recorder.record(
-            state["trace_id"], TraceEventName.PLAN_CREATED.value, {"turn": state.get("turn_count", 0)}, state["run_id"]
+            state["trace_id"],
+            TraceEventName.PLAN_CREATED.value,
+            {"turn": state.get("turn_count", 0)},
+            run_id=state["run_id"],
+            node_id="make_plan",
+            status="success",
         )
         plan, tool_call = await self.planner.create_or_update_plan(
             objective=state.get("objective") or "",
@@ -237,8 +267,26 @@ class AgentGraphBuilder:
             task_understanding=state.get("task_understanding"),
         )
         state["plan"] = plan
-        state["selected_tool_calls"] = list(plan.tool_calls or ([] if tool_call is None else [tool_call]))
-        state["selected_tool_call"] = tool_call or (state["selected_tool_calls"][0] if state["selected_tool_calls"] else None)
+        all_calls = list(plan.tool_calls or ([] if tool_call is None else [tool_call]))
+        dependency_error = self._validate_plan_dependencies(plan, all_calls)
+        if dependency_error:
+            state["selected_tool_calls"] = []
+            state["selected_tool_call"] = None
+            state["status"] = RuntimeStatus.FAIL.value
+            state["stop_reason"] = StopReason.INVALID_PLAN_DEPENDENCY.value
+            state["answer"] = f"计划依赖校验失败：{dependency_error}。"
+            state["should_stop"] = True
+            plan.stop_reason = StopReason.INVALID_PLAN_DEPENDENCY.value
+        else:
+            ready_calls = self._select_ready_tool_calls(plan, all_calls)
+            state["selected_tool_calls"] = ready_calls
+            state["selected_tool_call"] = ready_calls[0] if ready_calls else None
+            if all_calls and not ready_calls and not plan.is_complete and not plan.need_clarification:
+                state["status"] = RuntimeStatus.FAIL.value
+                state["stop_reason"] = StopReason.INVALID_PLAN_DEPENDENCY.value
+                state["answer"] = "计划依赖校验失败：当前没有可安全执行的计划步骤。"
+                state["should_stop"] = True
+                plan.stop_reason = StopReason.INVALID_PLAN_DEPENDENCY.value
         state["turn_count"] = int(state.get("turn_count", 0)) + 1
         if plan.stop_reason:
             state["stop_reason"] = plan.stop_reason
@@ -255,7 +303,13 @@ class AgentGraphBuilder:
             state["stop_reason"] = decision.stop_reason
             state["answer"] = f"任务已暂停：{decision.reason}。"
         await self.trace_recorder.record(
-            state["trace_id"], TraceEventName.BUDGET_CHECK.value, {"blocked_reason": decision.reason}, state["run_id"]
+            state["trace_id"],
+            TraceEventName.BUDGET_CHECK.value,
+            {"blocked_reason": decision.reason},
+            run_id=state["run_id"],
+            node_id="check_budget",
+            status="paused" if decision.blocked else "success",
+            stage="budget_check",
         )
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "budget_check", state)
         return state
@@ -263,7 +317,9 @@ class AgentGraphBuilder:
     async def _execute_tool(self, state: AgentGraphState) -> AgentGraphState:
         if self._should_skip_resume_stage(state, "execute_tool"):
             return state
-        calls = state.get("selected_tool_calls") or ([] if not state.get("selected_tool_call") else [state.get("selected_tool_call")])
+        calls = state.get("selected_tool_calls") or (
+            [] if not state.get("selected_tool_call") else [state.get("selected_tool_call")]
+        )
         if not calls:
             state["should_stop"] = True
             return state
@@ -277,15 +333,27 @@ class AgentGraphBuilder:
             metadata=state.get("metadata", {}),
         )
         await self.trace_recorder.record(
-            state["trace_id"], TraceEventName.TOOL_EXECUTE_START.value, {"tools": [call.name for call in calls]}, state["run_id"]
+            state["trace_id"],
+            TraceEventName.TOOL_EXECUTE_START.value,
+            {"tools": [call.name for call in calls]},
+            run_id=state["run_id"],
+            node_id="run_tool",
+            component="tool",
+            status="running",
         )
+
         async def _timed_execute(call):
             started = time.perf_counter()
             gateway_result = await self.tool_gateway.execute(call, mode, context, state.get("task_understanding"))
             return gateway_result, int((time.perf_counter() - started) * 1000)
 
+        step_by_id = {step.id: step for step in (state.get("plan").steps if state.get("plan") else [])}
+        for call in calls:
+            if call.plan_step_id and call.plan_step_id in step_by_id:
+                step_by_id[call.plan_step_id].status = StepStatus.RUNNING
+
         timed_results = []
-        if self._can_execute_in_parallel(calls):
+        if self._can_execute_in_parallel(calls, state.get("plan")):
             timed_results = await asyncio.gather(*[_timed_execute(call) for call in calls])
         else:
             for call in calls:
@@ -298,11 +366,19 @@ class AgentGraphBuilder:
             result = gateway_result.result
             if gateway_result.permission_record:
                 state.setdefault("permission_records", []).append(gateway_result.permission_record)
+                permission_status = (
+                    "success"
+                    if gateway_result.permission_record.allowed
+                    else ("need_confirm" if gateway_result.permission_record.requires_confirmation else "rejected")
+                )
                 await self.trace_recorder.record(
                     state["trace_id"],
                     TraceEventName.PERMISSION_CHECK.value,
                     gateway_result.permission_record.model_dump(),
-                    state["run_id"],
+                    run_id=state["run_id"],
+                    node_id="permission_check",
+                    status=permission_status,
+                    component="permission",
                 )
             state.setdefault("tool_results", []).append(result)
             state["tool_call_count"] = int(state.get("tool_call_count", 0)) + 1
@@ -319,11 +395,53 @@ class AgentGraphBuilder:
                         "duration_ms": duration_ms,
                         "permission_denied": bool(result.metadata.get("permission_denied")),
                     },
-                    state["run_id"],
+                    run_id=state["run_id"],
+                    node_id="run_tool",
+                    status="failed" if not result.success else "success",
+                    component="tool",
+                    error=str(result.error or ""),
+                    duration_ms=duration_ms,
                 )
                 if result.metadata.get("permission_denied"):
                     state["stop_reason"] = StopReason.PERMISSION_DENIED.value
                     state["should_stop"] = True
+                    if result.metadata.get("requires_confirmation"):
+                        state["status"] = RuntimeStatus.NEED_CONFIRM.value
+                        state["answer"] = f"工具 {result.tool_name} 需要确认后才能执行。"
+                        task = state.get("task_understanding")
+                        if task is not None and result.tool_name not in task.slots.need_confirm:
+                            task.slots.need_confirm.append(result.tool_name)
+                    else:
+                        state["status"] = RuntimeStatus.PAUSED.value
+                        state["answer"] = (
+                            f"工具 {result.tool_name} 被权限策略拒绝：{result.error or 'permission_denied'}。"
+                        )
+                # 普通工具失败不在执行节点立即终止。ToolRuntime 已完成单次调用重试，
+                # 后续由 observe 的 failure budget 与 reflect/LoopController 决定继续规划或收口。
+
+        confirmation_results = [
+            item.result
+            for item in gateway_results
+            if item.result.metadata.get("permission_denied") and item.result.metadata.get("requires_confirmation")
+        ]
+        denied_results = [
+            item.result
+            for item in gateway_results
+            if item.result.metadata.get("permission_denied") and not item.result.metadata.get("requires_confirmation")
+        ]
+        if confirmation_results:
+            tools = "、".join(dict.fromkeys(item.tool_name for item in confirmation_results))
+            state["status"] = RuntimeStatus.NEED_CONFIRM.value
+            state["stop_reason"] = StopReason.PERMISSION_DENIED.value
+            state["answer"] = f"工具 {tools} 需要确认后才能执行。"
+            state["should_stop"] = True
+        elif denied_results:
+            tools = "、".join(dict.fromkeys(item.tool_name for item in denied_results))
+            state["status"] = RuntimeStatus.PAUSED.value
+            state["stop_reason"] = StopReason.PERMISSION_DENIED.value
+            state["answer"] = f"工具 {tools} 被权限策略拒绝。"
+            state["should_stop"] = True
+
         await self.trace_recorder.record(
             state["trace_id"],
             TraceEventName.TOOL_EXECUTE_END.value,
@@ -333,7 +451,16 @@ class AgentGraphBuilder:
                 "duration_ms": sum(stat["duration_ms"] for stat in tool_stats),
                 "results": tool_stats,
             },
-            state["run_id"],
+            run_id=state["run_id"],
+            node_id="run_tool",
+            component="tool",
+            status="success" if all(item.result.success for item in gateway_results) else "failed",
+            duration_ms=sum(stat["duration_ms"] for stat in tool_stats),
+            error=(
+                next((str(item.result.error) for item in gateway_results if not item.result.success), "")
+                if any(not item.result.success for item in gateway_results)
+                else None
+            ),
         )
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "execute_tool", state)
         return state
@@ -342,13 +469,17 @@ class AgentGraphBuilder:
         if self._should_skip_resume_stage(state, "observe"):
             return state
         results = state.get("tool_results", [])
-        real_results = [item for item in results if not item.metadata.get("synthetic")]
-        if real_results:
-            latest = real_results[-1]
-            if latest.success:
-                state.setdefault("observations", []).append(f"工具 {latest.tool_name} 执行成功：{latest.output}")
+        consumed = set(state.get("observed_tool_call_ids") or [])
+        fresh_results = [
+            item for item in results if not item.metadata.get("synthetic") and item.tool_call_id not in consumed
+        ]
+        for result in fresh_results:
+            if result.success:
+                state.setdefault("observations", []).append(f"工具 {result.tool_name} 执行成功：{result.output}")
             else:
-                state.setdefault("observations", []).append(f"工具 {latest.tool_name} 执行失败：{latest.error}")
+                state.setdefault("observations", []).append(f"工具 {result.tool_name} 执行失败：{result.error}")
+            consumed.add(result.tool_call_id)
+        state["observed_tool_call_ids"] = list(consumed)
 
         compaction_report = self.context_compactor.maybe_compact(state)
         if compaction_report:
@@ -356,7 +487,10 @@ class AgentGraphBuilder:
                 state["trace_id"],
                 TraceEventName.CONTEXT_COMPACTION.value,
                 compaction_report.model_dump(),
-                state["run_id"],
+                run_id=state["run_id"],
+                node_id="observe",
+                status="success",
+                component="context",
             )
 
         if self.loop_controller.failure_budget_reached(state):
@@ -365,7 +499,17 @@ class AgentGraphBuilder:
             state["stop_reason"] = state.get("stop_reason") or StopReason.MAX_FAILURES.value
             state["answer"] = "工具连续失败，已停止执行。"
         await self.trace_recorder.record(
-            state["trace_id"], TraceEventName.OBSERVE.value, {"failure_count": state.get("failure_count", 0)}, state["run_id"]
+            state["trace_id"],
+            TraceEventName.OBSERVE.value,
+            {
+                "failure_count": state.get("failure_count", 0),
+                "consumed_tool_call_ids": [item.tool_call_id for item in fresh_results],
+                "consumed_count": len(fresh_results),
+            },
+            run_id=state["run_id"],
+            node_id="observe",
+            status="success",
+            component="observe",
         )
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "observe", state)
         return state
@@ -373,18 +517,68 @@ class AgentGraphBuilder:
     async def _reflect(self, state: AgentGraphState) -> AgentGraphState:
         if self._should_skip_resume_stage(state, "reflect"):
             return state
-        latest_result = None
-        for item in reversed(state.get("tool_results", [])):
-            if not item.metadata.get("synthetic"):
-                latest_result = item
-                break
-        payload = {
-            "has_latest_result": latest_result is not None,
-            "latest_success": latest_result.success if latest_result else None,
+        selected_calls = state.get("selected_tool_calls") or []
+        selected_ids = {call.id for call in selected_calls}
+        current_results = [item for item in state.get("tool_results", []) if item.tool_call_id in selected_ids]
+        result_by_call = {item.tool_call_id: item for item in current_results}
+        plan = state.get("plan")
+        step_updates = []
+        if plan:
+            step_by_id = {step.id: step for step in plan.steps}
+            for call in selected_calls:
+                result = result_by_call.get(call.id)
+                step = step_by_id.get(call.plan_step_id or "")
+                if result is None or step is None:
+                    continue
+                step.status = (
+                    StepStatus.SUCCESS
+                    if result.success
+                    else (StepStatus.BLOCKED if result.metadata.get("permission_denied") else StepStatus.FAIL)
+                )
+                step.result_summary = result.summary
+                step.error = result.error
+                step_updates.append(
+                    {
+                        "step_id": step.id,
+                        "tool_call_id": call.id,
+                        "status": step.status.value,
+                        "result_summary": step.result_summary,
+                        "error": step.error,
+                    }
+                )
+
+        if state.get("status") == RuntimeStatus.NEED_CONFIRM.value:
+            decision = "need_confirm"
+        elif state.get("should_stop"):
+            decision = "finalize"
+        elif current_results and all(item.success for item in current_results):
+            decision = "replan"
+        elif current_results:
+            decision = "retry"
+        else:
+            decision = "replan"
+        state["reflection"] = {
+            "decision": decision,
+            "step_updates": step_updates,
             "failure_count": state.get("failure_count", 0),
             "turn_count": state.get("turn_count", 0),
         }
-        await self.trace_recorder.record(state["trace_id"], TraceEventName.REFLECT.value, payload, state["run_id"])
+        payload = dict(state["reflection"])
+        payload.update(
+            {
+                "result_count": len(current_results),
+                "all_success": bool(current_results) and all(item.success for item in current_results),
+            }
+        )
+        await self.trace_recorder.record(
+            state["trace_id"],
+            TraceEventName.REFLECT.value,
+            payload,
+            run_id=state["run_id"],
+            node_id="reflect",
+            status="success",
+            component="planner",
+        )
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "reflect", state)
         return state
 
@@ -392,6 +586,31 @@ class AgentGraphBuilder:
         task = state.get("task_understanding")
         directive = state.get("directive")
         plan = state.get("plan")
+        if task and task.risk_flags.safety_blocked:
+            state["status"] = RuntimeStatus.PAUSED.value
+            state["stop_reason"] = StopReason.SAFETY_BLOCKED.value
+        elif task and task.clarification.needed:
+            state["status"] = RuntimeStatus.PAUSED.value
+            state["stop_reason"] = StopReason.NEED_CLARIFICATION.value
+        elif plan and plan.need_clarification:
+            state["status"] = RuntimeStatus.PAUSED.value
+            state["stop_reason"] = StopReason.NEED_CLARIFICATION.value
+        elif state.get("stop_reason") in {
+            StopReason.MAX_TURNS.value,
+            StopReason.TOOL_BUDGET_EXCEEDED.value,
+            StopReason.TOKEN_BUDGET_EXCEEDED.value,
+            StopReason.PERMISSION_DENIED.value,
+        } and state.get("status") in {None, RuntimeStatus.RUNNING.value}:
+            state["status"] = RuntimeStatus.PAUSED.value
+        elif state.get("stop_reason") in {
+            StopReason.MAX_FAILURES.value,
+            StopReason.TOOL_UNAVAILABLE.value,
+            StopReason.TOOL_EXECUTION_FAILED.value,
+            StopReason.INVALID_PLAN_DEPENDENCY.value,
+            StopReason.RUNTIME_ERROR.value,
+        } and state.get("status") in {None, RuntimeStatus.RUNNING.value}:
+            state["status"] = RuntimeStatus.FAIL.value
+
         if not state.get("answer"):
             if task and task.clarification.needed:
                 state["answer"] = task.clarification.question or "需要进一步澄清。"
@@ -402,6 +621,7 @@ class AgentGraphBuilder:
             elif plan and plan.need_clarification:
                 state["answer"] = plan.clarification_question or "需要进一步澄清。"
                 state["status"] = RuntimeStatus.PAUSED.value
+                state["stop_reason"] = StopReason.NEED_CLARIFICATION.value
             elif plan and plan.final_answer:
                 state["answer"] = plan.final_answer
             elif state.get("observations"):
@@ -415,39 +635,91 @@ class AgentGraphBuilder:
         state["stop_reason"] = state.get("stop_reason") or StopReason.TASK_COMPLETE.value
         state["should_stop"] = True
         await self.trace_recorder.record(
-            state["trace_id"], TraceEventName.FINALIZE.value, {"status": state.get("status")}, state["run_id"]
+            state["trace_id"],
+            TraceEventName.FINALIZE.value,
+            {"status": state.get("status")},
+            run_id=state["run_id"],
+            node_id="build_final",
+            status=state.get("status") or "success",
+            stage="finalize",
+            component="planner",
         )
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "finalize", state)
         return state
 
-    def _can_execute_in_parallel(self, calls) -> bool:
+    def _can_execute_in_parallel(self, calls: List[ToolCall], plan: Optional[AgentPlan] = None) -> bool:
         if len(calls) <= 1:
             return False
+        if plan:
+            step_by_id = {step.id: step for step in plan.steps}
+            selected_step_ids = {call.plan_step_id for call in calls if call.plan_step_id}
+            for step_id in selected_step_ids:
+                step = step_by_id.get(step_id)
+                if step and any(dependency in selected_step_ids for dependency in step.depends_on):
+                    return False
         for call in calls:
             tool = self.tool_runtime.registry.get(call.name)
             if not tool or not tool.definition().concurrency_safe:
                 return False
         return True
 
-    def _include_required_tools(self, task: TaskUnderstandingResult, tools: list[ToolDefinition], limit: int) -> list[ToolDefinition]:
-        """将能力卡声明的 required_tools 补入候选工具，避免关键词召回漏掉关键工具。"""
-        if not task:
-            return tools
-        implementation = task.metadata.get("implementation") if isinstance(task.metadata, dict) else None
-        required_names = implementation.get("required_tools") if isinstance(implementation, dict) else []
-        if not required_names:
-            return tools
-        selected = list(tools or [])
-        seen = {tool.name for tool in selected}
-        for name in required_names:
-            if name in seen:
+    def _validate_plan_dependencies(self, plan: AgentPlan, calls: List[ToolCall]) -> Optional[str]:
+        step_by_id: Dict[str, object] = {}
+        for step in plan.steps:
+            if step.id in step_by_id:
+                return f"步骤 ID 重复: {step.id}"
+            step_by_id[step.id] = step
+        for step in plan.steps:
+            for dependency in step.depends_on:
+                if dependency == step.id:
+                    return f"步骤 {step.id} 不能依赖自身"
+                if dependency not in step_by_id:
+                    return f"步骤 {step.id} 引用了不存在的依赖 {dependency}"
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(step_id: str) -> Optional[str]:
+            if step_id in visiting:
+                return step_id
+            if step_id in visited:
+                return None
+            visiting.add(step_id)
+            step = step_by_id[step_id]
+            for dependency in step.depends_on:
+                cycle_at = visit(dependency)
+                if cycle_at:
+                    return cycle_at
+            visiting.remove(step_id)
+            visited.add(step_id)
+            return None
+
+        for step_id in step_by_id:
+            cycle_at = visit(step_id)
+            if cycle_at:
+                return f"检测到循环依赖，涉及步骤 {cycle_at}"
+        for call in calls:
+            if call.plan_step_id and call.plan_step_id not in step_by_id:
+                return f"工具调用 {call.id} 关联了不存在的步骤 {call.plan_step_id}"
+        return None
+
+    def _select_ready_tool_calls(self, plan: AgentPlan, calls: List[ToolCall]) -> List[ToolCall]:
+        step_by_id = {step.id: step for step in plan.steps}
+        ready: List[ToolCall] = []
+        for call in calls:
+            if not call.plan_step_id:
+                ready.append(call)
                 continue
-            tool = self.tool_runtime.registry.get(str(name))
-            if not tool:
+            step = step_by_id[call.plan_step_id]
+            if step.status not in {StepStatus.PENDING, StepStatus.RUNNING}:
                 continue
-            selected.append(tool.definition())
-            seen.add(tool.name)
-        return selected[: max(limit, len(selected))]
+            dependencies = [step_by_id[item] for item in step.depends_on]
+            if any(item.status in {StepStatus.FAIL, StepStatus.BLOCKED} for item in dependencies):
+                step.status = StepStatus.BLOCKED
+                step.error = "依赖步骤失败或被阻断"
+                continue
+            if all(item.status in {StepStatus.SUCCESS, StepStatus.SKIPPED} for item in dependencies):
+                ready.append(call)
+        return ready
 
     def _route_after_task_understanding(self, state: AgentGraphState) -> Literal["finalize", "collect_context"]:
         # understanding_only：调用方只需要意图/能力路由/directive，理解完即收口，

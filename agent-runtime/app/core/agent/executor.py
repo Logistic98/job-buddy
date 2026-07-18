@@ -1,4 +1,5 @@
-
+import asyncio
+import os
 from typing import AsyncIterator, Dict, List
 from uuid import uuid4
 
@@ -7,13 +8,13 @@ from loguru import logger
 from app.core.agent.graph import AgentGraphBuilder
 from app.core.capability.registry import CapabilityRegistry
 from app.core.checkpoint.store import CheckpointStore
-from app.core.common.constants import RuntimeStatus, TraceEventName
+from app.core.common.constants import PermissionMode, RuntimeStatus, TraceEventName
 from app.core.common.settings import settings
 from app.core.context.assembler import ContextAssembler
 from app.core.intent.task_understanding import TaskUnderstandingService
 from app.core.llm.openai_client import OpenAICompatibleClient
 from app.core.llm.usage import current_usage, start_usage_tracking
-from app.core.observability.trace import TraceRecorder
+from app.core.observability.trace import TraceRecorder, bind_trace_context, unbind_trace_context
 from app.core.planner.planner import RuntimePlanner
 from app.core.prompt.loader import PromptTemplateLoader
 from app.core.tool.gateway import ToolGateway
@@ -21,6 +22,7 @@ from app.core.tool.registry import ToolRegistry
 from app.core.tool.runtime import ToolRuntime
 from app.core.tool.search import ToolSearchService
 from app.core.utils.time_utils import ExecutionTimer, TimeUtils
+from app.core.workflow.registry import WorkflowRegistry
 from app.models.schemas import (
     AgentPlan,
     AgentRunRequest,
@@ -55,18 +57,20 @@ class AgentExecutor:
         self.allow_semantic_fallback = not use_llm
         self.prompt_loader = PromptTemplateLoader()
         self.capability_registry = CapabilityRegistry()
+        self.workflow_registry = WorkflowRegistry(capability_registry=self.capability_registry)
         self.task_understanding = TaskUnderstandingService(
             capability_registry=self.capability_registry,
             llm_client=self.llm_client,
             prompt_loader=self.prompt_loader,
             allow_semantic_fallback=self.allow_semantic_fallback,
+            workflow_registry=self.workflow_registry,
         )
         self.tool_search = ToolSearchService(self.registry)
         self.tool_runtime = ToolRuntime(self.registry)
         self.tool_gateway = ToolGateway(self.registry, self.tool_search, self.tool_runtime)
         self.context_assembler = ContextAssembler()
         self.planner = RuntimePlanner(llm_client=self.llm_client, prompt_loader=self.prompt_loader)
-        self.checkpoint_store = CheckpointStore(settings.checkpoint_dir)
+        self.checkpoint_store = CheckpointStore(database_url=os.getenv("AGENT_RUNTIME_DATABASE_URL", ""))
         self.trace_recorder = TraceRecorder()
         self.graph = AgentGraphBuilder(
             planner=self.planner,
@@ -79,6 +83,13 @@ class AgentExecutor:
             context_assembler=self.context_assembler,
         ).build()
 
+    async def aclose(self) -> None:
+        if self.default_llm_client is not None and hasattr(self.default_llm_client, "aclose"):
+            await self.default_llm_client.aclose()
+        if hasattr(self.context_assembler.memory_client, "aclose"):
+            await self.context_assembler.memory_client.aclose()
+        await self.checkpoint_store.close()
+
     async def execute(self, request: AgentRunRequest) -> AgentRunResponse:
         timer = ExecutionTimer()
         timer.start()
@@ -86,28 +97,47 @@ class AgentExecutor:
         run_id = TimeUtils.gen_run_id()
         session_id = request.session_id or f"session_{uuid4().hex[:16]}"
         # 日志上下文贯穿整次 run：graph、工具、LLM 客户端等嵌套模块日志自动携带链路字段。
-        with logger.contextualize(run_id=run_id, session_id=session_id, trace_id=trace_id):
-            return await self._execute_inner(request, timer, trace_id, run_id, session_id)
+        request_meta = request.metadata or {}
+        trace_context_token = bind_trace_context(
+            request_id=request.trace_id or request_meta.get("request_id"),
+            session_id=session_id,
+            run_id=run_id,
+            user_id=str(request_meta.get("user_id") or request_meta.get("operator_id") or ""),
+            actor=str(request_meta.get("actor") or "runtime"),
+            component="agent-runtime",
+            request_path=str(request_meta.get("request_path") or request_meta.get("path") or ""),
+            environment=str(request_meta.get("environment") or "runtime"),
+        )
+        try:
+            # 日志上下文贯穿整次 run：graph、工具、LLM 客户端等嵌套模块日志自动携带链路字段。
+            with logger.contextualize(run_id=run_id, session_id=session_id, trace_id=trace_id):
+                return await self._execute_inner(request, timer, trace_id, run_id, session_id)
+        finally:
+            unbind_trace_context(trace_context_token)
 
     async def _execute_inner(
         self, request: AgentRunRequest, timer: ExecutionTimer, trace_id: str, run_id: str, session_id: str
     ) -> AgentRunResponse:
         logger.info("Agent 执行开始")
-        await self.trace_recorder.record(trace_id, TraceEventName.RUN_START.value, {"session_id": session_id}, run_id)
-        self._apply_request_llm(request)
+        await self.trace_recorder.record(
+            trace_id, TraceEventName.RUN_START.value, {"session_id": session_id}, run_id=run_id
+        )
+        llm_client = self._resolve_request_llm(request)
+        owns_llm_client = llm_client is not None and llm_client is not self.default_llm_client
+        graph = self.graph if not owns_llm_client else self._build_graph(llm_client)
         start_usage_tracking()
 
         state = await self._initial_state(request, session_id, run_id, trace_id)
 
         try:
-            final_state = await self.graph.ainvoke(state)
+            final_state = await graph.ainvoke(state)
             timer.end()
-            await self._record_llm_usage(trace_id, run_id)
+            await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(
                 trace_id,
                 TraceEventName.RUN_END.value,
                 {"status": final_state.get("status"), "latency_ms": timer.get_latency_ms()},
-                run_id,
+                run_id=run_id,
             )
             logger.info(f"Agent 执行完成：status={final_state.get('status')}")
             return AgentRunResponse(
@@ -127,7 +157,7 @@ class AgentExecutor:
                 permission_records=final_state.get("permission_records", []),
                 logs=final_state.get("logs", []),
                 trace_events=self.trace_recorder.list_by_run(run_id),
-                metrics=self._collect_metrics(final_state),
+                metrics=self._collect_metrics(final_state, llm_client),
                 stop_reason=final_state.get("stop_reason"),
             )
         except Exception as e:
@@ -135,20 +165,22 @@ class AgentExecutor:
             latest_checkpoint = await self.checkpoint_store.load_latest(session_id)
             if latest_checkpoint and latest_checkpoint.get("state"):
                 latest_state = self._hydrate_state(latest_checkpoint.get("state") or {})
-                latest_state.update({
-                    "run_id": run_id,
-                    "trace_id": trace_id,
-                    "session_id": session_id,
-                    "metadata": request.metadata,
-                    "_resume_skip_until": latest_checkpoint.get("stage"),
-                })
+                latest_state.update(
+                    {
+                        "run_id": run_id,
+                        "trace_id": trace_id,
+                        "session_id": session_id,
+                        "metadata": request.metadata,
+                        "_resume_skip_until": latest_checkpoint.get("stage"),
+                    }
+                )
                 state = latest_state
             state["status"] = RuntimeStatus.FAIL.value
             state["stop_reason"] = "runtime_error"
             state["error"] = str(e)
             await self.checkpoint_store.save(session_id, run_id, "runtime_error", state)
-            await self._record_llm_usage(trace_id, run_id)
-            await self.trace_recorder.record(trace_id, TraceEventName.RUN_END.value, {"error": str(e)}, run_id)
+            await self._record_llm_usage(trace_id, run_id, llm_client)
+            await self.trace_recorder.record(trace_id, TraceEventName.RUN_END.value, {"error": str(e)}, run_id=run_id)
             logger.exception("Agent 执行失败")
             return AgentRunResponse(
                 run_id=run_id,
@@ -163,10 +195,13 @@ class AgentExecutor:
                 directive=state.get("directive"),
                 task_understanding=state.get("task_understanding"),
                 trace_events=self.trace_recorder.list_by_run(run_id),
-                metrics=self._collect_metrics(state),
+                metrics=self._collect_metrics(state, llm_client),
                 stop_reason="runtime_error",
                 error=str(e),
             )
+        finally:
+            if owns_llm_client and hasattr(llm_client, "aclose"):
+                await llm_client.aclose()
 
     async def execute_stream(self, request: AgentRunRequest) -> AsyncIterator[Dict]:
         """以 Token 流式执行问答，逐字 yield SSE 事件。
@@ -183,18 +218,46 @@ class AgentExecutor:
         trace_id = TimeUtils.gen_trace_id(request.trace_id)
         run_id = TimeUtils.gen_run_id()
         session_id = request.session_id or f"session_{uuid4().hex[:16]}"
+        request_meta = request.metadata or {}
+        trace_context_token = bind_trace_context(
+            request_id=request.trace_id or request_meta.get("request_id"),
+            session_id=session_id,
+            run_id=run_id,
+            user_id=str(request_meta.get("user_id") or request_meta.get("operator_id") or ""),
+            actor=str(request_meta.get("actor") or "runtime"),
+            component="agent-runtime",
+            request_path=str(request_meta.get("request_path") or request_meta.get("path") or ""),
+            environment=str(request_meta.get("environment") or "runtime"),
+        )
         # 同 execute：日志上下文贯穿整次流式 run，消费方 await 间隙产生的日志同样携带链路字段。
-        with logger.contextualize(run_id=run_id, session_id=session_id, trace_id=trace_id):
-            async for event in self._execute_stream_inner(request, timer, trace_id, run_id, session_id):
-                yield event
+        try:
+            with logger.contextualize(run_id=run_id, session_id=session_id, trace_id=trace_id):
+                async for event in self._execute_stream_inner(request, timer, trace_id, run_id, session_id):
+                    yield event
+        finally:
+            unbind_trace_context(trace_context_token)
 
     async def _execute_stream_inner(
         self, request: AgentRunRequest, timer: ExecutionTimer, trace_id: str, run_id: str, session_id: str
     ) -> AsyncIterator[Dict]:
         logger.info("Agent 流式执行开始")
-        await self.trace_recorder.record(trace_id, TraceEventName.RUN_START.value, {"session_id": session_id, "stream": True}, run_id)
+        await self.trace_recorder.record(
+            trace_id, TraceEventName.RUN_START.value, {"session_id": session_id, "stream": True}, run_id=run_id
+        )
         # 流式路径按请求解析本地客户端，不写实例属性，避免进程级单例执行器并发污染。
         llm_client = self._resolve_request_llm(request)
+        owns_llm_client = llm_client is not None and llm_client is not self.default_llm_client
+        task_understanding = (
+            self.task_understanding
+            if not owns_llm_client
+            else TaskUnderstandingService(
+                capability_registry=self.capability_registry,
+                llm_client=llm_client,
+                prompt_loader=self.prompt_loader,
+                allow_semantic_fallback=self.allow_semantic_fallback,
+                workflow_registry=self.workflow_registry,
+            )
+        )
         start_usage_tracking()
 
         accumulated: List[str] = []
@@ -207,18 +270,29 @@ class AgentExecutor:
             yield {"event": "processing", "data": {"message": "正在理解你的问题并准备作答。"}}
             short_answer = None
             messages: List[ChatMessage] = []
-            upstream_directive = metadata.get("upstream_directive") if isinstance(metadata.get("upstream_directive"), dict) else {}
-            upstream_impl = upstream_directive.get("implementation") if isinstance(upstream_directive.get("implementation"), dict) else {}
-            upstream_required_tools = upstream_impl.get("required_tools") or []
+            graph_state: Dict = {}
+            task = None
+            directive = None
+            upstream_directive = (
+                metadata.get("upstream_directive") if isinstance(metadata.get("upstream_directive"), dict) else {}
+            )
+            upstream_contract = (
+                upstream_directive.get("capability_contract")
+                if isinstance(upstream_directive.get("capability_contract"), dict)
+                else {}
+            )
+            upstream_required_tools = upstream_contract.get("required_tools") or []
             # runtime_execute 走直达合成快路径，但快路径不跑工具。若上游 directive 声明了 required_tools，
             # 直达合成会丢掉这些工具产出、给出空心答案，因此此时退回完整理解+工具收集路径，宁可牺牲首字延迟也要保证产出完整。
             if metadata.get("runtime_execute") and not upstream_required_tools:
                 # Java 后端已完成任务理解与能力路由，这里跳过重复理解直达流式合成，缩短首字时间。
-                await self.trace_recorder.record(trace_id, TraceEventName.UNDERSTAND_GOAL.value, {"reused_upstream": True}, run_id)
+                await self.trace_recorder.record(
+                    trace_id, TraceEventName.UNDERSTAND_GOAL.value, {"reused_upstream": True}, run_id=run_id
+                )
                 directive = upstream_directive
                 answer = directive.get("answer")
                 risk = str(directive.get("risk") or directive.get("risk_level") or "").strip().lower()
-                if answer and self._truthy(directive.get("needs_clarification"), directive.get("needsClarification")):
+                if answer and self._truthy(directive.get("needs_clarification")):
                     short_answer = str(answer)
                     status = RuntimeStatus.PAUSED.value
                     stop_reason = "need_clarification"
@@ -230,9 +304,16 @@ class AgentExecutor:
                     messages = self._build_synthesis_messages_direct(request)
             else:
                 await self.trace_recorder.record(trace_id, TraceEventName.UNDERSTAND_GOAL.value, run_id=run_id)
-                task = await self.task_understanding.understand(request, session_id, run_id, trace_id)
-                profile = self.task_understanding.get_profile(task.profile)
-                directive = self.task_understanding.build_directive(profile, task)
+                task = await task_understanding.understand(request, session_id, run_id, trace_id)
+                if upstream_required_tools:
+                    task.metadata.setdefault("capability_contract", {})["required_tools"] = list(
+                        upstream_required_tools
+                    )
+                    for key in ("allowed_tools", "evidence_requirements", "eval_rubric"):
+                        if key in upstream_contract:
+                            task.metadata["capability_contract"][key] = upstream_contract[key]
+                profile = task_understanding.get_profile(task.profile)
+                directive = task_understanding.build_directive(profile, task)
                 await self.trace_recorder.record(
                     trace_id,
                     TraceEventName.TASK_UNDERSTANDING.value,
@@ -245,9 +326,15 @@ class AgentExecutor:
                         "next_action": task.next_action,
                         "needs_clarification": task.clarification.needed,
                     },
-                    run_id,
+                    run_id=run_id,
                 )
-                await self.trace_recorder.record(trace_id, TraceEventName.CAPABILITY_ROUTE.value, task.routing.model_dump(), run_id)
+                route_payload = task.routing.model_dump()
+                workflow = task.metadata.get("workflow") if isinstance(task.metadata, dict) else None
+                if isinstance(workflow, dict):
+                    route_payload["workflow"] = dict(workflow)
+                await self.trace_recorder.record(
+                    trace_id, TraceEventName.CAPABILITY_ROUTE.value, route_payload, run_id=run_id
+                )
 
                 # 澄清 / 安全拦截 / directive 既有答案：成段下发，不进入合成。
                 if task.clarification.needed:
@@ -260,20 +347,58 @@ class AgentExecutor:
                     stop_reason = "safety_blocked"
                 elif directive and directive.get("answer"):
                     short_answer = str(directive.get("answer"))
+                elif self._workflow_has_external_action(task):
+                    # external_action 属于 BFF/外部执行器职责。Runtime 仅返回 workflow/directive 元数据，
+                    # 不把配置中的动作名解释为工具或函数调用。
+                    short_answer = ""
+                    graph_state = {
+                        "task_understanding": task,
+                        "directive": directive,
+                        "tool_results": [],
+                        "permission_records": [],
+                    }
                 else:
-                    observations = await self._collect_tool_observations(request, task, session_id, run_id, trace_id)
-                    messages = self._build_synthesis_messages(request, task, observations)
+                    graph_state = await self._execute_required_tools(
+                        request, task, session_id, run_id, trace_id, llm_client
+                    )
+                    if graph_state:
+                        status = str(graph_state.get("status") or RuntimeStatus.FAIL.value)
+                        stop_reason = str(graph_state.get("stop_reason") or "runtime_error")
+                        task = graph_state.get("task_understanding") or task
+                        directive = graph_state.get("directive") or directive
+                        if self._is_true_graph_success(graph_state, task):
+                            observations = list(graph_state.get("observations") or [])
+                            if llm_client is None:
+                                short_answer = str(graph_state.get("answer") or "")
+                            else:
+                                messages = await asyncio.to_thread(
+                                    self._build_synthesis_messages, request, task, observations
+                                )
+                        else:
+                            if status == RuntimeStatus.SUCCESS.value:
+                                status = RuntimeStatus.FAIL.value
+                                stop_reason = "tool_execution_failed"
+                            short_answer = str(graph_state.get("answer") or self._terminal_answer(status, stop_reason))
+                    else:
+                        messages = await asyncio.to_thread(self._build_synthesis_messages, request, task, [])
 
             if short_answer is not None:
                 accumulated.append(short_answer)
                 yield {"event": "token", "data": {"text": short_answer}}
             elif llm_client is None:
-                # 无可用模型客户端时退回非流式执行，整段下发，保证可用性。
+                # 纯生成路径无模型时退回非流式执行；required-tools 路径已直接使用 Graph 终态，禁止重复执行工具。
                 response = await self.execute(request)
                 accumulated.append(response.answer or "")
                 yield {"event": "token", "data": {"text": response.answer or ""}}
                 status = response.status.value
                 stop_reason = response.stop_reason or stop_reason
+                graph_state = {
+                    "plan": response.plan,
+                    "directive": response.directive,
+                    "task_understanding": response.task_understanding,
+                    "tool_results": response.tool_results,
+                    "permission_records": response.permission_records,
+                }
             else:
                 async for piece in llm_client.stream_chat(messages):
                     text = piece.get("text") if isinstance(piece, dict) else piece
@@ -289,10 +414,13 @@ class AgentExecutor:
             timer.end()
             answer = "".join(accumulated)
             reasoning = "".join(reasoning_acc)
-            await self.trace_recorder.record(trace_id, TraceEventName.FINALIZE.value, {"status": status}, run_id)
+            await self.trace_recorder.record(trace_id, TraceEventName.FINALIZE.value, {"status": status}, run_id=run_id)
             await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(
-                trace_id, TraceEventName.RUN_END.value, {"status": status, "latency_ms": timer.get_latency_ms(), "stream": True}, run_id
+                trace_id,
+                TraceEventName.RUN_END.value,
+                {"status": status, "latency_ms": timer.get_latency_ms(), "stream": True},
+                run_id=run_id,
             )
             logger.info(f"Agent 流式执行完成：chars={len(answer)}")
             yield {
@@ -306,7 +434,14 @@ class AgentExecutor:
                     "answer": answer,
                     "reasoning": reasoning,
                     "latency_ms": timer.get_latency_ms(),
-                    "metrics": self._collect_metrics({}, llm_client),
+                    "metrics": self._collect_metrics(graph_state, llm_client),
+                    "plan": self._dump_model(graph_state.get("plan")),
+                    "directive": graph_state.get("directive") or directive,
+                    "task_understanding": self._dump_model(graph_state.get("task_understanding") or task),
+                    "tool_results": [self._dump_model(item) for item in graph_state.get("tool_results", [])],
+                    "permission_records": [
+                        self._dump_model(item) for item in graph_state.get("permission_records", [])
+                    ],
                     "trace_events": [event.model_dump() for event in self.trace_recorder.list_by_run(run_id)],
                 },
             }
@@ -314,26 +449,71 @@ class AgentExecutor:
             timer.end()
             logger.exception("Agent 流式执行失败")
             await self._record_llm_usage(trace_id, run_id, llm_client)
-            await self.trace_recorder.record(trace_id, TraceEventName.RUN_END.value, {"error": str(e), "stream": True}, run_id)
-            yield {"event": "error", "data": {"message": str(e), "trace_id": trace_id, "session_id": session_id, "run_id": run_id}}
+            await self.trace_recorder.record(
+                trace_id, TraceEventName.RUN_END.value, {"error": str(e), "stream": True}, run_id=run_id
+            )
+            yield {
+                "event": "error",
+                "data": {"message": str(e), "trace_id": trace_id, "session_id": session_id, "run_id": run_id},
+            }
+        finally:
+            if owns_llm_client and hasattr(llm_client, "aclose"):
+                await llm_client.aclose()
 
-    async def _collect_tool_observations(self, request, task, session_id, run_id, trace_id) -> List[str]:
-        """仅当能力声明 required_tools 时，跑完整 Graph Loop 收集工具观察供合成使用。"""
-        implementation = task.metadata.get("implementation") if isinstance(task.metadata, dict) else None
-        required = implementation.get("required_tools") if isinstance(implementation, dict) else None
+    async def _execute_required_tools(self, request, task, session_id, run_id, trace_id, llm_client=None) -> Dict:
+        """能力声明 required_tools 时执行完整 Graph，并保留其真实终态。"""
+        capability_contract = task.metadata.get("capability_contract") if isinstance(task.metadata, dict) else None
+        required = capability_contract.get("required_tools") if isinstance(capability_contract, dict) else None
         if not required:
-            return []
+            return {}
         state = await self._initial_state(request, session_id, run_id, trace_id)
         state["request"] = request
-        final_state = await self.graph.ainvoke(state)
-        return list(final_state.get("observations") or [])
+        state["task_understanding"] = task
+        state["directive"] = self.task_understanding.build_directive(
+            self.task_understanding.get_profile(task.profile), task
+        )
+        state["objective"] = task.rewritten_query.planner_query or task.original_query or state.get("objective", "")
+        state["profile"] = task.profile
+        state["_resume_skip_until"] = "task_understanding"
+        graph = self.graph if llm_client is self.default_llm_client else self._build_graph(llm_client)
+        return await graph.ainvoke(state)
+
+    def _is_true_graph_success(self, state: Dict, task: TaskUnderstandingResult | None) -> bool:
+        if state.get("status") != RuntimeStatus.SUCCESS.value or state.get("stop_reason") != "task_complete":
+            return False
+        results = [item for item in state.get("tool_results", []) if not item.metadata.get("synthetic")]
+        if any(not item.success for item in results):
+            return False
+        contract = task.metadata.get("capability_contract") if task and isinstance(task.metadata, dict) else None
+        required = {str(item) for item in ((contract or {}).get("required_tools") or [])}
+        succeeded = {item.tool_name for item in results if item.success}
+        return required.issubset(succeeded)
+
+    def _workflow_has_external_action(self, task: TaskUnderstandingResult | None) -> bool:
+        workflow = task.metadata.get("workflow") if task and isinstance(task.metadata, dict) else None
+        steps = workflow.get("steps") if isinstance(workflow, dict) else None
+        return any(isinstance(step, dict) and bool(step.get("external_action")) for step in (steps or []))
+
+    def _terminal_answer(self, status: str, stop_reason: str) -> str:
+        if status == RuntimeStatus.NEED_CONFIRM.value:
+            return "任务需要确认后才能继续执行。"
+        if status == RuntimeStatus.PAUSED.value:
+            return f"任务已暂停：{stop_reason}。"
+        return f"任务执行失败：{stop_reason}。"
+
+    def _dump_model(self, value):
+        if value is None:
+            return None
+        return value.model_dump() if hasattr(value, "model_dump") else value
 
     def _build_synthesis_messages_direct(self, request) -> List[ChatMessage]:
         """快路径合成消息：复用 Java 后端的路由结果，不再二次任务理解。
 
         稳定系统前缀 + 单条用户消息（原始问题 + 精简个人上下文），保证首字延迟最低且不污染 Prompt 缓存前缀。
         """
-        system_prompt = self.prompt_loader.load("synthesis/default.md", fallback="你是答案合成器，直接输出面向用户的自然语言答案。")
+        system_prompt = self.prompt_loader.load(
+            "synthesis/default.md", fallback="你是答案合成器，直接输出面向用户的自然语言答案。"
+        )
         objective = str(request.messages[-1].content) if request.messages else ""
         metadata = request.metadata or {}
         personal = metadata.get("personal_context")
@@ -345,9 +525,7 @@ class AgentExecutor:
                 context_lines.append(f"- {key}: {value}")
         context_text = "\n".join(context_lines) if context_lines else "（无额外个人上下文）"
         user_content = (
-            f"用户问题：\n{objective}\n\n"
-            f"已知个人上下文：\n{context_text}\n\n"
-            f"请据此直接生成面向用户的最终答案。"
+            f"用户问题：\n{objective}\n\n已知个人上下文：\n{context_text}\n\n请据此直接生成面向用户的最终答案。"
         )
         return [
             ChatMessage(role="system", content=system_prompt),
@@ -364,7 +542,9 @@ class AgentExecutor:
 
     def _build_synthesis_messages(self, request, task, observations) -> List[ChatMessage]:
         """构造答案合成消息：稳定的系统前缀 + 单条携带上下文与观察的用户消息。"""
-        system_prompt = self.prompt_loader.load("synthesis/default.md", fallback="你是答案合成器，直接输出面向用户的自然语言答案。")
+        system_prompt = self.prompt_loader.load(
+            "synthesis/default.md", fallback="你是答案合成器，直接输出面向用户的自然语言答案。"
+        )
         assembled = self.context_assembler.assemble(
             messages=request.messages,
             task=task,
@@ -396,20 +576,26 @@ class AgentExecutor:
                 state["trace_id"] = trace_id
                 state["session_id"] = session_id
                 state["messages"] = request.messages or state.get("messages", [])
-                state["objective"] = str(request.messages[-1].content) if request.messages else state.get("objective", "")
-                state["permission_mode"] = request.permission_mode.value
+                state["objective"] = (
+                    str(request.messages[-1].content) if request.messages else state.get("objective", "")
+                )
+                state["permission_mode"] = self._request_permission_mode(request).value
                 state["budget"] = request.budget.model_dump()
                 state["metadata"] = metadata
                 state["profile"] = str(metadata.get("profile") or state.get("profile") or "default")
                 state["status"] = RuntimeStatus.RUNNING.value
                 state["should_stop"] = False
                 checkpoint_stage = checkpoint.get("stage")
-                state["_resume_skip_until"] = state.get("_resume_skip_until") if checkpoint_stage == "runtime_error" else checkpoint_stage
+                state["_resume_skip_until"] = (
+                    state.get("_resume_skip_until") if checkpoint_stage == "runtime_error" else checkpoint_stage
+                )
                 state["_resumed_from_run_id"] = previous_run_id
                 state.pop("answer", None)
                 state.pop("error", None)
                 self._attach_token_usage(state)
-                logger.info(f"从 checkpoint 恢复：session_id={session_id}, stage={checkpoint.get('stage')}, previous_run_id={previous_run_id}")
+                logger.info(
+                    f"从 checkpoint 恢复：session_id={session_id}, stage={checkpoint.get('stage')}, previous_run_id={previous_run_id}"
+                )
                 return state
 
         state = {
@@ -418,7 +604,7 @@ class AgentExecutor:
             "session_id": session_id,
             "messages": request.messages,
             "objective": str(request.messages[-1].content) if request.messages else "",
-            "permission_mode": request.permission_mode.value,
+            "permission_mode": self._request_permission_mode(request).value,
             "budget": request.budget.model_dump(),
             "metadata": metadata,
             "profile": str(metadata.get("profile") or metadata.get("agent_profile") or "default"),
@@ -430,17 +616,29 @@ class AgentExecutor:
             "tool_results": [],
             "permission_records": [],
             "observations": [],
+            "observed_tool_call_ids": [],
+            "reflection": {},
             "logs": [],
             "metrics": {},
         }
         self._attach_token_usage(state)
         return state
 
+    def _request_permission_mode(self, request: AgentRunRequest) -> PermissionMode:
+        mode = request.permission_mode
+        if mode == PermissionMode.AUTO and not settings.config.permission.allow_auto_permission_mode:
+            logger.warning("请求声明 permission_mode=auto 未经服务端授权，已降级为 default")
+            return PermissionMode.DEFAULT
+        if mode == PermissionMode.BYPASS and not settings.config.permission.allow_bypass_permission_mode:
+            logger.warning("请求声明 permission_mode=bypass 未经服务端授权，已降级为 default")
+            return PermissionMode.DEFAULT
+        return mode
+
     def _attach_token_usage(self, state) -> None:
         """把当前 run 的 token 累计器挂到 state，供 LoopController 做预算仲裁。
 
         累计器与客户端写入是同一可变字典对象，state 读取即为最新值；checkpoint 恢复
-        路径同样覆盖旧快照，token 预算按当前 run 重新累计，不跨 run 叠加。
+        路径同样覆盖恢复快照，token 预算按当前 run 重新累计，不跨 run 叠加。
         """
         usage = current_usage()
         if usage is not None:
@@ -453,12 +651,18 @@ class AgentExecutor:
             hydrated["task_understanding"] = self._model(TaskUnderstandingResult, hydrated.get("task_understanding"))
         if hydrated.get("plan") is not None:
             hydrated["plan"] = self._model(AgentPlan, hydrated.get("plan"))
-        hydrated["candidate_tools"] = [self._model(ToolDefinition, item) for item in hydrated.get("candidate_tools", [])]
+        hydrated["candidate_tools"] = [
+            self._model(ToolDefinition, item) for item in hydrated.get("candidate_tools", [])
+        ]
         if hydrated.get("selected_tool_call") is not None:
             hydrated["selected_tool_call"] = self._model(ToolCall, hydrated.get("selected_tool_call"))
         hydrated["tool_results"] = [self._model(ToolResult, item) for item in hydrated.get("tool_results", [])]
-        hydrated["permission_records"] = [self._model(PermissionRecord, item) for item in hydrated.get("permission_records", [])]
+        hydrated["permission_records"] = [
+            self._model(PermissionRecord, item) for item in hydrated.get("permission_records", [])
+        ]
         hydrated.setdefault("observations", [])
+        hydrated.setdefault("observed_tool_call_ids", [])
+        hydrated.setdefault("reflection", {})
         hydrated.setdefault("logs", [])
         hydrated.setdefault("profile", "default")
         hydrated.setdefault("metrics", {})
@@ -473,21 +677,37 @@ class AgentExecutor:
         metadata = request.metadata or {}
         override = metadata.get("llm_service") or metadata.get("llmService")
         if isinstance(override, dict):
-            credential = str(override.get("api_key") or override.get("apiKey") or override.get("auth_token") or override.get("authToken") or "").strip()
+            credential = str(
+                override.get("api_key")
+                or override.get("apiKey")
+                or override.get("auth_token")
+                or override.get("authToken")
+                or ""
+            ).strip()
             if credential and credential.upper() not in {"EMPTY", "NONE", "NULL", "****"}:
                 return OpenAICompatibleClient.from_config(override)
         return self.default_llm_client
 
-    def _apply_request_llm(self, request: AgentRunRequest):
-        """非流式全图执行路径：Planner/TaskUnderstanding 在 Graph 内部读取实例属性，
-        因此这里仍需设置实例属性。注意执行器为进程级单例，并发的覆盖请求会相互影响；
-        当前后端未下发 llm_service 覆盖（恒为同一 default_llm_client），故无实际竞态。
-        流式路径已改为使用 _resolve_request_llm 的本地客户端，不再走这里。
-        """
-        client = self._resolve_request_llm(request)
-        self.llm_client = client
-        self.task_understanding.llm_client = client
-        self.planner.llm_client = client
+    def _build_graph(self, llm_client):
+        """Build a request-local graph when a run overrides its LLM connection."""
+        task_understanding = TaskUnderstandingService(
+            capability_registry=self.capability_registry,
+            llm_client=llm_client,
+            prompt_loader=self.prompt_loader,
+            allow_semantic_fallback=self.allow_semantic_fallback,
+            workflow_registry=self.workflow_registry,
+        )
+        planner = RuntimePlanner(llm_client=llm_client, prompt_loader=self.prompt_loader)
+        return AgentGraphBuilder(
+            planner=planner,
+            tool_search=self.tool_search,
+            tool_runtime=self.tool_runtime,
+            task_understanding=task_understanding,
+            checkpoint_store=self.checkpoint_store,
+            trace_recorder=self.trace_recorder,
+            tool_gateway=self.tool_gateway,
+            context_assembler=self.context_assembler,
+        ).build()
 
     async def _record_llm_usage(self, trace_id: str, run_id: str, llm_client=None) -> None:
         """把 run 级 token 用量与缓存命中写入 Trace，供评估与成本归因使用。
@@ -501,7 +721,7 @@ class AgentExecutor:
         client = llm_client or self.llm_client
         if client and hasattr(client, "get_cache_metrics"):
             payload["llm_cache"] = client.get_cache_metrics()
-        await self.trace_recorder.record(trace_id, TraceEventName.LLM_USAGE.value, payload, run_id)
+        await self.trace_recorder.record(trace_id, TraceEventName.LLM_USAGE.value, payload, run_id=run_id)
 
     def _collect_metrics(self, state, llm_client=None):
         metrics = dict(state.get("metrics") or {})

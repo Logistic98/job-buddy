@@ -120,9 +120,9 @@ capabilities:
     description: 根据用户给出的城市、岗位方向、薪资、经验和偏好，触发岗位搜索或推荐工作流。只有用户明确要找、筛选、搜索、推荐岗位或职位机会时才选择该能力。
     examples:
       - "帮我筛选上海大模型应用开发 40-50K 岗位"
-      - "找一些 Java 后端职位"
-      - "看看杭州 Python 远程机会"
-      - "有没有适合我的 Agent 工程师岗位"
+      - "找一些上海 Java 大模型应用开发职位"
+      - "看看上海 Java 大模型应用开发 40-50K 机会"
+      - "有没有适合我的 Java Agent 应用开发岗位"
     negative_examples:
       - "分析当前简历是否匹配 Agent 应用开发岗位"
       - "帮我写一个 Python 脚本处理 CSV"
@@ -133,9 +133,7 @@ capabilities:
     optional_slots: ["city", "salary_min_k", "salary_max_k", "boss_experience", "preferences", "boss_page"]
     risk: low
     next_action: call_get_recommend_jobs
-    implementation_status: partial
-    implementation_notes: "默认走真实 Boss 搜索；登录失效时触发扫码登录并在登录后继续执行；数据来源必须是真实岗位。"
-    required_tools: ["boss.search_jobs"]
+    required_tools: ["boss_browser"]
     evidence_requirements: ["真实 Boss 搜索结果", "岗位来源和岗位 ID", "用户槽位约束"]
     context_dependencies: ["profile"]
     secondary: ["needs_job_filters"]
@@ -163,8 +161,6 @@ capabilities:
     optional_slots: ["role", "target_job_description", "city", "salary_min_k", "salary_max_k"]
     risk: low
     next_action: run_resume_match
-    implementation_status: partial
-    implementation_notes: "必须基于已解析简历和真实岗位列表或用户提供的完整 JD；只有岗位名称时不得评分。"
     required_tools: ["resume_match"]
     evidence_requirements: ["已解析简历", "真实岗位列表或完整 JD", "逐条匹配证据"]
     eval_rubric:
@@ -182,13 +178,11 @@ capabilities:
     intent: resume.analyze
     execution_intent: compare_analyze
     execution_mode: STABLE_WORKFLOW
-    description: 读取当前简历并分析结构、表达、项目亮点、风险点和改进方向。
+    description: 读取当前简历并分析内容质量、经历价值、项目亮点、风险点和改进方向。
     examples: ["分析一下我的简历", "当前简历有什么问题", "简历评分和优劣势"]
-    keywords: ["简历", "分析", "评分", "优劣", "问题", "深挖点", "排版", "错别字"]
+    keywords: ["简历", "分析", "评分", "优劣", "问题", "深挖点", "内容质量", "经历价值", "量化成果"]
     risk: low
     next_action: run_resume_analyze
-    implementation_status: partial
-    implementation_notes: "已接入简历解析和 LLM 分析；输出质量依赖模型配置和 PDF 文本抽取质量。"
     required_tools: ["resume_analyze"]
     evidence_requirements: ["PDF 文本抽取结果", "结构化简历"]
     context_dependencies: ["profile", "resume"]
@@ -202,14 +196,12 @@ capabilities:
     intent: resume.optimize
     execution_intent: generate_artifact
     execution_mode: COMPLEX_AGENT_TASK
-    description: 根据目标岗位或简历问题，生成简历修改、润色、改写和项目表达优化建议；缺少专用改写工具时，由 Runtime Planner 基于简历文本、目标 JD、通用求职知识和可用联网资料给出带限制说明的建议。
+    description: 根据目标岗位或简历问题，由 Runtime Planner 基于简历文本、目标 JD、通用求职知识和可用联网资料生成可审计的修改、润色、改写和项目表达优化建议，不直接覆盖简历版本。
     examples: ["帮我优化简历", "润色这段项目经历", "简历怎么提升"]
     keywords: ["简历", "优化", "修改", "润色", "改写", "提升", "包装"]
     risk: low
     next_action: run_runtime_planner
     planner_needed: true
-    implementation_status: partial
-    implementation_notes: "已允许 Runtime 托管生成建议；若缺少专用简历版本化编辑工具或证据不足，应基于用户提供材料、通用知识和可用 Web 内容输出建议，并明确证据边界。"
     required_tools: ["resume_parse"]
     allowed_tools: ["web_search", "web_fetch"]
     evidence_requirements: ["已解析简历或用户粘贴的简历内容", "目标岗位 JD 或明确优化目标", "可审计修改建议", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]
@@ -253,14 +245,12 @@ capabilities:
     intent: job.compare
     execution_intent: compare_analyze
     execution_mode: COMPLEX_AGENT_TASK
-    description: 对当前岗位列表、这一批岗位或收藏岗位做排序、风险、优先级和取舍分析；缺少专用评分器时，由 Runtime Planner 基于已有岗位证据、用户偏好、通用行业知识和可用联网资料生成定性对比。
+    description: 由 Runtime Planner 基于真实岗位列表、用户偏好、通用行业知识和可用联网资料，对当前岗位或收藏岗位执行排序、风险、优先级和取舍分析。
     examples: ["这些岗位哪个优先", "当前岗位列表对比一下", "这批岗位风险排序"]
     keywords: ["这些岗位", "岗位列表", "当前岗位", "这批岗位", "对比", "排序", "风险", "优先级", "哪个"]
     risk: low
     next_action: run_runtime_planner
     planner_needed: true
-    implementation_status: partial
-    implementation_notes: "已允许 Runtime 托管做岗位对比；若缺少专用评分器，只输出基于真实岗位列表、用户偏好和可用 Web 内容的定性分析。"
     required_tools: []
     allowed_tools: ["web_search", "web_fetch"]
     evidence_requirements: ["当前真实岗位列表或用户粘贴的岗位信息", "排序维度", "风险证据", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]
@@ -274,14 +264,12 @@ capabilities:
     intent: interview.prepare
     execution_intent: generate_artifact
     execution_mode: COMPLEX_AGENT_TASK
-    description: 生成面试准备清单、问题、回答、复盘和反问建议；缺少专用面试题工具时，由 Runtime Planner 基于简历/JD、岗位方向、通用知识和可用联网资料生成可用的准备方案。
+    description: 由 Runtime Planner 基于简历、JD、岗位方向、通用知识和可用联网资料生成面试准备清单、问题、回答、复盘和反问建议。
     examples: ["帮我准备一面", "生成面试问题", "HR 面怎么准备"]
     keywords: ["面试", "一面", "二面", "HR面", "终面", "准备", "问题", "回答", "复盘", "反问"]
     risk: low
     next_action: run_runtime_planner
     planner_needed: true
-    implementation_status: partial
-    implementation_notes: "已允许 Runtime 托管生成面试准备内容；若缺少专用题库、答案评估或追问模拟工具，应基于简历/JD、岗位方向、通用知识和可用 Web 内容输出，并明确哪些结论缺少岗位证据。"
     required_tools: []
     allowed_tools: ["web_search", "web_fetch"]
     evidence_requirements: ["已解析简历或用户粘贴的项目经历", "目标岗位 JD 或岗位方向", "题目与简历/JD 的证据关联", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]
@@ -294,14 +282,12 @@ capabilities:
     intent: application.material
     execution_intent: generate_artifact
     execution_mode: COMPLEX_AGENT_TASK
-    description: 生成投递说明、自荐、求职信、沟通话术和 JD 匹配材料；缺少专用材料生成工具时，由 Runtime Planner 基于用户提供事实、目标 JD、通用求职知识和可用联网资料生成草稿。
+    description: 由 Runtime Planner 基于用户提供事实、目标 JD、通用求职知识和可用联网资料生成投递说明、自荐、求职信、沟通话术和 JD 匹配材料草稿。
     examples: ["写一段投递说明", "生成自荐材料", "根据 JD 写沟通话术"]
     keywords: ["投递说明", "申请材料", "自荐", "求职信", "沟通话术", "JD匹配", "JD 匹配"]
     risk: low
     next_action: run_runtime_planner
     planner_needed: true
-    implementation_status: partial
-    implementation_notes: "已允许 Runtime 托管生成求职材料草稿；若缺少事实一致性校验工具，应只基于用户提供事实、目标 JD、通用知识和可用 Web 内容生成，并标注需要用户确认的事实。"
     required_tools: []
     allowed_tools: ["web_search", "web_fetch"]
     evidence_requirements: ["已解析简历或用户提供的经历事实", "目标 JD 或岗位方向", "材料事实引用", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]

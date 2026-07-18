@@ -1,10 +1,9 @@
-
 from typing import Literal, Optional
 
 from pydantic import BaseModel
 
 from app.core.capability.models import ProfileDefinition
-from app.core.common.constants import StopReason
+from app.core.common.constants import RuntimeStatus, StopReason
 from app.core.common.settings import settings
 from app.models.state import AgentGraphState
 
@@ -48,14 +47,18 @@ class LoopController:
         if turn > self._budget_value(state, "max_turns", settings.max_turns):
             return BudgetDecision(blocked=True, reason="达到最大轮数", stop_reason=StopReason.MAX_TURNS.value)
         if tool_calls >= self.max_tool_calls(state):
-            return BudgetDecision(blocked=True, reason="达到工具调用预算", stop_reason=StopReason.TOOL_BUDGET_EXCEEDED.value)
+            return BudgetDecision(
+                blocked=True, reason="达到工具调用预算", stop_reason=StopReason.TOOL_BUDGET_EXCEEDED.value
+            )
         if failures >= self._budget_value(state, "max_failures", settings.max_failures):
             return BudgetDecision(blocked=True, reason="连续失败次数过多", stop_reason=StopReason.MAX_FAILURES.value)
         max_tokens = self._budget_value(state, "max_tokens", settings.max_run_tokens)
         if max_tokens > 0:
             total_tokens = int((state.get("token_usage") or {}).get("total_tokens") or 0)
             if total_tokens >= max_tokens:
-                return BudgetDecision(blocked=True, reason="达到 Token 预算", stop_reason=StopReason.TOKEN_BUDGET_EXCEEDED.value)
+                return BudgetDecision(
+                    blocked=True, reason="达到 Token 预算", stop_reason=StopReason.TOKEN_BUDGET_EXCEEDED.value
+                )
         return BudgetDecision(blocked=False)
 
     def failure_budget_reached(self, state: AgentGraphState) -> bool:
@@ -108,7 +111,17 @@ class LoopController:
     def route_after_reflect(self, state: AgentGraphState) -> Literal["tool_search", "finalize"]:
         if state.get("should_stop"):
             return "finalize"
+        reflection = state.get("reflection") or {}
+        decision = str(reflection.get("decision") or "")
+        if decision in {"finalize", "need_confirm", "stop_failed"}:
+            return "finalize"
         if self.turn_budget_reached(state):
             state["stop_reason"] = StopReason.MAX_TURNS.value
             return "finalize"
-        return "tool_search"
+        if decision in {"retry", "replan", ""}:
+            return "tool_search"
+        state["status"] = RuntimeStatus.FAIL.value
+        state["stop_reason"] = StopReason.RUNTIME_ERROR.value
+        state["answer"] = f"反思阶段返回了未知决策：{decision}。"
+        state["should_stop"] = True
+        return "finalize"

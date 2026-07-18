@@ -1,4 +1,3 @@
-
 """任务理解使用的纯文本匹配与归一化工具。
 
 这些函数无状态、可独立测试，被槽位抽取与离线能力打分共同复用，
@@ -25,7 +24,7 @@ def tokens(value: str) -> List[str]:
         if len(chunk) <= 4:
             grams.append(chunk)
         else:
-            grams.extend(chunk[i:i + 2] for i in range(0, len(chunk) - 1))
+            grams.extend(chunk[i : i + 2] for i in range(0, len(chunk) - 1))
     return ascii_tokens + grams
 
 
