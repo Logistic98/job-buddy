@@ -5,5 +5,6 @@ import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.prompt.model.PersonalContext;
 
 public interface PersonalContextBuilder {
-    PersonalContext build(String userId, String message, IntentResult intent, ChatSessionState state);
+  PersonalContext build(
+      String tenantId, String userId, String message, IntentResult intent, ChatSessionState state);
 }

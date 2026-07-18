@@ -1,20 +1,10 @@
 package com.jobbuddy.backend.modules.prompt.dto.response;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class ProfileContextResponse extends MapBackedDto {
-    public ProfileContextResponse() {
-    }
-
-    public ProfileContextResponse(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static ProfileContextResponse from(Map<String, Object> fields) {
-        return new ProfileContextResponse(fields);
-    }
+public class ProfileContextResponse {
+  private String summary;
+  private JsonNode profile;
 }

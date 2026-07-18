@@ -1,9 +1,11 @@
 package com.jobbuddy.backend.modules.prompt.service;
 
-import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
 
 public interface PromptRegistryService {
-    String activeProfile();
-    Map<String, Object> frontendWorkbench(String profile);
-    Map<String, Object> profileConfig(String profile);
+  String activeProfile();
+
+  JsonNode frontendWorkbench(String profile);
+
+  JsonNode profileConfig(String profile);
 }

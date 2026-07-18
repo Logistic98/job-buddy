@@ -1,34 +1,27 @@
 package com.jobbuddy.backend.modules.prompt.model;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.jobbuddy.backend.common.util.JsonCodec;
 
 public class UserProfileContext {
-    private final Map<String, Object> profile;
-    private final String summary;
+  private static final JsonCodec JSON = new JsonCodec();
+  private final JsonNode profile;
+  private final String summary;
 
-    public UserProfileContext(Map<String, Object> profile, String summary) {
-        this.profile = profile == null ? Collections.<String, Object>emptyMap() : new LinkedHashMap<String, Object>(profile);
-        this.summary = summary == null ? "" : summary;
-    }
+  public UserProfileContext(Object profile, String summary) {
+    this.profile = JSON.toTree(profile);
+    this.summary = summary == null ? "" : summary;
+  }
 
-    public Map<String, Object> getProfile() {
-        return profile;
-    }
+  public JsonNode getProfile() {
+    return profile.deepCopy();
+  }
 
-    public String getSummary() {
-        return summary;
-    }
+  public String getSummary() {
+    return summary;
+  }
 
-    public boolean isEmpty() {
-        return profile.isEmpty() && summary.trim().isEmpty();
-    }
-
-    public Map<String, Object> toMap() {
-        Map<String, Object> data = new LinkedHashMap<String, Object>();
-        data.put("summary", summary);
-        data.put("profile", profile);
-        return data;
-    }
+  public boolean isEmpty() {
+    return profile.isEmpty() && summary.trim().isEmpty();
+  }
 }

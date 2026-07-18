@@ -1,20 +1,21 @@
 package com.jobbuddy.backend.modules.project.dto.request;
 
 import lombok.Data;
-import com.jobbuddy.backend.common.dto.MapBackedDto;
-
-import java.util.Map;
 
 @Data
-public class ProjectRequest extends MapBackedDto {
-    public ProjectRequest() {
-    }
-
-    public ProjectRequest(Map<String, Object> fields) {
-        super(fields);
-    }
-
-    public static ProjectRequest from(Map<String, Object> fields) {
-        return new ProjectRequest(fields);
-    }
+public class ProjectRequest {
+  private String name;
+  private String role;
+  private String summary;
+  private String techStack;
+  private String projectPeriod;
+  private String teamSize;
+  private String projectType;
+  private String businessDomain;
+  private String projectStatus;
+  private String background;
+  private String responsibilities;
+  private String highlights;
+  private String challenges;
+  private String outcomes;
 }
