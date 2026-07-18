@@ -1,8 +1,4 @@
-
-"""目标 Agent API 契约。
-
-/v1/agent/* 统一交给 AgentExecutor 执行，/v1/runtime/* 保留兼容。
-"""
+"""Agent 运行 API 契约。"""
 
 import json
 
@@ -27,7 +23,7 @@ async def run_agent_stream(request: AgentRunRequest):
     """Token 级流式问答入口，返回 text/event-stream。
 
     逐事件下发：token（答案增量）、done（终态聚合）、error（异常）。请求契约与
-    非流式 /runs 一致，仅返回形态不同；非流式入口保留为兼容与回退路径。
+    非流式 /runs 一致，仅返回形态不同。
     """
 
     async def event_source():

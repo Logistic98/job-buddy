@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter
 
 from app.api.responses import success

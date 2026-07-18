@@ -6,12 +6,13 @@
 
 - Runtime 主链路：会话入口、目标理解、Planner、Tool Search、预算检查、工具执行、观察与结束判断。
 - 工具体系：工具定义、工具注册中心、别名索引、工具检索、权限检查、统一 Tool Runtime；Boss 浏览器能力在 Runtime 中仅保留 `boss_browser` 代理工具，具体实现位于 agent-tool。
-- LangGraph 编排：使用状态图组织目标理解、上下文收集、Tool Search、Planner、预算、执行、观察和结束判断。
-- 检查点：每个关键阶段写入 JSON 检查点，支持中断恢复和审计追踪。
+- LangGraph 编排：使用状态图组织目标理解、上下文收集、Tool Search、Planner、预算、执行、全量观察、反思和结束判断；流式与非流式路径共享状态图终态语义。
+- Workflow 注册与路由：启动时加载并校验 `config/workflows/`，按 Profile 与 entry capability 将只读流程元数据加入任务理解、directive 和 Trace；外部业务动作仍由声明的 Backend/BFF 执行。
+- 检查点：每个关键阶段写入 JSON 检查点，支持中断恢复和审计追踪；启用但未配置 PostgreSQL DSN 时明确告警并仅在本地内存兜底。
 - OpenAI 兼容模型：默认接入 DeepSeek v4 Pro，统一从 YAML 读取模型服务配置，支持完整 chat/completions URL、重试、超时和工具 Schema。
 - Prompt Cache：Planner 将稳定系统提示和稳定排序的候选工具目录放在动态上下文之前，适配 DeepSeek 服务端基于公共前缀的自动缓存。
 - 权限安全：支持 allow/deny、只读工具、破坏性工具、高风险工具、Shell allow/deny 规则。
-- 可观测：记录 run_start、plan_created、permission_check、tool_execute_end、finalize 等 Trace 事件。
+- 可观测：记录 run_start、plan_created、permission_check、tool_execute_end、observe、reflect、finalize 等 Trace 事件；澄清、预算、权限和失败终态保留明确的 status 与 stop_reason。
 - FastAPI 服务：提供运行接口、工具列表接口、配置脱敏查看接口和 Trace 查询接口。
 
 ## 目录结构
@@ -75,7 +76,7 @@ docker run --name job_buddy_runtime \
 ## API 示例
 
 ```shell
-curl -X POST http://localhost:8010/v1/runtime/runs \
+curl -X POST http://localhost:8010/v1/agent/runs \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"请回显 hello runtime"}]}'
 ```
@@ -138,7 +139,7 @@ runtime:
 
 checkpoint:
   enabled: true
-  dir: ".runtime_checkpoints"
+  dir: ""  # PostgreSQL via AGENT_RUNTIME_DATABASE_URL / AGENT_MEMORY_DATABASE_URL
 
 permission:
   default_mode: "default"

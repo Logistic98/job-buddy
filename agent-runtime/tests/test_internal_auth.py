@@ -12,6 +12,12 @@ from app.internal_auth import INTERNAL_AUTH_HEADER, install_internal_auth
 pytestmark = pytest.mark.skipif(TestClient is None, reason="fastapi testclient not available")
 
 
+@pytest.fixture(autouse=True)
+def _clear_internal_auth_environment(monkeypatch):
+    monkeypatch.delenv("AGENT_INTERNAL_SERVICE_TOKEN", raising=False)
+    monkeypatch.delenv("JOB_BUDDY_ENVIRONMENT", raising=False)
+
+
 def _build_app() -> FastAPI:
     app = FastAPI()
 
@@ -26,12 +32,19 @@ def _build_app() -> FastAPI:
     return app
 
 
-def test_auth_disabled_when_token_not_configured(monkeypatch):
-    monkeypatch.delenv("AGENT_INTERNAL_SERVICE_TOKEN", raising=False)
+def test_auth_disabled_when_token_not_configured():
     app = _build_app()
     install_internal_auth(app)
     client = TestClient(app)
     assert client.get("/v1/protected").status_code == 200
+
+
+@pytest.mark.parametrize("environment", ["prod", "production", "PRODUCTION"])
+def test_production_requires_internal_service_token(monkeypatch, environment):
+    monkeypatch.setenv("JOB_BUDDY_ENVIRONMENT", environment)
+
+    with pytest.raises(RuntimeError, match="AGENT_INTERNAL_SERVICE_TOKEN"):
+        install_internal_auth(_build_app())
 
 
 def test_missing_token_rejected_with_unified_envelope(monkeypatch):
@@ -56,6 +69,7 @@ def test_wrong_token_rejected(monkeypatch):
 
 
 def test_valid_token_accepted(monkeypatch):
+    monkeypatch.setenv("JOB_BUDDY_ENVIRONMENT", "production")
     monkeypatch.setenv("AGENT_INTERNAL_SERVICE_TOKEN", "secret-token")
     app = _build_app()
     install_internal_auth(app)

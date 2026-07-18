@@ -67,11 +67,8 @@ runtime:
   # 工作目录。文件类工具默认只能访问该目录下的文件，避免越权读写。
   workspace_dir: "${JOB_BUDDY_RUNTIME_WORKSPACE_DIR:.}"
 
-  # 大工具结果内联返回的最大字符数。超过后会写入 result_storage_dir 并返回预览和文件路径。
+  # 大工具结果内联返回的最大字符数。超过后仅返回截断预览，不写本地业务文件。
   max_inline_result_chars: 12000
-
-  # 大工具结果落盘目录。
-  result_storage_dir: "${JOB_BUDDY_RUNTIME_RESULT_STORAGE_DIR:.runtime_results}"
 
   # Profile / Workflow / Prompt 配置目录。Agent Core 通过这些配置加载业务能力，核心代码不硬编码业务规则。
   profiles_dir: "${JOB_BUDDY_RUNTIME_PROFILES_DIR:config/profiles}"
@@ -83,7 +80,6 @@ runtime:
   business_metadata_keys:
     - resume_id
     - current_jobs_count
-    - boss_live_enabled
 
 tool_search:
   # 全局启用 Tool Search：Agent Loop 先搜索候选工具，再把候选工具交给 Planner，避免全量工具塞进 Prompt。
@@ -101,22 +97,25 @@ web_search:
   fallback_to_duckduckgo: "${JOB_BUDDY_WEB_SEARCH_FALLBACK_TO_DUCKDUCKGO:true}"
 
 checkpoint:
-  # 是否启用检查点。建议生产环境开启，用于中断恢复和审计。
+  # 是否启用 PostgreSQL 检查点，用于中断恢复和审计。
   enabled: true
 
-  # 检查点存储目录。当前实现为 JSON 文件存储，后续可替换为 Redis/PostgreSQL。
-  dir: ".runtime_checkpoints"
-
-  # 每个 session 保留的最大检查点文件数量。超过后自动清理旧文件。
+  # 每个 session 在 PostgreSQL 中保留的最大检查点数量。
   max_per_session: 100
 
 permission:
   # 默认权限模式：
   # default：低风险只读工具自动执行，高风险/破坏性工具拦截。
-  # auto：允许高风险工具自动执行，适合后端受控任务。
+  # auto：允许高风险工具自动执行，仅在服务端显式开启后端受控任务时生效。
   # plan：只规划不执行工具。
   # bypass：绕过权限检查，仅建议本地调试使用。
   default_mode: "default"
+
+  # 是否接受 API 请求声明 permission_mode=auto。默认拒绝并降级为 default。
+  allow_auto_permission_mode: "${JOB_BUDDY_ALLOW_AUTO_PERMISSION_MODE:false}"
+
+  # 是否接受 API 请求声明 permission_mode=bypass。仅允许隔离环境显式开启，默认拒绝。
+  allow_bypass_permission_mode: "${JOB_BUDDY_ALLOW_BYPASS_PERMISSION_MODE:false}"
 
   # 是否允许高风险工具在 default 模式自动执行。
   allow_high_risk_in_default: false
@@ -126,14 +125,6 @@ permission:
 
   # 明确拒绝的工具名称。优先级高于 allow_tools。
   deny_tools: []
-
-  # 只读工具白名单。用于后续只读模式和审计标识。
-  read_only_tools:
-    - "echo"
-    - "file_read"
-    - "glob"
-    - "grep"
-    - "web_fetch"
 
   # 破坏性工具列表。写文件、编辑文件、Shell 执行等默认进入高风险审查。
   destructive_tools:
@@ -207,8 +198,8 @@ observability:
   # 是否将 Trace 事件以 JSONL 形式落盘，支持重启后回放与评估取证。
   persist_enabled: "${JOB_BUDDY_TRACE_PERSIST_ENABLED:true}"
 
-  # Trace 落盘目录，每个 run_id 一个 JSONL 文件。
-  persist_dir: "${JOB_BUDDY_TRACE_PERSIST_DIR:.runtime_traces}"
+  # Trace 属于日志，统一写入项目日志目录；不得作为业务状态存储。
+  persist_dir: "${JOB_BUDDY_TRACE_PERSIST_DIR:../.run/logs/runtime-traces}"
 
 memory:
   # 是否启用 agent-memory 长期记忆检索。开启后上下文装配阶段会注入 memory_refs。

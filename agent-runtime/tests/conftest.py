@@ -1,4 +1,3 @@
-
 import sys
 from pathlib import Path
 from uuid import uuid4
@@ -15,7 +14,6 @@ def workspace(tmp_path, monkeypatch):
     from app.core.common.settings import settings
 
     monkeypatch.setattr(settings.config.runtime, "workspace_dir", str(tmp_path))
-    monkeypatch.setattr(settings.config.runtime, "result_storage_dir", str(tmp_path / ".runtime_results"))
     return tmp_path
 
 
@@ -29,13 +27,10 @@ def trace_persist_dir(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def checkpoint_dir(tmp_path, monkeypatch):
-    from app.core.common.settings import settings
+def checkpoint_store():
+    from app.core.checkpoint.store import CheckpointStore
 
-    target = tmp_path / ".runtime_checkpoints"
-    target.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(settings.config.checkpoint, "dir", str(target))
-    return target
+    return CheckpointStore(database_url="")
 
 
 @pytest.fixture

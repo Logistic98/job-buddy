@@ -1,6 +1,6 @@
 [project]
 name = "job-buddy-runtime"
-version = "0.1.0"
+version = "1.0.0"
 description = "LangGraph-based Agent Runtime for Job Buddy tool体系"
 requires-python = "==3.10.16"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
     "pyyaml>=6.0.1",
     "mcp>=1.2.0",
     "pypdf>=4.0.0",
+    "asyncpg>=0.29.0,<1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +35,9 @@ packages = ["app"]
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+
+[tool.ruff.format]
+line-ending = "lf"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

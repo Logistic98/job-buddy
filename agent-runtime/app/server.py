@@ -1,4 +1,3 @@
-
 import time
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -25,7 +24,10 @@ async def lifespan(app: FastAPI):
             logger.info(f"启动期 MCP 工具已注册：count={len(registered)}, names={registered}")
     except Exception as e:
         logger.exception(f"启动期 MCP 工具注册异常，Runtime 继续启动：error={e}")
-    yield
+    try:
+        yield
+    finally:
+        await executor.aclose()
 
 
 async def request_logging_middleware(request: Request, call_next):
@@ -41,7 +43,9 @@ async def request_logging_middleware(request: Request, call_next):
             response = await call_next(request)
         except Exception:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
-            logger.exception(f"HTTP 请求异常：method={request.method}, path={request.url.path}, elapsed_ms={elapsed_ms}")
+            logger.exception(
+                f"HTTP 请求异常：method={request.method}, path={request.url.path}, elapsed_ms={elapsed_ms}"
+            )
             raise
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         log = logger.debug if request.url.path == "/health" else logger.info
@@ -55,7 +59,7 @@ async def request_logging_middleware(request: Request, call_next):
 
 def create_app() -> FastAPI:
     setup_logging()
-    app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
     # 先装鉴权、后装请求日志：请求日志中间件位于最外层，401 拒绝也会留下访问日志。
     install_internal_auth(app)
     app.middleware("http")(request_logging_middleware)

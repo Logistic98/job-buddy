@@ -1,4 +1,3 @@
-
 import pytest
 
 try:
@@ -8,6 +7,7 @@ except ImportError:
 
 from app.server import create_app
 from app.core.common.settings import settings
+from app.tools_builtin.boss_browser_tool import BossBrowserTool
 
 
 def assert_success_envelope(response):
@@ -22,10 +22,21 @@ def assert_success_envelope(response):
 def client(monkeypatch):
     if TestClient is None:
         pytest.skip("fastapi.testclient 不可用")
-    # API 层测试必须自给自足，不能依赖本机 .env 里的真实 LLM 密钥：
-    # 注入确定性的本地配置，让 config 脱敏和 echo 语义回退在 CI（无密钥）下稳定复现。
+    # API 层测试必须自给自足，不能依赖本机 .env 里的内部令牌或真实 LLM 密钥；
+    # 服务间鉴权行为由 test_internal_auth.py 专项覆盖。
+    monkeypatch.delenv("AGENT_INTERNAL_SERVICE_TOKEN", raising=False)
     monkeypatch.setattr(settings.config.llm_service, "api_key", "sk-test-runtime-key-1234")
     monkeypatch.setattr(settings.config.runtime, "use_llm_planner", False)
+
+    async def fake_checkpoint_save(*_args, **_kwargs):
+        return None
+
+    async def fake_checkpoint_load(*_args, **_kwargs):
+        return None
+
+    # API 契约测试不得连接 .env 中的远程 PostgreSQL；持久化行为由 checkpoint 专项测试覆盖。
+    monkeypatch.setattr("app.core.checkpoint.store.CheckpointStore.save", fake_checkpoint_save)
+    monkeypatch.setattr("app.core.checkpoint.store.CheckpointStore.load_latest", fake_checkpoint_load)
     monkeypatch.setattr("app.api.runtime._executor", None)
     return TestClient(create_app())
 
@@ -54,21 +65,13 @@ def test_config_endpoint_masks_api_key(client):
     assert "****" in api_key
 
 
-def test_run_agent_endpoint_echo(client):
-    payload = {"messages": [{"role": "user", "content": "请回显 hello api"}]}
-    response = client.post("/v1/runtime/runs", json=payload)
-    body = assert_success_envelope(response)["data"]
-    assert body["status"] in {"success", "paused"}
-    assert body["run_id"].startswith("run_")
-    assert any(r["tool_name"] == "echo" for r in body["tool_results"])
-
-
 def test_agent_runs_endpoint_uses_standard_envelope(client):
     payload = {"messages": [{"role": "user", "content": "请回显 hello agent api"}]}
     response = client.post("/v1/agent/runs", json=payload)
     body = assert_success_envelope(response)["data"]
     assert body["status"] in {"success", "paused"}
     assert body["run_id"].startswith("run_")
+    assert any(r["tool_name"] == "echo" for r in body["tool_results"])
 
 
 def test_invoke_tool_direct_echo(client):
@@ -80,6 +83,29 @@ def test_invoke_tool_direct_echo(client):
     assert data["success"] is True
     assert data["output"]["text"] == "direct invoke"
     assert data["tool_name"] == "echo"
+
+
+def test_direct_tool_invoke_passes_service_identity_to_tool_context(client, monkeypatch):
+    captured = {}
+
+    async def fake_run(self, arguments, context):
+        captured["arguments"] = arguments
+        captured["metadata"] = dict(context.metadata)
+        return {"code": 200, "message": "success", "data": {"status": "auth_required"}}
+
+    monkeypatch.setattr(BossBrowserTool, "_run", fake_run)
+    response = client.post(
+        "/v1/runtime/tools/boss_browser/invoke",
+        headers={"X-Tenant-Id": "tenant-a", "X-Operator-Id": "user-a"},
+        json={"arguments": {"operation": "status", "payload": {}}},
+    )
+
+    data = assert_success_envelope(response)["data"]
+    assert data["success"] is True
+    assert captured["arguments"] == {"operation": "status", "payload": {}}
+    assert captured["metadata"]["tenant_id"] == "tenant-a"
+    assert captured["metadata"]["operator_id"] == "user-a"
+    assert captured["metadata"]["user_id"] == "user-a"
 
 
 def test_direct_tool_invoke_ignores_caller_workspace(client, tmp_path, monkeypatch):
@@ -133,7 +159,7 @@ def test_invoke_tool_unknown_returns_404(client):
 
 def test_trace_events_endpoint_query_by_run_id(client):
     payload = {"messages": [{"role": "user", "content": "请回显 trace 测试"}]}
-    run_response = client.post("/v1/runtime/runs", json=payload).json()["data"]
+    run_response = client.post("/v1/agent/runs", json=payload).json()["data"]
     run_id = run_response["run_id"]
 
     response = client.get(f"/v1/runtime/trace-events?run_id={run_id}")

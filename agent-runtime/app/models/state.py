@@ -1,4 +1,3 @@
-
 from typing import Any, Dict, List, Optional, TypedDict
 
 from app.models.schemas import (
@@ -29,6 +28,8 @@ class AgentGraphState(TypedDict, total=False):
     tool_results: List[ToolResult]
     permission_records: List[PermissionRecord]
     observations: List[str]
+    observed_tool_call_ids: List[str]
+    reflection: Dict[str, Any]
     answer: Optional[str]
     status: str
     stop_reason: Optional[str]

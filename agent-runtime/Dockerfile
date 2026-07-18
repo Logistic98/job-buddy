@@ -1,27 +1,25 @@
-FROM python:3.10.16-slim AS runtime
+ARG DOCKER_REGISTRY=docker.io
+ARG PYTHON_VERSION=3.10.16
+FROM ${DOCKER_REGISTRY}/library/python:${PYTHON_VERSION}-slim AS build
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG UV_DEFAULT_INDEX=https://pypi.org/simple
+ENV PIP_NO_CACHE_DIR=1
+WORKDIR /app
+RUN pip install --no-cache-dir uv==0.10.6
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project --no-cache
 
+FROM ${DOCKER_REGISTRY}/library/python:${PYTHON_VERSION}-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    UV_SYSTEM_PYTHON=1
-
+    VIRTUAL_ENV=/app/.venv \
+    PATH=/app/.venv/bin:$PATH
 WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir uv
-
-COPY pyproject.toml uv.lock* ./
+COPY --from=build /app/.venv ./.venv
 COPY app ./app
 COPY config ./config
 COPY main.py server.py ./
-
-RUN uv pip install --system --no-cache .
-
 EXPOSE 8010
-
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://localhost:8010/health || exit 1
-
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8010"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=3)"]
+CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8010"]

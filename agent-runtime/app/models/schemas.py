@@ -1,6 +1,8 @@
-
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
+
+
+from pydantic import model_validator
 
 from app.core.common.constants import RuntimeStatus, StepStatus, ToolKind, ToolRiskLevel, PermissionMode
 
@@ -38,6 +40,7 @@ class ToolCall(BaseModel):
     name: str
     arguments: Dict[str, Any] = Field(default_factory=dict)
     reason: Optional[str] = None
+    plan_step_id: Optional[str] = None
 
 
 class ToolResult(BaseModel):
@@ -47,7 +50,46 @@ class ToolResult(BaseModel):
     output: Any = None
     error: Optional[str] = None
     latency_ms: int = 0
+    status: str = ""
+    summary: Optional[str] = None
+    data: Any = None
+    warnings: List[str] = Field(default_factory=list)
+    next_actions: List[str] = Field(default_factory=list)
+    trace_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def normalize(self) -> "ToolResult":
+        if self.data is None:
+            self.data = self.output
+
+        if not self.status:
+            if self.success:
+                self.status = "success"
+            elif self.metadata.get("permission_denied"):
+                self.status = "rejected"
+            else:
+                self.status = "error"
+
+        if self.summary is None:
+            if self.error:
+                self.summary = self.error
+            elif self.success:
+                self.summary = f"{self.tool_name} 执行成功"
+            else:
+                self.summary = "工具执行失败"
+
+        if self.metadata.get("warnings") and not self.warnings:
+            raw = self.metadata.get("warnings")
+            if isinstance(raw, list):
+                self.warnings = [str(item) for item in raw]
+
+        if self.metadata.get("suggested_action") and not self.next_actions:
+            self.next_actions = [str(self.metadata.get("suggested_action"))]
+        elif not self.next_actions:
+            self.next_actions = []
+
+        return self
 
 
 class PermissionRecord(BaseModel):
@@ -84,7 +126,7 @@ class AgentPlan(BaseModel):
 class QueryRewrite(BaseModel):
     """Planner 前置改写结果。
 
-    resolved_query 用于可解释日志，retrieval_query 用于能力召回，planner_query 用于后续计划生成。
+    resolved_query 用于可解释日志，retrieval_query 用于能力召回，planner_query 用于计划生成。
     """
 
     resolved_query: str = ""
@@ -225,7 +267,21 @@ class AgentStepLog(BaseModel):
 class TraceEvent(BaseModel):
     trace_id: str
     run_id: Optional[str] = None
+    request_id: Optional[str] = None
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    environment: Optional[str] = None
+    request_path: Optional[str] = None
     event: str
+    stage: Optional[str] = None
+    node_id: Optional[str] = None
+    component: Optional[str] = None
+    actor: Optional[str] = None
+    status: str = "success"
+    duration_ms: Optional[int] = None
+    error: Optional[str] = None
+    span_id: Optional[str] = None
+    schema_version: str = "v1"
     timestamp: str
     payload: Dict[str, Any] = Field(default_factory=dict)
 

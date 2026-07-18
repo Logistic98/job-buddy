@@ -1,9 +1,8 @@
-
 from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.responses import success
@@ -12,7 +11,7 @@ from app.core.common.constants import PermissionMode
 from app.core.common.settings import reload_settings, settings
 from app.core.tool.base import ToolExecutionContext
 from app.core.tool.mcp_adapter import register_mcp_tools
-from app.models.schemas import AgentRunRequest, ToolCall
+from app.models.schemas import ToolCall
 from app.tools_builtin import register_missing_builtin_tools
 
 router = APIRouter(prefix="/v1/runtime", tags=["runtime"])
@@ -46,20 +45,6 @@ class ToolInvokeRequest(BaseModel):
     workspace_dir: Optional[str] = None
 
 
-@router.post("/runs")
-async def run_agent(request: AgentRunRequest):
-    data = await get_executor().execute(request)
-    return success(data.model_dump())
-
-
-@router.post("/agent/runs")
-async def run_agent_profile(request: AgentRunRequest):
-    """目标 Agent Core 契约的兼容入口。"""
-
-    data = await get_executor().execute(request)
-    return success(data.model_dump())
-
-
 @router.get("/tools")
 async def list_tools():
     executor = get_executor()
@@ -76,11 +61,16 @@ async def reload_mcp_tools():
 
 
 @router.post("/tools/{name}/invoke")
-async def invoke_tool(name: str, request: ToolInvokeRequest):
+async def invoke_tool(
+    name: str,
+    request: ToolInvokeRequest,
+    x_tenant_id: Optional[str] = Header(default=None),
+    x_operator_id: Optional[str] = Header(default=None),
+):
     """直接调用指定工具，绕过 Agent Loop。供上游 backend 在意图路由后直接派发工具用。
 
     用于已经精确知道要做什么的场景，例如调用 resume_match 等。
-    高风险破坏性工具仍受工具自身权限元信息约束，后续可以叠加调用方鉴权。
+    高风险破坏性工具同时受工具权限元信息和调用上下文约束。
     """
 
     executor = get_executor()
@@ -97,12 +87,21 @@ async def invoke_tool(name: str, request: ToolInvokeRequest):
     workspace_dir = _configured_workspace_dir()
 
     tool_call = ToolCall(id=f"call_{uuid4().hex[:8]}", name=name, arguments=request.arguments or {})
+    metadata: Dict[str, Any] = {}
+    if request.workspace_dir:
+        metadata["requested_workspace_dir"] = request.workspace_dir
+    if x_tenant_id and x_tenant_id.strip():
+        metadata["tenant_id"] = x_tenant_id.strip()
+    if x_operator_id and x_operator_id.strip():
+        metadata["operator_id"] = x_operator_id.strip()
+        metadata["user_id"] = x_operator_id.strip()
+
     context = ToolExecutionContext(
         run_id=run_id,
         trace_id=trace_id,
         session_id=session_id,
         workspace_dir=workspace_dir,
-        metadata={"requested_workspace_dir": request.workspace_dir} if request.workspace_dir else {},
+        metadata=metadata,
     )
     result = await executor.tool_runtime.execute(tool_call, _default_permission_mode(), context)
     if result.metadata.get("permission_denied"):
