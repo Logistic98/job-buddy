@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -50,10 +49,12 @@ class ContextAssembler:
             "confidence": task.intent.confidence if task else 0.0,
             "slots": task.slots.filled if task else {},
             "missing_required": task.slots.missing_required if task else [],
-            "candidate_capabilities": [item.model_dump() for item in (task.routing.candidate_capabilities if task else [])[:5]],
+            "candidate_capabilities": [
+                item.model_dump() for item in (task.routing.candidate_capabilities if task else [])[:5]
+            ],
         }
-        recent_messages = [self._message_summary(item) for item in messages[-self.max_messages:]]
-        recent_observations = list(observations[-self.max_observations:])
+        recent_messages = [self._message_summary(item) for item in messages[-self.max_messages :]]
+        recent_observations = list(observations[-self.max_observations :])
         long_term_refs = self._long_term_refs(task, metadata)
         tool_refs = self._tool_refs(tool_results)
         payload = {
@@ -95,7 +96,15 @@ class ContextAssembler:
             return []
         scope = metadata.get("memory_scope")
         trace_id = metadata.get("trace_id")
-        return self.memory_client.search(objective, scope=scope, trace_id=trace_id)
+        tenant_id = metadata.get("tenant_id")
+        operator_id = metadata.get("operator_id") or metadata.get("user_id")
+        return self.memory_client.search(
+            objective,
+            scope=scope,
+            trace_id=trace_id,
+            tenant_id=str(tenant_id) if tenant_id else None,
+            operator_id=str(operator_id) if operator_id else None,
+        )
 
     def _last_user_message(self, messages: List[ChatMessage]) -> str:
         for message in reversed(messages or []):
@@ -107,7 +116,9 @@ class ContextAssembler:
         text = str(message.content or "")
         return {"role": message.role, "content": text[:500]}
 
-    def _long_term_refs(self, task: Optional[TaskUnderstandingResult], metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _long_term_refs(
+        self, task: Optional[TaskUnderstandingResult], metadata: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
         refs: List[Dict[str, Any]] = []
         if task:
             for ref in task.context.resolved_references[:5]:
@@ -125,13 +136,15 @@ class ContextAssembler:
         for result in tool_results or []:
             if result.metadata.get("synthetic"):
                 continue
-            refs.append({
-                "tool": result.tool_name,
-                "success": result.success,
-                "summary": self._compact(result.output if result.success else result.error),
-                "trace_id": result.metadata.get("trace_id"),
-            })
-        return refs[-self.max_observations:]
+            refs.append(
+                {
+                    "tool": result.tool_name,
+                    "success": result.success,
+                    "summary": self._compact(result.output if result.success else result.error),
+                    "trace_id": result.metadata.get("trace_id"),
+                }
+            )
+        return refs[-self.max_observations :]
 
     def _to_budgeted_summary(self, payload: Dict[str, Any]) -> str:
         text = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
