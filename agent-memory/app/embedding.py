@@ -31,7 +31,9 @@ class EmbeddingClient:
 
     @property
     def enabled(self) -> bool:
-        return _env_flag("AGENT_MEMORY_EMBEDDING_ENABLED") and bool(os.getenv("AGENT_MEMORY_EMBEDDING_BASE_URL", "").strip())
+        return _env_flag("AGENT_MEMORY_EMBEDDING_ENABLED") and bool(
+            os.getenv("AGENT_MEMORY_EMBEDDING_BASE_URL", "").strip()
+        )
 
     async def embed(self, texts: list[str]) -> list[list[float]] | None:
         """批量向量化文本，任一环节失败返回 None，由调用方降级。"""

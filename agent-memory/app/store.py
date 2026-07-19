@@ -72,6 +72,7 @@ class MemoryItem:
     scope: str
     content: str
     created_at: str
+    tenant_id: str = "default-tenant"
     kind: str = DEFAULT_MEMORY_KIND
     operator_id: str | None = None
     version: int = 1
@@ -117,22 +118,37 @@ class MemoryStore:
         ttl_seconds: int | None = None,
         kind: str | None = None,
         operator_id: str | None = None,
+        tenant_id: str = "default-tenant",
     ) -> MemoryItem:
         item = MemoryItem(
             id=f"mem_{uuid4().hex[:12]}",
             scope=scope,
             content=content,
             created_at=_now().isoformat(),
+            tenant_id=tenant_id,
             kind=normalize_kind(kind),
-            operator_id=operator_id,
+            operator_id=operator_id or "anonymous",
             expires_at=_expires_at(ttl_seconds),
         )
         self.items.append(item)
         return item
 
-    async def search(self, query: str, scope: str | None = None) -> list[MemoryItem]:
+    async def search(
+        self,
+        query: str,
+        scope: str | None = None,
+        *,
+        tenant_id: str = "default-tenant",
+        operator_id: str = "anonymous",
+    ) -> list[MemoryItem]:
         self.purge_expired()
-        candidates = [item for item in self.items if scope is None or item.scope == scope]
+        candidates = [
+            item
+            for item in self.items
+            if item.tenant_id == tenant_id
+            and item.operator_id == operator_id
+            and (scope is None or item.scope == scope)
+        ]
         return await hybrid_rank(query, candidates)
 
     def _record_revision(self, item: MemoryItem, operator_id: str | None) -> None:
@@ -151,10 +167,11 @@ class MemoryStore:
         content: str,
         ttl_seconds: int | None = None,
         operator_id: str | None = None,
+        tenant_id: str = "default-tenant",
     ) -> MemoryItem | None:
         self.purge_expired()
         for item in self.items:
-            if item.id == item_id:
+            if item.id == item_id and item.tenant_id == tenant_id and item.operator_id == operator_id:
                 self._record_revision(item, operator_id)
                 item.content = content
                 item.updated_at = _now().isoformat()
@@ -166,13 +183,15 @@ class MemoryStore:
                 return item
         return None
 
-    def rollback(self, item_id: str, operator_id: str | None = None) -> MemoryItem | None:
+    def rollback(
+        self, item_id: str, operator_id: str | None = None, tenant_id: str = "default-tenant"
+    ) -> MemoryItem | None:
         self.purge_expired()
         history = self.revisions.get(item_id)
         if not history:
             return None
         for item in self.items:
-            if item.id == item_id:
+            if item.id == item_id and item.tenant_id == tenant_id and item.operator_id == operator_id:
                 previous = history.pop()
                 item.content = previous.content
                 item.updated_at = _now().isoformat()
@@ -185,9 +204,13 @@ class MemoryStore:
     def revision_count(self, item_id: str) -> int:
         return len(self.revisions.get(item_id, []))
 
-    def delete(self, item_id: str) -> bool:
+    def delete(self, item_id: str, *, tenant_id: str, operator_id: str) -> bool:
         before = len(self.items)
-        self.items = [item for item in self.items if item.id != item_id]
+        self.items = [
+            item
+            for item in self.items
+            if not (item.id == item_id and item.tenant_id == tenant_id and item.operator_id == operator_id)
+        ]
         deleted = len(self.items) < before
         if deleted:
             self.revisions.pop(item_id, None)
@@ -207,7 +230,13 @@ class PostgresMemoryStore:
     """agent-memory PostgreSQL 本地持久化存储。"""
 
     def __init__(self, dsn: str | None = None):
-        self.dsn = (dsn or os.getenv("AGENT_MEMORY_DATABASE_URL") or os.getenv("DATABASE_URL") or self._spring_datasource_dsn() or "").strip()
+        self.dsn = (
+            dsn
+            or os.getenv("AGENT_MEMORY_DATABASE_URL")
+            or os.getenv("DATABASE_URL")
+            or self._spring_datasource_dsn()
+            or ""
+        ).strip()
         self.pool: asyncpg.Pool | None = None
 
     @property
@@ -217,13 +246,41 @@ class PostgresMemoryStore:
     async def connect(self) -> None:
         if not self.enabled or self.pool is not None:
             return
-        self.pool = await asyncpg.create_pool(
-            dsn=self.dsn,
-            min_size=1,
-            max_size=int(os.getenv("AGENT_MEMORY_DB_POOL_SIZE", "5")),
-            command_timeout=float(os.getenv("AGENT_MEMORY_DB_CMD_TIMEOUT", "5")),
-        )
-        await self.init_schema()
+        try:
+            self.pool = await asyncpg.create_pool(
+                dsn=self.dsn,
+                min_size=1,
+                max_size=int(os.getenv("AGENT_MEMORY_DB_POOL_SIZE", "5")),
+                command_timeout=float(os.getenv("AGENT_MEMORY_DB_CMD_TIMEOUT", "5")),
+                ssl=self._database_ssl_mode(),
+            )
+            await self.init_schema()
+        except Exception as exc:
+            if self.pool is not None:
+                await self.pool.close()
+                self.pool = None
+            parsed = urlparse(self.dsn)
+            target = f"{parsed.hostname or '<unknown>'}:{parsed.port or 5432}"
+            raise RuntimeError(
+                "agent-memory 无法连接 PostgreSQL "
+                f"({target})；请检查地址、端口及 AGENT_MEMORY_DB_SSL_MODE "
+                "（本地无 TLS 使用 disable，生产环境使用 require/verify-full）"
+            ) from exc
+
+    def _database_ssl_mode(self) -> str:
+        configured = os.getenv("AGENT_MEMORY_DB_SSL_MODE", "").strip().lower()
+        if not configured:
+            query = urlparse(self.dsn).query
+            for part in query.split("&"):
+                key, separator, value = part.partition("=")
+                if separator and key.lower() == "sslmode":
+                    configured = value.strip().lower()
+                    break
+        mode = configured or "disable"
+        allowed = {"disable", "prefer", "allow", "require", "verify-ca", "verify-full"}
+        if mode not in allowed:
+            raise ValueError("AGENT_MEMORY_DB_SSL_MODE 仅支持 disable/prefer/allow/require/verify-ca/verify-full")
+        return mode
 
     async def close(self) -> None:
         if self.pool is not None:
@@ -238,50 +295,34 @@ class PostgresMemoryStore:
                 """
                 CREATE TABLE IF NOT EXISTS agent_memory_items (
                     id TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL DEFAULT 'default-tenant',
                     scope TEXT NOT NULL,
                     content TEXT NOT NULL,
                     kind TEXT NOT NULL DEFAULT 'task',
-                    operator_id TEXT,
+                    operator_id TEXT NOT NULL DEFAULT 'anonymous',
                     version INTEGER NOT NULL DEFAULT 1,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ,
                     expires_at TIMESTAMPTZ
-                )
-                """
-            )
-            await conn.execute("ALTER TABLE agent_memory_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ")
-            await conn.execute("ALTER TABLE agent_memory_items ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
-            await conn.execute("ALTER TABLE agent_memory_items ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'task'")
-            await conn.execute("ALTER TABLE agent_memory_items ADD COLUMN IF NOT EXISTS operator_id TEXT")
-            await conn.execute("ALTER TABLE agent_memory_items ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1")
-            await conn.execute(
-                """
+                );
+
                 CREATE TABLE IF NOT EXISTS agent_memory_revisions (
-                    id BIGSERIAL PRIMARY KEY,
+                    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
                     memory_id TEXT NOT NULL,
                     version INTEGER NOT NULL,
                     content TEXT NOT NULL,
                     operator_id TEXT,
-                    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-                """
-            )
-            await conn.execute(
-                """
+                    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT fk_agent_memory_revision_item
+                        FOREIGN KEY (memory_id) REFERENCES agent_memory_items(id) ON DELETE CASCADE
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_agent_memory_revisions_memory_id
-                ON agent_memory_revisions (memory_id, version DESC)
-                """
-            )
-            await conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_agent_memory_items_scope_created_at
-                ON agent_memory_items (scope, created_at DESC)
-                """
-            )
-            await conn.execute(
-                """
+                    ON agent_memory_revisions (memory_id, version DESC);
+                CREATE INDEX IF NOT EXISTS idx_agent_memory_items_owner_scope_created
+                    ON agent_memory_items (tenant_id, operator_id, scope, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_agent_memory_items_content_lower
-                ON agent_memory_items (LOWER(content) text_pattern_ops)
+                    ON agent_memory_items (LOWER(content) text_pattern_ops);
                 """
             )
 
@@ -292,6 +333,7 @@ class PostgresMemoryStore:
         ttl_seconds: int | None = None,
         kind: str | None = None,
         operator_id: str | None = None,
+        tenant_id: str = "default-tenant",
     ) -> MemoryItem:
         if self.pool is None:
             raise RuntimeError("PostgreSQL memory store 未连接")
@@ -299,20 +341,28 @@ class PostgresMemoryStore:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                INSERT INTO agent_memory_items (id, scope, content, kind, operator_id, expires_at)
-                VALUES ($1, $2, $3, $4, $5, CASE WHEN $6::int IS NULL THEN NULL ELSE NOW() + ($6::int * INTERVAL '1 second') END)
-                RETURNING id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                INSERT INTO agent_memory_items (id, tenant_id, scope, content, kind, operator_id, expires_at)
+                VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7::int IS NULL THEN NULL ELSE NOW() + ($7::int * INTERVAL '1 second') END)
+                RETURNING id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
                 """,
                 item_id,
+                tenant_id,
                 scope,
                 content,
                 normalize_kind(kind),
-                operator_id,
+                operator_id or "anonymous",
                 ttl_seconds,
             )
         return self._row_to_item(row)
 
-    async def search(self, query: str, scope: str | None = None) -> list[MemoryItem]:
+    async def search(
+        self,
+        query: str,
+        scope: str | None = None,
+        *,
+        tenant_id: str = "default-tenant",
+        operator_id: str = "anonymous",
+    ) -> list[MemoryItem]:
         if self.pool is None:
             raise RuntimeError("PostgreSQL memory store 未连接")
         terms = significant_terms(query)
@@ -320,57 +370,39 @@ class PostgresMemoryStore:
         pool_size = _search_pool()
         async with self.pool.acquire() as conn:
             if patterns:
-                # 候选召回：命中任一显著词即纳入，后续在 Python 内做相关性重排。
-                if scope is None:
-                    rows = await conn.fetch(
-                        """
-                        SELECT id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
-                        FROM agent_memory_items
-                        WHERE LOWER(content) ILIKE ANY($1::text[]) AND (expires_at IS NULL OR expires_at > NOW())
-                        ORDER BY created_at DESC
-                        LIMIT $2
-                        """,
-                        patterns,
-                        pool_size,
-                    )
-                else:
-                    rows = await conn.fetch(
-                        """
-                        SELECT id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
-                        FROM agent_memory_items
-                        WHERE scope = $1 AND LOWER(content) ILIKE ANY($2::text[]) AND (expires_at IS NULL OR expires_at > NOW())
-                        ORDER BY created_at DESC
-                        LIMIT $3
-                        """,
-                        scope,
-                        patterns,
-                        pool_size,
-                    )
+                rows = await conn.fetch(
+                    """
+                    SELECT id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                    FROM agent_memory_items
+                    WHERE tenant_id = $1 AND operator_id = $2
+                      AND ($3::text IS NULL OR scope = $3)
+                      AND LOWER(content) ILIKE ANY($4::text[])
+                      AND (expires_at IS NULL OR expires_at > NOW())
+                    ORDER BY created_at DESC
+                    LIMIT $5
+                    """,
+                    tenant_id,
+                    operator_id,
+                    scope,
+                    patterns,
+                    pool_size,
+                )
             else:
-                # 无显著词：退化为按时间召回。
-                if scope is None:
-                    rows = await conn.fetch(
-                        """
-                        SELECT id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
-                        FROM agent_memory_items
-                        WHERE (expires_at IS NULL OR expires_at > NOW())
-                        ORDER BY created_at DESC
-                        LIMIT $1
-                        """,
-                        pool_size,
-                    )
-                else:
-                    rows = await conn.fetch(
-                        """
-                        SELECT id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
-                        FROM agent_memory_items
-                        WHERE scope = $1 AND (expires_at IS NULL OR expires_at > NOW())
-                        ORDER BY created_at DESC
-                        LIMIT $2
-                        """,
-                        scope,
-                        pool_size,
-                    )
+                rows = await conn.fetch(
+                    """
+                    SELECT id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                    FROM agent_memory_items
+                    WHERE tenant_id = $1 AND operator_id = $2
+                      AND ($3::text IS NULL OR scope = $3)
+                      AND (expires_at IS NULL OR expires_at > NOW())
+                    ORDER BY created_at DESC
+                    LIMIT $4
+                    """,
+                    tenant_id,
+                    operator_id,
+                    scope,
+                    pool_size,
+                )
         candidates = [self._row_to_item(row) for row in rows]
         return await hybrid_rank(query, candidates)
 
@@ -380,6 +412,7 @@ class PostgresMemoryStore:
         content: str,
         ttl_seconds: int | None = None,
         operator_id: str | None = None,
+        tenant_id: str = "default-tenant",
     ) -> MemoryItem | None:
         if self.pool is None:
             raise RuntimeError("PostgreSQL memory store 未连接")
@@ -389,10 +422,13 @@ class PostgresMemoryStore:
                     """
                     SELECT id, content, version, operator_id, updated_at, created_at
                     FROM agent_memory_items
-                    WHERE id = $1 AND (expires_at IS NULL OR expires_at > NOW())
+                    WHERE id = $1 AND tenant_id = $2 AND operator_id = $3
+                      AND (expires_at IS NULL OR expires_at > NOW())
                     FOR UPDATE
                     """,
                     item_id,
+                    tenant_id,
+                    operator_id or "anonymous",
                 )
                 if current is None:
                     return None
@@ -411,63 +447,83 @@ class PostgresMemoryStore:
                 row = await conn.fetchrow(
                     """
                     UPDATE agent_memory_items
-                    SET content = $2,
+                    SET content = $4,
                         updated_at = NOW(),
                         version = version + 1,
-                        operator_id = COALESCE($3, operator_id),
-                        expires_at = CASE WHEN $4::int IS NULL THEN expires_at ELSE NOW() + ($4::int * INTERVAL '1 second') END
-                    WHERE id = $1
-                    RETURNING id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                        expires_at = CASE WHEN $5::int IS NULL THEN expires_at ELSE NOW() + ($5::int * INTERVAL '1 second') END
+                    WHERE id = $1 AND tenant_id = $2 AND operator_id = $3
+                    RETURNING id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
                     """,
                     item_id,
+                    tenant_id,
+                    operator_id or "anonymous",
                     content,
-                    operator_id,
                     ttl_seconds,
                 )
         return self._row_to_item(row) if row else None
 
-    async def rollback(self, item_id: str, operator_id: str | None = None) -> MemoryItem | None:
+    async def rollback(
+        self, item_id: str, operator_id: str | None = None, tenant_id: str = "default-tenant"
+    ) -> MemoryItem | None:
         if self.pool is None:
             raise RuntimeError("PostgreSQL memory store 未连接")
         async with self.pool.acquire() as conn:
             async with conn.transaction():
                 revision = await conn.fetchrow(
                     """
-                    SELECT id, content FROM agent_memory_revisions
-                    WHERE memory_id = $1
-                    ORDER BY version DESC
+                    SELECT r.id, r.content
+                    FROM agent_memory_revisions r
+                    JOIN agent_memory_items m ON m.id = r.memory_id
+                    WHERE r.memory_id = $1 AND m.tenant_id = $2 AND m.operator_id = $3
+                    ORDER BY r.version DESC
                     LIMIT 1
                     """,
                     item_id,
+                    tenant_id,
+                    operator_id or "anonymous",
                 )
                 if revision is None:
                     return None
                 row = await conn.fetchrow(
                     """
                     UPDATE agent_memory_items
-                    SET content = $2,
+                    SET content = $4,
                         updated_at = NOW(),
-                        version = version + 1,
-                        operator_id = COALESCE($3, operator_id)
-                    WHERE id = $1 AND (expires_at IS NULL OR expires_at > NOW())
-                    RETURNING id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                        version = version + 1
+                    WHERE id = $1 AND tenant_id = $2 AND operator_id = $3
+                      AND (expires_at IS NULL OR expires_at > NOW())
+                    RETURNING id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
                     """,
                     item_id,
+                    tenant_id,
+                    operator_id or "anonymous",
                     revision["content"],
-                    operator_id,
                 )
                 if row is None:
                     return None
                 await conn.execute("DELETE FROM agent_memory_revisions WHERE id = $1", revision["id"])
         return self._row_to_item(row)
 
-    async def delete(self, item_id: str) -> bool:
+    async def delete(self, item_id: str, *, tenant_id: str, operator_id: str) -> bool:
         if self.pool is None:
             raise RuntimeError("PostgreSQL memory store 未连接")
         async with self.pool.acquire() as conn:
             async with conn.transaction():
+                owned = await conn.fetchval(
+                    "SELECT 1 FROM agent_memory_items WHERE id = $1 AND tenant_id = $2 AND operator_id = $3",
+                    item_id,
+                    tenant_id,
+                    operator_id,
+                )
+                if not owned:
+                    return False
                 await conn.execute("DELETE FROM agent_memory_revisions WHERE memory_id = $1", item_id)
-                result = await conn.execute("DELETE FROM agent_memory_items WHERE id = $1", item_id)
+                result = await conn.execute(
+                    "DELETE FROM agent_memory_items WHERE id = $1 AND tenant_id = $2 AND operator_id = $3",
+                    item_id,
+                    tenant_id,
+                    operator_id,
+                )
         return result.endswith("1")
 
     async def purge_expired(self) -> int:
@@ -483,7 +539,9 @@ class PostgresMemoryStore:
                     )
                     """
                 )
-                result = await conn.execute("DELETE FROM agent_memory_items WHERE expires_at IS NOT NULL AND expires_at <= NOW()")
+                result = await conn.execute(
+                    "DELETE FROM agent_memory_items WHERE expires_at IS NOT NULL AND expires_at <= NOW()"
+                )
         try:
             return int(result.rsplit(" ", 1)[-1])
         except ValueError:
@@ -527,6 +585,7 @@ class PostgresMemoryStore:
             scope=row["scope"],
             content=row["content"],
             created_at=iso(row["created_at"]),
+            tenant_id=row["tenant_id"] if "tenant_id" in row else "default-tenant",
             kind=row["kind"] if "kind" in row else DEFAULT_MEMORY_KIND,
             operator_id=row["operator_id"] if "operator_id" in row else None,
             version=row["version"] if "version" in row else 1,

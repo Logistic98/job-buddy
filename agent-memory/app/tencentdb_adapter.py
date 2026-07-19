@@ -70,7 +70,11 @@ class TencentDBMemoryAdapter:
             except Exception:
                 self._mark_unavailable()
                 raise
-            return resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {"text": resp.text}
+            return (
+                resp.json()
+                if resp.headers.get("content-type", "").startswith("application/json")
+                else {"text": resp.text}
+            )
 
     async def recall(self, query: str, session_key: str, max_results: int = 5) -> List[Dict[str, Any]]:
         self._ensure_available()

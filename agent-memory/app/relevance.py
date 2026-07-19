@@ -5,8 +5,7 @@ PostgreSQL 与内存两套存储共用，保证候选召回后的重排行为一
 
 排序采用 RRF（Reciprocal Rank Fusion）融合多路信号：内置"BM25 词法排序"与
 "时间衰减排序"两路，调用方可经 vector_scores 并入第三路向量相似度（由
-app.embedding 提供，默认关闭）。融合框架对图召回等后续信号保持开放，新增一路
-只需把其排序结果并入融合即可。
+app.embedding 提供，默认关闭）。RRF 对各路排序结果执行统一融合。
 """
 
 from __future__ import annotations
@@ -106,7 +105,9 @@ def relevance_score(
     return score * (0.5 + 0.5 * coverage) + recency
 
 
-def bm25_scores(query_terms: set[str], docs_tokens: list[list[str]], k1: float = _BM25_K1, b: float = _BM25_B) -> list[float]:
+def bm25_scores(
+    query_terms: set[str], docs_tokens: list[list[str]], k1: float = _BM25_K1, b: float = _BM25_B
+) -> list[float]:
     """对候选文档集合计算 BM25 词法分值。
 
     IDF 与平均文档长度在候选池内统计，符合 BM25 的语料相对性；候选池外文档不参与，
@@ -187,7 +188,9 @@ def rank(
     recency = [_recency_boost(created or None, now, half_life_days) for created in createds]
     if vector_scores is not None and len(vector_scores) != total:
         vector_scores = None
-    vector = [score if score >= vector_min_score else 0.0 for score in vector_scores] if vector_scores else [0.0] * total
+    vector = (
+        [score if score >= vector_min_score else 0.0 for score in vector_scores] if vector_scores else [0.0] * total
+    )
 
     if query_terms:
         eligible = [i for i in range(total) if lexical[i] > 0 or vector[i] > 0]

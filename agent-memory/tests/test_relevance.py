@@ -23,8 +23,8 @@ def test_multi_word_out_of_order_query_matches():
     assert score > 0
 
 
-def test_substring_only_query_no_longer_required():
-    # 旧实现 LIKE '%Java 后端%' 整串匹配会返回 0；新实现按分词命中。
+def test_multi_token_query_matches_non_contiguous_terms():
+    # 查询词可在文档中非连续出现，并按分词结果参与相关性计算。
     score = relevance_score("Java 后端", "熟悉 Java，做过后端")
     assert score > 0
 

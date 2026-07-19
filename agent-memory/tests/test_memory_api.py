@@ -1,3 +1,5 @@
+import os
+
 from fastapi.testclient import TestClient
 
 import app.api as server
@@ -8,7 +10,9 @@ def make_client(monkeypatch) -> TestClient:
     monkeypatch.setattr(server, "local_store", MemoryStore())
     monkeypatch.setattr(server.postgres_store, "dsn", "")
     monkeypatch.setattr(server.adapter, "enabled", False)
-    return TestClient(server.app)
+    token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
+    headers = {"X-Internal-Service-Token": token} if token else None
+    return TestClient(server.app, headers=headers)
 
 
 def test_create_and_search_via_local_backend(monkeypatch):
@@ -81,6 +85,39 @@ def test_create_persists_operator_and_kind(monkeypatch):
     assert created["code"] == 200
     assert created["data"]["operator_id"] == "user-42"
     assert created["data"]["kind"] == "long_term"
+
+
+def test_body_operator_id_cannot_impersonate_memory_owner(monkeypatch):
+    client = make_client(monkeypatch)
+
+    created = client.post(
+        "/v1/memories",
+        json={"content": "尝试冒充用户", "operator_id": "victim-user"},
+    ).json()
+
+    assert created["code"] == 200
+    assert created["data"]["operator_id"] == "anonymous"
+
+
+def test_memory_owner_isolation_blocks_cross_user_access(monkeypatch):
+    client = make_client(monkeypatch)
+    owner_headers = {"X-Tenant-Id": "tenant-a", "X-Operator-Id": "user-a"}
+    attacker_headers = {"X-Tenant-Id": "tenant-a", "X-Operator-Id": "user-b"}
+    other_tenant_headers = {"X-Tenant-Id": "tenant-b", "X-Operator-Id": "user-a"}
+    memory_id = client.post(
+        "/v1/memories", json={"scope": "session", "content": "用户 A 私有偏好"}, headers=owner_headers
+    ).json()["data"]["id"]
+
+    assert client.get("/v1/memories/search", params={"q": "私有"}, headers=owner_headers).json()["data"]
+    assert client.get("/v1/memories/search", params={"q": "私有"}, headers=attacker_headers).json()["data"] == []
+    assert client.get("/v1/memories/search", params={"q": "私有"}, headers=other_tenant_headers).json()["data"] == []
+    assert (
+        client.put(f"/v1/memories/{memory_id}", json={"content": "越权修改"}, headers=attacker_headers).json()["code"]
+        == 1
+    )
+    assert client.post(f"/v1/memories/{memory_id}/rollback", headers=attacker_headers).json()["code"] == 1
+    assert client.delete(f"/v1/memories/{memory_id}", headers=attacker_headers).json()["code"] == 1
+    assert client.delete(f"/v1/memories/{memory_id}", headers=owner_headers).json()["code"] == 200
 
 
 def test_invalid_kind_falls_back_to_task(monkeypatch):
