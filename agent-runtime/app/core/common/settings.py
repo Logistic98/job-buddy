@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import os
@@ -70,7 +69,6 @@ class RuntimeConfig(BaseModel):
     use_llm_planner: bool = True
     workspace_dir: str = "."
     max_inline_result_chars: int = 12000
-    result_storage_dir: str = ".runtime_results"
     profiles_dir: str = "config/profiles"
     workflows_dir: str = "config/workflows"
     prompts_dir: str = "config/prompts"
@@ -83,7 +81,6 @@ class CheckpointConfig(BaseModel):
     """检查点配置。"""
 
     enabled: bool = True
-    dir: str = ".runtime_checkpoints"
     max_per_session: int = 100
 
 
@@ -91,10 +88,13 @@ class PermissionConfig(BaseModel):
     """权限策略配置。"""
 
     default_mode: str = "default"
+    # AUTO/BYPASS are execution policies, not privileges supplied by an API caller.
+    # Deployments must opt in before request permission modes are honored.
+    allow_auto_permission_mode: bool = False
+    allow_bypass_permission_mode: bool = False
     allow_high_risk_in_default: bool = False
     allow_tools: List[str] = Field(default_factory=list)
     deny_tools: List[str] = Field(default_factory=list)
-    read_only_tools: List[str] = Field(default_factory=list)
     destructive_tools: List[str] = Field(default_factory=list)
 
 
@@ -119,7 +119,7 @@ class ObservabilityConfig(BaseModel):
     log_events: bool = True
     max_events: int = 1000
     persist_enabled: bool = True
-    persist_dir: str = ".runtime_traces"
+    persist_dir: str = "../.run/logs/runtime-traces"
     # OpenTelemetry 导出为纯增量旁路，默认关闭；开启后失败静默降级，权威取证数据仍在 JSONL。
     otel_enabled: bool = False
     otel_endpoint: str = "http://localhost:4318/v1/traces"
@@ -144,7 +144,7 @@ class MemoryConfig(BaseModel):
 class McpServerConfig(BaseModel):
     """单个 MCP 服务接入配置。
 
-    第一版仅支持 streamable-http 传输,后续可扩展 stdio/sse。
+    仅支持 streamable-http 传输。
     """
 
     enabled: bool = False
@@ -182,7 +182,7 @@ class AppConfig(BaseModel):
 class RuntimeSettings(BaseModel):
     """运行时配置访问器。
 
-    对外保留扁平属性，兼容已有业务代码；内部通过 `config` 暴露完整嵌套配置。
+    常用配置通过只读属性访问，完整嵌套配置通过 `config` 访问。
     环境变量由 config.yaml 中的占位符解析,避免 JOB_BUDDY_CONFIG 被 pydantic-settings
     误当作嵌套 config JSON 解析导致 Runtime 启动失败。
     """
@@ -197,7 +197,12 @@ class RuntimeSettings(BaseModel):
         use_dotenv = config_path is None
         if use_dotenv:
             _load_dotenv_files()
-        path = config_path or os.getenv("JOB_BUDDY_CONFIG") or _dotenv_values.get("JOB_BUDDY_CONFIG") or "config/config.yaml"
+        path = (
+            config_path
+            or os.getenv("JOB_BUDDY_CONFIG")
+            or _dotenv_values.get("JOB_BUDDY_CONFIG")
+            or "config/config.yaml"
+        )
         yaml_data = _load_yaml(path, load_dotenv=use_dotenv)
         return cls(config_path=path, config=AppConfig.model_validate(yaml_data))
 
@@ -240,10 +245,6 @@ class RuntimeSettings(BaseModel):
     @property
     def tool_timeout_seconds(self) -> int:
         return self.config.runtime.tool_timeout_seconds
-
-    @property
-    def checkpoint_dir(self) -> str:
-        return self.config.checkpoint.dir
 
     @property
     def workspace_dir(self) -> str:
@@ -374,7 +375,7 @@ def reload_settings(config_path: str | None = None) -> RuntimeSettings:
 
 
 class SettingsProxy:
-    """配置重载后的兼容代理。"""
+    """始终指向最新配置快照的动态代理。"""
 
     def __getattr__(self, item: str) -> Any:
         return getattr(get_settings(), item)

@@ -33,4 +33,10 @@ def _render_context(record) -> None:
 def setup_logging() -> None:
     logger.remove()
     logger.configure(patcher=_render_context)
-    logger.add(sys.stderr, format=_LOG_FORMAT, level=os.environ.get("LOG_LEVEL", "INFO"))
+    logger.add(
+        sys.stderr,
+        format=_LOG_FORMAT,
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        backtrace=False,
+        diagnose=False,
+    )

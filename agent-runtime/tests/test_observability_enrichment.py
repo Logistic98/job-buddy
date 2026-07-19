@@ -1,4 +1,3 @@
-
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -48,11 +47,13 @@ def _state(calls):
 
 @pytest.mark.asyncio
 async def test_tool_execute_end_carries_duration_and_per_tool_results(tmp_path):
-    gateway = _StubGateway([
-        ToolGatewayResult(result=ToolResult(tool_call_id="c1", tool_name="demo_tool", success=True, output="ok")),
-    ])
+    gateway = _StubGateway(
+        [
+            ToolGatewayResult(result=ToolResult(tool_call_id="c1", tool_name="sample_tool", success=True, output="ok")),
+        ]
+    )
     builder = _graph_builder(tmp_path, gateway)
-    state = _state([ToolCall(id="c1", name="demo_tool", arguments={})])
+    state = _state([ToolCall(id="c1", name="sample_tool", arguments={})])
 
     await builder._execute_tool(state)
 
@@ -62,16 +63,20 @@ async def test_tool_execute_end_carries_duration_and_per_tool_results(tmp_path):
     payload = end_events[0].payload
     assert payload["success"] is True
     assert "duration_ms" in payload
-    assert payload["results"][0]["tool"] == "demo_tool"
+    assert payload["results"][0]["tool"] == "sample_tool"
     assert payload["results"][0]["success"] is True
     assert isinstance(payload["results"][0]["duration_ms"], int)
 
 
 @pytest.mark.asyncio
 async def test_tool_failure_emits_tool_execute_failed_event(tmp_path):
-    gateway = _StubGateway([
-        ToolGatewayResult(result=ToolResult(tool_call_id="c1", tool_name="broken_tool", success=False, error="上游超时")),
-    ])
+    gateway = _StubGateway(
+        [
+            ToolGatewayResult(
+                result=ToolResult(tool_call_id="c1", tool_name="broken_tool", success=False, error="上游超时")
+            ),
+        ]
+    )
     builder = _graph_builder(tmp_path, gateway)
     state = _state([ToolCall(id="c1", name="broken_tool", arguments={})])
 

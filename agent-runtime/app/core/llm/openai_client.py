@@ -26,7 +26,15 @@ class OpenAICompatibleClient:
     拉取失败时使用对应来源的最新模型兜底名。
     """
 
-    def __init__(self, base_url: str = None, api_key: str = None, model: str = None, timeout: int = None, provider: str = None, **overrides):
+    def __init__(
+        self,
+        base_url: str = None,
+        api_key: str = None,
+        model: str = None,
+        timeout: int = None,
+        provider: str = None,
+        **overrides,
+    ):
         llm_config = settings.config.llm_service
         self.provider = self._normalize_provider(provider or overrides.get("provider") or llm_config.provider)
         self.auto_model = bool(overrides.get("auto_model", False))
@@ -36,14 +44,30 @@ class OpenAICompatibleClient:
         self.model = "" if self.auto_model and not model else (model or llm_config.model_name)
         self.timeout = timeout or llm_config.timeout_seconds
         self.max_retries = int(self._override(overrides, "max_retries", llm_config.max_retries))
-        self.retry_backoff_seconds = float(self._override(overrides, "retry_backoff_seconds", llm_config.retry_backoff_seconds))
+        self.retry_backoff_seconds = float(
+            self._override(overrides, "retry_backoff_seconds", llm_config.retry_backoff_seconds)
+        )
         self.temperature = float(self._override(overrides, "temperature", llm_config.temperature))
         self.max_tokens = int(self._override(overrides, "max_tokens", llm_config.max_tokens))
-        self.prompt_cache_enabled = bool(self._override(overrides, "prompt_cache_enabled", llm_config.prompt_cache_enabled))
-        self.prompt_cache_strategy = str(self._override(overrides, "prompt_cache_strategy", llm_config.prompt_cache_strategy))
-        self.request_cache_enabled = bool(self._override(overrides, "request_cache_enabled", llm_config.request_cache_enabled))
-        self.request_cache_max_entries = int(self._override(overrides, "request_cache_max_entries", llm_config.request_cache_max_entries))
-        self.understanding_thinking_disabled = bool(self._override(overrides, "understanding_thinking_disabled", getattr(llm_config, "understanding_thinking_disabled", True)))
+        self.prompt_cache_enabled = bool(
+            self._override(overrides, "prompt_cache_enabled", llm_config.prompt_cache_enabled)
+        )
+        self.prompt_cache_strategy = str(
+            self._override(overrides, "prompt_cache_strategy", llm_config.prompt_cache_strategy)
+        )
+        self.request_cache_enabled = bool(
+            self._override(overrides, "request_cache_enabled", llm_config.request_cache_enabled)
+        )
+        self.request_cache_max_entries = int(
+            self._override(overrides, "request_cache_max_entries", llm_config.request_cache_max_entries)
+        )
+        self.understanding_thinking_disabled = bool(
+            self._override(
+                overrides,
+                "understanding_thinking_disabled",
+                getattr(llm_config, "understanding_thinking_disabled", True),
+            )
+        )
         self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
         self.cache_metrics: Dict[str, int] = {"hits": 0, "misses": 0, "stores": 0}
         # 进程内复用同一 AsyncClient：default_llm_client 在 Executor 构造期固定，跨请求
@@ -79,17 +103,30 @@ class OpenAICompatibleClient:
             retry_backoff_seconds=data.get("retry_backoff_seconds") or data.get("retryBackoffSeconds"),
             temperature=data.get("temperature"),
             max_tokens=data.get("max_tokens") or data.get("maxTokens"),
-            prompt_cache_enabled=data.get("prompt_cache_enabled") if "prompt_cache_enabled" in data else data.get("promptCacheEnabled"),
+            prompt_cache_enabled=data.get("prompt_cache_enabled")
+            if "prompt_cache_enabled" in data
+            else data.get("promptCacheEnabled"),
             prompt_cache_strategy=data.get("prompt_cache_strategy") or data.get("promptCacheStrategy"),
-            request_cache_enabled=data.get("request_cache_enabled") if "request_cache_enabled" in data else data.get("requestCacheEnabled"),
+            request_cache_enabled=data.get("request_cache_enabled")
+            if "request_cache_enabled" in data
+            else data.get("requestCacheEnabled"),
             request_cache_max_entries=data.get("request_cache_max_entries") or data.get("requestCacheMaxEntries"),
             auth_token=data.get("auth_token") or data.get("authToken"),
             auto_model=not bool(data.get("model_name") or data.get("modelName") or data.get("model")),
         )
 
-    async def chat(self, messages: List[ChatMessage], tools: Optional[List[ToolDefinition]] = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None, disable_thinking: bool = False) -> Dict[str, Any]:
+    async def chat(
+        self,
+        messages: List[ChatMessage],
+        tools: Optional[List[ToolDefinition]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        disable_thinking: bool = False,
+    ) -> Dict[str, Any]:
         await self._ensure_model()
-        payload = self._build_payload(messages, tools, temperature, max_tokens, stream=False, disable_thinking=disable_thinking)
+        payload = self._build_payload(
+            messages, tools, temperature, max_tokens, stream=False, disable_thinking=disable_thinking
+        )
         cache_key = self._cache_key({"provider": self.provider, "url": self.chat_completions_url, **payload})
         if self.request_cache_enabled and cache_key in self._cache:
             self.cache_metrics["hits"] += 1
@@ -113,7 +150,9 @@ class OpenAICompatibleClient:
                 # 请求缓存命中不计入 run 级 token 用量：命中时未真实消耗 token。
                 record_usage(message.get("usage") or {})
                 self._store_cache(cache_key, message)
-                logger.debug(f"模型响应完成：provider={self.provider}, model={self.model}, prompt_cache={self.prompt_cache_enabled}/{self.prompt_cache_strategy}, usage: {message.get('usage') or {}}")
+                logger.debug(
+                    f"模型响应完成：provider={self.provider}, model={self.model}, prompt_cache={self.prompt_cache_enabled}/{self.prompt_cache_strategy}, usage: {message.get('usage') or {}}"
+                )
                 return message
             except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as e:
                 last_error = e
@@ -121,7 +160,7 @@ class OpenAICompatibleClient:
                     break
                 if attempt < self.max_retries:
                     # 指数退避叠加随机抖动，避免并发请求同时重试造成 thundering herd
-                    await asyncio.sleep(self.retry_backoff_seconds * (2 ** attempt) * (1 + random.uniform(0, 0.5)))
+                    await asyncio.sleep(self.retry_backoff_seconds * (2**attempt) * (1 + random.uniform(0, 0.5)))
                     continue
                 break
             except Exception as e:
@@ -129,7 +168,9 @@ class OpenAICompatibleClient:
                 break
         raise LLMServiceError(f"模型服务调用失败：{last_error}")
 
-    async def stream_chat(self, messages: List[ChatMessage], temperature: Optional[float] = None, max_tokens: Optional[int] = None) -> AsyncIterator[Dict[str, str]]:
+    async def stream_chat(
+        self, messages: List[ChatMessage], temperature: Optional[float] = None, max_tokens: Optional[int] = None
+    ) -> AsyncIterator[Dict[str, str]]:
         """流式问答，逐段 yield {"type": "reasoning"|"answer", "text": ...}。
 
         推理模型（如 DeepSeek-R1）会先输出 reasoning_content（思考过程）再输出 content（答案），
@@ -138,12 +179,14 @@ class OpenAICompatibleClient:
         await self._ensure_model()
         payload = self._build_payload(messages, None, temperature, max_tokens, stream=True)
         try:
-            async with self._client().stream("POST", self.chat_completions_url, headers=self._headers(), json=payload) as response:
+            async with self._client().stream(
+                "POST", self.chat_completions_url, headers=self._headers(), json=payload
+            ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line or not line.startswith("data:"):
                         continue
-                    data_str = line[len("data:"):].strip()
+                    data_str = line[len("data:") :].strip()
                     if not data_str or data_str == "[DONE]":
                         if data_str == "[DONE]":
                             break
@@ -159,10 +202,23 @@ class OpenAICompatibleClient:
         except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as e:
             raise LLMServiceError(f"模型流式调用失败：{e}")
 
-    def _build_payload(self, messages: List[ChatMessage], tools: Optional[List[ToolDefinition]], temperature: Optional[float], max_tokens: Optional[int], stream: bool, disable_thinking: bool = False) -> Dict[str, Any]:
+    def _build_payload(
+        self,
+        messages: List[ChatMessage],
+        tools: Optional[List[ToolDefinition]],
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        stream: bool,
+        disable_thinking: bool = False,
+    ) -> Dict[str, Any]:
         if self._is_anthropic():
             system, anthropic_messages = self._to_anthropic_messages(messages)
-            payload: Dict[str, Any] = {"model": self.model, "messages": anthropic_messages, "temperature": self.temperature if temperature is None else temperature, "max_tokens": max_tokens or self.max_tokens}
+            payload: Dict[str, Any] = {
+                "model": self.model,
+                "messages": anthropic_messages,
+                "temperature": self.temperature if temperature is None else temperature,
+                "max_tokens": max_tokens or self.max_tokens,
+            }
             if system:
                 payload["system"] = system
             if tools:
@@ -176,7 +232,12 @@ class OpenAICompatibleClient:
                 payload["stream"] = True
             return payload
 
-        payload = {"model": self.model, "messages": [self._message_to_dict(item) for item in messages], "temperature": self.temperature if temperature is None else temperature, "max_tokens": max_tokens or self.max_tokens}
+        payload = {
+            "model": self.model,
+            "messages": [self._message_to_dict(item) for item in messages],
+            "temperature": self.temperature if temperature is None else temperature,
+            "max_tokens": max_tokens or self.max_tokens,
+        }
         if tools:
             payload["tools"] = [self._tool_to_openai(tool) for tool in tools]
             payload["tool_choice"] = "auto"
@@ -199,7 +260,9 @@ class OpenAICompatibleClient:
 
     def _parse_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
         if self._is_anthropic():
-            text = "".join((block.get("text") or "") for block in (data.get("content") or []) if block.get("type") == "text")
+            text = "".join(
+                (block.get("text") or "") for block in (data.get("content") or []) if block.get("type") == "text"
+            )
             return {"role": "assistant", "content": text, "usage": data.get("usage") or {}}
         message = data["choices"][0]["message"]
         message["usage"] = data.get("usage", {})
@@ -264,7 +327,12 @@ class OpenAICompatibleClient:
             if message.role == "system":
                 system_blocks.append({"type": "text", "text": content})
             else:
-                output.append({"role": "assistant" if message.role == "assistant" else "user", "content": [{"type": "text", "text": content}]})
+                output.append(
+                    {
+                        "role": "assistant" if message.role == "assistant" else "user",
+                        "content": [{"type": "text", "text": content}],
+                    }
+                )
         if self.prompt_cache_enabled and system_blocks:
             system_blocks[-1]["cache_control"] = {"type": "ephemeral"}
         return system_blocks, output
@@ -287,6 +355,7 @@ class OpenAICompatibleClient:
             candidates = [item for item in models if isinstance(item, dict) and (item.get("id") or item.get("name"))]
             if not candidates:
                 return None
+
             # 选最新模型：优先按 created/created_at 倒序，无时间字段时保持服务端默认顺序
             def _created(item: Dict[str, Any]):
                 value = item.get("created") or item.get("created_at") or 0
@@ -348,10 +417,21 @@ class OpenAICompatibleClient:
         return data
 
     def _tool_to_openai(self, tool: ToolDefinition) -> Dict[str, Any]:
-        return {"type": "function", "function": {"name": tool.name, "description": tool.description, "parameters": tool.input_schema or {"type": "object", "properties": {}}}}
+        return {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.input_schema or {"type": "object", "properties": {}},
+            },
+        }
 
     def _tool_to_anthropic(self, tool: ToolDefinition) -> Dict[str, Any]:
-        return {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema or {"type": "object", "properties": {}}}
+        return {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema or {"type": "object", "properties": {}},
+        }
 
     def _default_base_url(self, provider: str) -> str:
         if provider == "claude_max":

@@ -1,4 +1,3 @@
-
 from enum import Enum
 
 
@@ -51,6 +50,8 @@ class StopReason(str, Enum):
     TOOL_UNAVAILABLE = "tool_unavailable"
     SAFETY_BLOCKED = "safety_blocked"
     RUNTIME_ERROR = "runtime_error"
+    INVALID_PLAN_DEPENDENCY = "invalid_plan_dependency"
+    TOOL_EXECUTION_FAILED = "tool_execution_failed"
 
 
 class TraceEventName(str, Enum):

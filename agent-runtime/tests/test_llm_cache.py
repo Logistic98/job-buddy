@@ -1,4 +1,3 @@
-
 import pytest
 import httpx
 
@@ -77,7 +76,9 @@ def test_disable_thinking_payload_only_for_deepseek_routing_calls():
 
 def test_disable_thinking_payload_ignored_for_non_deepseek_provider():
     client = OpenAICompatibleClient(provider="chatgpt_pro", api_key="t", model="m")
-    payload = client._build_payload([ChatMessage(role="user", content="hi")], None, None, None, stream=False, disable_thinking=True)
+    payload = client._build_payload(
+        [ChatMessage(role="user", content="hi")], None, None, None, stream=False, disable_thinking=True
+    )
     assert "thinking" not in payload
 
 
@@ -90,11 +91,13 @@ async def test_fetch_latest_model_picks_newest_by_created(monkeypatch):
             return None
 
         def json(self):
-            return {"data": [
-                {"id": "model-old", "created": 100},
-                {"id": "model-new", "created": 300},
-                {"id": "model-mid", "created": 200},
-            ]}
+            return {
+                "data": [
+                    {"id": "model-old", "created": 100},
+                    {"id": "model-new", "created": 300},
+                    {"id": "model-mid", "created": 200},
+                ]
+            }
 
     class FakeClient:
         def __init__(self, timeout=None):

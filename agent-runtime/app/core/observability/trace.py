@@ -1,5 +1,5 @@
-
 import asyncio
+import contextvars
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -8,8 +8,31 @@ from loguru import logger
 
 from app.core.common.settings import settings
 from app.core.observability.otel import OtelExporter
+from app.core.security.redaction import redact_sensitive
 from app.core.utils.time_utils import TimeUtils
 from app.models.schemas import TraceEvent
+
+_trace_context: contextvars.ContextVar[Optional[Dict[str, str]]] = contextvars.ContextVar("trace_context", default=None)
+
+
+def bind_trace_context(**fields: Optional[str]) -> contextvars.Token:
+    if not fields:
+        return _trace_context.set(_trace_context.get())
+    source = _trace_context.get() or {}
+    merged = {**source}
+    for key, value in fields.items():
+        if value is None or value == "":
+            continue
+        merged[key] = value
+    return _trace_context.set(merged)
+
+
+def unbind_trace_context(token: contextvars.Token):
+    _trace_context.reset(token)
+
+
+def current_trace_context() -> Dict[str, str]:
+    return dict(_trace_context.get() or {})
 
 
 class TraceRecorder:
@@ -20,15 +43,54 @@ class TraceRecorder:
         self._persist_dir = persist_dir
         self._otel = otel_exporter or OtelExporter()
 
-    async def record(self, trace_id: str, event: str, payload: Dict[str, Any] = None, run_id: Optional[str] = None):
+    async def record(
+        self,
+        trace_id: str,
+        event: str,
+        payload: Dict[str, Any] = None,
+        run_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        node_id: Optional[str] = None,
+        stage: Optional[str] = None,
+        component: Optional[str] = None,
+        actor: Optional[str] = None,
+        status: str = "success",
+        span_id: Optional[str] = None,
+        error: Optional[str] = None,
+        duration_ms: Optional[int] = None,
+    ):
         if not settings.config.observability.enabled:
             return
+        ambient = current_trace_context()
+        request_id = request_id or ambient.get("request_id")
+        session_id = session_id or ambient.get("session_id")
+        user_id = ambient.get("user_id")
+        actor = actor or ambient.get("actor")
+        component = component or ambient.get("component") or "agent-runtime"
+        status = status or "success"
+        span_id = span_id or ambient.get("span_id")
+        request_path = ambient.get("request_path")
+
         item = TraceEvent(
             trace_id=trace_id,
-            run_id=run_id,
+            run_id=run_id or ambient.get("run_id"),
             event=event,
             timestamp=TimeUtils.get_formatted_time(),
-            payload=payload or {},
+            payload=redact_sensitive(payload or {}),
+            request_id=request_id,
+            session_id=session_id,
+            user_id=user_id,
+            environment=ambient.get("environment"),
+            request_path=request_path,
+            node_id=node_id,
+            stage=stage,
+            component=component,
+            actor=actor,
+            status=status,
+            span_id=span_id,
+            error=redact_sensitive(error),
+            duration_ms=duration_ms,
         )
         self.events.append(item)
         max_events = settings.config.observability.max_events
@@ -39,7 +101,9 @@ class TraceRecorder:
         await asyncio.to_thread(self._persist, item)
         self._otel.submit(item)
         if settings.config.observability.log_events:
-            logger.info(f"Trace 事件：trace_id={trace_id}, run_id={run_id}, event={event}")
+            logger.info(
+                f"Trace 事件：trace_id={trace_id}, run_id={run_id}, event={event}, status={status}, node_id={node_id or '-'}"
+            )
 
     def list_by_run(self, run_id: str) -> List[TraceEvent]:
         in_memory = [event for event in self.events if event.run_id == run_id]

@@ -1,4 +1,3 @@
-
 import asyncio
 import contextvars
 
@@ -77,14 +76,18 @@ def test_record_stream_usage_openai_final_frame():
     client._record_stream_usage({"choices": [{"delta": {"content": "!"}}], "usage": None})
     assert usage["llm_calls"] == 0
     # 末帧携带完整 usage，记一次调用
-    client._record_stream_usage({"choices": [], "usage": {"prompt_tokens": 50, "completion_tokens": 8, "total_tokens": 58}})
+    client._record_stream_usage(
+        {"choices": [], "usage": {"prompt_tokens": 50, "completion_tokens": 8, "total_tokens": 58}}
+    )
     assert usage == {"prompt_tokens": 50, "completion_tokens": 8, "total_tokens": 58, "llm_calls": 1}
 
 
 def test_record_stream_usage_anthropic_two_frames_single_call():
     client = OpenAICompatibleClient(provider="claude_max", api_key="test", model="claude-sonnet-4-6")
     usage = start_usage_tracking()
-    client._record_stream_usage({"type": "message_start", "message": {"usage": {"input_tokens": 40, "output_tokens": 1}}})
+    client._record_stream_usage(
+        {"type": "message_start", "message": {"usage": {"input_tokens": 40, "output_tokens": 1}}}
+    )
     client._record_stream_usage({"type": "content_block_delta", "delta": {"type": "text_delta", "text": "hi"}})
     client._record_stream_usage({"type": "message_delta", "usage": {"output_tokens": 15}})
     assert usage["prompt_tokens"] == 40
