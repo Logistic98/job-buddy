@@ -14,7 +14,7 @@ from .scorer import score_intent
 
 # 入口高风险意图表达，transcript 复核在此基础上扩展破坏性标记。
 HIGH_RISK_KEYWORDS = ["删除", "delete", "drop", "生产", "prod", "密钥", "token"]
-_ENGINEERING_KEYWORDS = ["代码", "实现", "开发", "修复", "重构", "mvp", "workflow", "工作流"]
+_ENGINEERING_KEYWORDS = ["代码", "实现", "开发", "修复", "重构", "workflow", "工作流"]
 
 
 def classify_intent(message: str) -> IntentResult:

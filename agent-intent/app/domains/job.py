@@ -12,9 +12,31 @@ from ..models import IntentResult
 
 
 CITY_PATTERNS = [
-    "上海", "北京", "深圳", "广州", "杭州", "成都", "南京", "苏州", "武汉",
-    "西安", "重庆", "天津", "厦门", "长沙", "合肥", "济南", "青岛", "郑州",
-    "宁波", "无锡", "佛山", "东莞", "福州", "大连", "沈阳",
+    "上海",
+    "北京",
+    "深圳",
+    "广州",
+    "杭州",
+    "成都",
+    "南京",
+    "苏州",
+    "武汉",
+    "西安",
+    "重庆",
+    "天津",
+    "厦门",
+    "长沙",
+    "合肥",
+    "济南",
+    "青岛",
+    "郑州",
+    "宁波",
+    "无锡",
+    "佛山",
+    "东莞",
+    "福州",
+    "大连",
+    "沈阳",
 ]
 
 ROLE_HINTS = {
@@ -281,7 +303,9 @@ def classify_job(text: str) -> Optional[IntentResult]:
             slots={},
         )
 
-    if _has_any(text, INTERVIEW_PREP_KEYWORDS) and _has_any(text, ["准备", "清单", "问题", "回答", "复盘", "反问", "深挖"]):
+    if _has_any(text, INTERVIEW_PREP_KEYWORDS) and _has_any(
+        text, ["准备", "清单", "问题", "回答", "复盘", "反问", "深挖"]
+    ):
         return IntentResult(
             domain="job",
             intent="interview.prepare",

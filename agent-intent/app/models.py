@@ -17,3 +17,4 @@ class IntentResult(BaseModel):
     next_action: str
     slots: Dict[str, Any] = Field(default_factory=dict)
     router: str = "rule"
+    trace_id: str | None = None

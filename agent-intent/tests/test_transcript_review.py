@@ -47,7 +47,7 @@ def test_destructive_tool_without_user_intent_is_denied():
 def test_user_backed_destructive_action_requires_confirmation():
     result = review_transcript(
         _request(
-            messages=[{"role": "user", "content": "把我的旧简历删除掉"}],
+            messages=[{"role": "user", "content": "把我之前上传的简历删除掉"}],
             tool_calls=[{"name": "resume_delete", "arguments": {"resume_id": "r1"}}],
         )
     )
@@ -87,7 +87,7 @@ def test_review_api_returns_standard_envelope():
     response = client.post(
         "/v1/intent/review-transcript",
         json={
-            "messages": [{"role": "user", "content": "帮我把旧简历删除"}],
+            "messages": [{"role": "user", "content": "帮我把之前上传的简历删除"}],
             "tool_calls": [{"name": "resume_delete", "arguments": {}}],
         },
     )

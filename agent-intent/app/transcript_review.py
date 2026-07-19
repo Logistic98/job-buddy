@@ -66,7 +66,9 @@ def review_transcript(request: TranscriptReviewRequest) -> TranscriptReviewResul
     tool_hits: List[str] = []
     for call in request.tool_calls:
         call_text = f"{call.name} {json.dumps(call.arguments, ensure_ascii=False, default=str)}".lower()
-        tool_hits.extend(f"tool_marker:{call.name}:{marker.strip()}" for marker in DESTRUCTIVE_MARKERS if marker in call_text)
+        tool_hits.extend(
+            f"tool_marker:{call.name}:{marker.strip()}" for marker in DESTRUCTIVE_MARKERS if marker in call_text
+        )
 
     if tool_hits and not user_hits:
         # 破坏性动作缺少用户意图背书：视为可疑的模型自主行为或注入结果，直接拒绝。

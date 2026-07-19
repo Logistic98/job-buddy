@@ -3,11 +3,13 @@ import uuid
 from fastapi import FastAPI
 from loguru import logger
 
+from .internal_auth import install_internal_auth
 from .models import IntentRequest, IntentResult
 from .service import classify_intent
 from .transcript_review import TranscriptReviewRequest, TranscriptReviewResult, review_transcript
 
-app = FastAPI(title="agent-intent", version="0.1.0")
+app = FastAPI(title="agent-intent", version="1.0.0")
+install_internal_auth(app)
 
 
 @app.get("/health")
@@ -21,6 +23,7 @@ def classify(request: IntentRequest) -> dict:
     bound = logger.bind(service="agent-intent", request_id=request_id)
     try:
         result: IntentResult = classify_intent(request.message)
+        result.trace_id = result.trace_id or request_id
     except Exception as exc:  # noqa: BLE001 统一兜底，保证返回标准信封而非裸 500
         bound.exception(f"意图分类异常 error={exc}")
         return {"code": 500, "message": "意图分类失败，请稍后重试", "data": {}}

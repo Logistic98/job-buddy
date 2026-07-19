@@ -1,33 +1,35 @@
 """求职意图与 slot 抽取的测试。
 
-覆盖 plan 中提到的 8 条真实用例,确保意图与槽位对得上后续 runtime / backend 的契约。
+覆盖 8 条求职领域用例，验证意图、槽位与 Runtime、Backend 契约一致。
 """
 
 from app.service import classify_intent
 
 
 def test_job_recommend_with_full_slots():
-    result = classify_intent("帮我找上海3年Java后端 20k以上 不要外包")
+    result = classify_intent("帮我找上海3年Java后端大模型应用开发 40-50k 不要外包")
     assert result.domain == "job"
     assert result.intent == "job.recommend"
     assert result.slots["city"] == "上海"
     assert result.slots["role"] == "Java 后端"
     assert result.slots["experience_years"] == 3
     assert result.slots["boss_experience"] == "三到五年"
-    assert result.slots["salary_min_k"] == 20
+    assert result.slots["salary_min_k"] == 40
+    assert result.slots["salary_max_k"] == 50
     assert result.slots["boss_salary"] == "20-50k"
     assert "外包" in result.slots["exclude_keywords"]
 
 
 def test_job_recommend_chinese_years_and_range():
-    result = classify_intent("帮我看看北京五年 Python 工程师 15-25k 的岗位")
+    result = classify_intent("帮我看看上海五年 Java 大模型应用开发工程师 40-50k 的岗位")
     assert result.domain == "job"
     assert result.intent == "job.recommend"
     assert result.slots["experience_years"] == 5
     assert result.slots["boss_experience"] == "五到十年"
-    assert result.slots["salary_min_k"] == 15
-    assert result.slots["salary_max_k"] == 25
-    assert result.slots["city"] == "北京"
+    assert result.slots["salary_min_k"] == 40
+    assert result.slots["salary_max_k"] == 50
+    assert result.slots["city"] == "上海"
+    assert result.slots["role"] == "Java 后端"
 
 
 def test_job_recommend_fresh_graduate():
@@ -102,10 +104,10 @@ def test_go_role_without_space():
 
 
 def test_salary_only_needs_role_clarification():
-    result = classify_intent("20k以上岗位")
+    result = classify_intent("40k以上岗位")
     assert result.domain == "job"
     assert result.needs_clarification is True
-    assert result.slots["salary_min_k"] == 20
+    assert result.slots["salary_min_k"] == 40
     assert "role" in result.slots["missing_slots"]
 
 
