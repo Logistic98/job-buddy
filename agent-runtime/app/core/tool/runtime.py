@@ -1,4 +1,3 @@
-
 import asyncio
 from typing import Optional
 
@@ -32,7 +31,9 @@ class ToolRuntime:
 
         tool = self.registry.get(call.name)
         if not tool:
-            return ToolResult(tool_call_id=call.id, tool_name=call.name, success=False, error=f"工具不存在: {call.name}")
+            return ToolResult(
+                tool_call_id=call.id, tool_name=call.name, success=False, error=f"工具不存在: {call.name}"
+            )
 
         decision = await self.permission_service.check(tool.definition(), call, permission_mode)
         self.last_permission_record = PermissionRecord(
@@ -59,7 +60,9 @@ class ToolRuntime:
         for attempt in range(max_retries + 1):
             if attempt > 0:
                 await asyncio.sleep(backoff * (2 ** (attempt - 1)))
-            result = await tool.safe_run(ToolCall(id=call.id, name=tool.name, arguments=call.arguments, reason=call.reason), context)
+            result = await tool.safe_run(
+                ToolCall(id=call.id, name=tool.name, arguments=call.arguments, reason=call.reason), context
+            )
             result.metadata["attempt"] = attempt + 1
             last_result = result
             if result.success:

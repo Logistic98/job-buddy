@@ -1,8 +1,8 @@
-
 import fnmatch
 from pathlib import Path
 from typing import Any, Dict
 
+from app.core.security.workspace import is_within_workspace
 from app.core.tool.base import BaseTool, ToolExecutionContext
 
 
@@ -60,15 +60,22 @@ class GrepTool(BaseTool):
         limit = int(arguments.get("limit") or 100)
         matches = []
         for path in root.rglob("*"):
-            if not path.is_file() or not fnmatch.fnmatch(str(path.relative_to(root)), glob_pattern):
+            try:
+                relative_path = path.relative_to(root)
+                resolved = path.resolve()
+            except (OSError, ValueError):
+                continue
+            if not is_within_workspace(resolved, root) or not resolved.is_file():
+                continue
+            if not fnmatch.fnmatch(str(relative_path), glob_pattern):
                 continue
             try:
-                lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-            except Exception:
+                lines = resolved.read_text(encoding="utf-8", errors="ignore").splitlines()
+            except (OSError, UnicodeError):
                 continue
             for idx, line in enumerate(lines, start=1):
                 if needle in line:
-                    matches.append({"path": str(path.relative_to(root)), "line": idx, "text": line[:500]})
+                    matches.append({"path": str(relative_path), "line": idx, "text": line[:500]})
                     if len(matches) >= limit:
                         return {"pattern": needle, "matches": matches, "count": len(matches)}
         return {"pattern": needle, "matches": matches, "count": len(matches)}

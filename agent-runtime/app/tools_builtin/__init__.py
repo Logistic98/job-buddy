@@ -1,4 +1,3 @@
-
 from app.core.tool.registry import ToolRegistry
 from app.tools_builtin.boss_browser_tool import BossBrowserTool
 from app.tools_builtin.echo_tool import EchoTool
@@ -37,7 +36,7 @@ def register_builtin_tools(registry: ToolRegistry):
 
 
 def register_missing_builtin_tools(registry: ToolRegistry):
-    """幂等补注册内置工具,用于开发热更新或旧 Registry 缺少新增工具的场景。"""
+    """幂等注册 Registry 中缺失的内置工具。"""
 
     registered = []
     for tool in _builtin_tool_instances():

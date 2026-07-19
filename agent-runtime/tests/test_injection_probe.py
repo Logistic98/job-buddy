@@ -1,4 +1,3 @@
-
 import pytest
 
 from app.core.tool.gateway import ToolGateway

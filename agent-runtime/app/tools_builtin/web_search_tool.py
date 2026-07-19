@@ -1,4 +1,3 @@
-
 import html
 import json
 import re
@@ -68,13 +67,22 @@ class WebSearchTool(BaseTool):
             "next_actions": ["检查 BOCHA_API_KEY 是否配置", "尝试换一个更具体的搜索关键词"],
         }
 
-    async def _search_bocha(self, query: str, limit: int, timeout: int, freshness: str, search_type: str) -> Dict[str, Any]:
+    async def _search_bocha(
+        self, query: str, limit: int, timeout: int, freshness: str, search_type: str
+    ) -> Dict[str, Any]:
         api_key = str(settings.config.web_search.bocha_api_key or "").strip()
         if not api_key:
-            return {"query": query, "source": "bocha", "results": [], "warning": "BOCHA_API_KEY 未配置，跳过 Bocha 搜索"}
+            return {
+                "query": query,
+                "source": "bocha",
+                "results": [],
+                "warning": "BOCHA_API_KEY 未配置，跳过 Bocha 搜索",
+            }
 
         use_ai = search_type in {"bocha_ai", "ai", "ai_search"}
-        endpoint = settings.config.web_search.bocha_ai_endpoint if use_ai else settings.config.web_search.bocha_web_endpoint
+        endpoint = (
+            settings.config.web_search.bocha_ai_endpoint if use_ai else settings.config.web_search.bocha_web_endpoint
+        )
         payload = {"query": query, "freshness": freshness, "count": limit}
         if use_ai:
             payload.update({"answer": False, "stream": False})
@@ -88,9 +96,19 @@ class WebSearchTool(BaseTool):
                 response.raise_for_status()
             data = response.json()
             results = self._parse_bocha_ai(data, limit) if use_ai else self._parse_bocha_web(data, limit)
-            return {"query": query, "source": "bocha_ai" if use_ai else "bocha_web", "results": results, "raw_count": len(results)}
+            return {
+                "query": query,
+                "source": "bocha_ai" if use_ai else "bocha_web",
+                "results": results,
+                "raw_count": len(results),
+            }
         except httpx.HTTPStatusError as e:
-            return {"query": query, "source": "bocha", "results": [], "warning": f"Bocha HTTP 错误：{e.response.status_code}"}
+            return {
+                "query": query,
+                "source": "bocha",
+                "results": [],
+                "warning": f"Bocha HTTP 错误：{e.response.status_code}",
+            }
         except httpx.RequestError as e:
             return {"query": query, "source": "bocha", "results": [], "warning": f"Bocha 请求错误：{str(e)}"}
         except Exception as e:
@@ -112,7 +130,15 @@ class WebSearchTool(BaseTool):
                     parsed = {}
                 results.extend(self._normalize_bocha_items(parsed.get("value") or [], limit - len(results)))
             elif content_type != "image" and content not in (None, "", "{}"):
-                results.append({"title": "Bocha AI Search", "url": "", "snippet": str(content), "published_date": "", "site_name": "Bocha"})
+                results.append(
+                    {
+                        "title": "Bocha AI Search",
+                        "url": "",
+                        "snippet": str(content),
+                        "published_date": "",
+                        "site_name": "Bocha",
+                    }
+                )
             if len(results) >= limit:
                 break
         return results[:limit]
@@ -125,13 +151,15 @@ class WebSearchTool(BaseTool):
             snippet = str(item.get("summary") or item.get("snippet") or item.get("description") or "").strip()
             if not title and not snippet:
                 continue
-            rows.append({
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-                "published_date": str(item.get("datePublished") or item.get("date_published") or ""),
-                "site_name": str(item.get("siteName") or item.get("site_name") or ""),
-            })
+            rows.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "snippet": snippet,
+                    "published_date": str(item.get("datePublished") or item.get("date_published") or ""),
+                    "site_name": str(item.get("siteName") or item.get("site_name") or ""),
+                }
+            )
             if len(rows) >= limit:
                 break
         return rows
@@ -150,7 +178,11 @@ class WebSearchTool(BaseTool):
 
     def _parse_results(self, text: str, limit: int) -> List[Dict[str, str]]:
         rows: List[Dict[str, str]] = []
-        blocks = re.findall(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>.*?(?:<a[^>]+class="result__snippet"[^>]*>(.*?)</a>|<div[^>]+class="result__snippet"[^>]*>(.*?)</div>)', text, re.S)
+        blocks = re.findall(
+            r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>.*?(?:<a[^>]+class="result__snippet"[^>]*>(.*?)</a>|<div[^>]+class="result__snippet"[^>]*>(.*?)</div>)',
+            text,
+            re.S,
+        )
         for raw_url, raw_title, raw_snippet_a, raw_snippet_div in blocks:
             title = self._clean_html(raw_title)
             snippet = self._clean_html(raw_snippet_a or raw_snippet_div)

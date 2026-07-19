@@ -1,9 +1,8 @@
-
 """简历解析与岗位匹配工具。
 
 第一版面向 Boss 直聘求职场景:
 - resume_parse: 读取本地 PDF 简历,调用 LLM 抽取为结构化对象
-- resume_analyze: 基于简历原文和结构化结果,调用 LLM 输出优势、劣势、问题、深挖点、排版和错别字
+- resume_analyze: 基于简历原文和结构化结果,调用 LLM 输出优势、风险、内容质量、经历价值和面试深挖点
 - resume_match: 给定已解析简历和候选岗位列表,调用 LLM 输出匹配度评分与差距
 
 设计要点:
@@ -27,12 +26,21 @@ from app.core.tool.base import BaseTool, ToolExecutionContext
 from app.models.schemas import ChatMessage
 
 
-MAX_RESUME_TEXT_CHARS = 12000
-MAX_RESUME_PARSE_TOKENS = 4096
-MAX_RESUME_ANALYSIS_TOKENS = 8192
+MAX_RESUME_TEXT_CHARS = 9000
+MAX_RESUME_PARSE_TOKENS = 3072
+MAX_RESUME_ANALYSIS_TOKENS = 4096
 MAX_RESUME_MATCH_TOKENS = 8192
 MAX_PROFILE_SUMMARY_TOKENS = 1024
 MAX_JOBS_PER_MATCH = 80
+
+RESUME_SCORE_DIMENSIONS = {
+    "content_completeness": {"label": "内容完整性", "weight": 15},
+    "achievement_evidence": {"label": "成果证据", "weight": 25},
+    "experience_impact": {"label": "经历影响力", "weight": 20},
+    "complexity": {"label": "业务与技术复杂度", "weight": 15},
+    "ownership": {"label": "个人贡献", "weight": 15},
+    "consistency": {"label": "一致性与可信度", "weight": 10},
+}
 
 
 def _resolve_workspace_path(file_path: str, workspace_dir: str) -> Path:
@@ -115,11 +123,56 @@ def _truncate(text: str, max_chars: int) -> str:
     return text[:max_chars] + "\n... (内容超出截断)"
 
 
+def _normalize_resume_score_breakdown(value: Any) -> tuple[int, Dict[str, Dict[str, Any]]]:
+    """校验模型的分维度评分，并由程序计算最终综合分。"""
+
+    if not isinstance(value, dict):
+        raise ValueError("简历评分缺少 score_breakdown 对象")
+    normalized: Dict[str, Dict[str, Any]] = {}
+    weighted_total = 0.0
+    for key, definition in RESUME_SCORE_DIMENSIONS.items():
+        item = value.get(key)
+        if not isinstance(item, dict):
+            raise ValueError(f"简历评分缺少维度: {key}")
+        raw_score = item.get("score")
+        try:
+            numeric_score = float(raw_score)
+        except (TypeError, ValueError):
+            raise ValueError(f"简历评分维度 {key} 的 score 不是数字")
+        if numeric_score != numeric_score or numeric_score in (float("inf"), float("-inf")):
+            raise ValueError(f"简历评分维度 {key} 的 score 不是有限数字")
+        score = int(max(0, min(100, numeric_score)) + 0.5)
+        # 对模型常见的保守打分做有限校准，保留档位差异且不突破 100 分。
+        if score >= 65:
+            score = min(100, score + 3)
+        elif score >= 45:
+            score = min(100, score + 2)
+        raw_evidence = item.get("evidence")
+        if isinstance(raw_evidence, list):
+            evidence = "；".join(str(entry).strip() for entry in raw_evidence if str(entry).strip())
+        else:
+            evidence = str(raw_evidence or "").strip()
+        # 没有可核验依据的维度不能进入优秀档，但保留对已呈现基础信息的基础评价。
+        if not evidence and score > 70:
+            score = 70
+        weight = int(definition["weight"])
+        normalized[key] = {
+            "label": definition["label"],
+            "score": score,
+            "weight": weight,
+            "evidence": evidence or "简历未提供可核验依据",
+        }
+        weighted_total += score * weight / 100
+    return int(weighted_total + 0.5), normalized
+
+
 class ResumeParseTool(BaseTool):
     name = "resume_parse"
     aliases = ["parse_resume"]
     search_hint = "解析 简历 PDF Markdown 求职"
-    description = "读取 workspace 下的 PDF 简历,使用大模型抽取为结构化对象,字段包含基本信息、技能、教育、工作经历、项目。"
+    description = (
+        "读取 workspace 下的 PDF 简历,使用大模型抽取为结构化对象,字段包含基本信息、技能、教育、工作经历、项目。"
+    )
     input_schema = {
         "type": "object",
         "properties": {
@@ -165,7 +218,9 @@ class ResumeParseTool(BaseTool):
         ]
 
         try:
-            response = await self._client().chat(messages=messages, temperature=0.0, max_tokens=MAX_RESUME_PARSE_TOKENS)
+            response = await self._client().chat(
+                messages=messages, temperature=0.0, max_tokens=MAX_RESUME_PARSE_TOKENS, disable_thinking=True
+            )
         except LLMServiceError as e:
             raise RuntimeError(f"简历抽取调用 LLM 失败：{e}")
 
@@ -195,13 +250,18 @@ class ResumeParseTool(BaseTool):
 class ResumeAnalyzeTool(BaseTool):
     name = "resume_analyze"
     aliases = ["analyze_resume"]
-    search_hint = "简历 分析 优势 劣势 问题 面试 深挖 排版 错别字"
-    description = "读取 PDF 简历原文,基于大模型输出优势、劣势、问题、面试可能深挖点、排版问题和错别字。"
+    search_hint = "简历 分析 优势 风险 问题 面试 深挖 内容质量 经历价值 量化成果"
+    description = "读取 PDF 简历原文,基于大模型输出优势、风险、内容质量、经历价值和面试可能深挖点。"
     input_schema = {
         "type": "object",
         "properties": {
             "file_path": {"type": "string", "description": "相对于 workspace 的简历文件路径,仅支持 .pdf"},
             "parsed": {"type": "object", "description": "可选,已抽取的结构化简历"},
+            "sections": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "可选,仅生成指定分析字段,用于分段流式报告",
+            },
         },
         "required": ["file_path"],
     }
@@ -225,36 +285,93 @@ class ResumeAnalyzeTool(BaseTool):
         raw_text = _read_resume_text(target)
         truncated = _truncate(raw_text, MAX_RESUME_TEXT_CHARS)
         parsed = arguments.get("parsed") if isinstance(arguments.get("parsed"), dict) else {}
+        all_sections = [
+            "overall_score",
+            "score_breakdown",
+            "summary",
+            "advantages",
+            "disadvantages",
+            "problems",
+            "interview_deep_dive_points",
+            "content_quality",
+            "experience_value",
+            "action_items",
+        ]
+        requested = [str(x) for x in (arguments.get("sections") or []) if str(x) in all_sections]
+        sections = requested or all_sections
+        model_sections = [key for key in sections if key != "overall_score"]
+        if "overall_score" in sections and "score_breakdown" not in model_sections:
+            model_sections.insert(0, "score_breakdown")
+        score_rubric = (
+            "评分维度与权重固定为: content_completeness 内容完整性15%，achievement_evidence 成果证据25%，"
+            "experience_impact 经历影响力20%，complexity 业务与技术复杂度15%，ownership 个人贡献15%，"
+            "consistency 一致性与可信度10%。每个维度输出 {score,evidence}，score 为0-100整数，evidence 必须引用简历事实。"
+            "统一档位锚点: 95-100 表示证据非常充分且竞争力突出；85-94 表示内容扎实、证据较充分，属于常规优秀简历；"
+            "75-84 表示整体良好但仍有局部证据或影响描述缺口；65-74 表示核心信息可用但说服力有限；"
+            "45-64 表示关键内容明显缺失；0-44 表示几乎无有效证据或存在严重矛盾。"
+            "评分应衡量简历当前呈现质量，以正常可投递简历为基准，不要以完美简历或理想候选人为默认基准；"
+            "简历已清楚呈现职责、项目和成果时应积极使用85分以上档位，但不得因为工作年限、名企名称或技能词数量直接给高分。"
+            "完全缺少量化或可验证成果时 achievement_evidence 不得高于74，个人职责与团队成果无法区分时 ownership 不得高于74，"
+            "存在明确时间或技能矛盾时 consistency 不得高于70。"
+            "不要输出 overall_score，最终综合分由系统按上述权重计算。"
+        )
 
         messages = [
             ChatMessage(
                 role="system",
                 content=(
-                    "你是一名资深技术招聘面试官和简历诊断专家。请严格基于简历原文和结构化信息做分析。"
+                    "你是一名资深技术招聘面试官和简历内容诊断专家。请严格基于简历原文和结构化信息做分析。"
                     "输出 JSON 对象,字段固定如下:"
-                    "overall_score(0-100整数), summary(str 总体判断), advantages[{title,detail,evidence}], "
+                    "score_breakdown{content_completeness:{score,evidence},achievement_evidence:{score,evidence},"
+                    "experience_impact:{score,evidence},complexity:{score,evidence},ownership:{score,evidence},"
+                    "consistency:{score,evidence}}, summary(str 总体判断), advantages[{title,detail,evidence}], "
                     "disadvantages[{title,detail,evidence}], problems[{type,detail,suggestion}], "
                     "interview_deep_dive_points[{topic,question,reason,preparation}], "
-                    "layout_issues[{detail,suggestion}], typo_issues[{text,suggestion,context}], "
-                    "action_items[str]。"
-                    "重点检查: 1优势和竞争力; 2短板和风险; 3表达、逻辑、经历真实性问题; "
-                    "4面试官可能深挖的问题; 5排版是否混乱、层级是否清楚; 6错别字、术语错误、标点和中英文混排问题。"
-                    "如果未发现排版或错别字问题,对应数组为空。只返回 JSON。"
+                    "content_quality[{title,detail,evidence,suggestion}], "
+                    "experience_value[{title,detail,evidence}], action_items[str]。"
+                    "重点分析: 1优势和竞争力; 2短板和风险; 3内容是否完整、具体且有说服力,职责、行动、成果是否形成闭环,"
+                    "是否有量化结果和事实证据; 4经历的业务或技术复杂度、候选人个人贡献、实际影响和可迁移能力; "
+                    "5经历与技能表述是否自洽、是否存在真实性风险; 6面试官可能深挖的问题。"
+                    "不得分析排版、字体、错别字、术语写法或标点。不得编造简历中不存在的成果、数据和职责。"
+                    "证据不足时应明确指出缺失了什么信息,不要将推测写成事实。"
+                    f"{score_rubric}"
+                    "每类结果保持精炼：优势最多3项、劣势最多3项、问题最多4项、面试深挖点最多4项、"
+                    "内容质量最多4项、经历价值最多4项、行动建议最多5项。"
+                    f"本次只生成这些字段: {', '.join(model_sections)}。除指定字段外不要输出其他分析字段。只返回 JSON。"
                 ),
             ),
             ChatMessage(role="user", content=json.dumps({"parsed": parsed, "raw_text": truncated}, ensure_ascii=False)),
         ]
         try:
-            response = await self._client().chat(messages=messages, temperature=0.1, max_tokens=MAX_RESUME_ANALYSIS_TOKENS)
+            response = await self._client().chat(
+                messages=messages, temperature=0.1, max_tokens=MAX_RESUME_ANALYSIS_TOKENS, disable_thinking=True
+            )
         except LLMServiceError as e:
             raise RuntimeError(f"简历分析调用 LLM 失败：{e}")
         data = _extract_json(response.get("content") or "")
         if not isinstance(data, dict):
             raise ValueError("LLM 输出的简历分析不是 JSON 对象")
-        for key in ["advantages", "disadvantages", "problems", "interview_deep_dive_points", "layout_issues", "typo_issues", "action_items"]:
-            data.setdefault(key, [])
-        data.setdefault("summary", "")
-        data.setdefault("overall_score", 0)
+        list_fields = [
+            "advantages",
+            "disadvantages",
+            "problems",
+            "interview_deep_dive_points",
+            "content_quality",
+            "experience_value",
+            "action_items",
+        ]
+        filtered = {key: data.get(key) for key in model_sections if key in data}
+        for key in model_sections:
+            if key in list_fields:
+                filtered.setdefault(key, [])
+            elif key == "summary":
+                filtered.setdefault(key, "")
+        if "score_breakdown" in model_sections:
+            overall_score, score_breakdown = _normalize_resume_score_breakdown(data.get("score_breakdown"))
+            filtered["score_breakdown"] = score_breakdown
+            if "overall_score" in sections:
+                filtered["overall_score"] = overall_score
+        data = filtered
         data["raw_text_chars"] = len(raw_text)
         return {"analysis": data, "source_path": str(target)}
 
@@ -297,14 +414,17 @@ class JobProfileSummaryTool(BaseTool):
                     "目标: 摘要将直接用于岗位推荐、岗位匹配和问答上下文，必须帮助系统快速判断候选人的目标方向、能力边界和筛选偏好。"
                     "硬性要求: 1 只基于输入信息，不编造公司、职级、成果或薪资；2 输出自然的一段话，不要项目符号、编号、Markdown、换行或 JSON 原文痕迹；"
                     "3 长度控制在120-180个中文字符；4 优先包含: 工作年限、当前/目标方向、核心技术栈、最有代表性的项目/平台经历、管理或领域经验、期望城市/岗位/薪资、硬性排除项；"
-                    "5 不要堆砌所有字段，不要重复姓名，避免'核心技能：'这类字段拼接口吻；6 信息不足时写清已知事实，并把缺失项放入 missing_fields。"
+                    "5 使用完整主谓结构和自然衔接，工作年限必须保留明确数字或范围；按'经验与方向—代表经历与能力—求职偏好'组织内容，每部分最多列举两三个高价值信息；"
+                    "6 不要堆砌技术名词或所有字段，不要重复姓名，避免'核心技能：'这类字段拼接口吻；7 信息不足时写清已知事实，并把缺失项放入 missing_fields。"
                     "输出严格 JSON 对象,字段为 summary(str), highlights(str数组,最多5项), missing_fields(str数组)。"
                 ),
             ),
             ChatMessage(role="user", content=json.dumps(compact, ensure_ascii=False)),
         ]
         try:
-            response = await self._client().chat(messages=messages, temperature=0.1, max_tokens=MAX_PROFILE_SUMMARY_TOKENS)
+            response = await self._client().chat(
+                messages=messages, temperature=0.1, max_tokens=MAX_PROFILE_SUMMARY_TOKENS, disable_thinking=True
+            )
         except LLMServiceError as e:
             raise RuntimeError(f"画像摘要调用 LLM 失败：{e}")
         data = _extract_json(response.get("content") or "")
@@ -314,7 +434,7 @@ class JobProfileSummaryTool(BaseTool):
         if not summary:
             raise ValueError("LLM 输出的画像摘要为空")
         return {
-            "summary": summary[:220],
+            "summary": summary,
             "highlights": [str(x) for x in (data.get("highlights") or [])][:5],
             "missing_fields": [str(x) for x in (data.get("missing_fields") or [])][:8],
         }
@@ -322,7 +442,7 @@ class JobProfileSummaryTool(BaseTool):
     @staticmethod
     def _clean_summary(value: str) -> str:
         text = re.sub(r"```(?:json)?|```", "", value or "")
-        text = re.sub(r"^[\s\-•*\d.、]+", "", text.strip())
+        text = re.sub(r"^\s*(?:(?:[-•*]+)|(?:\d+[.、]))\s*", "", text.strip())
         text = re.sub(r"[\r\n]+", " ", text)
         text = re.sub(r"(?<!\d)\s*[-•]\s*(?!\d)", "；", text)
         text = re.sub(r"\s+", " ", text).strip(" ，。；")
@@ -343,11 +463,21 @@ class JobProfileSummaryTool(BaseTool):
             "name": profile.get("name") or basic.get("name") or "",
             "city": basic.get("city") or expectations.get("city") or "",
             "degree": basic.get("degree") or basic.get("education") or "",
-            "current_title": profile.get("current_title") or basic.get("currentTitle") or basic.get("current_title") or "",
-            "years_experience": profile.get("years_experience") or basic.get("workYears") or basic.get("work_years") or "",
+            "current_title": profile.get("current_title")
+            or basic.get("currentTitle")
+            or basic.get("current_title")
+            or "",
+            "years_experience": profile.get("years_experience")
+            or basic.get("workYears")
+            or basic.get("work_years")
+            or "",
             "expected_titles": profile.get("expected_titles") or expectations.get("position") or [],
-            "skills": (profile.get("skills") or [])[:35] if isinstance(profile.get("skills"), list) else str(profile.get("skills") or "")[:500],
-            "personal_advantage": str(profile.get("personal_advantage") or profile.get("personalAdvantage") or "")[:1200],
+            "skills": (profile.get("skills") or [])[:35]
+            if isinstance(profile.get("skills"), list)
+            else str(profile.get("skills") or "")[:500],
+            "personal_advantage": str(profile.get("personal_advantage") or profile.get("personalAdvantage") or "")[
+                :1200
+            ],
             "job_status": status,
             "job_expectations": expectations,
             "education_experiences": (profile.get("education_experiences") or profile.get("education") or [])[:3],
@@ -375,6 +505,11 @@ class ResumeMatchTool(BaseTool):
                 "items": {"type": "object"},
             },
             "top_k": {"type": "integer", "description": "只对前 N 个岗位评分,默认 10", "default": MAX_JOBS_PER_MATCH},
+            "sections": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "可选,仅生成指定 match 字段,用于分段流式报告",
+            },
         },
         "required": ["resume", "jobs"],
     }
@@ -403,6 +538,22 @@ class ResumeMatchTool(BaseTool):
         if top_k <= 0:
             raise ValueError("top_k 必须为正整数")
         scoped_jobs = jobs[: min(top_k, MAX_JOBS_PER_MATCH)]
+        all_sections = [
+            "score",
+            "score_confidence",
+            "recommendation",
+            "reasoning",
+            "dimensions",
+            "evidence",
+            "hits",
+            "gaps",
+            "risks",
+            "interview_focus",
+            "improvement_actions",
+            "limitations",
+        ]
+        requested = [str(x) for x in (arguments.get("sections") or []) if str(x) in all_sections]
+        sections = requested or all_sections
 
         resume_brief = self._compact_resume(resume)
         jobs_brief = [self._compact_job(idx, job) for idx, job in enumerate(scoped_jobs)]
@@ -418,8 +569,12 @@ class ResumeMatchTool(BaseTool):
                     "recommendation(enum: 推荐|可尝试|谨慎|不建议|证据不足), reasoning(str), "
                     "dimensions{technical_skill{score,evidence,gap}, seniority{score,evidence,gap}, project_relevance{score,evidence,gap}, domain_fit{score,evidence,gap}, constraints{score,evidence,gap}}, "
                     "evidence[{resume_evidence,job_requirement,assessment}], hits[str], gaps[str], risks[str], interview_focus[str], improvement_actions[str], limitations[str]。"
+                    "reasoning 必须用 2-3 句话直接回答是否值得投递、核心依据和最大阻碍,不得只复述岗位名称或技能词。"
+                    "hits 和 gaps 必须引用当前简历与当前 JD 的具体内容；risks 只写可能影响筛选、定级或录用的关键风险。"
+                    "improvement_actions 必须是投递前可执行动作,优先说明简历哪段应补充什么项目证据、指标或技能验证；禁止使用继续学习、加强能力等空话。"
+                    "interview_focus 必须结合当前 JD 与简历经历给出具体追问方向或准备问题。"
                     "评分规则: 只有岗位要求和简历证据都明确时才给高分；证据不足不得给 80 以上；只有岗位名称没有 JD 时 score_confidence 必须 low, recommendation 必须证据不足。"
-                    "只返回 JSON。"
+                    f"本次每个 match 只生成 id 和这些字段: {', '.join(sections)}。除指定字段外不要输出其他 match 字段。只返回 JSON。"
                 ),
             ),
             ChatMessage(
@@ -429,21 +584,28 @@ class ResumeMatchTool(BaseTool):
         ]
 
         try:
-            response = await self._client().chat(messages=messages, temperature=0.1, max_tokens=MAX_RESUME_MATCH_TOKENS)
+            response = await self._client().chat(
+                messages=messages,
+                temperature=0.1,
+                max_tokens=MAX_RESUME_MATCH_TOKENS,
+                disable_thinking=True,
+            )
         except LLMServiceError as e:
             raise RuntimeError(f"岗位匹配调用 LLM 失败：{e}")
 
         content = response.get("content") or ""
         data = _extract_json(content)
-        if isinstance(data, list):
-            payload: Dict[str, Any] = {"matches": data, "limitations": ["legacy_array_output"]}
-        elif isinstance(data, dict):
-            payload = data
-        else:
-            raise ValueError("LLM 输出的匹配结果不是 JSON 对象或数组")
+        if not isinstance(data, dict):
+            raise ValueError("LLM 输出的匹配结果不是 JSON 对象")
+        payload: Dict[str, Any] = data
         rows = payload.get("matches") if isinstance(payload.get("matches"), list) else []
+        if not rows:
+            raise ValueError("大模型未返回有效的岗位匹配结果，请重试")
         normalized = [self._normalize_match(item, idx, scoped_jobs) for idx, item in enumerate(rows)]
-        normalized.sort(key=lambda x: -1 if x.get("score") is None else int(x.get("score") or 0), reverse=True)
+        if requested:
+            normalized = [{key: row.get(key) for key in ["id", *sections] if key in row} for row in normalized]
+        else:
+            normalized.sort(key=lambda x: -1 if x.get("score") is None else int(x.get("score") or 0), reverse=True)
         return {
             "matches": normalized,
             "scored_count": len(normalized),
@@ -456,16 +618,55 @@ class ResumeMatchTool(BaseTool):
     @staticmethod
     def _compact_resume(resume: Dict[str, Any]) -> Dict[str, Any]:
         skills = resume.get("skills") or []
-        experiences = resume.get("experiences") or []
-        projects = resume.get("projects") or []
+        experiences = resume.get("experiences") or resume.get("work_experiences") or []
+        projects = resume.get("projects") or resume.get("project_experiences") or []
+
+        def compact_records(records: Any, field_groups: Dict[str, tuple[str, ...]], limit: int) -> List[Any]:
+            if not isinstance(records, list):
+                return [str(records)[:1200]] if records else []
+            compacted: List[Any] = []
+            for record in records[:limit]:
+                if not isinstance(record, dict):
+                    compacted.append(str(record)[:500])
+                    continue
+                item: Dict[str, Any] = {}
+                for target, candidates in field_groups.items():
+                    value = next((record.get(key) for key in candidates if record.get(key)), None)
+                    if value is not None:
+                        item[target] = value[:1200] if isinstance(value, str) else value
+                if item:
+                    compacted.append(item)
+            return compacted
+
+        work_details = compact_records(
+            experiences,
+            {
+                "company": ("company", "companyName"),
+                "title": ("title", "position", "positionName", "role"),
+                "description": ("description", "content", "responsibility", "workContent"),
+                "achievement": ("achievement", "achievements", "result"),
+            },
+            5,
+        )
+        project_details = compact_records(
+            projects,
+            {
+                "name": ("name", "projectName", "title"),
+                "role": ("role", "position"),
+                "skills": ("skills", "techStack", "tech_stack"),
+                "responsibility": ("responsibility", "description", "content"),
+                "achievement": ("achievement", "achievements", "result"),
+            },
+            5,
+        )
         return {
-            "summary": (resume.get("summary") or "")[:400],
-            "years_experience": resume.get("years_experience") or 0,
+            "summary": str(resume.get("summary") or resume.get("personal_advantage") or "")[:800],
+            "years_experience": resume.get("years_experience") or resume.get("work_years") or 0,
             "current_title": resume.get("current_title") or "",
             "expected_titles": resume.get("expected_titles") or [],
-            "skills": skills[:30],
-            "experience_titles": [item.get("title", "") for item in experiences][:6],
-            "project_skills": list({s for proj in projects for s in (proj.get("skills") or [])})[:30],
+            "skills": skills[:30] if isinstance(skills, list) else str(skills)[:800],
+            "work_experiences": work_details,
+            "project_experiences": project_details,
         }
 
     @staticmethod
@@ -481,14 +682,22 @@ class ResumeMatchTool(BaseTool):
             "industry": job.get("industry", ""),
             "jobLabels": (job.get("jobLabels") or [])[:8],
             "skills": (job.get("skills") or [])[:15],
-            "jobDescription": str(job.get("jobDescription") or job.get("description") or job.get("postDescription") or "")[:1800],
+            "jobDescription": str(
+                job.get("jobDescription") or job.get("description") or job.get("postDescription") or ""
+            )[:1800],
             "source": job.get("source", ""),
         }
 
     @staticmethod
     def _normalize_match(item: Any, idx: int, jobs: List[Dict[str, Any]]) -> Dict[str, Any]:
         item = item if isinstance(item, dict) else {}
-        fallback_id = jobs[idx].get("securityId") or jobs[idx].get("id") or jobs[idx].get("jobId") or jobs[idx].get("encryptJobId") or f"job_{idx}"
+        fallback_id = (
+            jobs[idx].get("securityId")
+            or jobs[idx].get("id")
+            or jobs[idx].get("jobId")
+            or jobs[idx].get("encryptJobId")
+            or f"job_{idx}"
+        )
         score_raw = item.get("score")
         score: Optional[int]
         try:

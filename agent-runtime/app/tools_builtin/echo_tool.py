@@ -1,4 +1,3 @@
-
 from typing import Any, Dict
 
 from app.core.tool.base import BaseTool, ToolExecutionContext

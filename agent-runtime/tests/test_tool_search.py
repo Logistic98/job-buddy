@@ -1,4 +1,3 @@
-
 import pytest
 
 from app.core.tool.search import ToolSearchService

@@ -1,4 +1,3 @@
-
 import pytest
 
 from app.core.common.constants import PermissionMode

@@ -1,4 +1,3 @@
-
 import httpx
 import pytest
 
@@ -14,7 +13,8 @@ async def test_file_write_read_edit_pipeline(fresh_registry, tool_context, works
     target = workspace / "doc.txt"
 
     write_call = ToolCall(
-        id="w1", name="file_write",
+        id="w1",
+        name="file_write",
         arguments={"path": str(target), "content": "hello world\nsecond line"},
     )
     write_result = await runtime.execute(write_call, PermissionMode.AUTO, tool_context)
@@ -28,7 +28,8 @@ async def test_file_write_read_edit_pipeline(fresh_registry, tool_context, works
     assert read_result.output["total_lines"] == 2
 
     edit_call = ToolCall(
-        id="e1", name="file_edit",
+        id="e1",
+        name="file_edit",
         arguments={"path": str(target), "old_text": "hello world", "new_text": "hi world"},
     )
     edit_result = await runtime.execute(edit_call, PermissionMode.AUTO, tool_context)
@@ -47,6 +48,39 @@ async def test_file_write_rejects_path_outside_workspace(fresh_registry, tool_co
 
 
 @pytest.mark.asyncio
+async def test_file_edit_rejects_same_prefix_sibling_workspace(fresh_registry, tool_context, workspace):
+    runtime = ToolRuntime(fresh_registry)
+    sibling = workspace.parent / f"{workspace.name}-outside"
+    sibling.mkdir()
+    target = sibling / "secret.txt"
+    target.write_text("secret", encoding="utf-8")
+    call = ToolCall(
+        id="e_escape",
+        name="file_edit",
+        arguments={"path": str(target), "old_text": "secret", "new_text": "changed"},
+    )
+    result = await runtime.execute(call, PermissionMode.AUTO, tool_context)
+    assert not result.success
+    assert "工作区" in (result.error or "")
+    assert target.read_text(encoding="utf-8") == "secret"
+
+
+@pytest.mark.asyncio
+async def test_grep_skips_symlink_to_file_outside_workspace(fresh_registry, tool_context, workspace, tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-external.txt"
+    outside.write_text("credential-marker", encoding="utf-8")
+    (workspace / "external-link.txt").symlink_to(outside)
+    runtime = ToolRuntime(fresh_registry)
+    result = await runtime.execute(
+        ToolCall(id="g_escape", name="grep", arguments={"pattern": "credential-marker"}),
+        PermissionMode.DEFAULT,
+        tool_context,
+    )
+    assert result.success
+    assert result.output["matches"] == []
+
+
+@pytest.mark.asyncio
 async def test_file_write_requires_overwrite_flag(fresh_registry, tool_context, workspace):
     runtime = ToolRuntime(fresh_registry)
     target = workspace / "exist.txt"
@@ -62,7 +96,8 @@ async def test_file_edit_requires_unique_match(fresh_registry, tool_context, wor
     target = workspace / "dup.txt"
     target.write_text("aa aa aa", encoding="utf-8")
     call = ToolCall(
-        id="e_d", name="file_edit",
+        id="e_d",
+        name="file_edit",
         arguments={"path": str(target), "old_text": "aa", "new_text": "bb"},
     )
     result = await runtime.execute(call, PermissionMode.AUTO, tool_context)
@@ -79,14 +114,16 @@ async def test_glob_and_grep(fresh_registry, tool_context, workspace):
 
     glob_result = await runtime.execute(
         ToolCall(id="g1", name="glob", arguments={"pattern": "*.py"}),
-        PermissionMode.DEFAULT, tool_context,
+        PermissionMode.DEFAULT,
+        tool_context,
     )
     assert glob_result.success
     assert set(glob_result.output["files"]) == {"a.py", "b.py"}
 
     grep_result = await runtime.execute(
         ToolCall(id="g2", name="grep", arguments={"pattern": "hello", "glob": "*.py"}),
-        PermissionMode.DEFAULT, tool_context,
+        PermissionMode.DEFAULT,
+        tool_context,
     )
     assert grep_result.success
     assert grep_result.output["count"] >= 1
@@ -119,7 +156,7 @@ class _FakeSandboxClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def post(self, url, json=None):
+    async def post(self, url, json=None, headers=None):
         if _FakeSandboxClient.fail_with is not None:
             raise _FakeSandboxClient.fail_with
         _FakeSandboxClient.last_payload = {"url": url, "json": json}

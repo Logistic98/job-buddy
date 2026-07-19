@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
@@ -78,7 +77,9 @@ class ToolGateway:
         result = self._probe_injection(result)
         return ToolGatewayResult(result=result, permission_record=runtime.last_permission_record)
 
-    def _filter_by_task_scope(self, tools: List[ToolDefinition], task: TaskUnderstandingResult | None) -> List[ToolDefinition]:
+    def _filter_by_task_scope(
+        self, tools: List[ToolDefinition], task: TaskUnderstandingResult | None
+    ) -> List[ToolDefinition]:
         allowed = set(self._task_tool_scope(task))
         if not allowed:
             return tools
@@ -88,7 +89,9 @@ class ToolGateway:
         # 范围内工具由 _include_required_tools 负责补齐。
         return [tool for tool in tools if tool.name in allowed or tool.always_load]
 
-    def _include_required_tools(self, task: TaskUnderstandingResult | None, tools: List[ToolDefinition], limit: int) -> List[ToolDefinition]:
+    def _include_required_tools(
+        self, task: TaskUnderstandingResult | None, tools: List[ToolDefinition], limit: int
+    ) -> List[ToolDefinition]:
         required_names = self._task_tool_scope(task, required_only=True)
         selected = list(tools or [])
         seen = {tool.name for tool in selected}
@@ -106,13 +109,15 @@ class ToolGateway:
     def _task_tool_scope(self, task: TaskUnderstandingResult | None, required_only: bool = False) -> List[str]:
         if not task or not isinstance(task.metadata, dict):
             return []
-        implementation = task.metadata.get("implementation")
-        if not isinstance(implementation, dict):
+        capability_contract = task.metadata.get("capability_contract")
+        if not isinstance(capability_contract, dict):
             return []
-        required = [str(item) for item in (implementation.get("required_tools") or [])]
+        required = [str(item) for item in (capability_contract.get("required_tools") or [])]
         if required_only:
             return required
-        allowed = [str(item) for item in (implementation.get("allowed_tools") or implementation.get("tools") or [])]
+        allowed = [
+            str(item) for item in (capability_contract.get("allowed_tools") or capability_contract.get("tools") or [])
+        ]
         return list(dict.fromkeys(required + allowed))
 
     def _call_allowed_by_task(self, tool_name: str, task: TaskUnderstandingResult) -> bool:
@@ -125,11 +130,32 @@ class ToolGateway:
     def _normalize_result(self, result: ToolResult) -> ToolResult:
         metadata: Dict[str, Any] = dict(result.metadata or {})
         metadata.setdefault("normalized", True)
-        metadata.setdefault("status", "success" if result.success else "error")
-        metadata.setdefault("retryable", not result.success and not metadata.get("permission_denied"))
+
+        status = "success" if result.success else "error"
+        permission_denied = bool(metadata.get("permission_denied"))
+        if permission_denied:
+            status = "rejected"
+        metadata.setdefault("status", status)
+        metadata.setdefault("retryable", not result.success and not permission_denied)
         if not result.success and result.error and "suggested_action" not in metadata:
             metadata["suggested_action"] = "检查工具参数、权限或外部服务状态后重试"
+
+        result.status = status
         result.metadata = metadata
+        result.next_actions = (
+            metadata.get("next_actions") if isinstance(metadata.get("next_actions"), list) else result.next_actions
+        )
+        result.warnings = list(
+            dict.fromkeys(
+                result.warnings + (metadata.get("warnings") if isinstance(metadata.get("warnings"), list) else [])
+            )
+        )
+        if result.next_actions is None:
+            result.next_actions = []
+        if metadata.get("suggested_action") and metadata.get("suggested_action") not in result.next_actions:
+            result.next_actions.append(str(metadata["suggested_action"]))
+        if result.trace_id is None and isinstance(metadata.get("trace_id"), str):
+            result.trace_id = str(metadata.get("trace_id"))
         return result
 
     def _probe_injection(self, result: ToolResult) -> ToolResult:

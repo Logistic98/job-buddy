@@ -1,4 +1,3 @@
-
 import pytest
 
 from app.core.common.constants import PermissionMode
@@ -8,7 +7,7 @@ from app.models.schemas import TaskUnderstandingResult, ToolCall
 
 @pytest.mark.asyncio
 async def test_gateway_includes_required_tool_from_capability_scope(fresh_registry):
-    task = TaskUnderstandingResult(metadata={"implementation": {"required_tools": ["echo"]}})
+    task = TaskUnderstandingResult(metadata={"capability_contract": {"required_tools": ["echo"]}})
     gateway = ToolGateway(fresh_registry)
 
     results = await gateway.search("no-match", task, limit=3)
@@ -18,7 +17,7 @@ async def test_gateway_includes_required_tool_from_capability_scope(fresh_regist
 
 @pytest.mark.asyncio
 async def test_gateway_blocks_tool_outside_capability_scope(fresh_registry, tool_context):
-    task = TaskUnderstandingResult(metadata={"implementation": {"required_tools": ["echo"]}})
+    task = TaskUnderstandingResult(metadata={"capability_contract": {"required_tools": ["echo"]}})
     gateway = ToolGateway(fresh_registry)
 
     result = await gateway.execute(

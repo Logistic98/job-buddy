@@ -1,8 +1,8 @@
-
 from pathlib import Path
 from typing import Any, Dict
 
 from app.core.common.constants import ToolRiskLevel
+from app.core.security.workspace import resolve_workspace_path
 from app.core.tool.base import BaseTool, ToolExecutionContext, ValidationResult
 
 
@@ -30,10 +30,10 @@ class FileEditTool(BaseTool):
         base = await super().validate_input(arguments, context)
         if not base.result:
             return base
-        path = self._resolve_path(arguments["path"], context)
-        workspace = Path(context.workspace_dir).expanduser().resolve()
-        if not str(path).startswith(str(workspace)):
-            return ValidationResult(result=False, message=f"文件路径超出工作区: {path}", error_code=403)
+        try:
+            path = self._resolve_path(arguments["path"], context)
+        except ValueError as exc:
+            return ValidationResult(result=False, message=str(exc), error_code=403)
         if not path.exists():
             return ValidationResult(result=False, message=f"文件不存在: {path}", error_code=404)
         content = path.read_text(encoding="utf-8", errors="ignore")
@@ -50,7 +50,4 @@ class FileEditTool(BaseTool):
         return {"path": str(path), "replacements": 1, "bytes": path.stat().st_size}
 
     def _resolve_path(self, raw_path: str, context: ToolExecutionContext) -> Path:
-        path = Path(raw_path).expanduser()
-        if not path.is_absolute():
-            path = Path(context.workspace_dir) / path
-        return path.resolve()
+        return resolve_workspace_path(raw_path, context.workspace_dir)
