@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import sys
@@ -80,6 +79,21 @@ def test_non_zero_exit_can_be_returned_when_check_disabled(runtime: SandboxRunti
     result = runtime.run_python_code("import sys; sys.exit(5)", check=False)
     assert not result.ok
     assert result.returncode == 5
+
+
+def test_large_output_is_truncated_without_unbounded_capture(fake_srt: Path, tmp_path: Path) -> None:
+    runtime = SandboxRuntime(
+        default_config(allow_write=[str(tmp_path)]),
+        cwd=tmp_path,
+        max_output_bytes=4096,
+    )
+
+    result = runtime.run_python_code("print('x' * 12000)")
+
+    assert result.ok
+    assert len(result.stdout) < 5000
+    assert "output truncated" in result.stdout
+    assert "bytes omitted" in result.stdout
 
 
 def test_quote_args() -> None:

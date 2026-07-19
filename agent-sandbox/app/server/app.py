@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -14,6 +16,7 @@ from fastapi import FastAPI, HTTPException
 from loguru import logger
 
 from ..core.config import FilesystemConfig, NetworkConfig, SandboxRuntimeConfig
+from ..internal_auth import install_internal_auth
 from ..core.exceptions import SandboxCommandNotFoundError, SandboxProcessError
 from ..core.models import CodeSpec, ExecutionOptions, SandboxResult
 from ..core.policies import SandboxPolicies
@@ -27,9 +30,15 @@ from .schemas import (
     ShellRequest,
 )
 
+_MAX_CONCURRENCY = max(1, int(os.getenv("AGENT_SANDBOX_MAX_CONCURRENCY", "4")))
+_MAX_OUTPUT_CHARS = max(1024, int(os.getenv("AGENT_SANDBOX_MAX_OUTPUT_CHARS", "200000")))
+_EXECUTION_SLOTS = threading.BoundedSemaphore(_MAX_CONCURRENCY)
+_ALLOWED_ENV_KEYS = {"LANG", "LC_ALL", "LC_CTYPE"}
+
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Job Buddy Sandbox Runtime Service", version="0.1.0")
+    app = FastAPI(title="Job Buddy Sandbox Runtime Service", version="1.0.0")
+    install_internal_auth(app)
 
     @app.get("/health")
     def health() -> dict:
@@ -112,12 +121,19 @@ class PreparedExecution:
     cleanup: Callable[[], None]
 
 
-def _run_with_request(op: str, policy, options, runner: Callable[[SandboxClient, ExecutionOptions], SandboxResult]) -> SandboxResponse:
-    prepared = _prepare_execution(policy, options)
+def _run_with_request(
+    op: str, policy, options, runner: Callable[[SandboxClient, ExecutionOptions], SandboxResult]
+) -> SandboxResponse:
+    if not _EXECUTION_SLOTS.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="沙箱并发已达上限，请稍后重试")
+    prepared = None
     try:
+        prepared = _prepare_execution(policy, options)
         return _execute(op, lambda: runner(prepared.client, prepared.options))
     finally:
-        prepared.cleanup()
+        if prepared is not None:
+            prepared.cleanup()
+        _EXECUTION_SLOTS.release()
 
 
 def _execute(op: str, runner: Callable[[], SandboxResult]) -> SandboxResponse:
@@ -132,7 +148,12 @@ def _execute(op: str, runner: Callable[[], SandboxResult]) -> SandboxResponse:
         bound.warning(f"沙箱进程非零退出 returncode={exc.returncode} duration_ms={duration_ms}")
         raise HTTPException(
             status_code=422,
-            detail={"request_id": request_id, "returncode": exc.returncode, "stdout": exc.stdout, "stderr": exc.stderr},
+            detail={
+                "request_id": request_id,
+                "returncode": exc.returncode,
+                "stdout": _bounded_output(exc.stdout),
+                "stderr": _bounded_output(exc.stderr),
+            },
         ) from exc
     except SandboxCommandNotFoundError as exc:
         bound.error(f"沙箱可执行文件缺失 error={exc}")
@@ -150,7 +171,7 @@ def _prepare_execution(policy, options) -> PreparedExecution:
     cwd, cleanup = _safe_cwd(raw_options.cwd)
     safe_options = ExecutionOptions(
         cwd=str(cwd),
-        env=raw_options.env,
+        env=_safe_env(raw_options.env),
         timeout=raw_options.timeout,
         check=raw_options.check,
     )
@@ -179,7 +200,9 @@ def _effective_config(policy, workspace: str | Path) -> SandboxRuntimeConfig:
         filesystem=FilesystemConfig(
             denyRead=_dedupe([*base.filesystem.denyRead, *requested.filesystem.denyRead]),
             allowRead=_narrow_allowed_paths(base.filesystem.allowRead, requested.filesystem.allowRead, workspace_path),
-            allowWrite=_narrow_allowed_paths(base.filesystem.allowWrite, requested.filesystem.allowWrite, workspace_path),
+            allowWrite=_narrow_allowed_paths(
+                base.filesystem.allowWrite, requested.filesystem.allowWrite, workspace_path
+            ),
             denyWrite=_dedupe([*base.filesystem.denyWrite, *requested.filesystem.denyWrite]),
         ),
         ignoreViolations={},
@@ -198,7 +221,26 @@ def _options_kwargs(options) -> dict:
 
 
 def _response(result) -> SandboxResponse:
-    return SandboxResponse(ok=result.ok, returncode=result.returncode, stdout=result.stdout, stderr=result.stderr, args=result.args)
+    return SandboxResponse(
+        ok=result.ok,
+        returncode=result.returncode,
+        stdout=_bounded_output(result.stdout),
+        stderr=_bounded_output(result.stderr),
+        args=result.args[:256],
+    )
+
+
+def _safe_env(requested: dict[str, str] | None) -> dict[str, str]:
+    if not requested:
+        return {}
+    return {key: str(value)[:256] for key, value in requested.items() if key in _ALLOWED_ENV_KEYS and value is not None}
+
+
+def _bounded_output(value: str | None) -> str:
+    text = str(value or "")
+    if len(text) <= _MAX_OUTPUT_CHARS:
+        return text
+    return text[:_MAX_OUTPUT_CHARS] + "\n[OUTPUT_TRUNCATED]"
 
 
 def _safe_cwd(raw_cwd) -> tuple[Path, Callable[[], None]]:

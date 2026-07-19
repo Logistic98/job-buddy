@@ -29,6 +29,7 @@ class SandboxRuntime:
         cwd: str | Path | None = None,
         env: Mapping[str, str] | None = None,
         keep_settings_file: bool = False,
+        max_output_bytes: int | None = None,
     ) -> None:
         self.config = (
             config
@@ -39,13 +40,18 @@ class SandboxRuntime:
         self.cwd = Path(cwd).resolve() if cwd else None
         self.env = dict(env or {})
         self.keep_settings_file = keep_settings_file
+        configured_max = max_output_bytes
+        if configured_max is None:
+            try:
+                configured_max = int(os.getenv("AGENT_SANDBOX_MAX_CAPTURE_BYTES", str(1024 * 1024)))
+            except ValueError:
+                configured_max = 1024 * 1024
+        self.max_output_bytes = max(4096, min(configured_max, 16 * 1024 * 1024))
 
     def ensure_available(self) -> str:
         resolved = shutil.which(self.srt_bin)
         if not resolved:
-            raise SandboxCommandNotFoundError(
-                "未找到 srt CLI，请先安装：npm install -g @anthropic-ai/sandbox-runtime"
-            )
+            raise SandboxCommandNotFoundError("未找到 srt CLI，请先安装：npm install -g @anthropic-ai/sandbox-runtime")
         return resolved
 
     def run(
@@ -74,20 +80,23 @@ class SandboxRuntime:
             if env:
                 merged_env.update({str(key): str(value) for key, value in env.items()})
 
-            proc = subprocess.run(
-                args,
-                cwd=str(Path(cwd).resolve()) if cwd else (str(self.cwd) if self.cwd else None),
-                env=merged_env,
-                capture_output=True,
-                text=text,
-                timeout=timeout,
-            )
-            result = SandboxResult(
-                args=args,
-                returncode=proc.returncode,
-                stdout=proc.stdout or "",
-                stderr=proc.stderr or "",
-            )
+            # stdout/stderr 直接落临时文件，避免不可信进程的大输出被 capture_output
+            # 无界聚合到 Python 堆内存。进程结束后只读取配置允许的最大字节数。
+            with tempfile.TemporaryFile(mode="w+b") as stdout_file, tempfile.TemporaryFile(mode="w+b") as stderr_file:
+                proc = subprocess.run(
+                    args,
+                    cwd=str(Path(cwd).resolve()) if cwd else (str(self.cwd) if self.cwd else None),
+                    env=merged_env,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    timeout=timeout,
+                )
+                result = SandboxResult(
+                    args=args,
+                    returncode=proc.returncode,
+                    stdout=self._read_limited_output(stdout_file, text=text),
+                    stderr=self._read_limited_output(stderr_file, text=text),
+                )
             if check and not result.ok:
                 raise SandboxProcessError(
                     f"沙箱命令退出码：{result.returncode}",
@@ -102,6 +111,16 @@ class SandboxRuntime:
                     settings_path.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+    def _read_limited_output(self, stream, *, text: bool) -> str:
+        stream.flush()
+        size = stream.tell()
+        stream.seek(0)
+        data = stream.read(self.max_output_bytes)
+        output = data.decode("utf-8", errors="replace")
+        if size > self.max_output_bytes:
+            output += f"\n...[output truncated: {size - self.max_output_bytes} bytes omitted]"
+        return output
 
     async def arun(self, command: str | Sequence[str], **kwargs) -> SandboxResult:
         """run 的异步封装。"""

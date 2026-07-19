@@ -102,6 +102,12 @@ python server.py
 HOST=0.0.0.0 PORT=8061 python server.py
 ```
 
+底层 Runtime 将 stdout/stderr 写入临时文件并按上限读取，避免不可信代码通过大输出耗尽服务内存。默认每个输出流最多读取 1MB，可在 4KB 至 16MB 范围内配置：
+
+```bash
+AGENT_SANDBOX_MAX_CAPTURE_BYTES=1048576
+```
+
 主要接口：
 
 - `GET /health`

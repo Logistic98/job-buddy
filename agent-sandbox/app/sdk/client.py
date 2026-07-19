@@ -85,7 +85,9 @@ class SandboxClient:
         python_bin: str | None = None,
         **kwargs,
     ) -> SandboxResult:
-        return self.command([python_bin or sys.executable, str(script), *(str(item) for item in (args or []))], **kwargs)
+        return self.command(
+            [python_bin or sys.executable, str(script), *(str(item) for item in (args or []))], **kwargs
+        )
 
     def python_code(
         self,

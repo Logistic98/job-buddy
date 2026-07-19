@@ -1,7 +1,6 @@
 """Job Buddy Sandbox Runtime 包入口。
 
-根模块统一从 core / sdk 子包导出公共 API，
-旧的平铺模块（config/models/policies/runtime/client）已收敛到子包。
+根模块统一从 core / sdk 子包导出公共 API。
 """
 
 from .core.config import FilesystemConfig, NetworkConfig, SandboxRuntimeConfig, default_config, workspace_only_config

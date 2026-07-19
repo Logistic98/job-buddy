@@ -32,44 +32,44 @@ class SandboxPolicySchema(BaseModel):
 class ExecutionOptionsSchema(BaseModel):
     cwd: str | None = None
     env: dict[str, str] | None = None
-    timeout: float | None = None
+    timeout: float = Field(default=30.0, gt=0, le=120.0)
     check: bool = True
 
 
 class CommandRequest(BaseModel):
-    argv: list[str] | None = None
-    command: str | None = None
+    argv: list[str] | None = Field(default=None, max_length=256)
+    command: str | None = Field(default=None, max_length=32768)
     policy: SandboxPolicySchema | None = None
     options: ExecutionOptionsSchema = Field(default_factory=ExecutionOptionsSchema)
 
 
 class CliRequest(BaseModel):
-    executable: str
-    args: list[str] = Field(default_factory=list)
+    executable: str = Field(max_length=1024)
+    args: list[str] = Field(default_factory=list, max_length=256)
     policy: SandboxPolicySchema | None = None
     options: ExecutionOptionsSchema = Field(default_factory=ExecutionOptionsSchema)
 
 
 class ShellRequest(BaseModel):
-    command: str
-    shell: str = "/bin/sh"
+    command: str = Field(max_length=32768)
+    shell: str = Field(default="/bin/sh", max_length=1024)
     policy: SandboxPolicySchema | None = None
     options: ExecutionOptionsSchema = Field(default_factory=ExecutionOptionsSchema)
 
 
 class PythonCodeRequest(BaseModel):
-    code: str
-    args: list[str] = Field(default_factory=list)
-    python_bin: str | None = None
+    code: str = Field(max_length=1048576)
+    args: list[str] = Field(default_factory=list, max_length=256)
+    python_bin: str | None = Field(default=None, max_length=1024)
     policy: SandboxPolicySchema | None = None
     options: ExecutionOptionsSchema = Field(default_factory=ExecutionOptionsSchema)
 
 
 class CodeFileRequest(BaseModel):
-    code: str
-    suffix: str = ".py"
+    code: str = Field(max_length=1048576)
+    suffix: str = Field(default=".py", max_length=32, pattern=r"^\.[A-Za-z0-9]+$")
     interpreter: str | list[str] | None = None
-    args: list[str] = Field(default_factory=list)
+    args: list[str] = Field(default_factory=list, max_length=256)
     policy: SandboxPolicySchema | None = None
     options: ExecutionOptionsSchema = Field(default_factory=ExecutionOptionsSchema)
 
