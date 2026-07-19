@@ -1,4 +1,3 @@
-
 from app.core.context.compactor import COMPACTION_MARKER_PREFIX, ContextCompactor
 from app.models.schemas import AgentPlan, AgentPlanStep, ToolCall, ToolResult
 

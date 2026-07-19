@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -89,19 +88,25 @@ class ContextCompactor:
             if metadata.get("synthetic"):
                 continue
             if getattr(result, "success", False):
-                entry = {"tool": str(getattr(result, "tool_name", "")), "summary": self._compact_text(getattr(result, "output", None))}
+                entry = {
+                    "tool": str(getattr(result, "tool_name", "")),
+                    "summary": self._compact_text(getattr(result, "output", None)),
+                }
                 key = (entry["tool"], entry["summary"])
                 if key not in seen_changes:
                     changes.append(entry)
                     seen_changes.add(key)
             else:
-                entry = {"tool": str(getattr(result, "tool_name", "")), "error": self._compact_text(getattr(result, "error", None))}
+                entry = {
+                    "tool": str(getattr(result, "tool_name", "")),
+                    "error": self._compact_text(getattr(result, "error", None)),
+                }
                 key = (entry["tool"], entry["error"])
                 if key not in seen_failures:
                     failures.append(entry)
                     seen_failures.add(key)
         plan = state.get("plan")
-        for step in (getattr(plan, "steps", None) or []):
+        for step in getattr(plan, "steps", None) or []:
             goal = str(getattr(step, "goal", "") or "")
             if goal and goal not in decisions:
                 decisions.append(goal)
@@ -113,9 +118,9 @@ class ContextCompactor:
             next_step = "输出最终答案"
         return {
             "objective": str(state.get("objective") or ""),
-            "changes": changes[-self.MAX_ITEMS:],
-            "decisions": decisions[-self.MAX_ITEMS:],
-            "failures": failures[-self.MAX_ITEMS:],
+            "changes": changes[-self.MAX_ITEMS :],
+            "decisions": decisions[-self.MAX_ITEMS :],
+            "failures": failures[-self.MAX_ITEMS :],
             "next_step": next_step or str(previous.get("next_step") or ""),
             "folded_observations": int(previous.get("folded_observations") or 0) + len(folded),
             "rounds": int(previous.get("rounds") or 0) + 1,
@@ -124,13 +129,15 @@ class ContextCompactor:
     def _to_marker(self, snapshot: Dict[str, Any]) -> str:
         view = {
             "objective": snapshot["objective"],
-            "changes": snapshot["changes"][-self.MARKER_ITEMS:],
-            "decisions": snapshot["decisions"][-self.MARKER_ITEMS:],
-            "failures": snapshot["failures"][-self.MARKER_ITEMS:],
+            "changes": snapshot["changes"][-self.MARKER_ITEMS :],
+            "decisions": snapshot["decisions"][-self.MARKER_ITEMS :],
+            "failures": snapshot["failures"][-self.MARKER_ITEMS :],
             "next_step": snapshot["next_step"],
             "folded_observations": snapshot["folded_observations"],
         }
-        return f"{COMPACTION_MARKER_PREFIX} 较早观察已压缩为五要素快照：" + json.dumps(view, ensure_ascii=False, sort_keys=True)
+        return f"{COMPACTION_MARKER_PREFIX} 较早观察已压缩为五要素快照：" + json.dumps(
+            view, ensure_ascii=False, sort_keys=True
+        )
 
     def _compact_text(self, value: Any) -> str:
         text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)

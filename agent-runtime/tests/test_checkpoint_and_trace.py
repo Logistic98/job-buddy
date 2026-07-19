@@ -1,4 +1,3 @@
-
 import pytest
 
 from app.core.checkpoint.store import CheckpointStore
@@ -8,12 +7,12 @@ from app.models.schemas import AgentRunRequest, ChatMessage
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_save_and_load_latest(checkpoint_dir):
-    store = CheckpointStore(str(checkpoint_dir))
+async def test_checkpoint_save_and_load_latest(checkpoint_store):
+    store = checkpoint_store
     session_id = "session_unit_test"
     run_id = "run_unit_test"
 
-    await store.save(session_id, run_id, "plan_created", {"turn": 1, "plan": {"objective": "demo"}})
+    await store.save(session_id, run_id, "plan_created", {"turn": 1, "plan": {"objective": "sample-task"}})
     await store.save(session_id, run_id, "tool_execute_end", {"turn": 2, "result": "ok"})
 
     latest = await store.load_latest(session_id)
@@ -24,35 +23,113 @@ async def test_checkpoint_save_and_load_latest(checkpoint_dir):
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_handles_pydantic_models(checkpoint_dir):
+async def test_checkpoint_redacts_nested_credentials(checkpoint_store):
+    store = checkpoint_store
+    await store.save(
+        "session_secret",
+        "run_secret",
+        "understand_goal",
+        {
+            "metadata": {
+                "llm_service": {"api_key": "sk-live-secret", "base_url": "https://example.com"},
+                "database_url": "postgresql://user:password@db.example/app",
+            },
+            "error": "authorization=Bearer secret-token",
+        },
+    )
+    latest = await store.load_latest("session_secret")
+    rendered = str(latest)
+    assert "sk-live-secret" not in rendered
+    assert "secret-token" not in rendered
+    assert "user:password" not in rendered
+    assert "[REDACTED]" in rendered
+
+
+def test_checkpoint_does_not_inherit_memory_database_url(monkeypatch):
+    monkeypatch.delenv("AGENT_RUNTIME_DATABASE_URL", raising=False)
+    monkeypatch.setenv("AGENT_MEMORY_DATABASE_URL", "postgresql://memory:secret@db/memory")
+    store = CheckpointStore()
+    assert store._database_url == ""
+
+
+def test_checkpoint_warns_once_when_enabled_without_runtime_dsn(monkeypatch):
+    from loguru import logger
+    from app.core.checkpoint import store as checkpoint_module
+    from app.core.common.settings import settings
+
+    monkeypatch.setattr(settings.config.checkpoint, "enabled", True)
+    monkeypatch.setattr(checkpoint_module, "_missing_dsn_warning_emitted", False)
+    messages = []
+    sink_id = logger.add(lambda message: messages.append(str(message)), level="WARNING")
+    try:
+        CheckpointStore(database_url="")
+        CheckpointStore(database_url="")
+    finally:
+        logger.remove(sink_id)
+
+    warnings = [item for item in messages if "Checkpoint 已开启但未配置" in item]
+    assert len(warnings) == 1
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_handles_pydantic_models(checkpoint_store):
     from app.models.schemas import AgentPlan
 
-    store = CheckpointStore(str(checkpoint_dir))
-    plan = AgentPlan(objective="demo", final_answer="done", is_complete=True)
+    store = checkpoint_store
+    plan = AgentPlan(objective="sample-task", final_answer="done", is_complete=True)
     await store.save("session_p", "run_p", "finalize", {"plan": plan})
     latest = await store.load_latest("session_p")
-    assert latest["state"]["plan"]["objective"] == "demo"
+    assert latest["state"]["plan"]["objective"] == "sample-task"
     assert latest["state"]["plan"]["is_complete"] is True
 
 
 @pytest.mark.asyncio
-async def test_executor_restores_latest_checkpoint_state(checkpoint_dir):
-    store = CheckpointStore(str(checkpoint_dir))
+async def test_request_llm_overrides_do_not_mutate_shared_executor():
+    executor = AgentExecutor(use_llm=False)
+    first = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="one")],
+        metadata={"llm_service": {"api_key": "key-one", "base_url": "https://one.example/v1", "model": "one"}},
+    )
+    second = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="two")],
+        metadata={"llm_service": {"api_key": "key-two", "base_url": "https://two.example/v1", "model": "two"}},
+    )
+    first_client = executor._resolve_request_llm(first)
+    second_client = executor._resolve_request_llm(second)
+    first_graph = executor._build_graph(first_client)
+    second_graph = executor._build_graph(second_client)
+    assert first_client is not second_client
+    assert first_graph is not second_graph
+    assert executor.llm_client is None
+    assert executor.task_understanding.llm_client is None
+    assert executor.planner.llm_client is None
+    await first_client.aclose()
+    await second_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_executor_restores_latest_checkpoint_state(checkpoint_store):
+    store = checkpoint_store
     session_id = "session_resume_test"
-    await store.save(session_id, "run_old", "execute_tool", {
-        "run_id": "run_old",
-        "trace_id": "trace_old",
-        "session_id": session_id,
-        "messages": [{"role": "user", "content": "old"}],
-        "objective": "old",
-        "turn_count": 2,
-        "tool_call_count": 1,
-        "failure_count": 0,
-        "tool_results": [],
-        "permission_records": [],
-        "observations": ["工具已执行"],
-        "logs": [],
-    })
+    await store.save(
+        session_id,
+        "run_old",
+        "execute_tool",
+        {
+            "run_id": "run_old",
+            "trace_id": "trace_old",
+            "session_id": session_id,
+            "messages": [{"role": "user", "content": "old"}],
+            "objective": "old",
+            "turn_count": 2,
+            "tool_call_count": 1,
+            "failure_count": 0,
+            "tool_results": [],
+            "permission_records": [],
+            "observations": ["工具已执行"],
+            "logs": [],
+        },
+    )
 
     executor = AgentExecutor(use_llm=False)
     executor.checkpoint_store = store
@@ -72,13 +149,13 @@ async def test_executor_restores_latest_checkpoint_state(checkpoint_dir):
 
 
 @pytest.mark.asyncio
-async def test_executor_saves_runtime_error_checkpoint(checkpoint_dir):
+async def test_executor_saves_runtime_error_checkpoint(checkpoint_store):
     class FailingGraph:
         async def ainvoke(self, state):
             raise RuntimeError("boom")
 
     executor = AgentExecutor(use_llm=False)
-    executor.checkpoint_store = CheckpointStore(str(checkpoint_dir))
+    executor.checkpoint_store = checkpoint_store
     executor.graph = FailingGraph()
     request = AgentRunRequest(session_id="session_error_test", messages=[ChatMessage(role="user", content="fail")])
 
@@ -102,6 +179,24 @@ async def test_trace_recorder_filters_by_run(tmp_path):
     assert len(events_run_1) == 2
     assert all(e.run_id == "run_1" for e in events_run_1)
     assert {e.event for e in events_run_1} == {"run_start", "plan_created"}
+
+
+@pytest.mark.asyncio
+async def test_trace_recorder_redacts_sensitive_payload_and_error(tmp_path):
+    recorder = TraceRecorder(persist_dir=str(tmp_path / "traces"))
+    await recorder.record(
+        "trace_secret",
+        "tool_end",
+        {"headers": {"Authorization": "Bearer secret-token"}, "api_key": "sk-secret"},
+        run_id="run_secret",
+        error="password=hunter2",
+    )
+    event = recorder.list_by_run("run_secret")[0]
+    rendered = str(event.model_dump())
+    assert "secret-token" not in rendered
+    assert "sk-secret" not in rendered
+    assert "hunter2" not in rendered
+    assert "[REDACTED]" in rendered
 
 
 @pytest.mark.asyncio
@@ -136,8 +231,8 @@ async def test_trace_recorder_memory_window_falls_back_to_disk(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_load_by_run_and_list_snapshots(checkpoint_dir):
-    store = CheckpointStore(str(checkpoint_dir))
+async def test_checkpoint_load_by_run_and_list_snapshots(checkpoint_store):
+    store = checkpoint_store
     session_id = "session_multi_run"
     await store.save(session_id, "run_a", "plan_created", {"turn": 1})
     await store.save(session_id, "run_b", "finalize", {"turn": 5})
