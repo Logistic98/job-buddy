@@ -12,13 +12,7 @@
     />
 
     <main :class="['main-stage', { 'sidebar-collapsed': sidebarCollapsed }]">
-      <router-view v-slot="{ Component }">
-        <component
-          :is="Component"
-          @manage-resumes="router.push('/resumes')"
-          @open-writer="router.push('/resume-writer')"
-        />
-      </router-view>
+      <router-view />
     </main>
 
     <BossLoginQrModal
@@ -42,6 +36,7 @@ import { useAuthStore } from './stores/auth'
 import { useChatStore } from './stores/chat'
 import { useJobStore } from './stores/job'
 import { useResumeStore } from './stores/resume'
+import { subscribeAuthLogout } from './utils/authStorage'
 
 const router = useRouter()
 const route = useRoute()
@@ -51,40 +46,77 @@ const job = useJobStore()
 const resume = useResumeStore()
 const systemHealth = ref({ status: 'checking', label: '检查中' })
 let healthTimer = null
+let secondaryDataTimer = null
+let stopAuthLogoutSync = null
 const sidebarCollapsed = ref(false)
 
 onMounted(async () => {
+  stopAuthLogoutSync = subscribeAuthLogout(() => auth.clearLocal())
   await auth.init()
   if (auth.isLoggedIn) bootstrapAppData()
 })
 
 onBeforeUnmount(() => {
   if (healthTimer) window.clearInterval(healthTimer)
+  if (secondaryDataTimer) window.clearTimeout(secondaryDataTimer)
+  if (stopAuthLogoutSync) stopAuthLogoutSync()
+  resetBusinessState()
 })
 
 function bootstrapAppData() {
-  chat.loadSessions().catch(() => {})
-  resume.load().catch(() => {})
-  job.loadFavorites().catch(() => {})
+  const loaders = [
+    { key: 'chat', permission: 'chat:use', load: () => chat.loadSessions() },
+    { key: 'resume', permission: 'resume:use', load: () => resume.load() },
+    { key: 'job', permission: 'jobs:use', load: () => job.loadFavorites() },
+  ].filter((item) => auth.hasPermission(item.permission))
+  const primaryKey =
+    route.path === '/chat'
+      ? 'chat'
+      : route.path.startsWith('/resumes')
+        ? 'resume'
+        : ['/jobs', '/journey'].includes(route.path)
+          ? 'job'
+          : ''
+  const primary = loaders.find((item) => item.key === primaryKey)
+  if (primary) primary.load().catch(() => {})
+  if (secondaryDataTimer) window.clearTimeout(secondaryDataTimer)
+  const secondaryDelay = primary ? 1500 : 5000
+  secondaryDataTimer = window.setTimeout(() => {
+    loaders.filter((item) => item.key !== primaryKey).forEach((item) => item.load().catch(() => {}))
+    secondaryDataTimer = null
+  }, secondaryDelay)
   refreshSystemHealth()
   if (healthTimer) window.clearInterval(healthTimer)
   healthTimer = window.setInterval(refreshSystemHealth, 10000)
 }
 
-watch(() => auth.isLoggedIn, (loggedIn) => {
-  if (loggedIn) {
-    bootstrapAppData()
-    if (route.meta.public || route.path === '/login') router.replace('/chat')
-  } else if (route.path !== '/login') {
-    router.replace('/login')
-  }
-})
+watch(
+  () => auth.isLoggedIn,
+  (loggedIn) => {
+    if (loggedIn) {
+      bootstrapAppData()
+      if (route.meta.public || route.path === '/login') router.replace('/chat')
+    } else {
+      if (healthTimer) window.clearInterval(healthTimer)
+      healthTimer = null
+      if (secondaryDataTimer) window.clearTimeout(secondaryDataTimer)
+      secondaryDataTimer = null
+      resetBusinessState()
+      if (route.path !== '/login') router.replace('/login')
+    }
+  },
+)
 
 async function handleLogout() {
   await auth.logout()
   if (healthTimer) window.clearInterval(healthTimer)
   healthTimer = null
-  chat.newSession()
+}
+
+function resetBusinessState() {
+  chat.disposeForAuthChange()
+  job.disposeForAuthChange()
+  resume.disposeForAuthChange()
 }
 
 async function refreshSystemHealth() {
@@ -105,6 +137,16 @@ async function handleBossLoggedIn() {
   router.push('/chat')
   await chat.resumeAfterAuth()
 }
-watch(() => chat.lastJobCardsEvent, value => { if (value) job.setJobs(value) })
-watch(() => chat.lastResumeMatchEvent, value => { if (value) job.setMatch(value) })
+watch(
+  () => chat.lastJobCardsEvent,
+  (value) => {
+    job.setJobs(value)
+  },
+)
+watch(
+  () => chat.lastResumeMatchEvent,
+  (value) => {
+    if (value) job.setMatch(value)
+  },
+)
 </script>

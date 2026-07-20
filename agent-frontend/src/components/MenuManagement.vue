@@ -1,0 +1,345 @@
+<template>
+  <section class="rbac-management">
+    <header class="rbac-page-head">
+      <div class="rbac-page-head-main">
+        <span class="rbac-page-icon">MN</span>
+        <div>
+          <h2>菜单管理</h2>
+          <p>动态维护菜单树、导航目标、显示状态和权限码。</p>
+        </div>
+      </div>
+      <button class="primary-btn" @click="openCreate">创建菜单</button>
+    </header>
+
+    <div class="rbac-metrics">
+      <article class="rbac-metric">
+        <span>菜单总数</span><strong>{{ menus.length }}</strong
+        ><em>{{ rootCount }} 个顶级菜单</em>
+      </article>
+      <article class="rbac-metric">
+        <span>前台显示</span><strong>{{ visibleCount }}</strong
+        ><em>{{ hiddenCount }} 个菜单已隐藏</em>
+      </article>
+      <article class="rbac-metric">
+        <span>权限节点</span><strong>{{ permissionCount }}</strong
+        ><em>已关联稳定权限码</em>
+      </article>
+    </div>
+
+    <p v-if="error" class="rbac-error">{{ error }}</p>
+    <section class="rbac-panel">
+      <div class="rbac-panel-toolbar">
+        <strong>菜单树</strong><span>按层级与排序展示，共 {{ menus.length }} 个节点</span>
+      </div>
+      <div class="rbac-table-scroll">
+        <div class="rbac-data-grid menu-data-grid">
+          <div class="rbac-data-row is-header">
+            <span>菜单</span><span>类型与导航目标</span><span>权限码</span><span>显示状态</span><span>操作</span>
+          </div>
+          <div v-for="menu in sortedMenus" :key="menu.menuId" class="rbac-data-row">
+            <div class="rbac-primary-cell rbac-tree-cell" :style="{ paddingLeft: `${depth(menu) * 22}px` }">
+              <span v-if="depth(menu)" class="tree-branch">└</span><strong>{{ menu.menuName }}</strong
+              ><small>{{ menu.menuCode }}</small>
+            </div>
+            <div class="rbac-primary-cell">
+              <div class="rbac-badges">
+                <span :class="['rbac-badge', typeBadge(menu.menuType)]">{{ typeName(menu.menuType) }}</span>
+              </div>
+              <small :title="menuTarget(menu)">{{ menuTarget(menu) }}</small>
+            </div>
+            <span
+              ><span v-if="menu.permissionCode" class="rbac-code">{{ menu.permissionCode }}</span
+              ><span v-else class="rbac-badge neutral">{{ permissionFallback(menu) }}</span></span
+            >
+            <span class="rbac-badges"
+              ><span :class="['rbac-badge', menu.enabled ? 'success' : 'danger']">{{
+                menu.enabled ? '启用' : '停用'
+              }}</span
+              ><span v-if="menu.menuType === 'action'" class="rbac-badge neutral">不参与导航</span
+              ><span v-else :class="['rbac-badge', menu.visible ? 'primary' : 'neutral']">{{
+                menu.visible ? '显示' : '隐藏'
+              }}</span></span
+            >
+            <span class="rbac-row-actions"
+              ><button class="rbac-action-btn" @click="openEdit(menu)">编辑</button
+              ><button class="rbac-action-btn danger" @click="remove(menu)">删除</button></span
+            >
+          </div>
+          <div v-if="!menus.length" class="rbac-empty">
+            <strong>暂无菜单</strong><span>创建菜单后可在角色管理中进行授权。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <Teleport to="body">
+      <div v-if="modal" class="modal-mask rbac-modal-mask" @click.self="close">
+        <section class="modal-card rbac-modal wide">
+          <header class="rbac-modal-head">
+            <div>
+              <h2>{{ modal === 'create' ? '创建菜单' : '编辑菜单' }}</h2>
+              <p>菜单数据决定导航呈现，后端权限注解仍是最终安全边界。</p>
+            </div>
+            <button class="close" @click="close">×</button>
+          </header>
+          <div class="rbac-modal-body">
+            <section class="rbac-form-section">
+              <div class="rbac-form-section-title">
+                <strong>基础信息</strong><small>编码用于稳定识别菜单节点</small>
+              </div>
+              <div class="rbac-form-grid">
+                <label class="rbac-field"
+                  ><span>菜单编码</span><input v-model.trim="form.menuCode" placeholder="例如 reports" /></label
+                ><label class="rbac-field"
+                  ><span>菜单名称</span><input v-model.trim="form.menuName" placeholder="例如 数据报表" /></label
+                ><label class="rbac-field"
+                  ><span>菜单类型</span
+                  ><select v-model="form.menuType">
+                    <option value="directory">目录</option>
+                    <option value="page">页面</option>
+                    <option value="external">外链</option>
+                    <option value="action">操作权限</option>
+                  </select></label
+                ><label class="rbac-field"
+                  ><span>父菜单</span
+                  ><select v-model="form.parentId">
+                    <option value="">顶级菜单</option>
+                    <option v-for="item in parentOptions" :key="item.menuId" :value="item.menuId">
+                      {{ '—'.repeat(depth(item)) }} {{ item.menuName }}
+                    </option>
+                  </select></label
+                >
+              </div>
+            </section>
+            <section class="rbac-form-section">
+              <div class="rbac-form-section-title">
+                <strong>导航目标</strong><small>页面组件键仅允许加载已构建组件</small>
+              </div>
+              <div class="rbac-form-grid">
+                <label class="rbac-field"
+                  ><span>内部路由</span><input v-model.trim="form.routePath" placeholder="/resumes" /></label
+                ><label class="rbac-field"
+                  ><span>页面组件键</span><input v-model.trim="form.componentKey" placeholder="resumes" /></label
+                ><label class="rbac-field wide"
+                  ><span>外部地址</span
+                  ><input v-model.trim="form.externalUrl" placeholder="https://example.com" /></label
+                ><label class="rbac-field"
+                  ><span>图标键</span><input v-model.trim="form.iconKey" placeholder="folder" /></label
+                ><label class="rbac-field"
+                  ><span>排序值</span><input v-model.number="form.displayOrder" type="number"
+                /></label>
+              </div>
+            </section>
+            <section class="rbac-form-section">
+              <div class="rbac-form-section-title">
+                <strong>权限与状态</strong><small>权限码来自后端稳定权限目录</small>
+              </div>
+              <div class="rbac-form-grid">
+                <label class="rbac-field wide"
+                  ><span>关联权限码</span
+                  ><select v-model="form.permissionCode">
+                    <option value="">无</option>
+                    <option v-for="item in permissions" :key="item.permissionCode" :value="item.permissionCode">
+                      {{ item.permissionName }}（{{ item.permissionCode }}）
+                    </option>
+                  </select></label
+                ><label class="rbac-field"
+                  ><span>前台显示</span
+                  ><select v-model="form.visible" :disabled="form.menuType === 'action'">
+                    <option v-if="form.menuType === 'action'" :value="false">不参与导航</option>
+                    <template v-else
+                      ><option :value="true">显示</option>
+                      <option :value="false">隐藏</option></template
+                    >
+                  </select></label
+                ><label class="rbac-field"
+                  ><span>菜单状态</span
+                  ><select v-model="form.enabled">
+                    <option :value="true">启用</option>
+                    <option :value="false">停用</option>
+                  </select></label
+                >
+              </div>
+            </section>
+            <p v-if="modalError" class="rbac-error">{{ modalError }}</p>
+          </div>
+          <footer class="rbac-modal-actions">
+            <button class="rbac-secondary-btn" @click="close">取消</button
+            ><button class="primary-btn" :disabled="saving" @click="save">{{ saving ? '保存中' : '确认保存' }}</button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
+  </section>
+</template>
+
+<script setup>
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { createMenu, deleteMenu, listMenus, listPermissionDefinitions, updateMenu } from '../api/users'
+
+const menus = ref([])
+const permissions = ref([])
+const error = ref('')
+const modalError = ref('')
+const modal = ref('')
+const selected = ref(null)
+const saving = ref(false)
+const form = reactive({
+  parentId: '',
+  menuCode: '',
+  menuName: '',
+  menuType: 'page',
+  routePath: '',
+  componentKey: '',
+  externalUrl: '',
+  iconKey: '',
+  permissionCode: '',
+  displayOrder: 0,
+  visible: true,
+  enabled: true,
+})
+const sortedMenus = computed(() => {
+  const result = []
+  const visit = (parent) =>
+    menus.value
+      .filter((item) => (item.parentId || '') === (parent || ''))
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+      .forEach((item) => {
+        result.push(item)
+        visit(item.menuId)
+      })
+  visit('')
+  return result
+})
+const parentOptions = computed(() =>
+  sortedMenus.value.filter((item) => item.menuId !== selected.value?.menuId && item.menuType !== 'action'),
+)
+const rootCount = computed(() => menus.value.filter((menu) => !menu.parentId).length)
+const navigableMenus = computed(() => menus.value.filter((menu) => menu.menuType !== 'action'))
+const visibleCount = computed(() => navigableMenus.value.filter((menu) => menu.visible && menu.enabled).length)
+const hiddenCount = computed(() => navigableMenus.value.length - visibleCount.value)
+const permissionCount = computed(() => menus.value.filter((menu) => menu.permissionCode).length)
+
+watch(
+  () => form.menuType,
+  (menuType) => {
+    if (menuType === 'action') form.visible = false
+  },
+)
+
+onMounted(load)
+async function load() {
+  error.value = ''
+  try {
+    ;[menus.value, permissions.value] = await Promise.all([listMenus(), listPermissionDefinitions()])
+  } catch (e) {
+    error.value = e?.message || '加载失败'
+  }
+}
+function openCreate() {
+  selected.value = null
+  Object.assign(form, {
+    parentId: '',
+    menuCode: '',
+    menuName: '',
+    menuType: 'page',
+    routePath: '',
+    componentKey: '',
+    externalUrl: '',
+    iconKey: '',
+    permissionCode: '',
+    displayOrder: 0,
+    visible: true,
+    enabled: true,
+  })
+  modal.value = 'create'
+  modalError.value = ''
+}
+function openEdit(menu) {
+  selected.value = menu
+  Object.assign(form, {
+    parentId: menu.parentId || '',
+    menuCode: menu.menuCode,
+    menuName: menu.menuName,
+    menuType: menu.menuType,
+    routePath: menu.routePath || '',
+    componentKey: menu.componentKey || '',
+    externalUrl: menu.externalUrl || '',
+    iconKey: menu.iconKey || '',
+    permissionCode: menu.permissionCode || '',
+    displayOrder: menu.displayOrder || 0,
+    visible: menu.visible,
+    enabled: menu.enabled,
+  })
+  modal.value = 'edit'
+  modalError.value = ''
+}
+function close() {
+  modal.value = ''
+  selected.value = null
+}
+function depth(menu) {
+  let value = 0
+  let cursor = menu.parentId
+  const byId = new Map(menus.value.map((item) => [item.menuId, item]))
+  while (cursor && value < 8) {
+    value += 1
+    cursor = byId.get(cursor)?.parentId
+  }
+  return value
+}
+function typeName(type) {
+  return { directory: '目录', page: '页面', external: '外链', action: '操作权限' }[type] || type
+}
+function typeBadge(type) {
+  return { directory: 'warning', page: 'primary', external: 'success', action: 'neutral' }[type] || 'neutral'
+}
+function menuTarget(menu) {
+  return menu.externalUrl || menu.routePath || menu.componentKey || '无导航目标'
+}
+function permissionFallback(menu) {
+  return menus.value.some((item) => item.parentId === menu.menuId && item.permissionCode) ? '由子菜单控制' : '无需权限'
+}
+async function save() {
+  saving.value = true
+  modalError.value = ''
+  try {
+    const payload = { ...form }
+    if (modal.value === 'create') await createMenu(payload)
+    else await updateMenu(selected.value.menuId, payload)
+    close()
+    await load()
+  } catch (e) {
+    modalError.value = e?.message || '保存失败'
+  } finally {
+    saving.value = false
+  }
+}
+async function remove(menu) {
+  if (!confirm(`确认删除菜单「${menu.menuName}」？包含子菜单或仍被角色引用时系统会拒绝。`)) return
+  try {
+    await deleteMenu(menu.menuId)
+    await load()
+  } catch (e) {
+    error.value = e?.message || '删除失败'
+  }
+}
+</script>
+
+<style src="./rbac/rbac-management.css"></style>
+<style scoped>
+.menu-data-grid {
+  min-width: 980px;
+}
+.menu-data-grid .rbac-data-row {
+  grid-template-columns: minmax(190px, 1.2fr) minmax(210px, 1.35fr) minmax(130px, 0.85fr) 150px 130px;
+}
+.rbac-tree-cell {
+  position: relative;
+}
+.tree-branch {
+  position: absolute;
+  margin-left: -17px;
+  color: #b5bfd0;
+}
+</style>

@@ -5,6 +5,11 @@ export async function getSettings() {
   return parseApiResponse(response, '设置加载失败')
 }
 
+export async function refreshServiceHealth() {
+  const response = await apiFetch('/settings/services/health/refresh', { method: 'POST' })
+  return parseApiResponse(response, '服务健康状态刷新失败')
+}
+
 export async function saveSettings(payload) {
   const response = await apiFetch('/settings', {
     method: 'PUT',
@@ -12,6 +17,11 @@ export async function saveSettings(payload) {
     body: JSON.stringify(payload),
   })
   return parseApiResponse(response, '设置保存失败')
+}
+
+export async function restoreWorkspaceDefaults() {
+  const response = await apiFetch('/settings/workspace/restore-defaults', { method: 'POST' })
+  return parseApiResponse(response, '运行参数恢复失败')
 }
 
 export async function listMemories() {

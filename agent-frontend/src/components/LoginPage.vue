@@ -18,22 +18,24 @@
     </div>
     <div class="login-card">
       <div class="login-brand">
-        <div class="login-logo">JA</div>
+        <div class="login-logo" aria-hidden="true">
+          <JobBuddyLogo />
+        </div>
         <div>
-          <p class="eyebrow">Job Buddy</p>
+          <p class="eyebrow">JobBuddy</p>
           <h1>登录工作台</h1>
-          <p>请输入账号密码进入求职智能工作台。</p>
+          <p class="login-tagline">让每一步求职更高效。</p>
         </div>
       </div>
 
-      <form class="login-form" @submit.prevent="submit">
+      <form class="login-form" autocomplete="off" @submit.prevent="submit">
         <label>
           <span>用户名</span>
-          <input v-model.trim="username" autocomplete="username" placeholder="admin" />
+          <input v-model.trim="username" autocomplete="off" placeholder="请输入用户名" />
         </label>
         <label>
           <span>密码</span>
-          <input v-model="password" type="password" autocomplete="current-password" placeholder="123456" />
+          <input v-model="password" type="password" autocomplete="new-password" placeholder="请输入密码" />
         </label>
         <button class="primary-btn login-submit" :disabled="auth.loading || !username || !password">
           {{ auth.loading ? '登录中' : '登录' }}
@@ -58,12 +60,12 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import JobBuddyLogo from './JobBuddyLogo.vue'
 
 const emit = defineEmits(['logged-in'])
 const auth = useAuthStore()
-// 开发环境预填默认账号方便联调，生产构建一律留空，避免泄露弱口令。
-const username = ref(import.meta.env.DEV ? 'admin' : '')
-const password = ref(import.meta.env.DEV ? '123456' : '')
+const username = ref('')
+const password = ref('')
 const showError = ref(false)
 
 // 始终展示稳定的用户向文案，绝不把后端原始异常/堆栈直接抛给用户。
