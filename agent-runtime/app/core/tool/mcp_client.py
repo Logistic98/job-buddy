@@ -1,4 +1,3 @@
-
 """MCP 客户端。
 
 仅支持 streamable-http，按调用创建短连接 Session。

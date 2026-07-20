@@ -1,5 +1,5 @@
-
 import asyncio
+import os
 import shlex
 from pathlib import Path
 from typing import Any, Dict
@@ -43,7 +43,9 @@ class ShellTool(BaseTool):
             if pattern and pattern in command:
                 return ValidationResult(result=False, message=f"命令命中禁止规则: {pattern}", error_code=403)
         allow_prefixes = settings.config.tool_runtime.shell_allow_prefixes
-        if allow_prefixes and not any(command == prefix or command.startswith(f"{prefix} ") for prefix in allow_prefixes):
+        if allow_prefixes and not any(
+            command == prefix or command.startswith(f"{prefix} ") for prefix in allow_prefixes
+        ):
             return ValidationResult(result=False, message="命令不在 shell_allow_prefixes 允许范围内", error_code=403)
         cwd = self._resolve_cwd(arguments.get("cwd"), context)
         workspace = Path(context.workspace_dir).expanduser().resolve()
@@ -75,15 +77,17 @@ class ShellTool(BaseTool):
             },
             "options": {"timeout": float(self.timeout_seconds), "check": False},
         }
+        headers = {}
+        token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
+        if token:
+            headers["X-Internal-Service-Token"] = token
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(f"{base_url}/v1/shell", json=payload)
+                response = await client.post(f"{base_url}/v1/shell", json=payload, headers=headers)
                 response.raise_for_status()
                 body = response.json()
         except httpx.TimeoutException as exc:
-            raise RuntimeError(
-                f"agent-sandbox 执行超时（{base_url}，{timeout}s），命令未在宿主机回退执行"
-            ) from exc
+            raise RuntimeError(f"agent-sandbox 执行超时（{base_url}，{timeout}s），命令未在宿主机回退执行") from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise RuntimeError(
                 f"agent-sandbox 不可用（{base_url}）：{exc}。"

@@ -1,8 +1,6 @@
-
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from loguru import logger
@@ -152,12 +150,8 @@ class BaseTool(ABC):
 
         max_chars = self.max_result_size_chars or settings.config.runtime.max_inline_result_chars
         if max_chars > 0 and len(text) > max_chars:
-            result_dir = Path(settings.config.runtime.result_storage_dir)
-            result_dir.mkdir(parents=True, exist_ok=True)
-            result_path = result_dir / f"{tool_call.id}_{self.name}.json"
-            result_path.write_text(text, encoding="utf-8")
-            metadata.update({"truncated": True, "result_path": str(result_path), "full_size_chars": len(text)})
-            return {"preview": text[:max_chars], "result_path": str(result_path), "truncated": True}, metadata
+            metadata.update({"truncated": True, "full_size_chars": len(text), "storage": "not_persisted"})
+            return {"preview": text[:max_chars], "truncated": True, "full_size_chars": len(text)}, metadata
         metadata["truncated"] = False
         return output, metadata
 

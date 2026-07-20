@@ -1,4 +1,3 @@
-
 """MCP 工具适配器。
 
 将 MCP 工具按 BaseTool 协议接入 ToolRegistry。
@@ -84,9 +83,7 @@ async def register_mcp_tools(registry: ToolRegistry, mcp_config: McpConfig) -> L
         try:
             tool_defs = await asyncio.wait_for(client.list_tools(), timeout=connect_timeout)
         except Exception as e:
-            logger.warning(
-                f"MCP 服务连接失败，跳过注册：server={server_id}, url={server_cfg.url}, error={e}"
-            )
+            logger.warning(f"MCP 服务连接失败，跳过注册：server={server_id}, url={server_cfg.url}, error={e}")
             continue
 
         prefix = server_cfg.name_prefix or ""
@@ -108,8 +105,6 @@ async def register_mcp_tools(registry: ToolRegistry, mcp_config: McpConfig) -> L
             registry.register(adapter)
             registered.append(display_name)
 
-        logger.info(
-            f"MCP 工具注册完成：server={server_id}, tools={len(tool_defs)}, registered={len(registered)}"
-        )
+        logger.info(f"MCP 工具注册完成：server={server_id}, tools={len(tool_defs)}, registered={len(registered)}")
 
     return registered

@@ -45,13 +45,16 @@ async def test_boss_browser_tool_proxies_to_agent_tool(monkeypatch, tool_context
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             captured["url"] = url
+            captured["headers"] = headers
             captured["json"] = json
             return FakeResponse()
 
     monkeypatch.setenv("AGENT_TOOL_URL", "http://agent-tool.local")
+    monkeypatch.setenv("AGENT_INTERNAL_SERVICE_TOKEN", "internal-test-token")
     monkeypatch.setattr("app.tools_builtin.boss_browser_tool.httpx.AsyncClient", FakeClient)
+    tool_context.metadata.update({"tenant_id": "tenant-a", "operator_id": "user-a"})
 
     tool = BossBrowserTool()
     result = await tool.safe_run(
@@ -66,6 +69,11 @@ async def test_boss_browser_tool_proxies_to_agent_tool(monkeypatch, tool_context
     assert result.success is True
     assert result.output == {"code": 200, "message": "success", "data": {"search_used_hour": 0}}
     assert captured["url"] == "http://agent-tool.local/v1/tools/boss_browser/execute"
+    assert captured["headers"] == {
+        "X-Tenant-Id": "tenant-a",
+        "X-Operator-Id": "user-a",
+        "X-Internal-Service-Token": "internal-test-token",
+    }
     assert captured["json"]["arguments"] == {"operation": "rate", "payload": {"probe": True}}
     assert captured["json"]["confirm"] is True
 
@@ -103,7 +111,7 @@ async def test_boss_browser_tool_keeps_qr_payload_inline(monkeypatch, tool_conte
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def post(self, url, json):
+        async def post(self, url, json, headers=None):
             return FakeResponse()
 
     monkeypatch.setattr("app.tools_builtin.boss_browser_tool.httpx.AsyncClient", FakeClient)
@@ -117,6 +125,16 @@ async def test_boss_browser_tool_keeps_qr_payload_inline(monkeypatch, tool_conte
     assert result.success is True
     assert result.output["data"]["image_base64"] == image_base64
     assert result.metadata["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_boss_browser_tool_accepts_read_only_favorite_list_operation(tool_context):
+    tool = BossBrowserTool()
+
+    result = await tool.validate_input({"operation": "favorite_list", "payload": {"page": 1}}, tool_context)
+
+    assert result.result is True
+    assert "favorite_list" in tool.definition().input_schema["properties"]["operation"]["enum"]
 
 
 @pytest.mark.asyncio

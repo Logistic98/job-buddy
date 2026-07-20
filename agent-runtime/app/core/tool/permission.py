@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel
 
 from app.core.common.constants import PermissionMode, ToolRiskLevel
@@ -35,7 +34,9 @@ class PermissionService:
 
         if tool.destructive or tool.name in config.destructive_tools:
             if mode != PermissionMode.AUTO:
-                return PermissionDecision(allowed=False, reason="破坏性工具需要确认或 auto 模式", requires_confirmation=True)
+                return PermissionDecision(
+                    allowed=False, reason="破坏性工具需要确认或 auto 模式", requires_confirmation=True
+                )
 
         if tool.risk_level == ToolRiskLevel.HIGH:
             if mode == PermissionMode.AUTO or config.allow_high_risk_in_default:

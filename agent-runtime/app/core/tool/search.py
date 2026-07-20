@@ -1,4 +1,3 @@
-
 import math
 from collections import Counter
 from typing import Dict, List, Tuple
@@ -12,7 +11,7 @@ class ToolSearchService:
     """Tool Search 服务。
 
     本地实现采用 BM25 风格词项召回 + 轻量语义字段召回，并用 RRF 融合；返回结果按分数和工具名稳定排序，
-    避免工具 Schema 顺序抖动影响 Prompt Cache。后续可把 semantic_rank 替换为 agent-tool/向量服务。
+    避免工具 Schema 顺序抖动影响 Prompt Cache。
     """
 
     def __init__(self, registry: ToolRegistry):
@@ -83,13 +82,15 @@ class ToolSearchService:
         return fused
 
     def _document(self, tool: ToolDefinition) -> str:
-        return " ".join([
-            tool.name,
-            " ".join(tool.aliases),
-            tool.search_hint or "",
-            tool.description,
-            " ".join(tool.tags),
-        ])
+        return " ".join(
+            [
+                tool.name,
+                " ".join(tool.aliases),
+                tool.search_hint or "",
+                tool.description,
+                " ".join(tool.tags),
+            ]
+        )
 
     def _tokens(self, text: str) -> List[str]:
         raw = (text or "").replace("_", " ").replace(".", " ").replace("-", " ").lower()

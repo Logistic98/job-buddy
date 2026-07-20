@@ -28,12 +28,21 @@ class BossBrowserTool(BaseTool):
         "properties": {
             "operation": {
                 "type": "string",
-                "description": "操作类型: status, qr_start, qr_status, search, detail, profile, rate",
-                "enum": ["status", "qr_start", "qr_status", "search", "detail", "profile", "rate"],
+                "description": "操作类型: status, qr_start, qr_status, search, favorite_list, detail, profile, rate",
+                "enum": [
+                    "status",
+                    "qr_start",
+                    "qr_status",
+                    "search",
+                    "favorite_list",
+                    "detail",
+                    "profile",
+                    "rate",
+                ],
             },
             "payload": {
                 "type": "object",
-                "description": "操作参数。search 支持 query/city/page/experience/salary/degree/industry/scale/stage；detail 支持 securityId/url。",
+                "description": "操作参数。search 支持筛选和页码；favorite_list 只支持 page；detail 支持 securityId/url。",
             },
         },
         "required": ["operation"],
@@ -63,7 +72,16 @@ class BossBrowserTool(BaseTool):
         if not validation.result:
             return validation
         operation = str(arguments.get("operation") or "").strip()
-        allowed = {"status", "qr_start", "qr_status", "search", "detail", "profile", "rate"}
+        allowed = {
+            "status",
+            "qr_start",
+            "qr_status",
+            "search",
+            "favorite_list",
+            "detail",
+            "profile",
+            "rate",
+        }
         if operation not in allowed:
             return ValidationResult(result=False, message=f"不支持的 Boss 操作: {operation}", error_code=400)
         payload = arguments.get("payload", {})
@@ -81,8 +99,17 @@ class BossBrowserTool(BaseTool):
             "confirm": True,
             "trace_id": context.trace_id,
         }
+        headers = {
+            "X-Tenant-Id": str(context.metadata.get("tenant_id") or "default-tenant"),
+            "X-Operator-Id": str(
+                context.metadata.get("operator_id") or context.metadata.get("user_id") or "agent-runtime"
+            ),
+        }
+        token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
+        if token:
+            headers["X-Internal-Service-Token"] = token
         async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-            response = await client.post(url, json=request)
+            response = await client.post(url, json=request, headers=headers)
             response.raise_for_status()
             body = response.json()
 
@@ -92,7 +119,7 @@ class BossBrowserTool(BaseTool):
         if not isinstance(tool_result, dict):
             raise RuntimeError("agent-tool 响应缺少 data")
 
-        # agent-tool 的 ToolResult.data 保存兼容旧 Boss 链路的 {code,message,data} 信封。
+        # boss_browser 执行器在 ToolResult.data 中返回 {code,message,data} 业务信封。
         envelope = tool_result.get("data")
         if isinstance(envelope, dict) and "code" in envelope and "message" in envelope:
             return envelope

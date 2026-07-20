@@ -15,13 +15,31 @@ _MAX_SCAN_CHARS = 20000
 _MAX_SCAN_DEPTH = 4
 
 _INJECTION_RULES = [
-    ("override_instructions_en", re.compile(r"(?i)\b(ignore|disregard|forget)\b.{0,40}\b(previous|prior|above|all)\b.{0,20}\b(instruction|prompt|rule)s?\b")),
+    (
+        "override_instructions_en",
+        re.compile(
+            r"(?i)\b(ignore|disregard|forget)\b.{0,40}\b(previous|prior|above|all)\b.{0,20}\b(instruction|prompt|rule)s?\b"
+        ),
+    ),
     ("override_instructions_zh", re.compile(r"忽略(之前|上面|以上|先前|所有)的?(全部|所有)?(指令|提示|规则|要求)")),
-    ("role_hijack_en", re.compile(r"(?i)\byou are now\b|\bact as\b.{0,30}\b(system|admin|root)\b|\bnew system prompt\b")),
+    (
+        "role_hijack_en",
+        re.compile(r"(?i)\byou are now\b|\bact as\b.{0,30}\b(system|admin|root)\b|\bnew system prompt\b"),
+    ),
     ("role_hijack_zh", re.compile(r"你现在(是|扮演)|从现在开始你(必须|要)(扮演|作为)")),
     ("system_impersonation", re.compile(r"(?i)<\s*/?\s*system\s*>|\[\s*system\s*\]|^\s*system\s*:", re.MULTILINE)),
-    ("prompt_exfiltration", re.compile(r"(?i)(reveal|print|output|show).{0,30}(system prompt|initial instructions)|(输出|打印|透露|展示)你的(系统提示|初始指令)")),
-    ("credential_exfiltration", re.compile(r"(?i)(send|post|upload|forward|exfiltrate).{0,40}(api[_ ]?key|secret|token|password|credential)|(发送|上传|转发|泄露).{0,20}(密钥|口令|凭证|令牌|api[_ ]?key|token)")),
+    (
+        "prompt_exfiltration",
+        re.compile(
+            r"(?i)(reveal|print|output|show).{0,30}(system prompt|initial instructions)|(输出|打印|透露|展示)你的(系统提示|初始指令)"
+        ),
+    ),
+    (
+        "credential_exfiltration",
+        re.compile(
+            r"(?i)(send|post|upload|forward|exfiltrate).{0,40}(api[_ ]?key|secret|token|password|credential)|(发送|上传|转发|泄露).{0,20}(密钥|口令|凭证|令牌|api[_ ]?key|token)"
+        ),
+    ),
 ]
 
 

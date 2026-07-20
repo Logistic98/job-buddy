@@ -1,4 +1,3 @@
-
 from app.tools_builtin.web_search_tool import WebSearchTool
 
 
@@ -34,10 +33,10 @@ def test_web_search_tool_parses_bocha_web_results():
 
 
 def test_web_search_tool_parses_duckduckgo_html_results():
-    html = '''
+    html = """
     <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fjob">Agent 面试指南</a>
     <a class="result__snippet">围绕 RAG、Tool Calling 和 Agent 工程准备面试。</a>
-    '''
+    """
     tool = WebSearchTool()
 
     rows = tool._parse_results(html, 3)
