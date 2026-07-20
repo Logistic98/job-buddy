@@ -12,7 +12,7 @@ from loguru import logger
 
 from ..models import ToolError, ToolResult
 
-_DEFAULT_BASE_URL = "http://localhost:8000"
+_DEFAULT_BASE_URL = "http://localhost:8061"
 _DEFAULT_TIMEOUT = 60.0
 
 
@@ -39,8 +39,12 @@ def run_sandbox_execute(arguments: Dict[str, Any], trace_id: str = None) -> Tool
     else:
         payload["options"] = {"check": False}
 
+    headers = {}
+    token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
+    if token:
+        headers["X-Internal-Service-Token"] = token
     try:
-        response = httpx.post(f"{base_url}/v1/shell", json=payload, timeout=timeout)
+        response = httpx.post(f"{base_url}/v1/shell", json=payload, headers=headers, timeout=timeout)
         response.raise_for_status()
         body = response.json()
         ok = bool(body.get("ok")) and int(body.get("returncode", 1)) == 0

@@ -36,10 +36,7 @@ def run_trace_summarize(arguments: Dict[str, Any], trace_id: str = None) -> Tool
         "event_counts": dict(counter),
         "run_ids": run_ids,
         "error_count": len(errors),
-        "errors": [
-            {"event": item.get("event"), "error": (item.get("payload") or {}).get("error")}
-            for item in errors
-        ],
+        "errors": [{"event": item.get("event"), "error": (item.get("payload") or {}).get("error")} for item in errors],
         "started_at": min(timestamps) if timestamps else None,
         "ended_at": max(timestamps) if timestamps else None,
     }

@@ -1,7 +1,7 @@
 [project]
 name = "agent-tool"
-version = "0.1.0"
-description = "Tool registry MVP for Job Buddy"
+version = "1.0.0"
+description = "Production tool registry and execution service for Job Buddy"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.110.0,<1.0.0",
@@ -13,6 +13,7 @@ dependencies = [
     "qrcode[pil]>=7.4.2,<9.0.0",
     "kabi-boss-cli>=0.3.6,<1.0.0",
     "playwright>=1.40.0,<2.0.0",
+    "redis>=5.2.0,<6.0.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.format]
+line-ending = "lf"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

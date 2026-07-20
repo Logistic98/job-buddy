@@ -38,17 +38,27 @@ def run_memory_search(arguments: Dict[str, Any], trace_id: str = None) -> ToolRe
     if scope:
         params["scope"] = str(scope)
 
+    headers = {
+        "X-Tenant-Id": str(arguments.get("tenant_id") or "default-tenant"),
+        "X-Operator-Id": str(arguments.get("operator_id") or "agent-tool"),
+    }
+    token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
+    if token:
+        headers["X-Internal-Service-Token"] = token
+
     max_attempts = 2
     try:
         for attempt in range(1, max_attempts + 1):
             try:
-                response = httpx.get(f"{base_url}/v1/memories/search", params=params, timeout=timeout)
+                response = httpx.get(f"{base_url}/v1/memories/search", params=params, headers=headers, timeout=timeout)
                 response.raise_for_status()
                 break
             except (httpx.TimeoutException, httpx.TransportError):
                 if attempt >= max_attempts:
                     raise
-                logger.warning(f"memory_search 瞬时失败，重试 {attempt}/{max_attempts - 1}: base_url={base_url}, trace_id={trace_id}")
+                logger.warning(
+                    f"memory_search 瞬时失败，重试 {attempt}/{max_attempts - 1}: base_url={base_url}, trace_id={trace_id}"
+                )
         body = response.json()
         items = body.get("data", [])
         return ToolResult(

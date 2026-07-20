@@ -1,14 +1,16 @@
 import time
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from loguru import logger
 
+from .internal_auth import install_internal_auth
 from .models import ToolError, ToolExecuteRequest, ToolResult
 from .registry import get_tool, list_tools
 from .tools import TOOL_EXECUTORS
 
-app = FastAPI(title="agent-tool", version="0.2.0")
+app = FastAPI(title="agent-tool", version="1.0.0")
+install_internal_auth(app)
 
 
 def validate_registry_consistency() -> None:
@@ -37,7 +39,12 @@ def tools() -> dict:
 
 
 @app.post("/v1/tools/{name}/execute")
-def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
+def execute_tool(
+    name: str,
+    request: ToolExecuteRequest,
+    x_tenant_id: str | None = Header(default=None),
+    x_operator_id: str | None = Header(default=None),
+) -> dict:
     trace_id = request.trace_id or f"tool_{uuid4().hex[:12]}"
     definition = get_tool(name)
     if definition is None:
@@ -89,10 +96,16 @@ def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
     started_at = time.monotonic()
     logger.info(f"执行工具: tool_name={name}, operation={operation}, trace_id={trace_id}")
     try:
-        result = executor(request.arguments, trace_id=trace_id)
+        arguments = dict(request.arguments)
+        if name == "memory_search":
+            arguments["tenant_id"] = (x_tenant_id or "default-tenant").strip()
+            arguments["operator_id"] = (x_operator_id or "agent-tool").strip()
+        result = executor(arguments, trace_id=trace_id)
     except Exception as exc:
         elapsed_ms = int((time.monotonic() - started_at) * 1000)
-        logger.error(f"工具执行异常: tool_name={name}, operation={operation}, trace_id={trace_id}, elapsed_ms={elapsed_ms}, error={exc}")
+        logger.error(
+            f"工具执行异常: tool_name={name}, operation={operation}, trace_id={trace_id}, elapsed_ms={elapsed_ms}, error={exc}"
+        )
         result = ToolResult(
             status="error",
             summary=f"工具 {name} 执行异常",
@@ -106,7 +119,9 @@ def execute_tool(name: str, request: ToolExecuteRequest) -> dict:
         )
     code = _response_code(result)
     elapsed_ms = int((time.monotonic() - started_at) * 1000)
-    logger.info(f"工具执行完成: tool_name={name}, operation={operation}, trace_id={trace_id}, status={result.status}, code={code}, elapsed_ms={elapsed_ms}")
+    logger.info(
+        f"工具执行完成: tool_name={name}, operation={operation}, trace_id={trace_id}, status={result.status}, code={code}, elapsed_ms={elapsed_ms}"
+    )
     return {"code": code, "message": result.summary, "data": result.model_dump()}
 
 

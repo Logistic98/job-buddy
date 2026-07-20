@@ -14,7 +14,9 @@ TOOLS: list[dict] = [
         },
         "returns": "data 含 total_events、event_counts、run_ids、error_count、errors、started_at、ended_at",
         "errors": ["invalid_arguments"],
-        "example": {"arguments": {"events": [{"event": "run_start", "run_id": "run_1", "timestamp": "2026-01-01 00:00:00"}]}},
+        "example": {
+            "arguments": {"events": [{"event": "run_start", "run_id": "run_1", "timestamp": "2026-01-01 00:00:00"}]}
+        },
         "eval": "tests/test_tools.py::test_trace_summarize_counts_events",
     },
     {
@@ -48,11 +50,21 @@ TOOLS: list[dict] = [
         "description": "Boss 直聘 boss-cli 工具。复用本机浏览器 Cookie，支持登录态、扫码兜底、岗位搜索、详情、在线简历和限速快照；不启动单独浏览器或 CDP。",
         "permission": "medium_risk",
         "parameters": {
-            "operation": {"type": "string", "required": True, "description": "status、qr_start、qr_status、search、detail、profile、rate"},
+            "operation": {
+                "type": "string",
+                "required": True,
+                "description": "status、qr_start、qr_status、search、favorite_list、detail、profile、rate",
+            },
             "payload": {"type": "object", "required": False, "description": "search/detail 等操作参数"},
         },
-        "returns": "data 为兼容 Boss 旧链路的 {code,message,data} 响应信封",
-        "errors": ["invalid_arguments", "boss_auth_required", "boss_risk_control", "boss_rate_limited", "boss_browser_error"],
+        "returns": "data 为 Boss 业务 {code,message,data} 响应信封",
+        "errors": [
+            "invalid_arguments",
+            "boss_auth_required",
+            "boss_risk_control",
+            "boss_rate_limited",
+            "boss_browser_error",
+        ],
         "example": {"arguments": {"operation": "rate", "payload": {}}},
         "eval": "tests/test_boss_browser_tool.py::test_boss_browser_rate_operation_returns_envelope",
     },

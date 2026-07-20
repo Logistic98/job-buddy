@@ -12,20 +12,16 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
   set +a
 fi
 
+HOST="${HOST:-${JOB_BUDDY_BIND_HOST:-127.0.0.1}}"
 PORT="${PORT:-8040}"
-BOSS_CLI_HOME="${BOSS_CLI_HOME:-$ROOT_DIR/.run/boss-cli-home}"
-if [[ "$BOSS_CLI_HOME" != /* ]]; then
-  BOSS_CLI_HOME="$ROOT_DIR/$BOSS_CLI_HOME"
-fi
-echo "[agent-tool] starting FastAPI on port ${PORT}"
-echo "[agent-tool] boss-cli home: ${BOSS_CLI_HOME}"
+echo "[agent-tool] starting FastAPI on ${HOST}:${PORT}"
+echo "[agent-tool] Boss credentials: PostgreSQL auth_state via request memory"
 
-export BOSS_CLI_HOME
-uv sync --extra dev
+uv sync --frozen --extra dev
 # 二维码登录缺少 __zp_stoken__ 时需用 headless Chromium 补齐 Web 关键 Cookie。
 # 仅在缺失浏览器内核时安装，避免每次启动重复下载。
 if [[ "${BOSS_CLI_HEADLESS_COOKIE:-true}" != "false" ]]; then
   uv run python -m playwright install chromium >/dev/null 2>&1 || \
     echo "[agent-tool] WARN: playwright chromium install failed; QR login may miss __zp_stoken__"
 fi
-PORT="$PORT" uv run python -m uvicorn app.server:app --host 0.0.0.0 --port "$PORT"
+HOST="$HOST" PORT="$PORT" uv run python -m uvicorn app.server:app --host "$HOST" --port "$PORT"
