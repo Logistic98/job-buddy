@@ -2,7 +2,12 @@ export function normalizeJobDescriptionText(value) {
   return String(value || '')
     .replace(/\r\n?/g, '\n')
     .split('\n')
-    .map(line => line.replace(/[\t\u00a0]+/g, ' ').replace(/ {2,}/g, ' ').trim())
+    .map((line) =>
+      line
+        .replace(/[\t\u00a0]+/g, ' ')
+        .replace(/ {2,}/g, ' ')
+        .trim(),
+    )
     .filter(Boolean)
     .join('\n')
 }
@@ -13,5 +18,14 @@ export function compactJobSummaryText(value, maxLength = 180) {
 }
 
 export function firstJobDescriptionText(item = {}) {
-  return item.jobDescription || item.description || item.postDescription || item.jobDesc || item.jobSecText || item.detailText || item.jobRequire || ''
+  return (
+    item.jobDescription ||
+    item.description ||
+    item.postDescription ||
+    item.jobDesc ||
+    item.jobSecText ||
+    item.detailText ||
+    item.jobRequire ||
+    ''
+  )
 }
