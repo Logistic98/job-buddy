@@ -6,14 +6,10 @@ import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import yaml
 from pydantic import BaseModel, Field
-
-
-class ServerConfig(BaseModel):
-    host: str = "0.0.0.0"
-    port: int = 8040
 
 
 class BossConfig(BaseModel):
@@ -24,13 +20,17 @@ class BossConfig(BaseModel):
 class RateLimitConfig(BaseModel):
     search_per_hour: int = 15
     search_per_day: int = 120
+    # 0 表示不设置本地硬配额；仍保留串行抖动和上游风控信号停手。
+    favorite_list_per_hour: int = 0
+    favorite_list_per_day: int = 0
     detail_per_hour: int = 12
     detail_per_day: int = 120
     action_delay_min_ms: int = 800
     action_delay_max_ms: int = 2000
     cooldown_minutes_on_risk: int = 30
     consecutive_failure_backstop: int = 5
-    # 限速/风控状态持久化文件路径；为空时由运行期解析到仓库根 .run 下。
+    # 限速/风控状态只存 Redis；未配置时退化为当前进程内存，不写本地文件。
+    redis_url: str = ""
     state_file: str = ""
 
 
@@ -41,22 +41,26 @@ class RiskConfig(BaseModel):
 class BossCliConfig(BaseModel):
     """jackwener/boss-cli 取数引擎配置。
 
-    data_dir 用于保存 boss-cli 的 credential.json，默认位于仓库根 .run/boss-cli-home。
-    不修改 HOME，避免影响 browser-cookie3 从用户真实浏览器目录读取 Cookie。
+    凭证由后端 PostgreSQL auth_state 通过请求载荷注入，Tool 仅在内存中使用。
     status_verify 默认关闭，避免频繁登录态检查触发真实 Boss 请求；真实搜索/详情失败时
     再把登录态标记为降级并引导重新导入 Cookie。
     """
 
-    data_dir: str = ""
     cookie_source: str = ""
-    # 默认不自动读取本机浏览器 Cookie，避免 browser-cookie3 在 macOS 触发 Keychain
-    # “Chrome Safe Storage” 密码弹窗。需要显式导入时再通过环境变量开启。
+    # 默认禁止所有路径读取本机浏览器 Cookie，避免 browser-cookie3 在 macOS 触发
+    # “Chrome Safe Storage” 密码弹窗。需要导入时必须通过环境变量显式开启。
     auto_import_browser_cookies: bool = False
     status_verify: bool = False
     # 默认允许搜索前若干页，支撑"换一批"候选池跨页抓取；按页数本地拦截的机制保留。
     max_search_page: int = 5
+    # Boss“感兴趣/收藏”列表使用 interaction/geekGetJob。tag 属于易漂移协议，
+    # 通过环境变量可覆盖；0 表示不设置本地页数上限，仍只允许用户手动翻页。
+    favorite_list_tag: int = 4
+    max_favorite_list_page: int = 0
     request_delay_s: float = 1.2
-    timeout_s: float = 30.0
+    # 交互搜索采用较短单次超时并保留一次重试，避免 boss-cli 默认 3×30 秒阻塞上游链路。
+    timeout_s: float = 20.0
+    max_retries: int = 2
     # 二维码 dispatch 缺少 __zp_stoken__ 等 Web 关键 Cookie 时，用 headless 浏览器
     # 访问 Boss 网页让前端 JS 生成该安全令牌后回收。关闭后扫码登录可能因缺少 stoken
     # 而无法获得可用搜索登录态。
@@ -66,7 +70,6 @@ class BossCliConfig(BaseModel):
 
 class Settings(BaseModel):
     app_name: str = "agent_tool_boss_browser"
-    server: ServerConfig = Field(default_factory=ServerConfig)
     boss: BossConfig = Field(default_factory=BossConfig)
     boss_cli: BossCliConfig = Field(default_factory=BossCliConfig)
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
@@ -78,31 +81,8 @@ def _module_dir() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _repo_root() -> Path:
-    # agent-tool 的上一级即仓库根。
-    return Path(__file__).resolve().parents[5]
-
-
-def _default_rate_state_file() -> str:
-    return str(_repo_root() / ".run" / "boss-rate-state.json")
-
-
-def _default_auth_data_dir() -> str:
-    # 与后端约定的共享登录态目录对齐，避免不同启动目录读到不同 cookie。
-    return str(_repo_root() / ".run" / "boss-cli-home")
-
-
-def _resolve_runtime_path(value: str) -> str:
-    path = Path(value).expanduser()
-    if path.is_absolute():
-        return str(path)
-    return str(_repo_root() / path)
-
-
 def _load_yaml() -> dict[str, Any]:
-    config_path = Path(
-        os.getenv("BOSS_BROWSER_CONFIG", str(_module_dir() / "config" / "config.yaml"))
-    )
+    config_path = Path(os.getenv("AGENT_TOOL_BOSS_CONFIG", str(_module_dir() / "config" / "config.yaml")))
     if not config_path.exists():
         return {}
     with config_path.open("r", encoding="utf-8") as fh:
@@ -126,6 +106,17 @@ def _env_bool(name: str, fallback: bool) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _default_redis_url() -> str:
+    host = os.getenv("SPRING_REDIS_HOST", "").strip()
+    if not host:
+        return ""
+    port = os.getenv("SPRING_REDIS_PORT", "6379").strip() or "6379"
+    database = os.getenv("SPRING_REDIS_DATABASE", "0").strip() or "0"
+    password = os.getenv("SPRING_REDIS_PASSWORD", "")
+    auth = f":{quote(password, safe='')}@" if password else ""
+    return f"redis://{auth}{host}:{port}/{database}"
+
+
 def _env_float(name: str, fallback: float) -> float:
     value = os.getenv(name)
     if value is None or not value.strip():
@@ -137,21 +128,28 @@ def _env_float(name: str, fallback: float) -> float:
 
 
 def _apply_env_overrides(settings: Settings) -> Settings:
-    settings.server.port = _env_int("BOSS_BROWSER_PORT", settings.server.port)
+    settings.rate_limit.redis_url = (
+        os.getenv("BOSS_CLI_RATE_REDIS_URL")
+        or os.getenv("AGENT_TOOL_REDIS_URL")
+        or settings.rate_limit.redis_url
+        or _default_redis_url()
+    ).strip()
+    settings.rate_limit.state_file = ""
 
-    state_file = os.getenv("BOSS_BROWSER_RATE_STATE_FILE", settings.rate_limit.state_file)
-    settings.rate_limit.state_file = state_file.strip() if state_file and state_file.strip() else _default_rate_state_file()
-
-    settings.rate_limit.search_per_hour = _env_int("BOSS_BROWSER_SEARCH_PER_HOUR", settings.rate_limit.search_per_hour)
-    settings.rate_limit.detail_per_hour = _env_int("BOSS_BROWSER_DETAIL_PER_HOUR", settings.rate_limit.detail_per_hour)
-    settings.rate_limit.action_delay_min_ms = _env_int("BOSS_BROWSER_DELAY_MIN_MS", settings.rate_limit.action_delay_min_ms)
-    settings.rate_limit.action_delay_max_ms = _env_int("BOSS_BROWSER_DELAY_MAX_MS", settings.rate_limit.action_delay_max_ms)
+    settings.rate_limit.search_per_hour = _env_int("BOSS_CLI_SEARCH_PER_HOUR", settings.rate_limit.search_per_hour)
+    settings.rate_limit.favorite_list_per_hour = _env_int(
+        "BOSS_CLI_FAVORITE_LIST_PER_HOUR", settings.rate_limit.favorite_list_per_hour
+    )
+    settings.rate_limit.favorite_list_per_day = _env_int(
+        "BOSS_CLI_FAVORITE_LIST_PER_DAY", settings.rate_limit.favorite_list_per_day
+    )
+    settings.rate_limit.detail_per_hour = _env_int("BOSS_CLI_DETAIL_PER_HOUR", settings.rate_limit.detail_per_hour)
+    settings.rate_limit.action_delay_min_ms = _env_int("BOSS_CLI_DELAY_MIN_MS", settings.rate_limit.action_delay_min_ms)
+    settings.rate_limit.action_delay_max_ms = _env_int("BOSS_CLI_DELAY_MAX_MS", settings.rate_limit.action_delay_max_ms)
     settings.rate_limit.cooldown_minutes_on_risk = _env_int(
-        "BOSS_BROWSER_COOLDOWN_MINUTES", settings.rate_limit.cooldown_minutes_on_risk
+        "BOSS_CLI_COOLDOWN_MINUTES", settings.rate_limit.cooldown_minutes_on_risk
     )
 
-    data_dir = os.getenv("BOSS_CLI_HOME") or os.getenv("BOSS_BROWSER_AUTH_DIR") or settings.boss_cli.data_dir
-    settings.boss_cli.data_dir = _resolve_runtime_path(data_dir.strip()) if data_dir and data_dir.strip() else _default_auth_data_dir()
     settings.boss_cli.cookie_source = os.getenv("BOSS_CLI_COOKIE_SOURCE", settings.boss_cli.cookie_source).strip()
     settings.boss_cli.auto_import_browser_cookies = _env_bool(
         "BOSS_CLI_AUTO_IMPORT_BROWSER_COOKIES", settings.boss_cli.auto_import_browser_cookies
@@ -163,12 +161,17 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     settings.boss_cli.headless_cookie_timeout_ms = _env_int(
         "BOSS_CLI_HEADLESS_COOKIE_TIMEOUT_MS", settings.boss_cli.headless_cookie_timeout_ms
     )
-    settings.boss_cli.max_search_page = _env_int(
-        "BOSS_CLI_MAX_SEARCH_PAGE",
-        _env_int("BOSS_BROWSER_MAX_SEARCH_PAGE", settings.boss_cli.max_search_page),
+    settings.boss_cli.max_search_page = _env_int("BOSS_CLI_MAX_SEARCH_PAGE", settings.boss_cli.max_search_page)
+    settings.boss_cli.favorite_list_tag = _env_int("BOSS_CLI_FAVORITE_LIST_TAG", settings.boss_cli.favorite_list_tag)
+    settings.boss_cli.max_favorite_list_page = _env_int(
+        "BOSS_CLI_MAX_FAVORITE_LIST_PAGE", settings.boss_cli.max_favorite_list_page
     )
     settings.boss_cli.request_delay_s = _env_float("BOSS_CLI_REQUEST_DELAY_SECONDS", settings.boss_cli.request_delay_s)
     settings.boss_cli.timeout_s = _env_float("BOSS_CLI_TIMEOUT_SECONDS", settings.boss_cli.timeout_s)
+    settings.boss_cli.max_retries = max(
+        1,
+        min(3, _env_int("BOSS_CLI_MAX_RETRIES", settings.boss_cli.max_retries)),
+    )
     return settings
 
 

@@ -37,18 +37,27 @@ class BossService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._session: BossCliEngine = get_engine(settings)
-        self._limiter = RateLimiter(settings.rate_limit, state_path=settings.rate_limit.state_file)
+        self._limiter = RateLimiter(
+            settings.rate_limit,
+            redis_url=settings.rate_limit.redis_url,
+        )
 
     @property
     def limiter(self) -> RateLimiter:
         return self._limiter
+
+    def load_credential_json(self, credential_json: str | None) -> None:
+        self._session.load_credential_json(credential_json)
+
+    def credential_json(self) -> str | None:
+        return self._session.credential_json()
 
     async def status(self) -> dict[str, Any]:
         result = await self._session.status()
         if result.get("authenticated"):
             self._limiter.clear_cooldown()
             # 一旦确认登录态有效，连续失败硬停计数即应清零：硬停多由登录态缺失/失效
-            # 累积触发，登录恢复后必须放行后续访问，避免登录后仍被旧硬停计数死锁。
+            # 累积触发，登录恢复后必须放行后续访问，避免登录后仍被既有硬停计数死锁。
             self._limiter.reset_backstop()
         return result
 
@@ -85,6 +94,56 @@ class BossService:
             if not auth.get("authenticated"):
                 raise AuthRequiredError("Boss 未登录或登录态失效，请扫码登录。")
             raise
+
+    async def favorite_jobs(self, page: int = 1) -> dict[str, Any]:
+        """按用户明确分页读取 Boss 感兴趣/收藏摘要，不自动翻页或补详情。"""
+        page = max(1, page)
+        max_page = self._settings.boss_cli.max_favorite_list_page
+        if max_page > 0 and page > max_page:
+            raise ValueError(f"Boss 收藏列表最多允许人工浏览前 {max_page} 页。")
+        await self._session.assert_browser_ready()
+        await self._acquire("favorite_list")
+        try:
+            result = await self._session.favorite_jobs(page=page)
+        except BossCliUnavailable:
+            raise
+        except Exception:
+            self._limiter.record_failure()
+            raise
+        self._handle_upstream_rate_limit(result)
+        self._handle_risk(result.get("risk_marker"))
+        if result.get("login_redirect"):
+            raise AuthRequiredError(result.get("error_message") or "Boss 未登录或登录态失效，请扫码登录。")
+        payload = result.get("payload")
+        if payload is None:
+            auth = await self._session.status()
+            if not auth.get("authenticated"):
+                raise AuthRequiredError("Boss 未登录或登录态失效，请扫码登录。")
+            if not result.get("local_rejected"):
+                self._limiter.record_failure()
+            raise RuntimeError(result.get("error_message") or "未拿到 Boss 收藏列表数据，请稍后重试。")
+        jobs = extract_jobs(payload)
+        total_count = self._payload_value(payload, "totalCount", len(jobs))
+        try:
+            total_count = max(0, int(total_count))
+        except (TypeError, ValueError):
+            total_count = len(jobs)
+        upstream_has_more = bool(self._payload_value(payload, "hasMore", False))
+        page_size = max(1, len(jobs))
+        upstream_pages = max(page, (total_count + page_size - 1) // page_size)
+        if upstream_has_more:
+            upstream_pages = max(upstream_pages, page + 1)
+        total_pages = max(1, upstream_pages)
+        browsable_pages = min(max_page, total_pages) if max_page > 0 else total_pages
+        self._limiter.record_success()
+        return {
+            "jobs": jobs,
+            "page": page,
+            "hasMore": upstream_has_more and page < browsable_pages,
+            "totalCount": total_count,
+            "totalPages": total_pages,
+            "rate": self.rate_snapshot(),
+        }
 
     async def search(self, query: str, city: str = "", page: int = 1, extra: Optional[dict] = None) -> list[dict]:
         # boss-cli 依赖不可用是本地基础设施故障，未触达 Boss：先预检，避免占用配额或误计风控失败。
@@ -189,6 +248,19 @@ class BossService:
         self._limiter.trip_risk_cooldown(risk_marker)
         logger.error(f"检测到风控信号，已全局停手：{risk_marker}")
         raise RiskControlError(f"检测到 Boss 风控信号（{risk_marker}），已暂停操作以保护账号。")
+
+    @staticmethod
+    def _payload_value(payload: Any, key: str, fallback: Any) -> Any:
+        if isinstance(payload, dict):
+            if key in payload:
+                return payload.get(key)
+            for container_key in ("zpData", "data", "result"):
+                nested = payload.get(container_key)
+                if isinstance(nested, dict):
+                    value = BossService._payload_value(nested, key, None)
+                    if value is not None:
+                        return value
+        return fallback
 
     def rate_snapshot(self) -> dict:
         return self._limiter.snapshot()

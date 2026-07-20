@@ -19,12 +19,18 @@ class _FakeCredential:
 
 class _FakeClient:
     captured: dict = {}
+    captured_config: dict = {}
 
     def __init__(self, credential, timeout=30.0, request_delay=1.0, max_retries=3):
         self.credential = credential
         self.timeout = timeout
         self.request_delay = request_delay
         self.max_retries = max_retries
+        self.__class__.captured_config = {
+            "timeout": timeout,
+            "request_delay": request_delay,
+            "max_retries": max_retries,
+        }
 
     def __enter__(self):
         return self
@@ -36,6 +42,14 @@ class _FakeClient:
         self.__class__.captured = kwargs
         return {"jobList": [{"securityId": "sec-1", "jobName": "Java"}]}
 
+    def _get(self, url: str, params=None, action: str = ""):
+        self.__class__.captured = {"url": url, "params": params, "action": action}
+        return {
+            "cardList": [{"securityId": "fav-1", "jobName": "大模型应用开发岗"}],
+            "hasMore": True,
+            "totalCount": 12,
+        }
+
     def get_job_detail(self, security_id: str, lid: str = ""):
         self.__class__.captured = {"security_id": security_id, "lid": lid}
         return {"jobInfo": {"securityId": security_id, "postDescription": "JD"}}
@@ -43,15 +57,42 @@ class _FakeClient:
 
 def _engine(tmp_path) -> BossCliEngine:
     settings = Settings()
-    settings.boss_cli.data_dir = str(tmp_path)
     return BossCliEngine(settings)
 
 
-def test_engine_redirects_boss_cli_credential_file(tmp_path):
+def test_engine_keeps_credentials_in_memory_without_creating_files(tmp_path):
     engine = _engine(tmp_path)
 
-    assert engine._credential_file == tmp_path / "credential.json"  # noqa: SLF001
-    assert engine._auth.CREDENTIAL_FILE == tmp_path / "credential.json"  # noqa: SLF001
+    assert engine.credential_json() is None
+    assert list(tmp_path.iterdir()) == []
+    assert engine._status_payload(False, [])["credential_store"] == "memory"  # noqa: SLF001
+
+
+def test_database_injection_does_not_overwrite_refreshed_token_for_same_identity(tmp_path):
+    engine = _engine(tmp_path)
+    fresh = _FakeCredential({PRIMARY_COOKIE: "identity", "zp_at": "account", "__zp_stoken__": "fresh", "wbg": "w"})
+    engine._memory_credential = fresh  # noqa: SLF001
+
+    engine.load_credential_json(
+        '{"cookies":{"%s":"identity","zp_at":"account","__zp_stoken__":"expired","wbg":"w"}}' % PRIMARY_COOKIE
+    )
+
+    assert engine._memory_credential is fresh  # noqa: SLF001
+    assert engine._memory_credential.cookies["__zp_stoken__"] == "fresh"  # noqa: SLF001
+
+
+def test_database_injection_replaces_memory_credential_for_new_identity(tmp_path):
+    engine = _engine(tmp_path)
+    engine._memory_credential = _FakeCredential(  # noqa: SLF001
+        {PRIMARY_COOKIE: "old-identity", "zp_at": "old-account", "__zp_stoken__": "old", "wbg": "w"}
+    )
+
+    engine.load_credential_json(
+        '{"cookies":{"%s":"new-identity","zp_at":"new-account","__zp_stoken__":"new","wbg":"w"}}' % PRIMARY_COOKIE
+    )
+
+    assert engine._memory_credential.cookies[PRIMARY_COOKIE] == "new-identity"  # noqa: SLF001
+    assert engine._memory_credential.cookies["__zp_stoken__"] == "new"  # noqa: SLF001
 
 
 def test_status_logged_in_when_required_cookies_present(tmp_path, monkeypatch):
@@ -69,31 +110,23 @@ def test_status_logged_in_when_required_cookies_present(tmp_path, monkeypatch):
 def test_get_credential_does_not_auto_import_browser_cookies_by_default(tmp_path):
     engine = _engine(tmp_path)
 
-    class _AuthWithoutLoadFromEnv:
-        @staticmethod
-        def load_credential():
-            return None
-
+    class _AuthStub:
         @staticmethod
         def extract_browser_credential(cookie_source=None):
             raise AssertionError("browser cookie extraction should be disabled by default")
 
-    engine._auth = _AuthWithoutLoadFromEnv  # noqa: SLF001
+    engine._auth = _AuthStub  # noqa: SLF001
 
     assert engine._get_credential() is None  # noqa: SLF001
 
 
-def test_get_credential_supports_boss_cli_without_load_from_env(tmp_path):
+def test_get_credential_imports_browser_credential(tmp_path):
     engine = _engine(tmp_path)
     engine._settings.boss_cli.auto_import_browser_cookies = True  # noqa: SLF001
     cred = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"})
     saved = []
 
-    class _AuthWithoutLoadFromEnv:
-        @staticmethod
-        def load_credential():
-            return None
-
+    class _AuthStub:
         @staticmethod
         def extract_browser_credential(cookie_source=None):
             assert cookie_source is None
@@ -103,33 +136,11 @@ def test_get_credential_supports_boss_cli_without_load_from_env(tmp_path):
         def save_credential(value):
             saved.append(value)
 
-    engine._auth = _AuthWithoutLoadFromEnv  # noqa: SLF001
+    engine._auth = _AuthStub  # noqa: SLF001
 
     assert engine._get_credential() is cred  # noqa: SLF001
-    assert saved == [cred]
-
-
-def test_get_credential_accepts_legacy_extract_tuple(tmp_path):
-    engine = _engine(tmp_path)
-    engine._settings.boss_cli.auto_import_browser_cookies = True  # noqa: SLF001
-    cred = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"})
-
-    class _AuthWithLegacyTuple:
-        @staticmethod
-        def load_credential():
-            return None
-
-        @staticmethod
-        def extract_browser_credential(cookie_source=None):
-            return cred, {"browser": "Chrome"}
-
-        @staticmethod
-        def save_credential(value):
-            assert value is cred
-
-    engine._auth = _AuthWithLegacyTuple  # noqa: SLF001
-
-    assert engine._get_credential() is cred  # noqa: SLF001
+    assert saved == []
+    assert engine._memory_credential is cred  # noqa: SLF001
 
 
 def test_auth_redirect_degrades_status_without_network(tmp_path, monkeypatch):
@@ -160,7 +171,7 @@ def test_successful_fetch_clears_degraded(tmp_path, monkeypatch):
 
 def test_refresh_reuses_persisted_login_to_regenerate_stoken(tmp_path, monkeypatch):
     engine = _engine(tmp_path)
-    # 持久登录 Cookie 仍在、仅 __zp_stoken__ 失效的磁盘凭证。
+    # PostgreSQL 注入的持久登录 Cookie 仍在、仅 __zp_stoken__ 失效。
     persisted = _FakeCredential({PRIMARY_COOKIE: "x", "wbg": "w", "zp_at": "z"}, has_required=False)
     saved: list = []
 
@@ -192,22 +203,36 @@ def test_refresh_reuses_persisted_login_to_regenerate_stoken(tmp_path, monkeypat
     )
 
     assert engine._refresh_after_auth_failure() is True  # noqa: SLF001
-    assert saved and saved[0].cookies.get("__zp_stoken__") == "fresh-token"
-    # 失效的旧令牌应被剔除后再交给 headless 重生，避免带着废令牌空跑。
+    assert saved == []
+    assert engine._memory_credential.cookies.get("__zp_stoken__") == "fresh-token"  # noqa: SLF001
+    # 失效令牌应被剔除后再交给 headless 重生，避免带着废令牌空跑。
     assert "__zp_stoken__" not in completion_seed
     # 交互翻页热路径必须走轻量单次访问，避免冷启动后多页等待拖慢"换一批"。
     assert completion_seed.get("lean") is True
 
 
-def test_refresh_falls_back_to_browser_when_no_login_identity(tmp_path, monkeypatch):
+def test_refresh_does_not_fall_back_to_browser_by_default(tmp_path, monkeypatch):
     engine = _engine(tmp_path)
-    # 身份 Cookie 缺失：不属于“已登录只是令牌失效”，不应触发 headless 重生。
+    # 身份 Cookie 缺失：默认配置下既不触发 headless 重生，也不读取本机浏览器钥匙串。
     monkeypatch.setattr(engine, "_get_credential_without_browser_import", lambda: None)
     monkeypatch.setattr(
         engine,
         "_run_headless_cookie_completion",
         lambda cookies: (_ for _ in ()).throw(AssertionError("无身份 Cookie 时不应重生令牌")),
     )
+    monkeypatch.setattr(
+        engine,
+        "_import_browser_credential",
+        lambda: (_ for _ in ()).throw(AssertionError("默认配置下不应读取浏览器 Cookie")),
+    )
+
+    assert engine._refresh_after_auth_failure() is False  # noqa: SLF001
+
+
+def test_refresh_falls_back_to_browser_when_explicitly_enabled(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    engine._settings.boss_cli.auto_import_browser_cookies = True  # noqa: SLF001
+    monkeypatch.setattr(engine, "_get_credential_without_browser_import", lambda: None)
     imported: list = []
 
     def _fake_import():
@@ -219,6 +244,69 @@ def test_refresh_falls_back_to_browser_when_no_login_identity(tmp_path, monkeypa
 
     assert engine._refresh_after_auth_failure() is True  # noqa: SLF001
     assert len(imported) == 1
+
+
+def test_manual_refresh_does_not_read_browser_when_disabled(tmp_path):
+    engine = _engine(tmp_path)
+
+    class _AuthWithoutBrowserAccess:
+        @staticmethod
+        def load_credential():
+            return None
+
+        @staticmethod
+        def extract_browser_credential(cookie_source=None):
+            raise AssertionError("refresh_auth must not access browser cookies when disabled")
+
+    engine._auth = _AuthWithoutBrowserAccess  # noqa: SLF001
+
+    result = engine._refresh_auth_sync()  # noqa: SLF001
+
+    assert result["refreshed"] is False
+    assert result["authenticated"] is False
+
+
+def test_favorite_list_uses_fixed_configured_tag(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    engine._client_cls = _FakeClient  # noqa: SLF001
+    engine._settings.boss_cli.favorite_list_tag = 4  # noqa: SLF001
+    cred = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"})
+    monkeypatch.setattr(engine, "_credential_or_none", lambda: cred)
+
+    result = engine._favorite_jobs_sync(1)  # noqa: SLF001
+
+    assert result["payload"]["cardList"][0]["securityId"] == "fav-1"
+    assert _FakeClient.captured["params"] == {"page": 1, "tag": 4, "isActive": "true"}
+    assert _FakeClient.captured["action"] == "感兴趣职位"
+
+
+def test_favorite_list_page_limit_zero_allows_any_manual_page(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    engine._client_cls = _FakeClient  # noqa: SLF001
+    engine._settings.boss_cli.max_favorite_list_page = 0  # noqa: SLF001
+    cred = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"})
+    monkeypatch.setattr(engine, "_credential_or_none", lambda: cred)
+
+    result = engine._favorite_jobs_sync(21)  # noqa: SLF001
+
+    assert result["payload"] is not None
+    assert _FakeClient.captured["params"]["page"] == 21
+
+
+def test_favorite_list_page_limit_blocks_without_network(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    engine._settings.boss_cli.max_favorite_list_page = 2  # noqa: SLF001
+    monkeypatch.setattr(
+        engine,
+        "_credential_or_none",
+        lambda: (_ for _ in ()).throw(AssertionError("本地拒绝不应读取凭据或访问网络")),
+    )
+
+    result = engine._favorite_jobs_sync(3)  # noqa: SLF001
+
+    assert result["payload"] is None
+    assert result["local_rejected"] is True
+    assert "前 2 页" in result["error_message"]
 
 
 def test_search_page_limit_blocks_without_network(tmp_path):
@@ -241,13 +329,15 @@ def test_search_uses_boss_cli_client_and_filter_mapping(tmp_path, monkeypatch):
         lambda: _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"}),
     )
 
-    result = engine._search_sync("Java", "上海市", 1, {"salary": "20-30K", "experience": "3-5年"})  # noqa: SLF001
+    result = engine._search_sync("Java 大模型应用开发", "上海市", 1, {"salary": "30-50K", "experience": "3-5年"})  # noqa: SLF001
 
     assert result["payload"]["jobList"][0]["securityId"] == "sec-1"
-    assert _FakeClient.captured["query"] == "Java"
+    assert _FakeClient.captured["query"] == "Java 大模型应用开发"
     assert _FakeClient.captured["city"] == "101020100"
-    assert _FakeClient.captured["salary"] == "406"
+    assert _FakeClient.captured["salary"] == "407"
     assert _FakeClient.captured["experience"] == "103"
+    assert _FakeClient.captured_config["timeout"] == 20.0
+    assert _FakeClient.captured_config["max_retries"] == 2
 
 
 def test_detail_extracts_security_id_and_lid_from_url(tmp_path, monkeypatch):
@@ -263,6 +353,49 @@ def test_detail_extracts_security_id_and_lid_from_url(tmp_path, monkeypatch):
 
     assert result["payload"]["jobInfo"]["securityId"] == "sec-1"
     assert _FakeClient.captured == {"security_id": "sec-1", "lid": "lid-1"}
+
+
+def test_detail_refreshes_missing_temporary_cookie_before_requiring_login(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    engine._client_cls = _FakeClient  # noqa: SLF001
+    fresh = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "fresh", "wbg": "w", "zp_at": "z"})
+    credentials = iter((None, fresh))
+    monkeypatch.setattr(engine, "_credential_or_none", lambda: next(credentials))
+    monkeypatch.setattr(engine, "_refresh_after_auth_failure", lambda: True)
+
+    result = engine._detail_sync("sec-1", "")  # noqa: SLF001
+
+    assert result["login_redirect"] is False
+    assert result["payload"]["jobInfo"]["postDescription"] == "JD"
+
+
+def test_detail_retries_once_after_session_expired(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    initial = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "expired", "wbg": "w", "zp_at": "z"})
+    fresh = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "fresh", "wbg": "w", "zp_at": "z"})
+    attempts = {"count": 0}
+
+    class _SessionExpired(RuntimeError):
+        pass
+
+    class _ExpiringDetailClient(_FakeClient):
+        def get_job_detail(self, security_id: str, lid: str = ""):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise _SessionExpired("temporary token expired")
+            return super().get_job_detail(security_id, lid)
+
+    engine._client_cls = _ExpiringDetailClient  # noqa: SLF001
+    engine._SessionExpiredError = _SessionExpired  # noqa: SLF001
+    credentials = iter((initial, fresh))
+    monkeypatch.setattr(engine, "_credential_or_none", lambda: next(credentials))
+    monkeypatch.setattr(engine, "_refresh_after_auth_failure", lambda: True)
+
+    result = engine._detail_sync("sec-1", "")  # noqa: SLF001
+
+    assert attempts["count"] == 2
+    assert result["login_redirect"] is False
+    assert result["payload"]["jobInfo"]["postDescription"] == "JD"
 
 
 def test_unknown_nonzero_payload_is_not_treated_as_empty_success(tmp_path):
@@ -292,7 +425,6 @@ def test_config_covers_nationwide_boss_cities():
 def test_city_resolver_supports_suffix(tmp_path):
     config_path = Path(__file__).resolve().parents[1] / "app" / "tools" / "boss_browser" / "config" / "config.yaml"
     settings = Settings(**yaml.safe_load(config_path.read_text(encoding="utf-8")))
-    settings.boss_cli.data_dir = str(tmp_path)
     engine = BossCliEngine(settings)
 
     assert engine._resolve_city_code("上海市") == "101020100"  # noqa: SLF001

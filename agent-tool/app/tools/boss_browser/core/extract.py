@@ -55,8 +55,26 @@ _JOB_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
     "jobUrl": ("jobUrl", "job_url", "url", "href", "link", "detailUrl", "jobDetailUrl"),
 }
 
-_LOW_SALARY_KEYS = ("lowSalary", "low_salary", "salaryLow", "salary_low", "minSalary", "min_salary", "salaryMin", "salary_min")
-_HIGH_SALARY_KEYS = ("highSalary", "high_salary", "salaryHigh", "salary_high", "maxSalary", "max_salary", "salaryMax", "salary_max")
+_LOW_SALARY_KEYS = (
+    "lowSalary",
+    "low_salary",
+    "salaryLow",
+    "salary_low",
+    "minSalary",
+    "min_salary",
+    "salaryMin",
+    "salary_min",
+)
+_HIGH_SALARY_KEYS = (
+    "highSalary",
+    "high_salary",
+    "salaryHigh",
+    "salary_high",
+    "maxSalary",
+    "max_salary",
+    "salaryMax",
+    "salary_max",
+)
 
 
 def extract_jobs(payload: Any) -> list[dict]:
@@ -255,7 +273,7 @@ def assemble_profile(captures: list) -> dict:
     """把多个 resume API payload 归入下游统一分段键。
 
     captures 为 [(响应URL, payload), ...]；每个 payload 取其 zpData/data 容器作为分段值。
-    无法匹配的接口仍保留在 sections 原始映射里，便于排障与后续校准。
+    无法匹配的接口保留在 sections 原始映射中，供排障和协议校准使用。
     """
     profile: dict[str, Any] = {key: {} for key in _PROFILE_SECTION_MARKERS}
     sections: dict[str, Any] = {}

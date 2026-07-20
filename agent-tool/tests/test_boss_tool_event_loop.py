@@ -1,9 +1,7 @@
-"""工具入口事件循环复用回归测试。
+"""Boss 工具常驻事件循环契约测试。
 
-锁定问题：Boss 工具服务是进程内单例，其 RateLimiter 与取数引擎持有 asyncio.Lock，
-首次使用时会绑定事件循环。若工具入口每次请求都用 asyncio.run() 新建并关闭事件循环，
-第二次请求会在新循环里复用绑定旧（已关闭）循环的锁，触发 "no running event loop"。
-工具入口改为提交到唯一常驻后台事件循环后，多次调用必须稳定成功。
+进程内单例服务的 RateLimiter 与取数引擎持有 asyncio.Lock；多次调用必须统一使用
+同一个长生命周期事件循环并稳定成功。
 """
 
 from __future__ import annotations
@@ -28,9 +26,11 @@ class _LockHolder:
     async def contend(self) -> str:
         # 制造一次锁竞争：先占锁，再起一个等待者协程争用同一把锁。
         await self._lock.acquire()
+
         async def _waiter() -> str:
             async with self._lock:
                 return "ok"
+
         task = asyncio.ensure_future(_waiter())
         await asyncio.sleep(0)
         self._lock.release()

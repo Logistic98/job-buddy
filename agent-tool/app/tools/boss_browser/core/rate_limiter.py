@@ -1,7 +1,7 @@
 """拟人化限速、配额与风控冷却。
 
 设计目标：让对 Boss 的请求频率与节奏尽量贴近真人，并在出现风控信号时
-全局停手，避免账号被封。所有动作（搜索/详情）在执行前都要先 acquire。
+全局停手，避免账号被封。所有动作（搜索/收藏列表/详情）在执行前都要先 acquire。
 """
 
 from __future__ import annotations
@@ -12,10 +12,10 @@ import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
 
 from loguru import logger
+from redis import Redis
 
 from app.tools.boss_browser.core.settings import RateLimitConfig
 
@@ -49,32 +49,48 @@ class _Window:
 
 
 class RateLimiter:
-    def __init__(self, config: RateLimitConfig, state_path: Optional[str] = None) -> None:
+    def __init__(
+        self, config: RateLimitConfig, state_path: Optional[str] = None, redis_url: Optional[str] = None
+    ) -> None:
         self._config = config
-        self._windows: dict[str, _Window] = {"search": _Window(), "detail": _Window()}
+        self._windows: dict[str, _Window] = {
+            "search": _Window(),
+            "favorite_list": _Window(),
+            "detail": _Window(),
+        }
         self._lock = asyncio.Lock()
         self._cooldown_until: float = 0.0
         self._consecutive_failures: int = 0
         self._last_action_at: float = 0.0
-        # 风控冷却/连续失败/配额窗口必须跨进程持久化：否则一旦工具进程重启（崩溃、
-        # 自愈、部署），刚命中风控的 30 分钟冷却与硬停计数会被清零，导致在风控
-        # 敏感期继续高频访问 Boss，正是账号被封的高危路径。
-        self._state_path: Optional[Path] = Path(state_path) if state_path else None
+        # 风控冷却、连续失败和配额窗口必须跨进程保存，但不得写本地文件。
+        # Redis 不可用时仅退化为进程内保护，并明确记录告警。
+        self._redis_key = "job-buddy:boss:rate-state"
+        self._redis: Redis | None = None
+        if redis_url:
+            try:
+                self._redis = Redis.from_url(redis_url, decode_responses=True, socket_timeout=3)
+                self._redis.ping()
+            except Exception as exc:
+                self._redis = None
+                logger.warning(f"Boss Redis 限速状态不可用，退化为进程内保护：{exc}")
         self._load_state()
 
     # ---- 持久化 ----
     def _load_state(self) -> None:
-        if not self._state_path or not self._state_path.exists():
+        if self._redis is None:
             return
         try:
-            raw = json.loads(self._state_path.read_text(encoding="utf-8"))
+            encoded = self._redis.get(self._redis_key)
+            if not encoded:
+                return
+            raw = json.loads(encoded)
         except Exception as exc:
             logger.warning(f"限速状态加载失败，按全新状态启动：{exc}")
             return
         now = time.time()
         self._cooldown_until = float(raw.get("cooldown_until", 0.0) or 0.0)
         self._consecutive_failures = int(raw.get("consecutive_failures", 0) or 0)
-        for action in ("search", "detail"):
+        for action in self._windows:
             data = (raw.get("windows") or {}).get(action) or {}
             window = self._windows[action]
             window.hour = deque(ts for ts in data.get("hour", []) if now - ts <= 3600)
@@ -84,10 +100,9 @@ class RateLimiter:
             logger.warning(f"从持久化状态恢复风控冷却，剩余约 {remaining} 秒。")
 
     def _persist_state(self) -> None:
-        if not self._state_path:
+        if self._redis is None:
             return
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "cooldown_until": self._cooldown_until,
                 "consecutive_failures": self._consecutive_failures,
@@ -99,15 +114,15 @@ class RateLimiter:
                     for action, window in self._windows.items()
                 },
             }
-            tmp = self._state_path.with_suffix(self._state_path.suffix + ".tmp")
-            tmp.write_text(json.dumps(payload), encoding="utf-8")
-            tmp.replace(self._state_path)
+            self._redis.set(self._redis_key, json.dumps(payload), ex=172800)
         except Exception as exc:
-            logger.warning(f"限速状态落盘失败：{exc}")
+            logger.warning(f"Boss Redis 限速状态保存失败：{exc}")
 
     def _limits(self, action: str) -> tuple[int, int]:
         if action == "search":
             return self._config.search_per_hour, self._config.search_per_day
+        if action == "favorite_list":
+            return self._config.favorite_list_per_hour, self._config.favorite_list_per_day
         return self._config.detail_per_hour, self._config.detail_per_day
 
     async def acquire(self, action: str) -> None:
@@ -115,9 +130,7 @@ class RateLimiter:
         async with self._lock:
             now = time.time()
             if self._consecutive_failures >= self._config.consecutive_failure_backstop:
-                raise BackstopError(
-                    f"连续失败 {self._consecutive_failures} 次，已硬停，请人工检查 Boss 账号与登录态。"
-                )
+                raise BackstopError(f"连续失败 {self._consecutive_failures} 次，已硬停，请人工检查 Boss 账号与登录态。")
             if now < self._cooldown_until:
                 remaining = int(self._cooldown_until - now) + 1
                 raise RiskCooldownError(f"处于风控冷却期，约 {remaining} 秒后可重试。")
@@ -125,9 +138,9 @@ class RateLimiter:
             window = self._windows[action]
             window.prune(now)
             per_hour, per_day = self._limits(action)
-            if len(window.hour) >= per_hour:
+            if per_hour > 0 and len(window.hour) >= per_hour:
                 raise RateLimitError(f"{action} 已达每小时上限（{per_hour}），请稍后再试。")
-            if len(window.day) >= per_day:
+            if per_day > 0 and len(window.day) >= per_day:
                 raise RateLimitError(f"{action} 已达每日上限（{per_day}），请明日再试。")
 
             delay = self._pending_delay(now)
@@ -179,6 +192,10 @@ class RateLimiter:
             "search_limit_hour": self._config.search_per_hour,
             "search_used_day": len(self._windows["search"].day),
             "search_limit_day": self._config.search_per_day,
+            "favorite_list_used_hour": len(self._windows["favorite_list"].hour),
+            "favorite_list_limit_hour": self._config.favorite_list_per_hour,
+            "favorite_list_used_day": len(self._windows["favorite_list"].day),
+            "favorite_list_limit_day": self._config.favorite_list_per_day,
             "detail_used_hour": len(self._windows["detail"].hour),
             "detail_limit_hour": self._config.detail_per_hour,
             "detail_used_day": len(self._windows["detail"].day),

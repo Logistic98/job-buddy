@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
+import tempfile
 import time
 import urllib.parse
-from pathlib import Path
 from typing import Any, Optional
 
 import httpx
@@ -43,7 +44,9 @@ _RISK_CODES = {32, 36, 121, 122}
 _AUTH_EXPIRED_CODES = {37}
 
 _QR_LOGIN_TTL_SECONDS = 240
-_QR_POLL_TIMEOUT_SECONDS = 6.0
+# 单次扫码状态检查保持短长轮询；前端严格等待上一轮完成后再发下一轮，
+# 兼顾扫码反馈速度与无并发堆积的风控边界。
+_QR_POLL_TIMEOUT_SECONDS = 3.0
 _QR_WARMUP_TIMEOUT_SECONDS = 15.0
 
 
@@ -67,16 +70,13 @@ class BossCliEngine:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._data_dir = Path(settings.boss_cli.data_dir)
-        self._data_dir.mkdir(parents=True, exist_ok=True)
-        self._credential_file = self._data_dir / "credential.json"
+        self._memory_credential: Any | None = None
         self._lock = asyncio.Lock()
         self._auth_degraded = False
         self._last_browser_refresh_at = 0.0
         self._qr_state: dict[str, Any] = {}
 
         try:
-            self._configure_boss_cli_storage()
             from boss_cli import auth as boss_auth
             from boss_cli import constants as boss_constants
             from boss_cli.client import BossClient
@@ -94,32 +94,8 @@ class BossCliEngine:
 
     # ── boss-cli 运行环境 ─────────────────────────────────────────────
 
-    def _configure_boss_cli_storage(self) -> None:
-        """把 boss-cli 凭证文件重定向到项目共享目录，而不改 HOME。
-
-        boss-cli 默认使用 Path.home() / ".config/boss-cli/credential.json"。直接改 HOME
-        会破坏 browser-cookie3 从用户真实浏览器目录读取 Cookie 的能力，因此这里只修改
-        boss_cli.constants / boss_cli.auth 已导出的 CONFIG_DIR 与 CREDENTIAL_FILE。
-        """
-        try:
-            from boss_cli import constants as boss_constants
-        except ModuleNotFoundError as exc:
-            raise _missing_dependency_error(exc) from exc
-
-        boss_constants.CONFIG_DIR = self._data_dir
-        boss_constants.CREDENTIAL_FILE = self._credential_file
-
-        # auth 模块如果已经被其他测试或调用导入，也要同步覆盖其模块级常量。
-        try:
-            from boss_cli import auth as boss_auth
-
-            boss_auth.CONFIG_DIR = self._data_dir
-            boss_auth.CREDENTIAL_FILE = self._credential_file
-        except ModuleNotFoundError as exc:
-            raise _missing_dependency_error(exc) from exc
-
     async def assert_browser_ready(self) -> None:
-        """兼容旧服务层命名：这里只校验 boss-cli 依赖可用，不触达 Boss。"""
+        """校验 boss-cli 依赖可用，不触达 Boss。"""
         await asyncio.to_thread(self._assert_cli_ready)
 
     def _assert_cli_ready(self) -> None:
@@ -205,24 +181,14 @@ class BossCliEngine:
             "final_url": "",
             "risk_marker": None,
             "cookie_present": cookie_names,
-            "credential_file": str(self._credential_file),
+            "credential_store": "memory",
             "reason": reason,
         }
 
     def _get_credential(self) -> Any | None:
-        """按项目配置加载 boss-cli 凭证，兼容不同 kabi-boss-cli 版本的认证 API。"""
-        cred = self._auth.load_credential()
-        if cred:
-            return cred
-
-        # 部分早期/本地版本曾提供 load_from_env；kabi-boss-cli 0.3.6 已移除该方法。
-        # 这里仅在方法存在时调用，避免岗位搜索因 AttributeError 直接失败。
-        load_from_env = getattr(self._auth, "load_from_env", None)
-        if callable(load_from_env):
-            cred = load_from_env()
-            if cred:
-                self._auth.save_credential(cred)
-                return cred
+        """仅从进程内存或显式环境加载凭证，不读取本地 credential.json。"""
+        if self._memory_credential is not None:
+            return self._memory_credential
 
         if not self._settings.boss_cli.auto_import_browser_cookies:
             return None
@@ -230,11 +196,17 @@ class BossCliEngine:
         return self._import_browser_credential()
 
     def _import_browser_credential(self) -> Any | None:
+        # browser-cookie3 在 macOS 读取 Chrome Cookie 时会访问 Chrome Safe Storage，
+        # 从而弹出系统钥匙串授权框。所有调用路径（包括手动 refresh_auth 和认证失败回退）
+        # 都必须经过此门禁，默认配置下绝不触达本机浏览器凭据。
+        if not self._settings.boss_cli.auto_import_browser_cookies:
+            logger.info("Boss 浏览器 Cookie 导入未启用，跳过本机浏览器凭据读取。")
+            return None
+
         cookie_source = (self._settings.boss_cli.cookie_source or "").strip() or None
-        extracted = self._auth.extract_browser_credential(cookie_source=cookie_source)
-        cred = extracted[0] if isinstance(extracted, tuple) else extracted
+        cred = self._auth.extract_browser_credential(cookie_source=cookie_source)
         if cred:
-            self._auth.save_credential(cred)
+            self._save_credential(cred)
             self._auth_degraded = not self._credential_has_required_cookies(cred)
             if not self._auth_degraded:
                 self._last_browser_refresh_at = time.time()
@@ -262,9 +234,54 @@ class BossCliEngine:
 
     def _get_credential_without_browser_import(self) -> Any | None:
         try:
-            return self._auth.load_credential()
+            return self._memory_credential
         except Exception:  # noqa: BLE001
             return None
+
+    def load_credential_json(self, credential_json: str | None) -> None:
+        """从后端 PostgreSQL auth_state 注入凭证，仅保存在当前进程内存。"""
+        text = str(credential_json or "").strip()
+        if not text:
+            return
+        try:
+            payload = json.loads(text)
+            cookies = payload.get("cookies") if isinstance(payload, dict) else None
+            if not isinstance(cookies, dict) or not cookies:
+                return
+            normalized = {str(k): str(v) for k, v in cookies.items()}
+            current = self._memory_credential
+            current_cookies = dict(getattr(current, "cookies", {}) or {}) if current is not None else {}
+            same_identity = all(
+                current_cookies.get(name) and current_cookies.get(name) == normalized.get(name)
+                for name in LOGIN_IDENTITY_COOKIES
+            )
+            # 详情/搜索可能刚用持久身份 Cookie 静默重生了临时 __zp_stoken__。后端在下一次
+            # 请求中可能注入数据库里的过期令牌；同一登录身份下应保留当前有效内存凭证，
+            # 避免用过期值覆盖刚刷新的令牌。新账号或已降级凭证仍以数据库注入值为准。
+            if (
+                current is not None
+                and not self._auth_degraded
+                and same_identity
+                and self._credential_has_required_cookies(current)
+            ):
+                return
+            self._save_credential(self._auth.Credential(cookies=normalized))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"忽略无效的 Boss 数据库凭证载荷：{exc}")
+
+    def credential_json(self) -> str | None:
+        credential = self._memory_credential
+        cookies = dict(getattr(credential, "cookies", {}) or {}) if credential is not None else {}
+        if not cookies:
+            return None
+        return json.dumps({"cookies": cookies}, ensure_ascii=False, separators=(",", ":"))
+
+    def _save_credential(self, credential: Any) -> None:
+        self._memory_credential = credential
+
+    def clear_credential(self) -> None:
+        self._memory_credential = None
+        self._auth_degraded = False
 
     def _credential_or_none(self) -> Any | None:
         cred = self._get_credential()
@@ -286,6 +303,9 @@ class BossCliEngine:
         # 只是临时令牌失效，没必要弹系统钥匙串读取浏览器 Cookie，更不该强制重新扫码。
         if self._refresh_stoken_from_persisted():
             return True
+        if not self._settings.boss_cli.auto_import_browser_cookies:
+            logger.info("Boss 搜索登录态降级，但浏览器 Cookie 导入未启用；跳过本机浏览器凭据读取。")
+            return False
         logger.warning("Boss 搜索登录态降级，复用已保存登录态重生令牌未成功，回退从本机浏览器刷新 Cookie。")
         try:
             cred = self._import_browser_credential()
@@ -299,6 +319,11 @@ class BossCliEngine:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Boss 浏览器 Cookie 刷新异常：{exc}")
             return False
+
+    def _auth_required_message(self) -> str:
+        if self._settings.boss_cli.auto_import_browser_cookies:
+            return "Boss 登录态失效，浏览器 Cookie 导入未获得可用凭证，请重新扫码登录。"
+        return "Boss 登录态失效，请重新扫码登录。浏览器 Cookie 导入默认关闭，不会访问 Chrome Safe Storage。"
 
     def _has_login_identity(self, cred: Any) -> bool:
         cookies = getattr(cred, "cookies", {}) or {}
@@ -318,7 +343,7 @@ class BossCliEngine:
         if not existing or not self._has_login_identity(existing):
             return False
         cookies = dict(getattr(existing, "cookies", {}) or {})
-        # 移除可能过期的旧令牌，强制前端 JS 重新生成，避免带着失效令牌空跑一趟。
+        # 移除可能过期的令牌，强制前端 JS 重新生成，避免带着失效令牌空跑一趟。
         cookies.pop(STOKEN_COOKIE, None)
         logger.info("Boss 令牌失效但持久登录 Cookie 仍在，尝试复用已保存登录态重生 __zp_stoken__。")
         try:
@@ -329,12 +354,80 @@ class BossCliEngine:
         if not completed.get(STOKEN_COOKIE):
             return False
         credential = self._auth.Credential(cookies=completed)
-        self._auth.save_credential(credential)
+        self._save_credential(credential)
         self._auth_degraded = not self._credential_has_required_cookies(credential)
         if not self._auth_degraded:
             self._last_browser_refresh_at = time.time()
             logger.info("Boss 复用已保存登录态重生 __zp_stoken__ 成功，准备重试当前请求。")
         return not self._auth_degraded
+
+    # ── Boss 收藏列表 ────────────────────────────────────────────────
+
+    async def favorite_jobs(self, page: int = 1) -> dict[str, Any]:
+        async with self._lock:
+            return await asyncio.to_thread(self._favorite_jobs_sync, page)
+
+    def _favorite_jobs_sync(self, page: int) -> dict[str, Any]:
+        page = max(1, page)
+        max_page = self._settings.boss_cli.max_favorite_list_page
+        url = self._constants.GEEK_GET_JOB_URL
+        if max_page > 0 and page > max_page:
+            return {
+                "payload": None,
+                "risk_marker": None,
+                "url": url,
+                "login_redirect": False,
+                "local_rejected": True,
+                "error_message": f"当前安全策略只允许读取 Boss 收藏列表前 {max_page} 页，已拒绝第 {page} 页请求。",
+            }
+
+        cred = self._credential_or_none()
+        if not cred:
+            refreshed = self._refresh_after_auth_failure()
+            if refreshed:
+                cred = self._credential_or_none()
+            if not cred:
+                return self._auth_redirect(url, self._auth_required_message())
+        return self._favorite_jobs_with_credential(cred, url, page, allow_refresh=True)
+
+    def _favorite_jobs_with_credential(self, cred: Any, url: str, page: int, *, allow_refresh: bool) -> dict[str, Any]:
+        try:
+            with self._client_cls(
+                cred,
+                timeout=self._settings.boss_cli.timeout_s,
+                request_delay=self._settings.boss_cli.request_delay_s,
+                max_retries=self._settings.boss_cli.max_retries,
+            ) as client:
+                # boss-cli 暂未暴露“感兴趣/收藏列表”的公开方法，但其统一 _get 仍负责
+                # 请求抖动、退避、响应码和 SessionExpired/RateLimit 分类。tag 由服务端配置固定，
+                # 不接受前端透传，避免枚举互动列表制造额外请求。
+                raw = client._get(  # noqa: SLF001
+                    url,
+                    params={
+                        "page": page,
+                        "tag": self._settings.boss_cli.favorite_list_tag,
+                        "isActive": "true",
+                    },
+                    action="感兴趣职位",
+                )
+        except self._SessionExpiredError:
+            if allow_refresh and self._refresh_after_auth_failure():
+                refreshed = self._credential_or_none()
+                if refreshed:
+                    return self._favorite_jobs_with_credential(refreshed, url, page, allow_refresh=False)
+            return self._auth_redirect(url, self._auth_required_message())
+        except self._RateLimitError as exc:
+            return self._rate_limited_result(url, exc)
+        except self._BossApiError as exc:
+            classified = self._classify_exception(url, exc)
+            if allow_refresh and classified.get("login_redirect") and self._refresh_after_auth_failure():
+                refreshed = self._credential_or_none()
+                if refreshed:
+                    return self._favorite_jobs_with_credential(refreshed, url, page, allow_refresh=False)
+            return classified
+        except Exception as exc:  # noqa: BLE001
+            return self._error_result(url, exc)
+        return self._classify_payload(raw, url)
 
     # ── 搜索 ─────────────────────────────────────────────────────────
 
@@ -368,16 +461,19 @@ class BossCliEngine:
             if refreshed:
                 cred = self._credential_or_none()
             if not cred:
-                return self._auth_redirect(url, "Boss 登录态失效，且未能从本机浏览器刷新可用 Cookie。请确认 Chrome 已登录 Boss，并允许读取 Chrome Safe Storage，或重新扫码登录。")
+                return self._auth_redirect(url, self._auth_required_message())
 
         return self._search_with_credential(cred, url, query, city, page, extra, allow_refresh=True)
 
-    def _search_with_credential(self, cred: Any, url: str, query: str, city: str, page: int, extra: dict, *, allow_refresh: bool) -> dict[str, Any]:
+    def _search_with_credential(
+        self, cred: Any, url: str, query: str, city: str, page: int, extra: dict, *, allow_refresh: bool
+    ) -> dict[str, Any]:
         try:
             with self._client_cls(
                 cred,
                 timeout=self._settings.boss_cli.timeout_s,
                 request_delay=self._settings.boss_cli.request_delay_s,
+                max_retries=self._settings.boss_cli.max_retries,
             ) as client:
                 raw = client.search_jobs(
                     query=query or "",
@@ -389,14 +485,16 @@ class BossCliEngine:
                     industry=self._resolve_filter(extra.get("industry"), self._constants.INDUSTRY_CODES),
                     scale=self._resolve_filter(extra.get("scale"), self._constants.SCALE_CODES),
                     stage=self._resolve_filter(extra.get("stage"), self._constants.STAGE_CODES),
-                    job_type=self._resolve_filter(extra.get("job_type") or extra.get("jobType"), self._constants.JOB_TYPE_CODES),
+                    job_type=self._resolve_filter(
+                        extra.get("job_type") or extra.get("jobType"), self._constants.JOB_TYPE_CODES
+                    ),
                 )
         except self._SessionExpiredError:
             if allow_refresh and self._refresh_after_auth_failure():
                 refreshed = self._credential_or_none()
                 if refreshed:
                     return self._search_with_credential(refreshed, url, query, city, page, extra, allow_refresh=False)
-            return self._auth_redirect(url, "Boss 登录态失效，自动刷新浏览器 Cookie 后仍不可用。请确认 Chrome 已登录 Boss，并允许读取 Chrome Safe Storage，或重新扫码登录。")
+            return self._auth_redirect(url, self._auth_required_message())
         except self._RateLimitError as exc:
             return self._rate_limited_result(url, exc)
         except self._BossApiError as exc:
@@ -476,27 +574,71 @@ class BossCliEngine:
                 "error_message": "缺少 securityId，无法通过 boss-cli 安全加载岗位详情。",
             }
 
+        detail_url = url or endpoint
         cred = self._credential_or_none()
         if not cred:
-            return self._auth_redirect(url or endpoint)
+            refreshed = self._refresh_after_auth_failure()
+            if refreshed:
+                cred = self._credential_or_none()
+            if not cred:
+                return self._auth_redirect(detail_url, self._auth_required_message())
 
+        return self._detail_with_credential(
+            cred,
+            detail_url,
+            security_id,
+            lid,
+            allow_refresh=True,
+        )
+
+    def _detail_with_credential(
+        self,
+        cred: Any,
+        url: str,
+        security_id: str,
+        lid: str,
+        *,
+        allow_refresh: bool,
+    ) -> dict[str, Any]:
         try:
             with self._client_cls(
                 cred,
                 timeout=self._settings.boss_cli.timeout_s,
                 request_delay=self._settings.boss_cli.request_delay_s,
+                max_retries=self._settings.boss_cli.max_retries,
             ) as client:
                 raw = client.get_job_detail(security_id=security_id, lid=lid)
         except self._SessionExpiredError:
-            return self._auth_redirect(url or endpoint)
+            if allow_refresh and self._refresh_after_auth_failure():
+                refreshed = self._credential_or_none()
+                if refreshed:
+                    return self._detail_with_credential(
+                        refreshed,
+                        url,
+                        security_id,
+                        lid,
+                        allow_refresh=False,
+                    )
+            return self._auth_redirect(url, self._auth_required_message())
         except self._RateLimitError as exc:
-            return self._rate_limited_result(url or endpoint, exc)
+            return self._rate_limited_result(url, exc)
         except self._BossApiError as exc:
-            return self._classify_exception(url or endpoint, exc)
+            classified = self._classify_exception(url, exc)
+            if allow_refresh and classified.get("login_redirect") and self._refresh_after_auth_failure():
+                refreshed = self._credential_or_none()
+                if refreshed:
+                    return self._detail_with_credential(
+                        refreshed,
+                        url,
+                        security_id,
+                        lid,
+                        allow_refresh=False,
+                    )
+            return classified
         except Exception as exc:  # noqa: BLE001
-            return self._error_result(url or endpoint, exc)
+            return self._error_result(url, exc)
 
-        return self._classify_payload(raw, url or endpoint)
+        return self._classify_payload(raw, url)
 
     @staticmethod
     def _extract_query_param(url: str, name: str) -> str:
@@ -527,6 +669,7 @@ class BossCliEngine:
                 cred,
                 timeout=self._settings.boss_cli.timeout_s,
                 request_delay=self._settings.boss_cli.request_delay_s,
+                max_retries=self._settings.boss_cli.max_retries,
             ) as client:
                 for endpoint_url, fetch in (
                     (self._constants.RESUME_BASEINFO_URL, client.get_resume_baseinfo),
@@ -625,12 +768,13 @@ class BossCliEngine:
             credential = self._qr_dispatch(client, qr_id)
             if not self._credential_has_required_cookies(credential):
                 credential = self._complete_qr_credential(credential)
-            self._auth.save_credential(credential)
+            self._save_credential(credential)
             self._auth_degraded = not self._credential_has_required_cookies(credential)
 
         base = self._status_sync()
         if base.get("authenticated"):
             base["status"] = "logged_in"
+            base["credential_json"] = self.credential_json()
             self._qr_state = {"status": "logged_in"}
         else:
             base["status"] = "auth_required"
@@ -663,7 +807,9 @@ class BossCliEngine:
 
     def _qr_confirm(self, client: httpx.Client, qr_id: str) -> bool:
         try:
-            resp = client.get(self._constants.QR_SCAN_LOGIN_URL, params={"qrId": qr_id}, timeout=_QR_POLL_TIMEOUT_SECONDS)
+            resp = client.get(
+                self._constants.QR_SCAN_LOGIN_URL, params={"qrId": qr_id}, timeout=_QR_POLL_TIMEOUT_SECONDS
+            )
             resp.raise_for_status()
             return resp.json().get("login") is True
         except httpx.ReadTimeout:
@@ -736,15 +882,16 @@ class BossCliEngine:
         base_url = str(self._constants.BASE_URL).rstrip("/")
         headers = dict(getattr(self._constants, "HEADERS", {}) or {})
         combined = dict(cookies)
-        user_data_dir = self._data_dir / "headless-browser"
-        user_data_dir.mkdir(parents=True, exist_ok=True)
         timeout_ms = int(self._settings.boss_cli.headless_cookie_timeout_ms)
         if lean:
             timeout_ms = min(timeout_ms, _LEAN_COOKIE_VISIT_TIMEOUT_MS)
 
-        with sync_playwright() as playwright:
+        with (
+            tempfile.TemporaryDirectory(prefix="job-buddy-boss-browser-") as user_data_dir,
+            sync_playwright() as playwright,
+        ):
             context = playwright.chromium.launch_persistent_context(
-                str(user_data_dir),
+                user_data_dir,
                 headless=True,
                 user_agent=headers.get("User-Agent"),
                 locale="zh-CN",
@@ -760,9 +907,7 @@ class BossCliEngine:
                     "--no-first-run",
                 ],
             )
-            context.add_init_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-            )
+            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
             try:
                 # 持久化用户目录可能残留过期 __zp_stoken__，先清空再注入本次 dispatch Cookie。
                 context.clear_cookies()

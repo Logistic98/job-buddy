@@ -1,10 +1,8 @@
-"""硬停与扫码登录恢复的回归测试。
+"""硬停与扫码登录恢复契约测试。
 
-锁定问题：未登录会反复触发 AuthRequiredError，旧实现把它计入连续失败硬停，
-最终把扫码登录入口锁死、用户无法恢复。修复后：
 - 需要登录不计入硬停；
-- 即便已硬停，未登录时也应转为引导扫码（AuthRequiredError），而非死锁报硬停；
-- 一旦确认登录态有效，硬停计数立即清零。
+- 已达硬停阈值但未登录时仍返回 AuthRequiredError，引导用户恢复登录；
+- 确认登录态有效后立即清零硬停计数。
 """
 
 from __future__ import annotations
@@ -55,7 +53,7 @@ def test_auth_required_not_counted_as_backstop_failure(tmp_path):
 
 def test_backstop_unauthenticated_routes_to_login(tmp_path):
     service = _service(tmp_path, authenticated=False)
-    # 模拟历史遗留的硬停状态（旧实现把未登录计入失败累计触发）。
+    # 构造已达到连续失败阈值的硬停状态。
     backstop = service._settings.rate_limit.consecutive_failure_backstop  # noqa: SLF001
     for _ in range(backstop):
         service.limiter.record_failure()

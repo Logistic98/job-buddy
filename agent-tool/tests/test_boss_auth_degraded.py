@@ -18,7 +18,6 @@ class _FakeCredential:
 
 def _engine(tmp_path) -> BossCliEngine:
     settings = Settings()
-    settings.boss_cli.data_dir = str(tmp_path)
     engine = BossCliEngine(settings)
     engine._get_credential = lambda: _FakeCredential()  # noqa: SLF001
     return engine

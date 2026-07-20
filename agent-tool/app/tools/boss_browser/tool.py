@@ -23,16 +23,23 @@ from app.tools.boss_browser.core.response import (
 )
 from app.tools.boss_browser.core.service import AuthRequiredError, RiskControlError, get_service
 
-_ALLOWED_OPERATIONS = {"status", "refresh_auth", "qr_start", "qr_status", "search", "detail", "profile", "rate"}
+_ALLOWED_OPERATIONS = {
+    "status",
+    "refresh_auth",
+    "qr_start",
+    "qr_status",
+    "search",
+    "favorite_list",
+    "detail",
+    "profile",
+    "rate",
+}
 
 _T = TypeVar("_T")
 
-# Boss 工具服务是进程内单例（get_service 走 lru_cache），其内部的 RateLimiter 与
-# 取数引擎都持有 asyncio.Lock。这些锁在首次使用时会绑定到当时运行的事件循环。
-# 工具入口此前用 asyncio.run() 每次新建并关闭一个事件循环，导致第二次请求在
-# 新循环里复用已绑定旧（已关闭）循环的锁，触发 "no running event loop"。
-# 这里改为所有协程都提交到唯一的常驻后台事件循环，保证单例的异步原语始终绑定
-# 在同一个长生命周期循环上。
+# Boss 工具服务是进程内单例（get_service 走 lru_cache），RateLimiter 与取数引擎
+# 持有 asyncio.Lock。所有协程统一提交到常驻后台事件循环，确保单例异步原语始终
+# 绑定到同一个长生命周期循环。
 _loop_lock = threading.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
 
@@ -71,7 +78,9 @@ def run_boss_browser(arguments: Dict[str, Any], trace_id: str | None = None) -> 
             code="invalid_arguments",
             message=f"不支持的 Boss 操作: {operation}",
             retryable=False,
-            suggested_action="operation 必须是 status、refresh_auth、qr_start、qr_status、search、detail、profile 或 rate。",
+            suggested_action=(
+                "operation 必须是 status、refresh_auth、qr_start、qr_status、search、favorite_list、detail、profile 或 rate。"
+            ),
         )
     if not isinstance(payload, dict):
         return _tool_error(
@@ -109,6 +118,7 @@ def run_boss_browser(arguments: Dict[str, Any], trace_id: str | None = None) -> 
 async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
         service = get_service()
+        service.load_credential_json(payload.get("credential_json"))
         if operation == "status":
             return ok(await service.status())
         if operation == "refresh_auth":
@@ -119,6 +129,8 @@ async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
             return ok(await service.qr_status())
         if operation == "rate":
             return ok(service.rate_snapshot())
+        if operation == "favorite_list":
+            return ok(await service.favorite_jobs(page=int(payload.get("page") or 1)))
         if operation == "search":
             jobs = await service.search(
                 query=str(payload.get("query") or ""),
@@ -179,7 +191,9 @@ def _error_code(code: int) -> str:
 
 def _suggested_action(code: int) -> str:
     if code == CODE_AUTH_REQUIRED:
-        return "请先在本机常用浏览器登录 Boss 后重试；也可以调用 refresh_auth 重新导入浏览器 Cookie，或尝试二维码登录。"
+        return (
+            "请尝试二维码登录。浏览器 Cookie 导入默认关闭；仅在明确接受系统钥匙串授权时才显式开启后调用 refresh_auth。"
+        )
     if code == CODE_RISK_CONTROL:
         return "已命中风控信号，请停止自动访问，等待账号自然恢复。"
     if code == CODE_RATE_LIMITED:

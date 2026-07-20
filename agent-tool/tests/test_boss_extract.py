@@ -26,8 +26,8 @@ def test_extract_jobs_normalizes_nested_salary_fields():
                 {
                     "jobInfo": {
                         "security_id": "sid-1",
-                        "positionName": "大模型应用工程师",
-                        "salaryName": "40-60K",
+                        "positionName": "Java 大模型应用开发工程师",
+                        "salaryName": "40-50K",
                         "experienceName": "3-5年",
                     },
                     "brandInfo": {"companyName": "示例科技", "industryName": "互联网"},
@@ -37,15 +37,15 @@ def test_extract_jobs_normalizes_nested_salary_fields():
     }
     jobs = extract_jobs(payload)
     assert jobs[0]["securityId"] == "sid-1"
-    assert jobs[0]["jobName"] == "大模型应用工程师"
-    assert jobs[0]["salaryDesc"] == "40-60K"
+    assert jobs[0]["jobName"] == "Java 大模型应用开发工程师"
+    assert jobs[0]["salaryDesc"] == "40-50K"
     assert jobs[0]["brandName"] == "示例科技"
 
 
 def test_extract_jobs_formats_numeric_salary_bounds():
-    payload = {"zpData": {"jobList": [{"jobName": "后端", "lowSalary": 30000, "highSalary": 50000}]}}
+    payload = {"zpData": {"jobList": [{"jobName": "Java 大模型应用开发", "lowSalary": 40000, "highSalary": 50000}]}}
     jobs = extract_jobs(payload)
-    assert jobs[0]["salaryDesc"] == "30-50K"
+    assert jobs[0]["salaryDesc"] == "40-50K"
 
 
 def test_extract_jobs_empty_on_none():
@@ -57,22 +57,22 @@ def test_normalize_detail_maps_description():
     payload = {
         "zpData": {
             "jobInfo": {
-                "postDescription": "负责后端服务开发",
-                "jobName": "后端工程师",
-                "salaryDesc": "20-35K",
+                "postDescription": "负责基于 Java 的大模型应用服务开发",
+                "jobName": "Java 大模型应用开发工程师",
+                "salaryDesc": "40-50K",
             },
             "brandComInfo": {"brandName": "示例公司", "industryName": "互联网"},
         }
     }
     detail = normalize_detail(payload)
-    assert detail["jobDescription"] == "负责后端服务开发"
-    assert detail["jobName"] == "后端工程师"
-    assert detail["salaryDesc"] == "20-35K"
+    assert detail["jobDescription"] == "负责基于 Java 的大模型应用服务开发"
+    assert detail["jobName"] == "Java 大模型应用开发工程师"
+    assert detail["salaryDesc"] == "40-50K"
     assert detail["brandName"] == "示例公司"
     assert "_raw" in detail
 
 
 def test_normalize_detail_accepts_dom_fallback_shape():
-    detail = normalize_detail({"jobSecText": "岗位职责\n1. 负责 Agent 应用开发", "salaryName": "35-55K"})
-    assert detail["jobDescription"] == "岗位职责\n1. 负责 Agent 应用开发"
-    assert detail["salaryDesc"] == "35-55K"
+    detail = normalize_detail({"jobSecText": "岗位职责\n1. 负责 Java 大模型应用开发", "salaryName": "40-50K"})
+    assert detail["jobDescription"] == "岗位职责\n1. 负责 Java 大模型应用开发"
+    assert detail["salaryDesc"] == "40-50K"
