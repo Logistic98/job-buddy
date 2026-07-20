@@ -1,4 +1,5 @@
-import { apiFetch, appendAccessToken, apiUrl, apiUrlWithAuth, parseApiResponse } from './http'
+import { apiFetch, apiUrl, parseApiResponse } from './http'
+import { getAnalysisTask, getLatestAnalysisTask, streamAnalysisTask } from './analysisTasks'
 
 export async function listResumes() {
   const response = await apiFetch('/resume')
@@ -58,7 +59,26 @@ export async function uploadResumeAsset(file) {
   const response = await apiFetch('/resume/assets/upload', { method: 'POST', body: form })
   const data = await parseApiResponse(response, '资源上传失败')
   const rawUrl = data?.url?.startsWith('/api') ? data.url : apiUrl(data?.url || '')
-  return { ...data, url: appendAccessToken(rawUrl) }
+  return { ...data, url: normalizeResumeAssetUrl(rawUrl) }
+}
+
+export function normalizeResumeAssetUrl(value) {
+  const rawUrl = String(value || '').trim()
+  if (!rawUrl || rawUrl.startsWith('//')) return ''
+  if (/^blob:/i.test(rawUrl) || /^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(rawUrl)) return rawUrl
+  const absolute = /^[a-z][a-z\d+.-]*:/i.test(rawUrl)
+  let parsed
+  try {
+    parsed = new URL(rawUrl, 'http://job-buddy.local')
+  } catch (_) {
+    return ''
+  }
+  if (absolute && !['http:', 'https:'].includes(parsed.protocol)) return ''
+  return absolute ? parsed.toString() : `${parsed.pathname}${parsed.search}${parsed.hash}`
+}
+
+export function resumeAssetDisplayUrl(value) {
+  return normalizeResumeAssetUrl(value)
 }
 
 export async function getResume(resumeId) {
@@ -66,12 +86,20 @@ export async function getResume(resumeId) {
   return parseApiResponse(response, '简历查询失败')
 }
 
-export async function analyzeResume(resumeId, sessionId) {
-  const params = new URLSearchParams({ resumeId })
-  if (sessionId) params.set('sessionId', sessionId)
-  const response = await apiFetch(`/resume/analyze?${params.toString()}`, { method: 'POST' })
-  return parseApiResponse(response, '简历分析失败')
+export async function startResumeAnalysisTask(resumeId, sessionId) {
+  const response = await apiFetch('/resume/analysis-tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resumeId, sessionId: sessionId || '' }),
+  })
+  return parseApiResponse(response, '简历分析任务创建失败')
 }
+
+export function latestResumeAnalysisTask(resumeId) {
+  return getLatestAnalysisTask('resume', resumeId)
+}
+
+export { getAnalysisTask, streamAnalysisTask }
 
 export async function updateResumeParsed(resumeId, parsed) {
   const response = await apiFetch(`/resume/${encodeURIComponent(resumeId)}/parsed`, {
@@ -87,15 +115,47 @@ export async function deleteResume(resumeId) {
   return parseApiResponse(response, '简历删除失败')
 }
 
+export async function listWriterVersions() {
+  const response = await apiFetch('/resume/writer/versions')
+  return (await parseApiResponse(response, '版本列表加载失败')) || []
+}
+
+export async function getWriterVersion(versionId) {
+  const response = await apiFetch(`/resume/writer/versions/${encodeURIComponent(versionId)}`)
+  return parseApiResponse(response, '版本详情加载失败')
+}
+
+export async function createWriterVersion({ source, title, resumeId, snapshot }) {
+  const response = await apiFetch('/resume/writer/versions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, title, resumeId, snapshot }),
+  })
+  return parseApiResponse(response, '版本保存失败')
+}
+
+export async function restoreWriterVersion(versionId, { currentSnapshot, currentResumeId }) {
+  const response = await apiFetch(`/resume/writer/versions/${encodeURIComponent(versionId)}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentSnapshot, currentResumeId }),
+  })
+  return parseApiResponse(response, '版本回退失败')
+}
+
+export async function deleteWriterVersion(versionId) {
+  const response = await apiFetch(`/resume/writer/versions/${encodeURIComponent(versionId)}`, { method: 'DELETE' })
+  return parseApiResponse(response, '版本删除失败')
+}
+
 export function resumePreviewUrl(resumeId) {
-  return apiUrlWithAuth(`/resume/${encodeURIComponent(resumeId)}/preview`)
+  return apiUrl(`/resume/${encodeURIComponent(resumeId)}/preview`)
 }
 
 export function resumeThumbnailUrl(resumeId) {
-  return apiUrlWithAuth(`/resume/${encodeURIComponent(resumeId)}/thumbnail`)
+  return apiUrl(`/resume/${encodeURIComponent(resumeId)}/thumbnail`)
 }
 
-
 export function resumeDownloadUrl(resumeId) {
-  return apiUrlWithAuth(`/resume/${encodeURIComponent(resumeId)}/download`)
+  return apiUrl(`/resume/${encodeURIComponent(resumeId)}/download`)
 }
