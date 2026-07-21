@@ -75,11 +75,7 @@ describe('tool event helpers', () => {
     expect(isMemoryNoiseEvent({ summary: '包含memory字样的摘要' })).toBe(false)
   })
   it('filterVisibleToolEvents drops connect and memory noise', () => {
-    const events = [
-      { id: 'sse_connect' },
-      { id: 'memory_search' },
-      { id: 'boss_browser', title: 'Boss' },
-    ]
+    const events = [{ id: 'sse_connect' }, { id: 'memory_search' }, { id: 'boss_browser', title: 'Boss' }]
     const visible = filterVisibleToolEvents(events)
     expect(visible).toHaveLength(1)
     expect(visible[0].name).toBe('Boss')

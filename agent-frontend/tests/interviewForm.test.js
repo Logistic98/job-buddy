@@ -2,12 +2,17 @@ import { describe, expect, it } from 'vitest'
 import {
   assertManualPracticeMatches,
   buildCodingMetaFromForm,
+  buildDebugFormDefaults,
+  buildDebugTestCase,
   buildQuestionPayload,
   codingResultSummary,
   defaultPracticeTitle,
   displayExamTitle,
   examRuleTotal,
+  formatExamStartedAt,
+  isCurrentExam,
   selectedAnswerKeys,
+  shouldShowExamOpening,
   validateAiForm,
   validatePracticeConfig,
   validateQuestionForm,
@@ -16,18 +21,22 @@ import {
 function baseForm(overrides = {}) {
   return {
     title: '题目',
-    bankType: 'baguwen',
+    bankType: 'qa',
     category: 'Java',
     difficulty: '中等',
     questionType: '简答',
     tagsText: 'Java,集合',
     content: '请解释 HashMap 扩容',
     answer: '答案',
-    options: [{ key: 'A', text: '' }, { key: 'B', text: '' }],
+    options: [
+      { key: 'A', text: '' },
+      { key: 'B', text: '' },
+    ],
     codingLanguage: 'python',
     codingFunctionName: '',
     codingSignature: '',
     codingTemplate: '',
+    codingParameterCount: 1,
     codingTestsText: '',
     ...overrides,
   }
@@ -41,9 +50,37 @@ describe('defaultPracticeTitle', () => {
 })
 
 describe('displayExamTitle', () => {
-  it('rewrites legacy wording', () => {
-    expect(displayExamTitle({ title: 'LeetCode 模拟练习' })).toBe('算法 随机组卷')
+  it('uses the persisted title and handles missing values', () => {
+    expect(displayExamTitle({ title: '算法随机组卷' })).toBe('算法随机组卷')
     expect(displayExamTitle({})).toBe('未命名练习')
+  })
+})
+
+describe('practice history formatting', () => {
+  it('formats valid start times and handles missing values', () => {
+    expect(formatExamStartedAt(new Date(2026, 6, 21, 8, 5))).toBe('2026-07-21 08:05')
+    expect(formatExamStartedAt('invalid')).toBe('时间未知')
+    expect(formatExamStartedAt('')).toBe('时间未知')
+  })
+
+  it('identifies the currently opened record', () => {
+    expect(isCurrentExam({ examId: 'exam-1' }, { examId: 'exam-1' })).toBe(true)
+    expect(isCurrentExam({ examId: 'exam-1' }, { examId: 'exam-2' })).toBe(false)
+    expect(isCurrentExam({}, null)).toBe(false)
+  })
+})
+
+describe('shouldShowExamOpening', () => {
+  it('keeps the transition visible until the target exam is ready', () => {
+    expect(shouldShowExamOpening('exam-2', null)).toBe(true)
+    expect(shouldShowExamOpening('exam-2', { examId: 'exam-1' })).toBe(true)
+    expect(shouldShowExamOpening('exam-2', { examId: 'exam-2' }, true)).toBe(true)
+    expect(shouldShowExamOpening('exam-2', { examId: 'exam-2' }, false)).toBe(false)
+  })
+
+  it('does not mask the idle or failed state', () => {
+    expect(shouldShowExamOpening('', null)).toBe(false)
+    expect(shouldShowExamOpening('exam-2', null, false, '练习详情加载失败')).toBe(false)
   })
 })
 
@@ -53,7 +90,14 @@ describe('validateQuestionForm', () => {
   })
 
   it('requires at least two choice options', () => {
-    const form = baseForm({ questionType: '单选', options: [{ key: 'A', text: '选项A' }, { key: 'B', text: '' }], answer: 'A' })
+    const form = baseForm({
+      questionType: '单选',
+      options: [
+        { key: 'A', text: '选项A' },
+        { key: 'B', text: '' },
+      ],
+      answer: 'A',
+    })
     expect(() => validateQuestionForm(form)).toThrow('选择题至少需要 2 个有效选项')
   })
 
@@ -80,7 +124,9 @@ describe('examRuleTotal and validatePracticeConfig', () => {
   })
 
   it('rejects empty practice config', () => {
-    expect(() => validatePracticeConfig({ title: '练习', durationMinutes: 30, rules: [{ count: 0 }] })).toThrow('请至少配置 1 道题')
+    expect(() => validatePracticeConfig({ title: '练习', durationMinutes: 30, rules: [{ count: 0 }] })).toThrow(
+      '请至少配置 1 道题',
+    )
   })
 
   it('accepts a valid config', () => {
@@ -107,17 +153,33 @@ describe('buildCodingMetaFromForm', () => {
   })
 
   it('builds meta with extracted function name', () => {
-    const form = baseForm({ bankType: 'leetcode', codingLanguage: 'python', codingTemplate: 'def two_sum(*args):\n    pass\n', codingTestsText: '[]' })
+    const form = baseForm({
+      bankType: 'leetcode',
+      codingLanguage: 'python',
+      codingTemplate: 'def two_sum(nums, target):\n    pass\n',
+      codingParameterCount: 2,
+      codingTestsText: '[{"name":"示例","args":[[2,7],9],"expected":[0,1],"sample":true}]',
+    })
     const meta = buildCodingMetaFromForm(form)
     expect(meta.language).toBe('python')
     expect(meta.functionName).toBe('two_sum')
-    expect(meta.tests).toEqual([])
+    expect(meta.parameterCount).toBe(2)
+    expect(meta.tests).toHaveLength(1)
   })
 })
 
 describe('buildQuestionPayload', () => {
   it('inlines options into content for choice questions', () => {
-    const form = baseForm({ questionType: '单选', content: '选哪个', options: [{ key: 'A', text: '甲' }, { key: 'B', text: '乙' }], answer: ' A ', tagsText: 'x,y' })
+    const form = baseForm({
+      questionType: '单选',
+      content: '选哪个',
+      options: [
+        { key: 'A', text: '甲' },
+        { key: 'B', text: '乙' },
+      ],
+      answer: ' A ',
+      tagsText: 'x,y',
+    })
     const payload = buildQuestionPayload(form)
     expect(payload.content).toContain('A. 甲')
     expect(payload.answer).toBe('A')
@@ -126,13 +188,76 @@ describe('buildQuestionPayload', () => {
     expect(payload.tagsText).toBeUndefined()
   })
 
+  it('preserves spaces inside tags added through the tag editor', () => {
+    const payload = buildQuestionPayload(
+      baseForm({
+        tags: ['Java', 'Spring Boot', 'Java'],
+        tagsText: '',
+      }),
+    )
+    expect(payload.tags).toEqual(['Java', 'Spring Boot'])
+  })
+
   it('attaches codingMeta for leetcode and strips coding form fields', () => {
-    const form = baseForm({ bankType: 'leetcode', codingLanguage: 'python', codingTemplate: 'def solve(*args):\n    pass\n', codingTestsText: '[]' })
+    const form = baseForm({
+      bankType: 'leetcode',
+      codingLanguage: 'python',
+      codingTemplate: 'def solve(value):\n    pass\n',
+      codingTestsText: '[{"name":"示例","args":[1],"expected":1,"sample":true}]',
+    })
     const payload = buildQuestionPayload(form)
     expect(payload.questionType).toBe('编程题')
     expect(payload.codingMeta.functionName).toBe('solve')
     expect(payload.codingTemplate).toBeUndefined()
     expect(payload.codingTestsText).toBeUndefined()
+  })
+})
+
+describe('debug test cases', () => {
+  it('loads the editable default from structured coding metadata', () => {
+    const item = {
+      codingMeta: {
+        parameterCount: 1,
+        tests: [
+          {
+            name: '示例',
+            args: [
+              [
+                [1, 3],
+                [2, 6],
+              ],
+            ],
+            expected: [[1, 6]],
+            sample: true,
+          },
+        ],
+      },
+    }
+    expect(buildDebugFormDefaults(item)).toEqual({ argsText: '[[1,3],[2,6]]', expectedText: '[[1,6]]' })
+  })
+
+  it('wraps a single parameter and keeps multiple parameters ordered', () => {
+    expect(buildDebugTestCase('[[1,2],[2,3]]', '', 1)).toEqual({
+      name: '自定义调试',
+      args: [
+        [
+          [1, 2],
+          [2, 3],
+        ],
+      ],
+      debug: true,
+    })
+    expect(buildDebugTestCase('[[2,7],9]', '[0,1]', 2)).toEqual({
+      name: '自定义调试',
+      args: [[2, 7], 9],
+      expected: [0, 1],
+      debug: true,
+    })
+  })
+
+  it('rejects invalid multi-parameter input or expected JSON', () => {
+    expect(() => buildDebugTestCase('{"value":1}', '', 2)).toThrow('多参数函数需要使用 JSON 数组')
+    expect(() => buildDebugTestCase('[1]', '{bad json', 1)).toThrow('期望结果 JSON 格式不正确')
   })
 })
 

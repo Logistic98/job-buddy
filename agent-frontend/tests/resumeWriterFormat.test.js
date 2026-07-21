@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { clampPhotoNumber, formatDecimal, normalizeFontSizeValue, normalizeLineHeightValue, escapeHtmlText, stripFileExt } from '../src/utils/resumeWriterFormat'
+import {
+  clampPhotoNumber,
+  formatDecimal,
+  normalizeFontSizeValue,
+  normalizeLineHeightValue,
+  escapeHtmlText,
+  resolveResumeExportFileName,
+  sanitizeResumeFileName,
+  stripFileExt,
+} from '../src/utils/resumeWriterFormat'
 
 describe('clampPhotoNumber', () => {
   it('clamps within range', () => {
@@ -58,5 +67,18 @@ describe('stripFileExt', () => {
     expect(stripFileExt('resume.pdf')).toBe('resume')
     expect(stripFileExt('a.b.txt')).toBe('a.b')
     expect(stripFileExt('noext')).toBe('noext')
+  })
+})
+
+describe('resume export filename', () => {
+  it('keeps an empty editor filename empty after sanitizing', () => {
+    expect(sanitizeResumeFileName('')).toBe('')
+    expect(sanitizeResumeFileName('   ')).toBe('')
+  })
+
+  it('sanitizes user input and only falls back during export', () => {
+    expect(sanitizeResumeFileName('  林澈 / resume  ')).toBe('林澈 - resume')
+    expect(resolveResumeExportFileName('')).toBe('resume')
+    expect(resolveResumeExportFileName('  林澈 / resume  ')).toBe('林澈 - resume')
   })
 })

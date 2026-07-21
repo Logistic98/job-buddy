@@ -7,6 +7,7 @@ import {
   isMultiChoice,
   isCodingQuestion,
   questionStem,
+  answerContent,
   optionItems,
   normalizeCodingLanguage,
   buildDefaultTemplate,
@@ -40,14 +41,25 @@ describe('choice and coding type guards', () => {
   })
 })
 
+describe('answer formatting', () => {
+  it('removes only a leading answer marker from plain and markdown answers', () => {
+    expect(answerContent('答： Transformer 使用自注意力机制')).toBe('Transformer 使用自注意力机制')
+    expect(answerContent('**答：**\n\n正文')).toBe('正文')
+    expect(answerContent('正文中的答：需要保留')).toBe('正文中的答：需要保留')
+  })
+})
+
 describe('option parsing', () => {
   it('builds default option keys A-D', () => {
-    expect(defaultOptions().map(o => o.key)).toEqual(['A', 'B', 'C', 'D'])
+    expect(defaultOptions().map((o) => o.key)).toEqual(['A', 'B', 'C', 'D'])
   })
   it('strips trailing options from the stem and extracts them', () => {
     const item = { content: '以下哪个正确？\n\nA. 选项一\nB. 选项二' }
     expect(questionStem(item)).toBe('以下哪个正确？')
-    expect(optionItems(item)).toEqual([{ key: 'A', text: '选项一' }, { key: 'B', text: '选项二' }])
+    expect(optionItems(item)).toEqual([
+      { key: 'A', text: '选项一' },
+      { key: 'B', text: '选项二' },
+    ])
   })
 })
 

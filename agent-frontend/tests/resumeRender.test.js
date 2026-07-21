@@ -1,9 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { applyResumePhotoToHtml, extractManagedResumePhoto, photoTransformStyle, renderResumeMarkdown, inline, escapeHtml, iconSvg, resumePrintCss, stripManagedResumePhoto } from '../src/utils/resumeRender'
+import {
+  applyResumePhotoToHtml,
+  extractManagedResumePhoto,
+  photoTransformStyle,
+  renderResumeMarkdown,
+  inline,
+  escapeHtml,
+  iconSvg,
+  resumePrintCss,
+  stripManagedResumePhoto,
+} from '../src/utils/resumeRender'
 
 describe('escapeHtml', () => {
-  it('escapes angle brackets and ampersand', () => {
-    expect(escapeHtml('<b>a & b</b>')).toBe('&lt;b&gt;a &amp; b&lt;/b&gt;')
+  it('escapes text and attribute delimiters', () => {
+    expect(escapeHtml(`<b title="x">a & 'b'</b>`)).toBe('&lt;b title=&quot;x&quot;&gt;a &amp; &#39;b&#39;&lt;/b&gt;')
   })
 })
 
@@ -34,6 +44,19 @@ describe('inline', () => {
 
   it('escapes plain text before substitution', () => {
     expect(inline('a < b & c')).toBe('a &lt; b &amp; c')
+  })
+
+  it('rejects executable protocols and attribute escapes', () => {
+    const dangerousLink = inline('[点击](javascript:alert(1))')
+    const dangerousImage = inline('![照片](javascript:x&quot; onerror=&quot;alert(1))')
+    expect(dangerousLink.toLowerCase()).not.toContain('javascript:')
+    expect(dangerousLink).not.toContain('<a ')
+    expect(dangerousImage.toLowerCase()).not.toContain('onerror=')
+    expect(dangerousImage).not.toContain('<img ')
+  })
+
+  it('adds opener protection to external links', () => {
+    expect(inline('[博客](https://example.com)')).toContain('rel="noopener noreferrer"')
   })
 })
 
@@ -85,12 +108,35 @@ describe('managed resume photo helpers', () => {
 
   it('injects the managed photo into rendered html without changing markdown', () => {
     const html = renderResumeMarkdown('## 个人资料\n\n:::left\n姓名：林澈\n:::')
-    const withPhoto = applyResumePhotoToHtml(html, 'https://example.com/p.png', { x: 8, y: -6, scale: 1.35 }, { selected: true })
+    const withPhoto = applyResumePhotoToHtml(
+      html,
+      'https://example.com/p.png',
+      { x: 8, y: -6, scale: 1.35 },
+      { selected: true },
+    )
     expect(withPhoto).toContain('class="right"')
     expect(withPhoto).toContain('data-managed-resume-photo="true"')
     expect(withPhoto).toContain('is-selected')
     expect(withPhoto).toContain('src="https://example.com/p.png"')
     expect(withPhoto).toContain('width:126.9px;height:162px;left:8px;top:-6px;')
+  })
+
+  it('replaces a template placeholder without creating a parent-child cycle', () => {
+    const html = renderResumeMarkdown(
+      '## 个人信息\n\n:::left\n候选人信息\n:::\n:::right\n![照片位置](/resume-photo-placeholder.svg)\n:::',
+    )
+    const withPhoto = applyResumePhotoToHtml(html, 'https://example.com/private-photo.png')
+    const root = document.createElement('div')
+    root.innerHTML = withPhoto
+
+    expect(root.querySelectorAll('[data-managed-resume-photo="true"]')).toHaveLength(1)
+    expect(root.querySelector('.resume-photo')?.getAttribute('src')).toBe('https://example.com/private-photo.png')
+    expect(withPhoto).not.toContain('/resume-photo-placeholder.svg')
+  })
+
+  it('rejects dangerous managed photo protocols', () => {
+    const html = renderResumeMarkdown('## 个人资料')
+    expect(applyResumePhotoToHtml(html, 'javascript:alert(1)')).toBe(html)
   })
 
   it('clamps managed photo transform style', () => {

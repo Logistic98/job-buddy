@@ -30,8 +30,8 @@ describe('useQuestionBank', () => {
     await bank.loadQuestions()
     expect(bank.questions.value).toHaveLength(2)
     expect(bank.questions.value[0].bankType).toBe('leetcode')
-    expect(bank.questions.value[0].tags.map(tag => tag.label)).toEqual(['算法', '数组'])
-    expect(bank.questions.value[1].bankType).toBe('baguwen')
+    expect(bank.questions.value[0].tags.map((tag) => tag.label)).toEqual(['算法', '数组'])
+    expect(bank.questions.value[1].bankType).toBe('qa')
     expect(bank.pagination.total).toBe(42)
     expect(bank.pagination.pages).toBe(3)
     expect(bank.error.value).toBe('')
@@ -121,7 +121,9 @@ describe('useQuestionBank', () => {
     await bank.createManualPractice(['q1', 'q2'], '手动练习', true, onCreated)
     expect(onCreated).toHaveBeenCalledTimes(1)
     expect(bank.error.value).toBe('')
-    expect(createRandomExam).toHaveBeenCalledWith(expect.objectContaining({ durationMinutes: 45, questionIds: ['q1', 'q2'] }))
+    expect(createRandomExam).toHaveBeenCalledWith(
+      expect.objectContaining({ durationMinutes: 45, questionIds: ['q1', 'q2'] }),
+    )
   })
 
   it('createManualPractice reports mismatched exam content as an error', async () => {

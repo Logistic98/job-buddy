@@ -1,5 +1,20 @@
 import { describe, it, expect, vi } from 'vitest'
-import { photoResizeDelta, addPdfLinks } from '../src/utils/resumePdf'
+import { photoResizeDelta, addPdfLinks, pdfViewerFitWidthUrl } from '../src/utils/resumePdf'
+
+describe('pdfViewerFitWidthUrl', () => {
+  it('preserves resource query parameters and appends fit-width options', () => {
+    expect(pdfViewerFitWidthUrl('/api/resume/r1/preview?inline=true')).toBe(
+      '/api/resume/r1/preview?inline=true#view=FitH&zoom=page-width&toolbar=0&navpanes=0&scrollbar=0',
+    )
+  })
+
+  it('replaces an existing fragment and handles an empty URL', () => {
+    expect(pdfViewerFitWidthUrl('/resume.pdf#page=2')).toBe(
+      '/resume.pdf#view=FitH&zoom=page-width&toolbar=0&navpanes=0&scrollbar=0',
+    )
+    expect(pdfViewerFitWidthUrl('')).toBe('')
+  })
+})
 
 describe('photoResizeDelta', () => {
   it('returns zero when handle has no direction', () => {

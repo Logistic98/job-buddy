@@ -11,9 +11,12 @@ import {
 
 describe('normalizeSessionRows', () => {
   it('maps rows to stable ids and defaults missing fields', () => {
-    const rows = [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'yo', reasoning: 'r' }]
+    const rows = [
+      { role: 'user', content: 'hi' },
+      { role: 'assistant', content: 'yo', reasoning: 'r' },
+    ]
     const out = normalizeSessionRows('s1', rows)
-    expect(out.map(m => m.id)).toEqual(['s1_0', 's1_1'])
+    expect(out.map((m) => m.id)).toEqual(['s1_0', 's1_1'])
     expect(out[0].reasoning).toBe('')
     expect(out[0].jobCards).toEqual([])
     expect(out[1].reasoning).toBe('r')
@@ -23,14 +26,16 @@ describe('normalizeSessionRows', () => {
   })
   it('drops memory-noise tool events', () => {
     const rows = [{ role: 'assistant', content: 'a', toolEvents: [{ id: 'memory_read' }, { id: 'boss' }] }]
-    expect(normalizeSessionRows('s', rows)[0].toolEvents.map(t => t.id)).toEqual(['boss'])
+    expect(normalizeSessionRows('s', rows)[0].toolEvents.map((t) => t.id)).toEqual(['boss'])
   })
 })
 
 describe('backfillFromPrevious', () => {
   it('fills missing reasoning/tools/jobs from previous same-role messages', () => {
     const current = [{ role: 'assistant', content: 'a', reasoning: '', toolEvents: [], jobCards: [] }]
-    const previous = [{ role: 'assistant', content: 'a', reasoning: 'kept', toolEvents: [{ id: 't' }], jobCards: [{ id: 'j' }] }]
+    const previous = [
+      { role: 'assistant', content: 'a', reasoning: 'kept', toolEvents: [{ id: 't' }], jobCards: [{ id: 'j' }] },
+    ]
     const out = backfillFromPrevious(current, previous)
     expect(out[0].reasoning).toBe('kept')
     expect(out[0].toolEvents).toHaveLength(1)
@@ -47,11 +52,17 @@ describe('buildSnapshotFromRows', () => {
   it('derives last job cards, tools and resume match', () => {
     const rows = [
       { role: 'user', content: 'q' },
-      { role: 'assistant', content: 'a', jobCards: [{ id: 'j1' }], toolEvents: [{ id: 'boss' }], resumeMatch: { score: 9 } },
+      {
+        role: 'assistant',
+        content: 'a',
+        jobCards: [{ id: 'j1' }],
+        toolEvents: [{ id: 'boss' }],
+        resumeMatch: { score: 9 },
+      },
     ]
     const snap = buildSnapshotFromRows('s1', rows)
     expect(snap.lastJobCardsEvent).toEqual([{ id: 'j1' }])
-    expect(snap.toolEvents.map(t => t.id)).toEqual(['boss'])
+    expect(snap.toolEvents.map((t) => t.id)).toEqual(['boss'])
     expect(snap.lastResumeMatchEvent).toEqual({ score: 9 })
     expect(snap.messages).toHaveLength(2)
   })
@@ -60,6 +71,28 @@ describe('buildSnapshotFromRows', () => {
     const snap = buildSnapshotFromRows('s1', rows)
     rows[0].jobCards[0].id = 'mutated'
     expect(snap.lastJobCardsEvent[0].id).toBe('j1')
+  })
+  it('keeps a non-empty local snapshot when the server history is temporarily empty', () => {
+    const previous = buildSnapshotFromMessages({
+      messages: [{ id: 'local-user', role: 'user', content: '刚刚发送的问题' }],
+      toolEvents: [],
+      lastJobCardsEvent: [],
+    })
+    const snap = buildSnapshotFromRows('s1', [], previous)
+    expect(snap.messages).toEqual(previous.messages)
+    expect(snap).not.toBe(previous)
+  })
+  it('keeps the local tail when the server only returns a persisted prefix', () => {
+    const previous = buildSnapshotFromMessages({
+      messages: [
+        { id: 'local-user', role: 'user', content: '问题' },
+        { id: 'local-assistant', role: 'assistant', content: '生成中的回答' },
+      ],
+      toolEvents: [],
+      lastJobCardsEvent: [],
+    })
+    const snap = buildSnapshotFromRows('s1', [{ role: 'user', content: '问题' }], previous)
+    expect(snap.messages.map((item) => item.content)).toEqual(['问题', '生成中的回答'])
   })
 })
 
@@ -73,7 +106,7 @@ describe('buildSnapshotFromMessages', () => {
       lastPersonalContextEvent: null,
     })
     expect(snap.messages).toHaveLength(1)
-    expect(snap.toolEvents.map(t => t.id)).toEqual(['boss'])
+    expect(snap.toolEvents.map((t) => t.id)).toEqual(['boss'])
     expect(snap.lastResumeMatchEvent).toEqual({ score: 1 })
   })
 })
