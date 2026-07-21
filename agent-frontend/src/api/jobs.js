@@ -1,8 +1,28 @@
 import { apiFetch, parseApiResponse } from './http'
+import { getAnalysisTask, getLatestAnalysisTask, streamAnalysisTask } from './analysisTasks'
 
 export async function listFavoriteJobs() {
   const response = await apiFetch('/jobs/favorites', { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
   return (await parseApiResponse(response, '加载岗位收藏失败')) || []
+}
+
+export async function listBossFavoriteJobs(page = 1, refresh = false) {
+  const params = new URLSearchParams({ page: String(Math.max(1, Number(page) || 1)) })
+  if (refresh) params.set('refresh', 'true')
+  const response = await apiFetch(`/jobs/favorites/boss?${params.toString()}`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  })
+  return parseApiResponse(response, '读取 Boss 收藏岗位失败')
+}
+
+export async function importBossFavoriteJobs(jobs) {
+  const response = await apiFetch('/jobs/favorites/boss/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jobs: Array.isArray(jobs) ? jobs : [] }),
+  })
+  return parseApiResponse(response, '导入 Boss 收藏岗位失败')
 }
 
 export async function saveFavoriteJob(job) {
@@ -14,35 +34,23 @@ export async function saveFavoriteJob(job) {
   return (await parseApiResponse(response, '保存岗位收藏失败')) || []
 }
 
-export async function analyzeFavoriteJob(jobKey, resumeId) {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 120000)
-  const body = { jobKey }
+export async function startFavoriteAnalysisTask(job, resumeId) {
+  const jobKey = String(job?.favoriteKey || job?.securityId || job?.id || job?.jobId || job?.encryptJobId || '').trim()
+  const body = { ...(job || {}), jobKey }
   if (resumeId) body.resumeId = resumeId
-  const requestOptions = {
+  const response = await apiFetch('/jobs/favorites/analysis-tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    signal: controller.signal,
-  }
-
-  try {
-    let response = await apiFetch('/jobs/favorites/analyze', requestOptions)
-
-    // 兼容未重启后端或旧版本后端：旧接口只支持 /{jobKey}/analyze。
-    // 新接口返回 404/405 时自动降级，避免用户侧直接看到 Request method 'POST' not supported。
-    if (response.status === 404 || response.status === 405) {
-      response = await apiFetch(`/jobs/favorites/${encodeURIComponent(jobKey)}/analyze`, requestOptions)
-    }
-
-    return parseApiResponse(response, '收藏岗位分析失败')
-  } catch (error) {
-    if (error?.name === 'AbortError') throw new Error('收藏岗位分析超时，请稍后重试。')
-    throw error
-  } finally {
-    window.clearTimeout(timer)
-  }
+  })
+  return parseApiResponse(response, '收藏岗位分析任务创建失败')
 }
+
+export function latestFavoriteAnalysisTask(jobKey) {
+  return getLatestAnalysisTask('favorite_job', jobKey)
+}
+
+export { getAnalysisTask, streamAnalysisTask }
 
 /**
  * 分析会话推荐岗位与当前简历的匹配度。岗位卡片通常未收藏、没有持久化 jobKey，

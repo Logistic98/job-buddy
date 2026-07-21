@@ -1,9 +1,15 @@
 <template>
-  <div v-if="visible" class="modal-mask">
-    <div class="modal-card">
-      <button class="close" @click="handleClose">×</button>
+  <div v-if="visible" :class="embedded ? 'boss-login-embedded' : 'modal-mask boss-login-modal-mask'">
+    <div :class="embedded ? 'boss-login-embedded-card' : 'modal-card boss-login-modal-card'">
+      <button v-if="!embedded" class="close" @click="handleClose">×</button>
       <h2>Boss 直聘扫码登录</h2>
-      <p>使用 Boss 直聘 App 扫码确认，系统会保存登录态并继续搜索。</p>
+      <p>
+        {{
+          embedded
+            ? '当前未登录。使用 Boss 直聘 App 扫码确认，完成后将直接加载可选岗位。'
+            : '使用 Boss 直聘 App 扫码确认，系统会保存登录态并继续搜索。'
+        }}
+      </p>
 
       <div v-if="state.imageBase64" class="qr-wrap">
         <img :src="qrImageSrc" alt="Boss 登录二维码" />
@@ -32,7 +38,12 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { cancelBossLogin, getBossLoginQr, getBossLoginStatus } from '../api/boss'
 
-const props = defineProps({ visible: Boolean, sessionId: { type: String, default: '' }, data: { type: Object, default: null } })
+const props = defineProps({
+  visible: Boolean,
+  sessionId: { type: String, default: '' },
+  data: { type: Object, default: null },
+  embedded: Boolean,
+})
 const emit = defineEmits(['close', 'logged-in'])
 
 const state = reactive({
@@ -48,6 +59,8 @@ const errorMessage = ref('')
 const processingSince = ref(0)
 const nowTick = ref(Date.now())
 let pollTimer = null
+let pollInFlight = false
+let disposed = false
 let uiTimer = null
 let authFlowSeq = 0
 // Boss 工具的 qrStatus 在未登录时恒返回 waiting，从不下发 expired，因此二维码过期必须由前端兜底，
@@ -67,20 +80,32 @@ function markQrExpired() {
   stopUiTicker()
 }
 
-const qrImageSrc = computed(() => state.imageBase64 ? `data:${state.imageMime || 'image/png'};base64,${state.imageBase64}` : '')
+const qrImageSrc = computed(() =>
+  state.imageBase64 ? `data:${state.imageMime || 'image/png'};base64,${state.imageBase64}` : '',
+)
 
 const statusText = computed(() => {
   switch (state.status) {
-    case 'checking': return '正在确认登录态'
-    case 'qr_ready': return '等待扫码'
-    case 'waiting': return '等待扫码'
-    case 'scanned': return '已扫码，请在手机上确认登录'
-    case 'confirmed': return '已确认，保存登录态中'
-    case 'logged_in': return '登录成功'
-    case 'expired': return '二维码已过期，请刷新'
-    case 'cancelled': return '已取消'
-    case 'error': return '登录出错'
-    default: return state.status === 'idle' ? '初始化中' : state.status
+    case 'checking':
+      return '正在确认登录态'
+    case 'qr_ready':
+      return '等待扫码'
+    case 'waiting':
+      return '等待扫码'
+    case 'scanned':
+      return '已扫码，请在手机上确认登录'
+    case 'confirmed':
+      return '已确认，保存登录态中'
+    case 'logged_in':
+      return '登录成功'
+    case 'expired':
+      return '二维码已过期，请刷新'
+    case 'cancelled':
+      return '已取消'
+    case 'error':
+      return '登录出错'
+    default:
+      return state.status === 'idle' ? '初始化中' : state.status
   }
 })
 
@@ -95,9 +120,11 @@ const stageHint = computed(() => {
   return '请使用 Boss 直聘 App 扫描二维码'
 })
 
-const refreshLabel = computed(() => state.imageBase64 ? '刷新二维码' : '获取二维码')
+const refreshLabel = computed(() => (state.imageBase64 ? '刷新二维码' : '获取二维码'))
 const isProcessingLogin = computed(() => ['checking', 'scanned', 'confirmed'].includes(state.status))
-const processingSeconds = computed(() => processingSince.value ? Math.max(0, Math.floor((nowTick.value - processingSince.value) / 1000)) : 0)
+const processingSeconds = computed(() =>
+  processingSince.value ? Math.max(0, Math.floor((nowTick.value - processingSince.value) / 1000)) : 0,
+)
 const progressTitle = computed(() => {
   if (state.status === 'checking') return '正在确认现有登录态'
   if (state.status === 'scanned') return '已扫码，等待手机确认'
@@ -109,14 +136,19 @@ const progressDetail = computed(() => {
   return `正在写入并校验登录态，已处理 ${processingSeconds.value} 秒。`
 })
 
-watch(() => props.visible, async (visible) => {
-  if (visible) await startLoginFlow()
-  else {
-    authFlowSeq++
-    stopPolling()
-    stopUiTicker()
-  }
-}, { immediate: true })
+watch(
+  () => props.visible,
+  async (visible) => {
+    disposed = !visible
+    if (visible) await startLoginFlow()
+    else {
+      authFlowSeq++
+      stopPolling()
+      stopUiTicker()
+    }
+  },
+  { immediate: true },
+)
 
 async function startLoginFlow() {
   const initial = props.data || {}
@@ -191,16 +223,17 @@ async function refreshQr(setLoading = true, flowSeq = ++authFlowSeq) {
   }
 }
 
-
 async function refreshStatus() {
-  if (!state.qrSessionId) return
+  if (!state.qrSessionId || pollInFlight) return
   loading.value = true
+  pollInFlight = true
   try {
     const data = await getBossLoginStatus(props.sessionId, state.qrSessionId)
     applyStatus(data)
   } catch (err) {
     errorMessage.value = err.message || '刷新状态失败'
   } finally {
+    pollInFlight = false
     loading.value = false
   }
 }
@@ -208,7 +241,7 @@ async function refreshStatus() {
 function applyStatus(data) {
   if (!data) return
   // Boss 工具在等待扫码期间会持续下发最新活码，二维码刷新后替换展示并重置过期倒计时，
-  // 确保用户扫到的始终是与当前 uuid 绑定的活码，避免扫到失效旧码导致登录确认超时。
+  // 确保用户扫到的始终是与当前 uuid 绑定的活码，避免扫到已失效二维码导致登录确认超时。
   if (data.imageBase64 && data.imageBase64 !== state.imageBase64) {
     state.imageBase64 = data.imageBase64
     state.imageMime = data.imageMime || state.imageMime || 'image/png'
@@ -235,24 +268,42 @@ function applyStatus(data) {
 
 function startPolling() {
   stopPolling()
-  pollTimer = window.setInterval(async () => {
-    if (!state.qrSessionId) return
-    // 二维码超过有效期即停止轮询并提示刷新，避免对一张失效二维码无限轮询。
-    if (qrDeadline && Date.now() >= qrDeadline && !['logged_in', 'confirmed', 'scanned'].includes(state.status)) {
-      markQrExpired()
-      return
-    }
-    try {
-      const data = await getBossLoginStatus(props.sessionId, state.qrSessionId)
-      applyStatus(data)
-    } catch (err) {
-      errorMessage.value = err.message || '刷新状态失败'
-    }
-  }, 2000)
+  scheduleNextPoll(1000)
+}
+
+function scheduleNextPoll(delay) {
+  if (
+    disposed ||
+    !props.visible ||
+    !state.qrSessionId ||
+    ['logged_in', 'expired', 'error', 'cancelled'].includes(state.status)
+  )
+    return
+  pollTimer = window.setTimeout(runPoll, delay)
+}
+
+async function runPoll() {
+  pollTimer = null
+  if (disposed || !props.visible || !state.qrSessionId || pollInFlight) return
+  // 二维码超过有效期即停止轮询并提示刷新，避免对一张失效二维码无限轮询。
+  if (qrDeadline && Date.now() >= qrDeadline && !['logged_in', 'confirmed', 'scanned'].includes(state.status)) {
+    markQrExpired()
+    return
+  }
+  pollInFlight = true
+  try {
+    const data = await getBossLoginStatus(props.sessionId, state.qrSessionId)
+    applyStatus(data)
+  } catch (err) {
+    errorMessage.value = err.message || '刷新状态失败'
+  } finally {
+    pollInFlight = false
+    scheduleNextPoll(1000)
+  }
 }
 
 function stopPolling() {
-  if (pollTimer) window.clearInterval(pollTimer)
+  if (pollTimer) window.clearTimeout(pollTimer)
   pollTimer = null
 }
 
@@ -260,7 +311,9 @@ function startUiTicker(status) {
   processingSince.value = Date.now()
   nowTick.value = Date.now()
   if (uiTimer) window.clearInterval(uiTimer)
-  uiTimer = window.setInterval(() => { nowTick.value = Date.now() }, 1000)
+  uiTimer = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 1000)
   if (status) state.status = status
 }
 
@@ -287,19 +340,84 @@ function handleClose() {
 }
 
 onBeforeUnmount(() => {
+  disposed = true
   stopPolling()
   stopUiTicker()
 })
 </script>
 
 <style scoped>
-.qr-wrap { text-align: center; }
-.qr-wrap img { width: 260px; height: 260px; border-radius: 14px; background: #fff; padding: 12px; }
-.qr-hint { color: #667085; font-size: 13px; margin-top: 4px; }
-.modal-actions { display: flex; gap: 10px; margin-top: 12px; }
-.modal-actions .secondary { flex: 1; }
-.login-progress-box { margin-top: 12px; border: 1px solid #dfe6ff; background: #f7f9ff; border-radius: 14px; padding: 11px 12px; color: #172033; }
-.login-progress-box strong { display: block; font-size: 14px; margin-bottom: 4px; }
-.login-progress-box p { margin: 0; color: #667085; font-size: 13px; line-height: 1.5; }
-.error { color: #d92d20; font-size: 13px; margin-top: 8px; }
+.boss-login-modal-mask {
+  background: transparent;
+}
+.boss-login-modal-card {
+  box-shadow: none;
+}
+.boss-login-embedded {
+  display: flex;
+  min-height: 0;
+  overflow-y: auto;
+  flex: 1;
+  justify-content: center;
+  padding: 2px 0;
+}
+.boss-login-embedded-card {
+  width: min(520px, 100%);
+  margin: auto;
+  text-align: center;
+}
+.boss-login-embedded-card h2 {
+  margin: 0 0 8px;
+}
+.boss-login-embedded-card > p {
+  color: #667085;
+  line-height: 1.6;
+}
+.qr-wrap {
+  text-align: center;
+}
+.qr-wrap img {
+  width: 260px;
+  height: 260px;
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px;
+}
+.qr-hint {
+  color: #667085;
+  font-size: 13px;
+  margin-top: 4px;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.modal-actions .secondary {
+  flex: 1;
+}
+.login-progress-box {
+  margin-top: 12px;
+  border: 1px solid #dfe6ff;
+  background: #f7f9ff;
+  border-radius: 14px;
+  padding: 11px 12px;
+  color: #172033;
+}
+.login-progress-box strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.login-progress-box p {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.error {
+  color: #d92d20;
+  font-size: 13px;
+  margin-top: 8px;
+}
 </style>

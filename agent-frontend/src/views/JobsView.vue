@@ -1,5 +1,5 @@
 <template>
-  <section class="system-page">
+  <section class="system-page favorite-jobs-page">
     <JobCardList mode="favorites" />
   </section>
 </template>
