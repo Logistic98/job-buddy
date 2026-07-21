@@ -40,7 +40,7 @@
             <button class="close" @click="closeSearch">×</button>
           </div>
           <div class="history-search-modal-body">
-            <button class="history-search-new" @click="$emit('new-chat'); closeSearch()">新聊天</button>
+            <button class="history-search-new" @click="startNewChatFromSearch">新聊天</button>
             <p class="history-search-group">历史记录</p>
             <article
               v-for="item in filteredSessions"
@@ -72,7 +72,9 @@
           <p>确认删除「{{ deleteTarget.title || '新会话' }}」？</p>
           <div class="history-delete-actions">
             <button class="secondary-btn" :disabled="deleting" @click="cancelRemove">取消</button>
-            <button class="danger-btn" :disabled="deleting" @click="confirmRemove">{{ deleting ? '删除中' : '确认删除' }}</button>
+            <button class="danger-btn" :disabled="deleting" @click="confirmRemove">
+              {{ deleting ? '删除中' : '确认删除' }}
+            </button>
           </div>
         </div>
       </div>
@@ -98,23 +100,36 @@ const filteredSessions = computed(() => {
   const q = keyword.value.toLowerCase()
   const rows = chat.sessions || []
   if (!q) return rows
-  return rows.filter(item => [item.title, item.sessionId, shortTime(item.updatedAt), fullTime(item.updatedAt)]
-    .some(value => String(value || '').toLowerCase().includes(q)))
+  return rows.filter((item) =>
+    [item.title, item.sessionId, shortTime(item.updatedAt), fullTime(item.updatedAt)].some((value) =>
+      String(value || '')
+        .toLowerCase()
+        .includes(q),
+    ),
+  )
 })
 
-function refresh() { chat.loadSessions().catch(() => {}) }
+function refresh() {
+  chat.loadSessions().catch(() => {})
+}
 function openSearch() {
   keyword.value = ''
   searchVisible.value = true
   nextTick(() => searchInput.value?.focus())
 }
-function closeSearch() { searchVisible.value = false }
+function closeSearch() {
+  searchVisible.value = false
+}
 function open(sessionId) {
   emit('open-chat', sessionId)
   chat.openSession(sessionId).catch(() => {})
 }
 function openFromSearch(sessionId) {
   open(sessionId)
+  closeSearch()
+}
+function startNewChatFromSearch() {
+  emit('new-chat')
   closeSearch()
 }
 function askRemove(item) {
@@ -137,7 +152,16 @@ async function confirmRemove() {
   }
 }
 function shortTime(value) {
-  return value ? new Date(value).toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '未知时间'
+  return value
+    ? new Date(value).toLocaleString(undefined, {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '未知时间'
 }
-function fullTime(value) { return value ? new Date(value).toLocaleString() : '未知时间' }
+function fullTime(value) {
+  return value ? new Date(value).toLocaleString() : '未知时间'
+}
 </script>

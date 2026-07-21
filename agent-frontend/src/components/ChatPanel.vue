@@ -9,7 +9,9 @@
     </header>
 
     <div v-if="showQuickPrompts" class="quick-prompts">
-      <button v-for="item in prompts" :key="item" :disabled="chat.loading" @click="$emit('ask', item)">{{ item }}</button>
+      <button v-for="item in prompts" :key="item" :disabled="chat.loading" @click="$emit('ask', item)">
+        {{ item }}
+      </button>
     </div>
 
     <div ref="chatScroll" class="chat-scroll" @scroll.passive="syncAutoFollow">
@@ -51,15 +53,27 @@
                 @toggle="setOpen('reasoning', msg, $event)"
               >
                 <summary>
-                  <b :class="['tool-dot', isStreamingMsg(msg) && !String(msg.content || '').trim() ? 'running' : 'success']"></b>
+                  <b
+                    :class="[
+                      'tool-dot',
+                      isStreamingMsg(msg) && !String(msg.content || '').trim() ? 'running' : 'success',
+                    ]"
+                  ></b>
                   <strong>模型推理</strong>
-                  <small>{{ isStreamingMsg(msg) && !String(msg.content || '').trim() ? '正在逐字思考…' : `${msg.reasoning.length} 字` }}</small>
+                  <small>{{
+                    isStreamingMsg(msg) && !String(msg.content || '').trim()
+                      ? '正在逐字思考…'
+                      : `${msg.reasoning.length} 字`
+                  }}</small>
                 </summary>
                 <pre class="reasoning-text">{{ msg.reasoning }}</pre>
               </details>
             </div>
           </details>
-          <article v-if="msg.role !== 'assistant' || assistantBubbleVisible(msg)" :class="['msg', msg.role, { pending: msg.pending }]">
+          <article
+            v-if="msg.role !== 'assistant' || assistantBubbleVisible(msg)"
+            :class="['msg', msg.role, { pending: msg.pending }]"
+          >
             <div class="avatar">{{ msg.role === 'user' ? '我' : '职' }}</div>
             <div class="bubble">
               <template v-if="msg.pending">
@@ -99,16 +113,43 @@
                       <span v-for="tag in jobTags(item)" :key="tag">{{ tag }}</span>
                     </div>
                     <div class="chat-job-actions">
-                      <a v-if="originalUrl(item)" class="chat-origin-link" :href="originalUrl(item)" target="_blank" rel="noreferrer" title="在外部浏览器打开 Boss 原岗位" @click.stop>Boss 原岗位</a>
-                      <button type="button" :disabled="isChatJdLoading(item, idx)" @click.stop="toggleChatJd(item, idx)">{{ chatJdButtonText(item, idx) }}</button>
-                      <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item)">{{ chat.loading ? '分析中' : '分析此岗位' }}</button>
-                      <button type="button" :class="{ active: job.isFavorite(item) }" @click.stop="job.toggleFavorite(item)">{{ job.isFavorite(item) ? '已收藏' : '收藏' }}</button>
+                      <a
+                        v-if="originalUrl(item)"
+                        class="chat-origin-link"
+                        :href="originalUrl(item)"
+                        target="_blank"
+                        rel="noreferrer"
+                        title="在外部浏览器打开 Boss 原岗位"
+                        @click.stop
+                        >Boss 原岗位</a
+                      >
+                      <button
+                        type="button"
+                        :disabled="isChatJdLoading(item, idx)"
+                        @click.stop="toggleChatJd(item, idx)"
+                      >
+                        {{ chatJdButtonText(item, idx) }}
+                      </button>
+                      <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item)">
+                        {{ chat.loading ? '分析中' : '分析此岗位' }}
+                      </button>
+                      <button
+                        type="button"
+                        :class="{ active: job.isFavorite(item) }"
+                        @click.stop="toggleChatFavorite(item, idx)"
+                      >
+                        {{ job.isFavorite(item) ? '已收藏' : '收藏' }}
+                      </button>
                     </div>
                     <p v-if="chatJdError(item, idx)" class="chat-job-jd-error">{{ chatJdError(item, idx) }}</p>
-                    <div v-if="isChatJdOpen(item, idx) && chatJobFullJd(item)" class="chat-job-jd-full">{{ chatJobFullJd(item) }}</div>
+                    <div v-if="isChatJdOpen(item, idx) && chatJobFullJd(item)" class="chat-job-jd-full">
+                      {{ chatJobFullJd(item) }}
+                    </div>
                   </article>
                   <div class="chat-job-more">
-                    <button type="button" :disabled="chat.loading" @click="requestMoreJobs(msg)">换一批 / 更多岗位</button>
+                    <button type="button" :disabled="chat.loading" @click="requestMoreJobs(msg)">
+                      换一批 / 更多岗位
+                    </button>
                     <small>点击后再加载下一批岗位。</small>
                   </div>
                 </div>
@@ -125,7 +166,7 @@
           </div>
         </article>
       </div>
-</div>
+    </div>
 
     <form ref="composerEl" class="composer" :class="{ busy: chat.loading }" @submit.prevent="submit">
       <div class="composer-resume-bar">
@@ -135,7 +176,12 @@
         </button>
         <button type="button" class="composer-resume-action" @click="$emit('select-resume')">选择简历</button>
       </div>
-      <textarea v-model="input" :disabled="chat.loading" :placeholder="composerPlaceholder" @keydown.enter.exact.prevent="submit" />
+      <textarea
+        v-model="input"
+        :disabled="chat.loading"
+        :placeholder="composerPlaceholder"
+        @keydown.enter.exact.prevent="submit"
+      />
       <p v-if="profileContextSummary" class="composer-profile-context">本次已使用：{{ profileContextSummary }}</p>
       <div class="composer-footer">
         <span :class="{ error: chat.serviceError }">{{ footerText }}</span>
@@ -178,8 +224,15 @@ const lastStreamedAssistantId = ref('')
 const defaultWorkbenchCopy = {
   title: '求职工作台',
   description: '支持岗位推荐、简历分析、面试准备、笔试计划、项目深挖和求职进展梳理。',
-  placeholder: '例如：筛选上海大模型应用开发 40-50K 岗位，或分析简历是否匹配 Agent 应用开发岗位',
-  quick_prompts: ['帮我筛选上海大模型应用开发 40-50K 岗位', '分析当前简历是否匹配 Agent 应用开发岗位', '根据大模型应用开发岗位生成面试准备清单', '帮我准备 RAG、Tool Calling 和 Agent 方向笔试计划', '围绕我的大模型应用项目生成面试深挖问题', '帮我记录这家 AI 公司进入一面阶段'],
+  placeholder: '例如：筛选上海 Java 大模型应用开发 40-50K 岗位，或分析简历是否匹配 Java Agent 应用开发岗位',
+  quick_prompts: [
+    '帮我筛选上海 Java 大模型应用开发 40-50K 岗位',
+    '分析当前简历是否匹配 Java Agent 应用开发岗位',
+    '根据 Java 大模型应用开发岗位生成面试准备清单',
+    '帮我准备 RAG、Tool Calling 和 Agent 方向笔试计划',
+    '围绕我的大模型应用项目生成面试深挖问题',
+    '帮我记录这家 AI 公司进入一面阶段',
+  ],
 }
 const workbenchCopy = defaultWorkbenchCopy
 const profileContextSummary = computed(() => {
@@ -190,25 +243,32 @@ const profileContextSummary = computed(() => {
 })
 const prompts = computed(() => defaultWorkbenchCopy.quick_prompts)
 
-const hasUserMessage = computed(() => chat.messages.some(msg => msg.role === 'user'))
+const hasUserMessage = computed(() => chat.messages.some((msg) => msg.role === 'user'))
 const showQuickPrompts = computed(() => !hasUserMessage.value && !chat.loading)
-const visibleMessages = computed(() => chat.messages.filter(msg => {
-  if (msg.role !== 'assistant') return true
-  if (msg.pending) return false
-  const hasContent = !!String(msg.content || '').trim()
-  const hasCards = Array.isArray(msg.jobCards) && msg.jobCards.length > 0
-  const hasTools = Array.isArray(msg.toolEvents) && msg.toolEvents.length > 0
-  const hasReasoning = !!String(msg.reasoning || '').trim()
-  return hasContent || hasCards || hasTools || hasReasoning
-}))
+const visibleMessages = computed(() =>
+  chat.messages.filter((msg) => {
+    if (msg.role !== 'assistant') return true
+    if (msg.pending) return false
+    const hasContent = !!String(msg.content || '').trim()
+    const hasCards = Array.isArray(msg.jobCards) && msg.jobCards.length > 0
+    const hasTools = Array.isArray(msg.toolEvents) && msg.toolEvents.length > 0
+    const hasReasoning = !!String(msg.reasoning || '').trim()
+    return hasContent || hasCards || hasTools || hasReasoning
+  }),
+)
 const hiddenToolEventIds = new Set(['sse_connect', 'request_init'])
-const visibleToolEvents = computed(() => chat.toolEvents.filter(item => item && !hiddenToolEventIds.has(item.id)))
+const visibleToolEvents = computed(() => chat.toolEvents.filter((item) => item && !hiddenToolEventIds.has(item.id)))
 const latestToolEvent = computed(() => visibleToolEvents.value[visibleToolEvents.value.length - 1] || null)
-const currentToolEvent = computed(() => [...visibleToolEvents.value].reverse().find(item => item.status === 'running') || latestToolEvent.value || null)
-const completedToolCount = computed(() => visibleToolEvents.value.filter(item => item.status === 'success').length)
+const currentToolEvent = computed(
+  () =>
+    [...visibleToolEvents.value].reverse().find((item) => item.status === 'running') || latestToolEvent.value || null,
+)
+const completedToolCount = computed(() => visibleToolEvents.value.filter((item) => item.status === 'success').length)
 // 工具事件签名独立成 computed：答案逐 token 流式期间工具事件不变，签名命中缓存，
 // 避免滚动跟随的 watch 在每个 token 上对全部工具事件重复做 map+join 字符串拼接。
-const toolEventsSignature = computed(() => visibleToolEvents.value.map(item => `${item.id}:${item.status}:${item.detail || ''}`).join('|'))
+const toolEventsSignature = computed(() =>
+  visibleToolEvents.value.map((item) => `${item.id}:${item.status}:${item.detail || ''}`).join('|'),
+)
 const lastAssistantId = computed(() => {
   for (let i = chat.messages.length - 1; i >= 0; i--) {
     if (chat.messages[i]?.role === 'assistant') return chat.messages[i].id
@@ -222,7 +282,9 @@ const lastAssistantContent = computed(() => {
   return ''
 })
 // 仅在还没有任何工具事件的最初瞬间显示独立的处理中气泡；一旦执行过程面板出现，就交给面板展示，避免重复。
-const showProcessingHint = computed(() => chat.loading && !lastAssistantContent.value && visibleToolEvents.value.length === 0)
+const showProcessingHint = computed(
+  () => chat.loading && !lastAssistantContent.value && visibleToolEvents.value.length === 0,
+)
 const loadingTitle = computed(() => currentToolEvent.value?.name || '正在处理')
 const currentToolElapsedSeconds = computed(() => {
   const startedAt = Number(currentToolEvent.value?.startedAt || 0)
@@ -236,10 +298,13 @@ const loadingSummary = computed(() => {
 })
 const toolProcessText = computed(() => {
   const total = visibleToolEvents.value.length
-  if (chat.loading) return `进行中 · ${completedToolCount.value}/${total || 1} 步 · ${currentToolElapsedSeconds.value} 秒`
+  if (chat.loading)
+    return `进行中 · ${completedToolCount.value}/${total || 1} 步 · ${currentToolElapsedSeconds.value} 秒`
   return `已完成 ${completedToolCount.value}/${total || completedToolCount.value} 步`
 })
-const composerPlaceholder = computed(() => chat.loading ? '正在处理当前请求，请等待结果返回后再继续输入' : defaultWorkbenchCopy.placeholder)
+const composerPlaceholder = computed(() =>
+  chat.loading ? '正在处理当前请求，请等待结果返回后再继续输入' : defaultWorkbenchCopy.placeholder,
+)
 const resumeLabel = computed(() => props.resumeName || (props.resumeId ? '已关联简历' : '未选择简历'))
 const canStop = computed(() => chat.loading || !!chat.abortController)
 
@@ -250,38 +315,83 @@ const footerText = computed(() => {
 })
 function isMessageFinal(msg) {
   if (!msg || msg.role !== 'assistant') return true
-  const lastAssistant = [...chat.messages].reverse().find(item => item.role === 'assistant')
+  const lastAssistant = [...chat.messages].reverse().find((item) => item.role === 'assistant')
   return !chat.loading || !lastAssistant || lastAssistant.id !== msg.id
 }
 
-function jobTitle(item) { return item.jobName || item.job_name || item.title || item.name || '未知岗位' }
-function company(item) { return item.brandName || item.companyName || item.company || '未知公司' }
+function jobTitle(item) {
+  return item.jobName || item.job_name || item.title || item.name || '未知岗位'
+}
+function company(item) {
+  return item.brandName || item.companyName || item.company || '未知公司'
+}
 function originalUrl(item) {
   const url = item.originalUrl || item.jobUrl || item.url || item.href || item.link || item.detailUrl || ''
   if (url && String(url).includes('/job_detail/')) return url
   return bossDetailUrl(item)
 }
-function locationText(item) { return item.cityName || item.city || item.location || item.areaDistrict || '城市未标注' }
-function experienceText(item) { return item.jobExperience || item.experience || '经验不限' }
+function locationText(item) {
+  return item.cityName || item.city || item.location || item.areaDistrict || '城市未标注'
+}
+function experienceText(item) {
+  return item.jobExperience || item.experience || '经验不限'
+}
 function salaryText(item) {
-  const value = item.salaryDesc || item.salary_desc || item.salary || item.salaryText || item.salaryName || item.salaryRange || item.jobSalary || item.pay || item.wage || item.compensation || ''
+  const value =
+    item.salaryDesc ||
+    item.salary_desc ||
+    item.salary ||
+    item.salaryText ||
+    item.salaryName ||
+    item.salaryRange ||
+    item.jobSalary ||
+    item.pay ||
+    item.wage ||
+    item.compensation ||
+    ''
   return String(value || '').trim() || '薪资未标注'
 }
 function chatJobSummary(item) {
-  const parts = [item.jobDegree || item.education, item.companyIndustry || item.brandIndustry || item.industry, item.companyScale || item.brandScaleName, item.companyStage || item.brandStageName].filter(Boolean)
+  const parts = [
+    item.jobDegree || item.education,
+    item.companyIndustry || item.brandIndustry || item.industry,
+    item.companyScale || item.brandScaleName,
+    item.companyStage || item.brandStageName,
+  ].filter(Boolean)
   return parts.join(' · ')
 }
-function jobId(item, idx) { return String(item.securityId || item.id || item.jobId || item.encryptJobId || `job_${idx}`) }
+function jobId(item, idx) {
+  return String(item.securityId || item.id || item.jobId || item.encryptJobId || `job_${idx}`)
+}
 function chatJobFullJd(item) {
   return normalizeJobDescriptionText(firstJobDescriptionText(item))
 }
-function isChatJdLoading(item, idx) { return jdLoadingKeys.value.has(jobId(item, idx)) }
-function chatJdError(item, idx) { return jdErrorMap.value[jobId(item, idx)] || '' }
-function isChatJdOpen(item, idx) { return jdExpandedKeys.value.has(jobId(item, idx)) }
+function isChatJdLoading(item, idx) {
+  return jdLoadingKeys.value.has(jobId(item, idx))
+}
+function chatJdError(item, idx) {
+  return jdErrorMap.value[jobId(item, idx)] || ''
+}
+function isChatJdOpen(item, idx) {
+  return jdExpandedKeys.value.has(jobId(item, idx))
+}
 function chatJdButtonText(item, idx) {
   if (isChatJdLoading(item, idx)) return '加载中'
   if (isChatJdOpen(item, idx)) return '收起职位描述'
   return chatJobFullJd(item) ? '查看职位描述' : '加载职位描述'
+}
+async function toggleChatFavorite(item, idx) {
+  const key = jobId(item, idx)
+  jdErrorMap.value = { ...jdErrorMap.value, [key]: '' }
+  try {
+    await job.toggleFavorite(item)
+  } catch (error) {
+    if (error?.authRequired) {
+      chat.authRequired = error.authData || { message: error.message }
+      return
+    }
+    jdErrorMap.value = { ...jdErrorMap.value, [key]: error?.message || '收藏岗位失败' }
+  }
 }
 async function toggleChatJd(item, idx) {
   const key = jobId(item, idx)
@@ -324,15 +434,21 @@ async function toggleChatJd(item, idx) {
   jdExpandedKeys.value = new Set(jdExpandedKeys.value)
 }
 function jobTags(item) {
-  return [...(item.skills || []), ...(item.skillList || []), ...(item.jobLabels || []), item.brandIndustry, item.industry]
-    .map(x => String(x || '').trim())
-    .filter(x => x && !/^\d{4,}$/.test(x))
+  return [
+    ...(item.skills || []),
+    ...(item.skillList || []),
+    ...(item.jobLabels || []),
+    item.brandIndustry,
+    item.industry,
+  ]
+    .map((x) => String(x || '').trim())
+    .filter((x) => x && !/^\d{4,}$/.test(x))
     .slice(0, 6)
 }
 
 function messageToolEvents(msg) {
   const events = Array.isArray(msg?.toolEvents) ? msg.toolEvents : []
-  return events.filter(item => item && !hiddenToolEventIds.has(item.id))
+  return events.filter((item) => item && !hiddenToolEventIds.has(item.id))
 }
 
 function isStreamingMsg(msg) {
@@ -367,7 +483,7 @@ function panelLatestEvent(msg) {
 function panelStatusText(msg) {
   if (isStreamingMsg(msg)) return toolProcessText.value
   const events = messageToolEvents(msg)
-  const done = events.filter(item => item.status === 'success').length
+  const done = events.filter((item) => item.status === 'success').length
   return `已完成 ${done}/${events.length || done} 步`
 }
 
@@ -401,7 +517,9 @@ function analyzeChatJob(item) {
 }
 
 onMounted(() => {
-  elapsedTimer = window.setInterval(() => { nowTick.value = Date.now() }, 1000)
+  elapsedTimer = window.setInterval(() => {
+    nowTick.value = Date.now()
+  }, 1000)
   updateComposerSpace()
   if (window.ResizeObserver && composerEl.value) {
     composerResizeObserver = new ResizeObserver(updateComposerSpace)
@@ -508,7 +626,7 @@ async function submit() {
   if (!sent && !chat.loading) input.value = text
 }
 defineExpose({
-  submitPrompt: async text => {
+  submitPrompt: async (text) => {
     if (!text || chat.loading) return false
     return chat.send(text, props.resumeId)
   },

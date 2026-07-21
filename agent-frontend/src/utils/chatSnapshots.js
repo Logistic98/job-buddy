@@ -4,18 +4,18 @@
 
 import { filterVisibleToolEvents } from './chatHelpers'
 
-const clone = value => JSON.parse(JSON.stringify(value))
+const clone = (value) => JSON.parse(JSON.stringify(value))
 
 export function normalizeSessionRows(sessionId, rows = []) {
   return rows.length
     ? rows.map((m, idx) => ({
-      id: `${sessionId}_${idx}`,
-      role: m.role,
-      content: m.content,
-      reasoning: typeof m.reasoning === 'string' ? m.reasoning : '',
-      jobCards: Array.isArray(m.jobCards) ? m.jobCards : [],
-      toolEvents: filterVisibleToolEvents(Array.isArray(m.toolEvents) ? m.toolEvents : []),
-    }))
+        id: `${sessionId}_${idx}`,
+        role: m.role,
+        content: m.content,
+        reasoning: typeof m.reasoning === 'string' ? m.reasoning : '',
+        jobCards: Array.isArray(m.jobCards) ? m.jobCards : [],
+        toolEvents: filterVisibleToolEvents(Array.isArray(m.toolEvents) ? m.toolEvents : []),
+      }))
     : []
 }
 
@@ -33,11 +33,31 @@ export function backfillFromPrevious(messages, previousMessages = []) {
   return messages
 }
 
+function isCompatibleServerPrefix(serverMessages, previousMessages) {
+  if (!serverMessages.length || serverMessages.length >= previousMessages.length) return false
+  return serverMessages.every((item, idx) => {
+    const previous = previousMessages[idx]
+    if (!previous || item.role !== previous.role) return false
+    const serverContent = String(item.content || '').trim()
+    const previousContent = String(previous.content || '').trim()
+    return !serverContent || !previousContent || serverContent === previousContent
+  })
+}
+
 export function buildSnapshotFromRows(sessionId, rows = [], previous = null) {
-  const messages = backfillFromPrevious(normalizeSessionRows(sessionId, rows), previous?.messages || [])
-  const lastWithJobs = [...messages].reverse().find(item => item.jobCards?.length)
-  const lastMatch = [...rows].reverse().find(item => item.resumeMatch)?.resumeMatch || previous?.lastResumeMatchEvent || null
-  const lastWithTools = [...messages].reverse().find(item => item.toolEvents?.length)
+  const previousMessages = previous?.messages || []
+  const serverMessages = normalizeSessionRows(sessionId, rows)
+  // 历史接口可能与异步落库竞争：空结果不能抹掉已经展示过的会话；服务端仅返回本地消息前缀时，
+  // 以服务端字段校正前缀并保留尚未落库的本地尾部。待后续完整响应到达后会自然替换为服务端记录。
+  if (!serverMessages.length && previousMessages.length) return clone(previous)
+  const messages = backfillFromPrevious(serverMessages, previousMessages)
+  if (isCompatibleServerPrefix(messages, previousMessages)) {
+    messages.push(...clone(previousMessages.slice(messages.length)))
+  }
+  const lastWithJobs = [...messages].reverse().find((item) => item.jobCards?.length)
+  const lastMatch =
+    [...rows].reverse().find((item) => item.resumeMatch)?.resumeMatch || previous?.lastResumeMatchEvent || null
+  const lastWithTools = [...messages].reverse().find((item) => item.toolEvents?.length)
   return {
     rows: clone(rows || []),
     messages: clone(messages || []),
@@ -59,13 +79,13 @@ export function buildSnapshotFromMessages(state = {}) {
 }
 
 export function lastJobCards(messages = []) {
-  return [...messages].reverse().find(item => item.jobCards?.length)?.jobCards || []
+  return [...messages].reverse().find((item) => item.jobCards?.length)?.jobCards || []
 }
 
 export function lastToolEvents(messages = []) {
-  return [...messages].reverse().find(item => item.toolEvents?.length)?.toolEvents || []
+  return [...messages].reverse().find((item) => item.toolEvents?.length)?.toolEvents || []
 }
 
 export function lastResumeMatch(rows = []) {
-  return [...rows].reverse().find(item => item.resumeMatch)?.resumeMatch || null
+  return [...rows].reverse().find((item) => item.resumeMatch)?.resumeMatch || null
 }
