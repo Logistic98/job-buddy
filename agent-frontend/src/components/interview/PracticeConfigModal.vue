@@ -2,7 +2,10 @@
   <div v-if="visible" class="modal-mask" @click.self="close">
     <div class="modal-card interview-modal-card practice-create-modal">
       <button class="close" @click="close">×</button>
-      <div class="practice-modal-head"><h2>随机组卷</h2><p>设置练习名称、限时和练习模式，再按题库、分类、难度、题型组合抽题。</p></div>
+      <div class="practice-modal-head">
+        <h2>随机组卷</h2>
+        <p>设置练习名称、限时和练习模式，再按题库、分类、难度、题型组合抽题。</p>
+      </div>
 
       <div class="practice-form">
         <div class="practice-section">
@@ -58,12 +61,32 @@
               <span>题库</span><span>分类</span><span>难度</span><span>题型</span><span>题数</span><span></span>
             </div>
             <div v-for="(rule, index) in examConfig.rules" :key="rule.id" class="practice-rule-row">
-              <select v-model="rule.bankType"><option value="">全部题库</option><option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select>
-              <select v-model="rule.category"><option value="">全部分类</option><option v-for="item in categories" :key="item" :value="item">{{ item }}</option></select>
-              <select v-model="rule.difficulty"><option value="">全部难度</option><option v-for="item in difficulties" :key="item" :value="item">{{ item }}</option></select>
-              <select v-model="rule.questionType"><option value="">全部题型</option><option v-for="item in questionTypes" :key="item" :value="item">{{ item }}</option></select>
+              <select v-model="rule.bankType">
+                <option value="">全部题库</option>
+                <option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+              </select>
+              <select v-model="rule.category">
+                <option value="">全部分类</option>
+                <option v-for="item in categories" :key="item" :value="item">{{ item }}</option>
+              </select>
+              <select v-model="rule.difficulty">
+                <option value="">全部难度</option>
+                <option v-for="item in difficulties" :key="item" :value="item">{{ item }}</option>
+              </select>
+              <select v-model="rule.questionType">
+                <option value="">全部题型</option>
+                <option v-for="item in questionTypes" :key="item" :value="item">{{ item }}</option>
+              </select>
               <input v-model.number="rule.count" type="number" min="1" max="50" />
-              <button type="button" class="practice-rule-remove" :disabled="examConfig.rules.length <= 1" title="删除该组合" @click="removeExamRule(index)">×</button>
+              <button
+                type="button"
+                class="practice-rule-remove"
+                :disabled="examConfig.rules.length <= 1"
+                title="删除该组合"
+                @click="removeExamRule(index)"
+              >
+                ×
+              </button>
             </div>
           </div>
           <p class="section-hint">可参考主流题单和套卷的设计方式，按题库、分类、难度、题型组合抽题；留空表示不限制。</p>
@@ -74,7 +97,9 @@
       <p v-if="practiceModalError" class="error settings-error">{{ practiceModalError }}</p>
       <div class="modal-actions practice-modal-actions">
         <button class="secondary-btn" @click="close">取消</button>
-        <button class="primary-btn" :disabled="examLoading || !examRuleTotal" @click="startExam">{{ examLoading ? '组卷中…' : `开始练习（${examRuleTotal} 题）` }}</button>
+        <button class="primary-btn" :disabled="examLoading || !examRuleTotal" @click="startExam">
+          {{ examLoading ? '组卷中…' : `开始练习（${examRuleTotal} 题）` }}
+        </button>
       </div>
     </div>
   </div>
@@ -86,7 +111,11 @@
 // duration in seconds so the parent can start the practice desk timer.
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { createRandomExam } from '../../api/interview'
-import { defaultPracticeTitle, examRuleTotal as computeExamRuleTotal, validatePracticeConfig } from '../../utils/interviewForm'
+import {
+  defaultPracticeTitle,
+  examRuleTotal as computeExamRuleTotal,
+  validatePracticeConfig,
+} from '../../utils/interviewForm'
 
 defineProps({
   bankTypeOptions: { type: Array, default: () => [] },
@@ -121,8 +150,12 @@ function close() {
   if (examLoading.value) return
   visible.value = false
 }
-function newExamRule(data = {}) { return { id: crypto.randomUUID(), bankType: '', category: '', difficulty: '', questionType: '', count: 5, ...data } }
-function addExamRule() { examConfig.rules.push(newExamRule({ count: 3 })) }
+function newExamRule(data = {}) {
+  return { id: crypto.randomUUID(), bankType: '', category: '', difficulty: '', questionType: '', count: 5, ...data }
+}
+function addExamRule() {
+  examConfig.rules.push(newExamRule({ count: 3 }))
+}
 function removeExamRule(index) {
   if (examConfig.rules.length <= 1) return
   examConfig.rules.splice(index, 1)
@@ -136,12 +169,24 @@ async function startExam() {
       title: examConfig.title,
       durationMinutes: Number(examConfig.durationMinutes || 30),
       showAnswer: examConfig.answerMode === 'visible',
-      rules: examConfig.rules.map(rule => ({ bankType: rule.bankType, category: rule.category, difficulty: rule.difficulty, questionType: rule.questionType, count: Number(rule.count || 0) })).filter(rule => rule.count > 0),
+      rules: examConfig.rules
+        .map((rule) => ({
+          bankType: rule.bankType,
+          category: rule.category,
+          difficulty: rule.difficulty,
+          questionType: rule.questionType,
+          count: Number(rule.count || 0),
+        }))
+        .filter((rule) => rule.count > 0),
     }
     const exam = await createRandomExam(payload)
     visible.value = false
     emit('created', exam, payload.durationMinutes * 60)
-  } catch (err) { practiceModalError.value = err.message || '随机组卷失败' } finally { examLoading.value = false }
+  } catch (err) {
+    practiceModalError.value = err.message || '随机组卷失败'
+  } finally {
+    examLoading.value = false
+  }
 }
 
 defineExpose({ open })

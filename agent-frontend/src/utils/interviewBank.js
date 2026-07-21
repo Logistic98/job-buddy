@@ -37,32 +37,64 @@ export function tagLabels(item) {
 }
 
 export function splitCleanTags(value) {
-  return Array.from(new Set(String(value || '').split(/[,，、\s]+/).map(cleanTagText).filter(Boolean)))
+  return Array.from(
+    new Set(
+      String(value || '')
+        .split(/[,，、\s]+/)
+        .map(cleanTagText)
+        .filter(Boolean),
+    ),
+  )
 }
 
-export function defaultOptions() { return ['A', 'B', 'C', 'D'].map(key => ({ key, text: '' })) }
+export function defaultOptions() {
+  return ['A', 'B', 'C', 'D'].map((key) => ({ key, text: '' }))
+}
 
-export function isChoiceType(type) { return ['单选', '多选'].includes(type) }
+export function isChoiceType(type) {
+  return ['单选', '多选'].includes(type)
+}
 
-export function isMultiChoice(item) { return item.questionType === '多选' }
+export function isMultiChoice(item) {
+  return item.questionType === '多选'
+}
 
-export function isCodingQuestion(item) { return item?.bankType === 'leetcode' || item?.questionType === '编程题' }
+export function isCodingQuestion(item) {
+  return item?.bankType === 'leetcode' || item?.questionType === '编程题'
+}
 
 export function questionStem(item) {
-  return String(item.content || '').replace(/\n\n?[A-Z][.、]\s+[^\n]+(?:\n[A-Z][.、]\s+[^\n]+)+\s*$/m, '').trim() || item.content || ''
+  return (
+    String(item.content || '')
+      .replace(/\n\n?[A-Z][.、]\s+[^\n]+(?:\n[A-Z][.、]\s+[^\n]+)+\s*$/m, '')
+      .trim() ||
+    item.content ||
+    ''
+  )
+}
+
+export function answerContent(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^(?:\*\*|__)?答\s*[：:](?:\*\*|__)?\s*/, '')
+    .trim()
 }
 
 export function optionItems(item) {
   const text = String(item.content || '')
   const rows = text.match(/(?:^|\n)([A-Z])[.、]\s+([^\n]+)/g) || []
-  return rows.map(row => {
-    const match = row.trim().match(/^([A-Z])[.、]\s+(.+)$/)
-    return match ? { key: match[1], text: match[2] } : null
-  }).filter(Boolean)
+  return rows
+    .map((row) => {
+      const match = row.trim().match(/^([A-Z])[.、]\s+(.+)$/)
+      return match ? { key: match[1], text: match[2] } : null
+    })
+    .filter(Boolean)
 }
 
 export function normalizeCodingLanguage(value) {
-  const text = String(value || '').trim().toLowerCase()
+  const text = String(value || '')
+    .trim()
+    .toLowerCase()
   if (['js', 'javascript', 'node'].includes(text)) return 'javascript'
   if (['py', 'python', 'python3'].includes(text)) return 'python'
   if (text === 'java') return 'java'
@@ -70,13 +102,18 @@ export function normalizeCodingLanguage(value) {
 }
 
 export function formatCodingTests(tests) {
-  try { return tests ? JSON.stringify(tests, null, 2) : '' } catch (_) { return '' }
+  try {
+    return tests ? JSON.stringify(tests, null, 2) : ''
+  } catch (_) {
+    return ''
+  }
 }
 
 export function buildDefaultTemplate(functionName, language = 'python') {
   const name = functionName || 'solution'
   const lang = normalizeCodingLanguage(language)
-  if (lang === 'java') return `class Solution {\n    public Object ${name}(Object... args) {\n        // TODO\n        return null;\n    }\n}`
+  if (lang === 'java')
+    return `class Solution {\n    public Object ${name}(Object... args) {\n        // TODO\n        return null;\n    }\n}`
   if (lang === 'javascript') return `function ${name}() {\n  // TODO\n}`
   return `def ${name}(*args):\n    # TODO\n    pass\n`
 }
@@ -93,7 +130,11 @@ export function extractFunctionName(template, language = 'python') {
   const text = String(template || '')
   const lang = normalizeCodingLanguage(language)
   if (lang === 'python') return (text.match(/def\s+([A-Za-z_]\w*)\s*\(/) || [])[1] || ''
-  if (lang === 'java') return (text.match(/(?:public|private|protected)?\s*(?:static\s+)?[A-Za-z_][\w<>\[\]]*\s+([A-Za-z_]\w*)\s*\(/) || [])[1] || ''
+  if (lang === 'java')
+    return (
+      (text.match(/(?:public|private|protected)?\s*(?:static\s+)?[A-Za-z_][\w<>\[\]]*\s+([A-Za-z_]\w*)\s*\(/) ||
+        [])[1] || ''
+    )
   return (text.match(/function\s+([A-Za-z_$][\w$]*)\s*\(/) || [])[1] || ''
 }
 

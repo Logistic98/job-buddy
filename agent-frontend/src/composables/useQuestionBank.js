@@ -15,14 +15,16 @@ export function useQuestionBank(initialBankType = 'leetcode') {
   const questions = ref([])
   const selectedIds = ref([])
   const filters = reactive({ keyword: '', bankType: initialBankType, category: '', difficulty: '' })
-  const pagination = reactive({ page: 1, size: 20, total: 0, pages: 1 })
-  const batchForm = reactive({ category: '', difficulty: '', tagsText: '' })
+  const pagination = reactive({ page: 1, size: 10, total: 0, pages: 1 })
+  const batchForm = reactive({ category: '', difficulty: '', tags: [], tagsText: '' })
   const showBatchEditor = ref(false)
   const deleteDialog = reactive({ visible: false, mode: 'single', questionId: '', count: 0 })
 
   const filteredQuestions = computed(() => questions.value)
   const selectedSet = computed(() => new Set(selectedIds.value))
-  const allCurrentPageSelected = computed(() => questions.value.length > 0 && questions.value.every(item => selectedSet.value.has(item.questionId)))
+  const allCurrentPageSelected = computed(
+    () => questions.value.length > 0 && questions.value.every((item) => selectedSet.value.has(item.questionId)),
+  )
   const visiblePages = computed(() => {
     const total = Math.max(1, pagination.pages || 1)
     const current = Math.min(Math.max(1, pagination.page), total)
@@ -41,22 +43,33 @@ export function useQuestionBank(initialBankType = 'leetcode') {
       questions.value = (data.items || []).map(normalizeQuestionRow)
       pagination.total = Number(data.total || questions.value.length || 0)
       pagination.page = Number(data.page || pagination.page || 1)
-      pagination.size = Number(data.size || pagination.size || 20)
+      pagination.size = Number(data.size || pagination.size || 10)
       pagination.pages = Math.max(1, Number(data.pages || Math.ceil(pagination.total / pagination.size) || 1))
-    } catch (err) { error.value = err.message || '题库加载失败' } finally { loading.value = false }
+    } catch (err) {
+      error.value = err.message || '题库加载失败'
+    } finally {
+      loading.value = false
+    }
   }
   function goPage(page) {
     pagination.page = Math.max(1, Math.min(page, pagination.pages || 1))
     questions.value = []
     return loadQuestions()
   }
-  function changePageSize() { pagination.page = 1; clearSelection(); questions.value = []; return loadQuestions() }
+  function changePageSize() {
+    pagination.page = 1
+    clearSelection()
+    questions.value = []
+    return loadQuestions()
+  }
   function normalizeQuestionRow(item) {
     if (!item || typeof item !== 'object') return item
-    const bankType = item.bankType || (item.questionType === '编程题' ? 'leetcode' : 'baguwen')
-    return { ...item, bankType, tags: tagLabels(item).map(label => ({ label })), codingMeta: item.codingMeta || {} }
+    const bankType = item.bankType || (item.questionType === '编程题' ? 'leetcode' : 'qa')
+    return { ...item, bankType, tags: tagLabels(item).map((label) => ({ label })), codingMeta: item.codingMeta || {} }
   }
-  function rowNumber(index) { return (pagination.page - 1) * pagination.size + index + 1 }
+  function rowNumber(index) {
+    return (pagination.page - 1) * pagination.size + index + 1
+  }
   function toggleSelection(questionId, checked) {
     const set = new Set(selectedIds.value)
     checked ? set.add(questionId) : set.delete(questionId)
@@ -81,12 +94,16 @@ export function useQuestionBank(initialBankType = 'leetcode') {
         questionIds: selectedIds.value,
         category: batchForm.category,
         difficulty: batchForm.difficulty,
-        tags: splitCleanTags(batchForm.tagsText),
+        tags: batchForm.tags.length ? tagLabels({ tags: batchForm.tags }) : splitCleanTags(batchForm.tagsText),
       })
-      Object.assign(batchForm, { category: '', difficulty: '', tagsText: '' })
+      Object.assign(batchForm, { category: '', difficulty: '', tags: [], tagsText: '' })
       clearSelection()
       await loadQuestions()
-    } catch (err) { error.value = err.message || '批量修改失败' } finally { saving.value = false }
+    } catch (err) {
+      error.value = err.message || '批量修改失败'
+    } finally {
+      saving.value = false
+    }
   }
   function applyBatchDelete() {
     if (!selectedIds.value.length) return
@@ -113,7 +130,7 @@ export function useQuestionBank(initialBankType = 'leetcode') {
   }
   function upsertQuestionRow(saved) {
     if (!saved?.questionId) return
-    const idx = questions.value.findIndex(item => item.questionId === saved.questionId)
+    const idx = questions.value.findIndex((item) => item.questionId === saved.questionId)
     if (idx >= 0) questions.value.splice(idx, 1, saved)
     else questions.value.unshift(saved)
   }
@@ -144,11 +161,35 @@ export function useQuestionBank(initialBankType = 'leetcode') {
   }
 
   return {
-    loading, saving, examLoading, error, questions, selectedIds, filters, pagination, batchForm, showBatchEditor, deleteDialog,
-    filteredQuestions, selectedSet, allCurrentPageSelected, visiblePages,
-    loadQuestions, goPage, changePageSize, normalizeQuestionRow, rowNumber,
-    toggleSelection, toggleCurrentPage, clearSelection,
-    applyBatchUpdate, applyBatchDelete, createManualPractice, upsertQuestionRow,
-    removeQuestion, closeDeleteDialog, confirmDelete,
+    loading,
+    saving,
+    examLoading,
+    error,
+    questions,
+    selectedIds,
+    filters,
+    pagination,
+    batchForm,
+    showBatchEditor,
+    deleteDialog,
+    filteredQuestions,
+    selectedSet,
+    allCurrentPageSelected,
+    visiblePages,
+    loadQuestions,
+    goPage,
+    changePageSize,
+    normalizeQuestionRow,
+    rowNumber,
+    toggleSelection,
+    toggleCurrentPage,
+    clearSelection,
+    applyBatchUpdate,
+    applyBatchDelete,
+    createManualPractice,
+    upsertQuestionRow,
+    removeQuestion,
+    closeDeleteDialog,
+    confirmDelete,
   }
 }

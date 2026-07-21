@@ -5,15 +5,14 @@
       <h1>{{ pageTitle }}</h1>
       <p>{{ pageDescription }}</p>
     </div>
-    <div class="history-header-actions">
+    <div v-if="showActions" class="history-header-actions">
       <template v-if="activeMode === 'bank'">
         <button class="primary-btn" @click="$emit('create')">新增题目</button>
-        <button class="secondary-btn" :disabled="loading" @click="$emit('refresh-bank')">刷新</button>
       </template>
       <template v-else>
         <button class="secondary-btn" @click="$emit('back-to-bank')">返回题库</button>
+        <button class="secondary-btn" @click="$emit('show-records')">练习记录</button>
         <button class="primary-btn" @click="$emit('practice')">随机组卷</button>
-        <button class="secondary-btn" :disabled="recordsLoading" @click="$emit('refresh-exams')">刷新记录</button>
       </template>
     </div>
   </header>
@@ -28,15 +27,14 @@
         {{ item.label }}
       </button>
     </nav>
-    <div class="history-header-actions">
+    <div v-if="showActions" class="history-header-actions">
       <template v-if="activeMode === 'bank'">
         <button class="primary-btn" @click="$emit('create')">新增题目</button>
-        <button class="secondary-btn" :disabled="loading" @click="$emit('refresh-bank')">刷新</button>
       </template>
       <template v-else>
         <button class="secondary-btn" @click="$emit('back-to-bank')">返回题库</button>
+        <button class="secondary-btn" @click="$emit('show-records')">练习记录</button>
         <button class="primary-btn" @click="$emit('practice')">随机组卷</button>
-        <button class="secondary-btn" :disabled="recordsLoading" @click="$emit('refresh-exams')">刷新记录</button>
       </template>
     </div>
   </div>
@@ -49,11 +47,10 @@ defineProps({
   pageEyebrow: { type: String, required: true },
   pageTitle: { type: String, required: true },
   pageDescription: { type: String, required: true },
-  loading: { type: Boolean, default: false },
-  recordsLoading: { type: Boolean, default: false },
   bankTypeOptions: { type: Array, default: () => [] },
   activeBankType: { type: String, default: '' },
+  showActions: { type: Boolean, default: true },
 })
 
-defineEmits(['create', 'refresh-bank', 'back-to-bank', 'practice', 'refresh-exams', 'switch-bank'])
+defineEmits(['create', 'back-to-bank', 'practice', 'show-records', 'switch-bank'])
 </script>
