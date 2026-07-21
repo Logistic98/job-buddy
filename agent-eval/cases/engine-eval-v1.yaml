@@ -25,7 +25,7 @@ risk_control:
   notes: >-
     job.recommend / resume.match 等用例依赖真实 Boss 登录态与在线数据，属高风控敏感路径。
     评估时优先用安全路径（开放域问答、澄清、安全拦截、会话捷径）做高频回归，
-    Boss 相关用例低频人工触发，且共享凭证目录固定为仓库根目录 .run/boss-cli-home。
+    Boss 相关用例低频人工触发，凭证从 PostgreSQL auth_state 注入 Tool 内存，禁止本地凭证目录。
 
 # 速度预算默认值，可被单用例覆盖。单位毫秒。target 内满分，达到 max 记 0，区间线性衰减。
 latency_budget_defaults:

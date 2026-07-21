@@ -8,10 +8,19 @@ def test_grade_trace_passes_when_required_nodes_exist():
 
 
 def test_grade_trace_passes_when_runtime_events_exist():
-    result = grade_trace([
-        {"event": event}
-        for event in ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]
-    ])
+    result = grade_trace(
+        [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ]
+    )
     assert result["passed"] is True
     assert result["score"] == 1.0
     assert result["missing_events"] == []
@@ -27,8 +36,24 @@ def test_grade_run_rejects_fixture_and_false_completion():
     run = {
         "status": "success",
         "answer": "Runtime 已完成任务理解，但未返回可展示回答。",
-        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.95, "next_action": "call_get_recommend_jobs"},
-        "trace_events": [{"event": event} for event in ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]],
+        "directive": {
+            "domain": "job",
+            "intent": "job.recommend",
+            "router": "llm",
+            "confidence": 0.95,
+            "next_action": "call_get_recommend_jobs",
+        },
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
         "tool_events": [{"id": "job_search", "status": "success", "summary": "读取岗位 Fixture"}],
     }
 
@@ -42,8 +67,24 @@ def test_grade_run_accepts_conversation_shortcut_router():
     run = {
         "status": "success",
         "answer": "已为你换一批岗位。",
-        "directive": {"domain": "job", "intent": "job.recommend", "router": "semantic_config_shortcut", "confidence": 0.92, "next_action": "call_get_recommend_jobs"},
-        "trace_events": [{"event": event} for event in ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]],
+        "directive": {
+            "domain": "job",
+            "intent": "job.recommend",
+            "router": "semantic_config_shortcut",
+            "confidence": 0.92,
+            "next_action": "call_get_recommend_jobs",
+        },
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
         "tool_events": [{"id": "job_search", "status": "success", "summary": "Boss 实时搜索完成"}],
     }
 
@@ -52,21 +93,19 @@ def test_grade_run_accepts_conversation_shortcut_router():
     assert not any(issue["code"] == "llm_first" for issue in result["issues"])
 
 
-def test_grade_capability_inventory_requires_readiness_metadata():
+def test_grade_capability_inventory_accepts_complete_contracts():
     profile = {
         "capabilities": [
             {
                 "id": "resume.match",
-                "implementation_status": "partial",
                 "execution_intent": "compare_analyze",
                 "required_tools": ["resume_match"],
                 "evidence_requirements": ["简历", "JD", "证据链"],
             },
             {
                 "id": "interview.prepare",
-                "implementation_status": "planned",
                 "execution_intent": "generate_artifact",
-                "implementation_notes": "尚未实现",
+                "planner_needed": True,
                 "evidence_requirements": ["简历", "JD"],
             },
         ]
@@ -77,26 +116,64 @@ def test_grade_capability_inventory_requires_readiness_metadata():
     assert result["passed"] is True
 
 
-def test_grade_capability_inventory_rejects_missing_status():
-    result = grade_capability_inventory({"capabilities": [{"id": "interview.prepare", "execution_intent": "generate_artifact"}]})
+def test_grade_capability_inventory_rejects_missing_execution_contract():
+    result = grade_capability_inventory(
+        {
+            "capabilities": [
+                {
+                    "id": "interview.prepare",
+                    "execution_intent": "generate_artifact",
+                    "evidence_requirements": ["简历", "JD"],
+                }
+            ]
+        }
+    )
 
     assert result["passed"] is False
-    assert any(issue["code"] == "interview.prepare:status_present" for issue in result["issues"])
+    assert any(issue["code"] == "interview.prepare:execution_contract" for issue in result["issues"])
 
 
 def test_grade_run_requires_injection_flag_when_expected():
     base_run = {
         "status": "success",
         "answer": "已完成岗位搜索。",
-        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.95, "next_action": "call_get_recommend_jobs"},
-        "trace_events": [{"event": event} for event in ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]],
+        "directive": {
+            "domain": "job",
+            "intent": "job.recommend",
+            "router": "llm",
+            "confidence": 0.95,
+            "next_action": "call_get_recommend_jobs",
+        },
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
     }
 
-    unflagged = dict(base_run, tool_events=[{"id": "job_search", "status": "success", "summary": "完成", "metadata": {}}])
+    unflagged = dict(
+        base_run, tool_events=[{"id": "job_search", "status": "success", "summary": "完成", "metadata": {}}]
+    )
     result = grade_run(unflagged, {"intent": "job.recommend", "domain": "job", "expect_injection_flag": True})
     assert any(issue["code"] == "injection_result_flagged" for issue in result["issues"])
 
-    flagged = dict(base_run, tool_events=[{"id": "job_search", "status": "success", "summary": "完成", "metadata": {"injection_suspected": True, "injection_patterns": ["override_instructions_en"]}}])
+    flagged = dict(
+        base_run,
+        tool_events=[
+            {
+                "id": "job_search",
+                "status": "success",
+                "summary": "完成",
+                "metadata": {"injection_suspected": True, "injection_patterns": ["override_instructions_en"]},
+            }
+        ],
+    )
     result = grade_run(flagged, {"intent": "job.recommend", "domain": "job", "expect_injection_flag": True})
     assert not any(issue["code"] == "injection_result_flagged" for issue in result["issues"])
 
@@ -105,8 +182,24 @@ def test_grade_run_accepts_evidence_based_resume_match():
     run = {
         "status": "success",
         "answer": "已完成基于岗位证据的简历匹配评估。",
-        "directive": {"domain": "job", "intent": "resume.match", "router": "llm", "confidence": 0.91, "next_action": "run_resume_match"},
-        "trace_events": [{"event": event} for event in ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]],
+        "directive": {
+            "domain": "job",
+            "intent": "resume.match",
+            "router": "llm",
+            "confidence": 0.91,
+            "next_action": "run_resume_match",
+        },
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
         "tool_events": [{"id": "resume_match", "status": "success", "summary": "完成"}],
         "resume_match": {
             "matches": [
@@ -115,7 +208,9 @@ def test_grade_run_accepts_evidence_based_resume_match():
                     "score": 82,
                     "score_confidence": "medium",
                     "evidence_count": 3,
-                    "evidence": [{"resume_evidence": "Agent 项目", "job_requirement": "Agent 应用开发", "assessment": "相关"}],
+                    "evidence": [
+                        {"resume_evidence": "Agent 项目", "job_requirement": "Agent 应用开发", "assessment": "相关"}
+                    ],
                 }
             ]
         },
@@ -125,3 +220,90 @@ def test_grade_run_accepts_evidence_based_resume_match():
 
     assert result["passed"] is True
     assert result["dimensions"]["grounding"]["score"] == 1.0
+
+
+def test_grade_capability_inventory_rejects_non_object_items():
+    result = grade_capability_inventory({"capabilities": ["resume.match"]})
+
+    assert result["passed"] is False
+    assert any(issue["code"] == "capability_0:object_required" for issue in result["issues"])
+
+
+def test_resume_match_does_not_trust_reported_evidence_count():
+    run = _valid_run()
+    run["resume_match"] = {
+        "matches": [
+            {
+                "id": "j1",
+                "score": 88,
+                "score_confidence": "high",
+                "evidence_count": 99,
+                "evidence": [],
+                "hits": [],
+            }
+        ]
+    }
+
+    result = grade_run(run, {"intent": "resume.match", "domain": "job", "requires_evidence": True})
+
+    assert result["passed"] is False
+    assert any(issue["code"] == "resume_match_has_evidence" for issue in result["issues"])
+
+
+def test_repeated_observability_events_cannot_dilute_other_dimensions():
+    run = _valid_run()
+    run["answer"] = "基于模拟数据生成了岗位结果"
+    one_event = dict(run, trace_events=[*run["trace_events"], _tool_end_event()])
+    many_events = dict(run, trace_events=[*run["trace_events"], *[_tool_end_event() for _ in range(50)]])
+
+    one_result = grade_run(one_event, {"intent": "resume.match", "domain": "job"})
+    many_result = grade_run(many_events, {"intent": "resume.match", "domain": "job"})
+
+    assert one_result["passed"] is False
+    assert many_result["passed"] is False
+    assert many_result["score"] == one_result["score"]
+
+
+def test_missing_next_action_does_not_skip_false_success_check():
+    run = _valid_run()
+    run["directive"].pop("next_action")
+    run["answer"] = "任务未完成，服务超时"
+    run["status"] = "success"
+
+    result = grade_run(run, {"intent": "resume.match", "domain": "job"})
+
+    assert any(issue["code"] == "next_action_present" for issue in result["issues"])
+    assert any(issue["code"] == "failure_not_marked_success" for issue in result["issues"])
+
+
+def _valid_run():
+    return {
+        "status": "success",
+        "answer": "已完成基于真实岗位证据的匹配分析。",
+        "directive": {
+            "domain": "job",
+            "intent": "resume.match",
+            "router": "llm",
+            "confidence": 0.9,
+            "next_action": "run_resume_match",
+        },
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+        "tool_events": [{"id": "resume_match", "status": "success", "summary": "完成"}],
+    }
+
+
+def _tool_end_event():
+    return {
+        "event": "tool_execute_end",
+        "payload": {"duration_ms": 10, "results": [{"tool": "resume_match", "success": True}]},
+    }

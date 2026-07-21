@@ -1,5 +1,5 @@
-version: job-v1
-name: Boss 直聘求职 Agent 助手 MVP 回归集
+version: job
+name: Boss 直聘求职 Agent 回归集
 runtime_trace_contract:
   required_events: [run_start, understand_goal, task_understanding, capability_route, finalize, run_end]
   notes: Agent 核心逻辑已迁移到 agent-runtime，新评估优先检查 Runtime 事件化 Trace、TaskUnderstandingResult 和 Capability Route。
@@ -95,9 +95,9 @@ cases:
   - id: career_profile_context_injected
     profile: career
     user_profile:
-      target_roles: ["Java 后端"]
+      target_roles: ["Java 大模型应用开发"]
       target_cities: ["上海"]
-      salary_range: "20-30K"
+      salary_range: "40-50K"
       hard_excludes: ["外包", "驻场"]
     input: "帮我分析这个岗位适不适合"
     expected:

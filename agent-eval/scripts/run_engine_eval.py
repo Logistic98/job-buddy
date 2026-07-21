@@ -407,7 +407,13 @@ def main() -> int:
             continue
         budget = dict(defaults)
         budget.update(case.get("latency_budget") or {})
-        profile = case.get("runtime_profile") or spec.get("runtime_profile", "job-buddy")
+        profile = (
+            case.get("runtime_profile")
+            or case.get("profile")
+            or spec.get("runtime_profile")
+            or spec.get("profile")
+            or "job-buddy"
+        )
         case = dict(case, latency_budget=budget, runtime_profile=profile)
         cases.append(case)
 

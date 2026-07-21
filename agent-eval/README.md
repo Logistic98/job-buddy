@@ -1,6 +1,6 @@
 # agent-eval
 
-`agent-eval` 是 Agent 运行质量评估服务。它不只检查 Trace 是否跑完，还对完整运行结果做多维质量门禁，避免未实现能力、fixture/mock 数据、无证据评分、空回答伪完成等问题进入产品链路。
+`agent-eval` 是 Agent 运行质量评估服务。它不只检查 Trace 是否跑完，还对完整运行结果做多维质量门禁，避免执行契约缺失、fixture/mock 数据、无证据评分、空回答和失败状态伪完成等问题进入产品链路。
 
 ## 评估能力
 
@@ -15,9 +15,9 @@
 ## 接口
 
 - `GET /health`
-- `POST /v1/eval/trace`：兼容旧版 Trace 评分。
+- `POST /v1/eval/trace`：对 Runtime 事件流和 Backend 节点流执行核心链路评分。
 - `POST /v1/eval/run`：完整运行质量评估。
-- `POST /v1/eval/capabilities`：Profile 能力清单评估，检查每个能力是否标注实现状态、执行契约和证据要求。
+- `POST /v1/eval/capabilities`：Profile 能力清单评估，检查稳定标识、执行意图、工具或 Planner 契约和证据要求。
 - `POST /v1/eval/judge`：LLM Judge 开放质量评审，与规则评分互补。通过环境变量 `AGENT_EVAL_JUDGE_BASE_URL`（OpenAI 兼容地址）、`AGENT_EVAL_JUDGE_MODEL`、`AGENT_EVAL_JUDGE_API_KEY`、`AGENT_EVAL_JUDGE_TIMEOUT_SECONDS` 配置；未配置或调用失败时返回 `code=1` 且 `data.enabled/ok` 标记不可用，调用方不得将其视为评审通过。
 
 `/v1/eval/run` 请求示例：
@@ -77,16 +77,15 @@
     "capabilities": [
       {
         "id": "resume.match",
-        "implementation_status": "partial",
         "execution_intent": "compare_analyze",
         "required_tools": ["resume_match"],
         "evidence_requirements": ["已解析简历", "真实岗位列表或完整 JD", "逐条匹配证据"]
       },
       {
         "id": "interview.prepare",
-        "implementation_status": "planned",
         "execution_intent": "generate_artifact",
-        "implementation_notes": "尚未接入真实面试题生成链路",
+        "planner_needed": true,
+        "allowed_tools": ["web_search", "web_fetch"],
         "evidence_requirements": ["已解析简历", "目标岗位 JD"]
       }
     ]

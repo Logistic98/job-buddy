@@ -1,11 +1,10 @@
-version: observability-v1
-name: 可观测富化回归集
+version: observability
+name: Runtime 可观测契约评估集
 description: >-
-  面向 agent-runtime 可观测富化能力的回归评估集，配套 runner 为 scripts/run_engine_eval.py。
+  面向 agent-runtime 可观测能力的契约评估集，配套 runner 为 scripts/run_engine_eval.py。
   验证目标：LLM 路径在 run_end 前产出 llm_usage 汇总事件（调用次数、token 用量、缓存命中）；
   工具路径的 tool_execute_end 携带 duration_ms 与逐工具 results；工具失败时产出 tool_execute_failed
-  事件并携带 tool 与 error 字段。评分逻辑位于 app/grader.py 的 observability 维度，
-  对未包含新事件的旧 trace 不产生扣分，属非破坏性增量检查。
+  事件并携带 tool 与 error 字段。评分逻辑位于 app/grader.py 的 observability 维度。
 
 runtime_profile: job-buddy
 

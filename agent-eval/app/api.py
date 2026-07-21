@@ -5,9 +5,11 @@ from loguru import logger
 from pydantic import BaseModel
 
 from .grader import grade_capability_inventory, grade_latency, grade_run, grade_trace
+from .internal_auth import install_internal_auth
 from .judge import judge_enabled, judge_run
 
-app = FastAPI(title="agent-eval", version="0.2.0")
+app = FastAPI(title="agent-eval", version="1.0.0")
+install_internal_auth(app)
 
 
 def _graded(op: str, fn) -> dict:
@@ -43,7 +45,11 @@ class LatencyEvalRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-eval", "judge_enabled": judge_enabled()}}
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {"status": "UP", "service": "agent-eval", "judge_enabled": judge_enabled()},
+    }
 
 
 @app.post("/v1/eval/trace")

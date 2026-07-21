@@ -7,7 +7,13 @@ def _run(**overrides):
     run = {
         "status": "success",
         "answer": "已完成，结果如上。",
-        "directive": {"domain": "open_domain", "intent": "general.chat", "router": "llm", "confidence": 0.9, "next_action": "run_runtime_planner"},
+        "directive": {
+            "domain": "open_domain",
+            "intent": "general.chat",
+            "router": "llm",
+            "confidence": 0.9,
+            "next_action": "run_runtime_planner",
+        },
         "trace_events": [{"event": event} for event in FULL_EVENTS],
         "tool_events": [{"id": "t1", "status": "success"}],
     }
@@ -17,8 +23,12 @@ def _run(**overrides):
 
 # ---- 速度评分边界 ----
 
+
 def test_latency_full_score_within_target():
-    result = grade_latency({"ttft_ms": 1500, "done_ms": 5000}, {"ttft_ms_target": 2000, "ttft_ms_max": 4000, "done_ms_target": 6000, "done_ms_max": 10000})
+    result = grade_latency(
+        {"ttft_ms": 1500, "done_ms": 5000},
+        {"ttft_ms_target": 2000, "ttft_ms_max": 4000, "done_ms_target": 6000, "done_ms_max": 10000},
+    )
     assert result["passed"] is True
     assert result["score"] == 1.0
 
@@ -60,25 +70,32 @@ def test_latency_target_only_penalizes_to_double_target():
 
 # ---- 事件顺序与 trace 边界 ----
 
+
 def test_event_order_issue_detected_when_finalize_before_capability_route():
-    issues = _event_order_issues(["run_start", "understand_goal", "task_understanding", "finalize", "capability_route", "run_end"])
+    issues = _event_order_issues(
+        ["run_start", "understand_goal", "task_understanding", "finalize", "capability_route", "run_end"]
+    )
     assert "capability_route_after_finalize" in issues
 
 
 def test_grade_trace_penalizes_out_of_order_events():
-    trace = [{"event": e} for e in ["run_start", "understand_goal", "task_understanding", "finalize", "capability_route", "run_end"]]
+    trace = [
+        {"event": e}
+        for e in ["run_start", "understand_goal", "task_understanding", "finalize", "capability_route", "run_end"]
+    ]
     result = grade_trace(trace)
     assert result["passed"] is False
     assert result["order_issues"]
 
 
-def test_grade_trace_empty_trace_falls_back_to_legacy_contract():
+def test_grade_trace_empty_trace_uses_backend_node_contract():
     result = grade_trace([])
     assert result["passed"] is False
     assert result["missing_nodes"]
 
 
 # ---- 工具执行维度 ----
+
 
 def test_stuck_running_tool_event_is_flagged():
     result = grade_run(_run(tool_events=[{"id": "t1", "status": "running"}]), {})
@@ -101,7 +118,8 @@ def test_missing_tool_events_downgrades_but_not_fatal():
     assert not any(issue["severity"] == "critical" for issue in result["issues"])
 
 
-# ---- 安全与功能可用性 ----
+# ---- 安全与运行状态一致性 ----
+
 
 def test_disallow_boss_flags_boss_side_effect():
     result = grade_run(_run(answer="已通过 Boss直聘 搜索岗位。"), {"disallow_boss": True})
@@ -114,10 +132,10 @@ def test_disallow_boss_passes_without_boss_traces():
     assert not any(issue["code"] == "no_boss_side_effect" for issue in result["issues"])
 
 
-def test_unsupported_feature_marked_success_is_fatal():
-    run = _run(answer="该功能未实现，已完成本次请求。", status="success")
+def test_failure_answer_marked_success_is_fatal():
+    run = _run(answer="下游调用失败，已完成本次请求。", status="success")
     result = grade_run(run, {})
-    assert any(issue["code"] == "unsupported_not_marked_success" for issue in result["issues"])
+    assert any(issue["code"] == "failure_not_marked_success" for issue in result["issues"])
     assert result["passed"] is False
 
 
