@@ -5,7 +5,20 @@ import DOMPurify from 'dompurify'
 
 export function sanitizeResumeHtml(html) {
   const input = String(html || '')
-  // SSR/构建期无 DOM，DOMPurify 不可用，直接返回原文（渲染发生在浏览器端再清洗）。
-  if (typeof window === 'undefined') return input
-  return DOMPurify.sanitize(input, { USE_PROFILES: { html: true, svg: true } })
+  // SSR/构建期无 DOM 时使用保守文本输出，绝不返回未清洗 HTML。
+  if (typeof window === 'undefined') {
+    return input.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+  const sanitized = DOMPurify.sanitize(input, {
+    USE_PROFILES: { html: true, svg: true },
+    ADD_ATTR: ['target', 'rel'],
+    FORBID_TAGS: ['script', 'style'],
+    FORBID_ATTR: ['srcset'],
+  })
+  const template = document.createElement('template')
+  template.innerHTML = sanitized
+  template.content.querySelectorAll('a[target="_blank"]').forEach((link) => {
+    link.setAttribute('rel', 'noopener noreferrer')
+  })
+  return template.innerHTML
 }

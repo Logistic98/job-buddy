@@ -1,5 +1,4 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-const AUTH_TOKEN_KEY = 'job_buddy_auth_token'
 
 // Boss 直聘未登录/登录态失效的语义码，与后端统一响应保持一致。
 export const AUTH_REQUIRED_CODE = 4001
@@ -26,42 +25,9 @@ export function apiUrl(path) {
   return `${API_BASE}${path}`
 }
 
-export function authHeaders(headers = {}) {
-  const token = readAuthToken()
-  if (!token) return headers || {}
-  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
-    const merged = new Headers(headers)
-    if (!merged.has('Authorization')) merged.set('Authorization', `Bearer ${token}`)
-    return merged
-  }
-  const merged = { ...(headers || {}) }
-  const hasAuthorization = Object.keys(merged).some(key => key.toLowerCase() === 'authorization')
-  if (!hasAuthorization) merged.Authorization = `Bearer ${token}`
-  return merged
-}
-
 export function apiFetch(path, options = {}) {
-  const { headers, ...rest } = options || {}
-  return fetch(apiUrl(path), { ...rest, headers: authHeaders(headers) })
-}
-
-export function apiUrlWithAuth(path) {
-  return appendAccessToken(apiUrl(path))
-}
-
-export function appendAccessToken(url) {
-  const token = readAuthToken()
-  if (!token) return url
-  const separator = url.includes('?') ? '&' : '?'
-  return `${url}${separator}access_token=${encodeURIComponent(token)}`
-}
-
-function readAuthToken() {
-  try {
-    return window.localStorage.getItem(AUTH_TOKEN_KEY) || ''
-  } catch (_) {
-    return ''
-  }
+  const { headers, credentials = 'include', ...rest } = options || {}
+  return fetch(apiUrl(path), { ...rest, credentials, headers })
 }
 
 export async function parseApiResponse(response, fallbackMessage) {

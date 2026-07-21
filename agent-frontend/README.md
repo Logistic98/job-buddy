@@ -1,8 +1,8 @@
 # agent-frontend
 
-`agent-frontend` 是 `job-buddy` 的 Vue 3 + Vite 前端工作台。当前页面不再只是早期复杂问答 Demo，而是围绕求职流程组织的完整工作台，默认通过 Vite proxy 将 `/api` 转发到 `agent-backend`。
+`agent-frontend` 是 `job-buddy` 的 Vue 3 + Vite 前端工作台，围绕完整求职流程组织页面和交互，并通过 Vite proxy 将 `/api` 转发到 `agent-backend`。
 
-## 当前页面能力
+## 页面能力
 
 - 登录中心与登录态维护。
 - Boss 登录二维码弹窗和扫码状态轮询。
@@ -53,7 +53,13 @@ npm run dev
 
 默认访问：<http://localhost:5173>
 
-默认代理目标为 `http://localhost:8080`。如需覆盖：
+环境变量统一维护在仓库根目录的 `.env` 和 `.env.example`，禁止在 `agent-frontend` 或其他子目录创建同名环境文件。首次启动前应在仓库根目录复制模板：
+
+```bash
+cp .env.example .env
+```
+
+默认代理目标为 `http://localhost:8080`。如需临时覆盖：
 
 ```bash
 VITE_PROXY_TARGET=http://localhost:8080 npm run dev
