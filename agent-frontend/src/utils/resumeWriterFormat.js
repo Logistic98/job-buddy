@@ -12,7 +12,9 @@ export function formatDecimal(value) {
 }
 
 export function normalizeFontSizeValue(value) {
-  const raw = String(value || '').trim().toLowerCase()
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase()
   const match = raw.match(/^(\d+(?:\.\d+)?)(?:px)?$/)
   if (!match) return '12.5px'
   const size = clampPhotoNumber(match[1], 8, 32, 12.5)
@@ -27,16 +29,41 @@ export function normalizeLineHeightValue(value) {
 }
 
 export function escapeHtmlText(value) {
-  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 export function stripFileExt(name) {
   return String(name || '').replace(/\.[^.]+$/, '')
 }
 
+export function sanitizeResumeFileName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/^-+|-+$/g, '')
+}
+
+export function resolveResumeExportFileName(value) {
+  return sanitizeResumeFileName(value) || 'resume'
+}
+
 export function waitForImages(root) {
   const images = Array.from(root.querySelectorAll('img'))
-  return Promise.all(images.map(img => img.complete ? Promise.resolve() : new Promise(resolve => { img.onload = resolve; img.onerror = resolve })))
+  return Promise.all(
+    images.map((img) =>
+      img.complete
+        ? Promise.resolve()
+        : new Promise((resolve) => {
+            img.onload = resolve
+            img.onerror = resolve
+          }),
+    ),
+  )
 }
 
 export function downloadFile(content, filename, type) {

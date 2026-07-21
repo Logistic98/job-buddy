@@ -1,0 +1,525 @@
+/* Canonical layout layer for the integrated resume module. */
+.resume-module-shell,
+.resume-module-body {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+}
+.resume-module-body {
+  overflow: hidden !important;
+}
+
+/* Resume list: one scroll owner, fluid cards and content-driven card height. */
+.resume-module-body > .resume-manager-page {
+  width: 100%;
+  height: 100% !important;
+  min-height: 0 !important;
+  box-sizing: border-box;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding: 20px 24px 28px !important;
+}
+.resume-manager-page .page-header {
+  margin-bottom: 16px !important;
+}
+.resume-manager-page .page-header h1 {
+  font-size: 26px !important;
+}
+.resume-manager-page .resume-folder-bar {
+  margin: 12px 0 16px !important;
+}
+.resume-manager-page .resume-card-grid {
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 16px !important;
+  margin-top: 0 !important;
+  align-items: start !important;
+}
+.resume-manager-page .resume-manage-card {
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  display: grid !important;
+  grid-template-columns: 150px minmax(0, 1fr) !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+  padding: 16px !important;
+  box-sizing: border-box !important;
+  border: 1px solid #e4eaf4 !important;
+  border-radius: 18px !important;
+  background: linear-gradient(155deg, #fff, #fbfcff) !important;
+  box-shadow: 0 10px 28px rgba(31, 45, 86, 0.055) !important;
+  overflow: hidden !important;
+}
+.resume-manager-page .resume-manage-card:hover {
+  transform: translateY(-1px);
+  border-color: #cbd5ff !important;
+  box-shadow: 0 15px 34px rgba(49, 87, 255, 0.09) !important;
+}
+.resume-manager-page .resume-manage-card.active {
+  border-color: #8ea2ff !important;
+  box-shadow: 0 14px 34px rgba(49, 87, 255, 0.12) !important;
+}
+.resume-manager-page .resume-thumb {
+  width: 150px !important;
+  height: 202px !important;
+  min-width: 150px !important;
+  min-height: 202px !important;
+  border-radius: 13px !important;
+  background: #f4f6fa !important;
+  overflow: hidden !important;
+}
+.resume-manager-page .resume-thumb img,
+.resume-manager-page .resume-thumb-image {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  background: #fff !important;
+}
+.resume-manager-page .resume-card-info {
+  min-width: 0 !important;
+  min-height: 202px !important;
+  height: auto !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: visible !important;
+}
+.resume-manager-page .resume-card-title {
+  min-width: 0 !important;
+  padding-right: 58px !important;
+}
+.resume-manager-page .resume-card-title h2 {
+  margin: 0 0 7px !important;
+  font-size: 16px !important;
+  line-height: 1.4 !important;
+}
+.resume-manager-page .resume-card-info > p {
+  margin: 0 0 8px !important;
+  font-size: 12px !important;
+}
+.resume-manager-page .resume-meta-row {
+  margin: 0 0 8px !important;
+  gap: 6px !important;
+}
+.resume-manager-page .resume-tags {
+  min-height: 26px !important;
+  max-height: none !important;
+  margin: 0 0 12px !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  gap: 6px !important;
+}
+.resume-manager-page .resume-tags span,
+.resume-manager-page .resume-tags em {
+  height: 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  box-sizing: border-box !important;
+  padding: 0 8px !important;
+}
+.resume-manager-page .resume-card-actions {
+  width: 100% !important;
+  margin-top: auto !important;
+  padding-top: 11px !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(78px, 1fr)) !important;
+  gap: 7px !important;
+  border-top: 1px solid #edf1f7 !important;
+  box-sizing: border-box !important;
+}
+.resume-manager-page .resume-card-actions button,
+.resume-manager-page .resume-card-actions a {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  margin: 0 !important;
+  padding: 0 7px !important;
+  box-sizing: border-box !important;
+  white-space: nowrap !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid #dfe6f2 !important;
+  border-radius: 10px !important;
+  background: #f8fafc !important;
+  color: #475467 !important;
+  font-size: 12px !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+}
+.resume-manager-page .resume-card-actions button:hover,
+.resume-manager-page .resume-card-actions a:hover {
+  background: #eef2ff !important;
+  border-color: #c7d2fe !important;
+  color: #3157ff !important;
+}
+.resume-manager-page .resume-card-actions .danger-text {
+  background: #fff7f7 !important;
+  border-color: #ffd6dc !important;
+  color: #d92d20 !important;
+}
+.resume-manager-page .resume-card-actions .resume-action-mark {
+  display: none !important;
+}
+
+/* Resume dialogs are teleported to body and constrained to the viewport. */
+body > .modal-mask:has(.resume-tag-modal),
+body > .modal-mask:has(.resume-delete-modal),
+body > .modal-mask:has(.resume-folder-modal),
+body > .modal-mask:has(.resume-picker-modal),
+body > .modal-mask:has(.pdf-preview-modal) {
+  z-index: 900 !important;
+  overflow: auto !important;
+  padding: 18px !important;
+  box-sizing: border-box !important;
+}
+body > .modal-mask .resume-tag-modal,
+body > .modal-mask .resume-delete-modal,
+body > .modal-mask .resume-folder-modal,
+body > .modal-mask .resume-picker-modal {
+  max-width: calc(100vw - 36px) !important;
+  max-height: calc(100vh - 36px) !important;
+  box-sizing: border-box !important;
+  overflow: auto !important;
+}
+body > .modal-mask .pdf-preview-modal {
+  width: min(1120px, calc(100vw - 36px)) !important;
+  height: calc(100vh - 36px) !important;
+  box-sizing: border-box !important;
+}
+
+/* Writer: top controls participate in flow; desktop split remains a real split. */
+.resume-module-body > .resume-writer-clean {
+  height: 100% !important;
+  min-height: 0 !important;
+}
+.resume-writer-clean .resume-clean-topbar {
+  flex: 0 0 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr) !important;
+  gap: 8px 14px !important;
+  padding: 10px 14px !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+.resume-writer-clean .resume-title-area {
+  grid-column: 1;
+  min-width: 0 !important;
+}
+.resume-writer-clean .resume-clean-menu {
+  grid-column: 2;
+  min-width: 0 !important;
+  justify-content: flex-start !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding-bottom: 2px !important;
+}
+.resume-writer-clean .resume-clean-menu button {
+  flex: 0 0 auto !important;
+}
+.resume-writer-clean .resume-clean-actions {
+  grid-column: 1/-1 !important;
+  min-width: 0 !important;
+  justify-content: flex-start !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding-bottom: 2px !important;
+}
+.resume-writer-clean .resume-clean-toolbar {
+  flex: 0 0 auto !important;
+  min-height: 44px !important;
+  height: auto !important;
+  max-height: 96px !important;
+  margin: 8px 12px !important;
+  padding: 7px 10px !important;
+  box-sizing: border-box !important;
+  flex-wrap: wrap !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+.resume-writer-clean .resume-clean-workbench {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  grid-template-columns: minmax(320px, 42%) minmax(0, 58%) !important;
+}
+.resume-writer-clean .resume-clean-workbench.mode-source,
+.resume-writer-clean .resume-clean-workbench.mode-preview {
+  grid-template-columns: 1fr !important;
+}
+.resume-writer-clean .resume-clean-workbench.mode-split .resume-clean-editor,
+.resume-writer-clean .resume-clean-workbench.mode-split .resume-clean-preview {
+  display: block !important;
+  min-height: 0 !important;
+}
+.resume-writer-clean .resume-clean-editor {
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+.resume-writer-clean .resume-clean-editor textarea {
+  display: block !important;
+  min-height: 0 !important;
+}
+.resume-writer-clean .resume-clean-preview {
+  min-height: 0 !important;
+}
+
+/* Analysis: header and toolbar are fixed rows; panes own the only content scrolling. */
+.resume-module-body > .resume-analysis-page {
+  width: 100%;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 12px 20px 18px !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+.resume-analysis-page .analysis-compact-header {
+  position: relative;
+  flex: 0 0 auto !important;
+  min-width: 0;
+  min-height: 58px;
+  margin: 0 0 10px !important;
+  padding: 0 0 10px !important;
+  box-sizing: border-box;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid #e8edf6;
+}
+.resume-analysis-page .analysis-header-copy {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.resume-analysis-page .analysis-header-title {
+  flex: 0 0 auto;
+}
+.resume-analysis-page .analysis-header-title .eyebrow {
+  margin: 0 0 2px !important;
+  font-size: 10px;
+  line-height: 1.2 !important;
+}
+.resume-analysis-page .analysis-header-title h1 {
+  margin: 0 !important;
+  font-size: 22px !important;
+  line-height: 1.2 !important;
+}
+.resume-analysis-page .analysis-header-description {
+  min-width: 0;
+  margin: 0 !important;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.45 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resume-analysis-page .analysis-header-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.resume-analysis-page .analysis-header-actions .analysis-select-btn {
+  height: 38px;
+  min-width: 220px;
+  max-width: 340px;
+}
+.resume-analysis-page .analysis-header-actions .analysis-start-btn {
+  height: 38px !important;
+  padding: 0 20px !important;
+  white-space: nowrap;
+}
+.resume-analysis-page .analysis-header-actions .analysis-error {
+  position: absolute;
+  right: 0;
+  top: calc(100% - 6px);
+  z-index: 5;
+  max-width: min(480px, 60vw);
+  margin: 0 !important;
+  padding: 5px 9px;
+  border: 1px solid #fecdca;
+  border-radius: 8px;
+  background: #fef3f2;
+  box-shadow: 0 6px 16px rgba(180, 35, 24, 0.08);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.resume-analysis-page .resume-analysis-workbench {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+.resume-analysis-page .resume-analysis-split {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: auto !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  gap: 12px !important;
+  align-items: stretch !important;
+  overflow: hidden !important;
+}
+.resume-analysis-page .resume-original-pane,
+.resume-analysis-page .resume-analysis-pane {
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  box-sizing: border-box !important;
+  overflow: auto !important;
+}
+.resume-analysis-page .resume-original-pane.direct-preview-pane {
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+}
+.resume-analysis-page .resume-pdf-preview-shell,
+.resume-analysis-page .analysis-onlyoffice-shell,
+.resume-analysis-page .word-preview-box,
+.resume-analysis-page .analysis-empty-panel {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  min-height: 0 !important;
+  box-sizing: border-box !important;
+}
+.resume-analysis-page .resume-pdf-preview-shell {
+  overflow: hidden !important;
+}
+.resume-analysis-page .resume-doc-frame {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: calc(100% + 44px) !important;
+  min-height: 0 !important;
+}
+.resume-analysis-page .analysis-report-empty {
+  min-height: 100% !important;
+  box-sizing: border-box !important;
+}
+
+@media (max-width: 1250px) {
+  .resume-manager-page .resume-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+@media (max-width: 1000px) {
+  .resume-module-tabs {
+    overflow-x: auto !important;
+  }
+  .resume-analysis-page .analysis-header-description {
+    display: none;
+  }
+  .resume-writer-clean .resume-clean-topbar {
+    grid-template-columns: 1fr !important;
+  }
+  .resume-writer-clean .resume-title-area,
+  .resume-writer-clean .resume-clean-menu,
+  .resume-writer-clean .resume-clean-actions {
+    grid-column: 1 !important;
+  }
+  .resume-writer-clean .resume-clean-toolbar {
+    flex-wrap: nowrap !important;
+    max-height: none !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+  }
+  .resume-writer-clean .resume-clean-workbench.mode-split {
+    grid-template-columns: 1fr !important;
+  }
+  .resume-writer-clean .resume-clean-workbench.mode-split .resume-clean-preview {
+    display: none !important;
+  }
+  .resume-module-body > .resume-analysis-page {
+    overflow-y: auto !important;
+  }
+  .resume-analysis-page .resume-analysis-workbench {
+    overflow: visible !important;
+    flex: 0 0 auto !important;
+  }
+  .resume-analysis-page .resume-analysis-split {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    overflow: visible !important;
+  }
+  .resume-analysis-page .resume-original-pane,
+  .resume-analysis-page .resume-analysis-pane {
+    height: 560px !important;
+    min-height: 560px !important;
+  }
+}
+@media (max-width: 700px) {
+  .resume-module-body > .resume-manager-page {
+    padding: 16px !important;
+  }
+  .resume-manager-page .page-header {
+    flex-direction: column !important;
+  }
+  .resume-manager-actions {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+  }
+  .resume-manager-page .resume-card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .resume-manager-page .resume-manage-card {
+    grid-template-columns: 112px minmax(0, 1fr) !important;
+    padding: 12px !important;
+    gap: 12px !important;
+  }
+  .resume-manager-page .resume-thumb {
+    width: 112px !important;
+    height: 154px !important;
+    min-width: 112px !important;
+    min-height: 154px !important;
+  }
+  .resume-manager-page .resume-card-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .resume-module-body > .resume-analysis-page {
+    padding: 12px 14px 14px !important;
+  }
+  .resume-analysis-page .analysis-compact-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 10px !important;
+  }
+  .resume-analysis-page .analysis-header-copy {
+    width: 100%;
+  }
+  .resume-analysis-page .analysis-header-actions {
+    width: 100%;
+  }
+  .resume-analysis-page .analysis-header-actions .analysis-select-btn {
+    width: auto !important;
+    max-width: none !important;
+    min-width: 0;
+    flex: 1;
+  }
+  .resume-analysis-page .analysis-header-actions .analysis-error {
+    max-width: calc(100vw - 28px);
+  }
+}
