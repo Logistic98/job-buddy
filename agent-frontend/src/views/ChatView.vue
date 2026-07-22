@@ -36,11 +36,7 @@
         </div>
         <div v-else-if="!resume.items.length" class="empty-state compact">
           <strong>暂无简历</strong>
-          <p>可以直接在这里上传简历，不必跳转到简历管理页面。</p>
-          <label class="primary-btn upload-resume-btn inline-upload">
-            <input type="file" accept=".pdf,application/pdf" @change="uploadResumeFromPicker" />
-            {{ resume.uploading ? '上传中' : '上传简历' }}
-          </label>
+          <p>可点击上方“上传简历”按钮添加简历，不必跳转到简历管理页面。</p>
         </div>
         <div v-else class="resume-picker-list">
           <article
@@ -94,6 +90,7 @@ import ChatPanel from '../components/ChatPanel.vue'
 import { resumeThumbnailUrl } from '../api/resume'
 import { useChatStore } from '../stores/chat'
 import { useResumeStore } from '../stores/resume'
+import { validateFile } from '../utils/formValidation'
 import { resumePickerTitle } from '../utils/resumePicker'
 
 const router = useRouter()
@@ -123,6 +120,16 @@ async function uploadResumeFromPicker(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
   if (!file || resume.uploading) return
+  try {
+    validateFile(file, 'PDF 简历', {
+      extensions: ['pdf'],
+      mimeTypes: ['application/pdf'],
+      maxBytes: 20 * 1024 * 1024,
+    })
+  } catch (err) {
+    resume.error = err.message
+    return
+  }
   await resume.upload(file, chat.sessionId).catch(() => {})
 }
 function selectResumeForChat(item) {

@@ -25,12 +25,35 @@ export function isAbortError(error) {
   return error?.name === 'AbortError' || String(error?.message || '').includes('aborted')
 }
 
+export function extractErrorMessage(error, fallback = '请求失败，请稍后重试。', depth = 0) {
+  if (error === null || error === undefined || depth > 4) return fallback
+  if (typeof error === 'string' || typeof error === 'number') {
+    const text = String(error).trim()
+    return text && text !== '[object Object]' ? text : fallback
+  }
+  if (typeof error === 'object') {
+    for (const key of ['message', 'detail', 'summary', 'error', 'reason']) {
+      const value = error[key]
+      if (value !== null && value !== undefined && value !== error) {
+        const message = extractErrorMessage(value, '', depth + 1)
+        if (message) return message
+      }
+    }
+    if (error.code !== null && error.code !== undefined && String(error.code).trim()) {
+      return `请求处理失败（错误码：${String(error.code).trim()}）`
+    }
+    return fallback
+  }
+  const text = String(error).trim()
+  return text && text !== '[object Object]' ? text : fallback
+}
+
 export function formatSendError(error) {
-  const raw = error?.message || String(error || '')
+  const raw = extractErrorMessage(error)
   if (raw.includes('Failed to fetch') || raw.includes('NetworkError') || raw.includes('Load failed')) {
     return '服务暂时不可用，请确认后端服务已完全启动后再重试。'
   }
-  return raw || '请求失败，请稍后重试。'
+  return raw
 }
 
 export function isBossAuthenticated(status) {

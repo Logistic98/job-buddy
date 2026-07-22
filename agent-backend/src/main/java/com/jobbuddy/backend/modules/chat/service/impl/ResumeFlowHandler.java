@@ -1,5 +1,6 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.SELECTED_JOB_CONTEXT_KEY;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.compactMatchDetail;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.fallbackGeneralResumeMatchAnswer;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.manualTargetJobs;
@@ -9,8 +10,10 @@ import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.firstPrese
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValue;
 
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.dto.response.ChatMessageResponse;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
+import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
@@ -30,6 +33,7 @@ class ResumeFlowHandler {
   private final CurrentResumeLoader resumeLoader;
   private final ResumeStorageService resumeStorageService;
   private final JobRuntimeService jobRuntimeService;
+  private final ChatSessionStore sessionStore;
   private final AgentIntegrationService integrationService;
   private final RuntimeManagedRequestFactory requestFactory;
 
@@ -38,12 +42,14 @@ class ResumeFlowHandler {
       CurrentResumeLoader resumeLoader,
       ResumeStorageService resumeStorageService,
       JobRuntimeService jobRuntimeService,
+      ChatSessionStore sessionStore,
       AgentIntegrationService integrationService,
       RuntimeManagedRequestFactory requestFactory) {
     this.sender = sender;
     this.resumeLoader = resumeLoader;
     this.resumeStorageService = resumeStorageService;
     this.jobRuntimeService = jobRuntimeService;
+    this.sessionStore = sessionStore;
     this.integrationService = integrationService;
     this.requestFactory = requestFactory;
   }
@@ -53,7 +59,8 @@ class ResumeFlowHandler {
       String sessionId,
       ChatSessionState state,
       IntentResult intent,
-      String rawMessage)
+      String rawMessage,
+      Map<String, Object> directive)
       throws IOException {
     ResumeRecord resume = resumeLoader.loadCurrentResume(state);
     if (resume == null) {
@@ -63,12 +70,17 @@ class ResumeFlowHandler {
     String targetDescription =
         stringValue(
             firstPresent(intent.getSlots(), "target_job_description", "jd", "job_description"));
-    String targetRole =
-        stringValue(firstPresent(intent.getSlots(), "role", "target_role"), rawMessage);
+    String explicitTargetRole = stringValue(firstPresent(intent.getSlots(), "role", "target_role"));
+    String targetRole = stringValue(explicitTargetRole, rawMessage);
     List<Map<String, Object>> jobs =
-        state.jobs == null || state.jobs.isEmpty()
-            ? manualTargetJobs(targetRole, targetDescription, intent.getSlots())
-            : state.jobs;
+        resolveTargetJobs(
+            state,
+            rawMessage,
+            explicitTargetRole,
+            targetRole,
+            targetDescription,
+            intent.getSlots(),
+            shouldReusePreviousSlots(directive));
     if (jobs.isEmpty()) {
       Map<String, Object> detail = new LinkedHashMap<String, Object>();
       detail.put("basis", "general_role_knowledge");
@@ -112,7 +124,22 @@ class ResumeFlowHandler {
         state,
         toolStatus(
             "resume_match", "简历匹配分析", "running", "正在基于真实岗位或用户 JD 评估简历匹配。", intent.getSlots()));
-    Map<String, Object> match = jobRuntimeService.matchResume(resume, jobs, sessionId);
+    // 聊天气泡与匹配面板只消费核心结论。避免为整批岗位生成 dimensions、面试题等未展示的大对象，
+    // 使模型可以在同步工具预算内稳定完成；需要完整报告的分析任务仍可通过分段分析入口生成其他字段。
+    Map<String, Object> match =
+        jobRuntimeService.matchResumeSections(
+            resume,
+            jobs,
+            sessionId,
+            java.util.Arrays.asList(
+                "score",
+                "score_confidence",
+                "recommendation",
+                "reasoning",
+                "evidence",
+                "hits",
+                "gaps",
+                "limitations"));
     if (!match.containsKey("target"))
       match.put("target", targetDescription.isEmpty() ? targetRole : targetDescription);
     // 匹配结果写入内存状态，随本轮助手消息一并异步落库，避免单独的同步写阻塞 SSE。
@@ -228,6 +255,72 @@ class ResumeFlowHandler {
     response.put("resumeSummary", resumeSummary);
     response.put("basis", "general_role_knowledge_fallback");
     return response;
+  }
+
+  List<Map<String, Object>> resolveTargetJobs(
+      ChatSessionState state,
+      String rawMessage,
+      String explicitTargetRole,
+      String targetRole,
+      String targetDescription,
+      Map<String, Object> slots,
+      boolean reusePreviousSlots) {
+    Map<String, Object> selectedJob = selectedJobFromState(state);
+    boolean reuseSelectedJob =
+        !selectedJob.isEmpty()
+            && (reusePreviousSlots
+                || (stringValue(targetDescription).isEmpty()
+                    && (stringValue(explicitTargetRole).isEmpty()
+                        || isSelectedJobResumeFollowUp(rawMessage))));
+    if (reuseSelectedJob) return Collections.singletonList(selectedJob);
+    if (state != null && state.jobs != null && !state.jobs.isEmpty()) return state.jobs;
+    return manualTargetJobs(targetRole, targetDescription, slots);
+  }
+
+  static boolean isSelectedJobResumeFollowUp(String rawMessage) {
+    String message = stringValue(rawMessage);
+    if (!message.contains("简历")) return false;
+    return message.contains("这个")
+        || message.contains("这份")
+        || message.contains("现在")
+        || message.contains("当前")
+        || message.contains("换");
+  }
+
+  @SuppressWarnings("unchecked")
+  static boolean shouldReusePreviousSlots(Map<String, Object> directive) {
+    if (directive == null) return false;
+    Object taskValue = directive.get("task");
+    if (!(taskValue instanceof Map)) return false;
+    Object metadataValue = ((Map<String, Object>) taskValue).get("metadata");
+    if (!(metadataValue instanceof Map)) return false;
+    Object reuseValue = ((Map<String, Object>) metadataValue).get("reuse_previous_slots");
+    return Boolean.TRUE.equals(reuseValue) || "true".equalsIgnoreCase(stringValue(reuseValue));
+  }
+
+  @SuppressWarnings("unchecked")
+  Map<String, Object> selectedJobFromState(ChatSessionState state) {
+    if (state == null) return Collections.emptyMap();
+    Object selectedJob =
+        state.lastSlots == null ? null : state.lastSlots.get(SELECTED_JOB_CONTEXT_KEY);
+    if (selectedJob instanceof Map) {
+      return new LinkedHashMap<String, Object>((Map<String, Object>) selectedJob);
+    }
+    if (state.tenantId == null || state.userId == null || state.sessionId == null) {
+      return Collections.emptyMap();
+    }
+    // 兼容已有会话及槽位被历史版本覆盖的情况：具体岗位分析的助手消息已持久化 selectedJob 元数据，
+    // 从最近一条向前恢复即可，不需要数据库结构变更，也不会把整批岗位误当成选中岗位。
+    List<ChatMessageResponse> messages =
+        sessionStore.listMessages(state.tenantId, state.userId, state.sessionId);
+    for (int index = messages.size() - 1; index >= 0; index--) {
+      Map<String, Object> metadata = JSON.toMap(messages.get(index).getMetadata());
+      Object persistedSelectedJob = metadata.get("selectedJob");
+      if (persistedSelectedJob instanceof Map) {
+        return new LinkedHashMap<String, Object>((Map<String, Object>) persistedSelectedJob);
+      }
+    }
+    return Collections.emptyMap();
   }
 
   void handleResumeAnalyze(SseEmitter emitter, String sessionId, ChatSessionState state)

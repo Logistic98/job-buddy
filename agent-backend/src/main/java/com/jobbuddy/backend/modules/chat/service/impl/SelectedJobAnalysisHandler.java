@@ -1,5 +1,6 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.SELECTED_JOB_CONTEXT_KEY;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.toolStatus;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.firstPresent;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValue;
@@ -45,8 +46,18 @@ class SelectedJobAnalysisHandler {
       String rawMessage,
       Map<String, Object> selectedJob)
       throws IOException {
+    Map<String, Object> selectedJobContext = compactSelectedJob(selectedJob);
     Map<String, Object> startDetail = new LinkedHashMap<String, Object>();
-    startDetail.put("job", compactSelectedJob(selectedJob));
+    startDetail.put("job", selectedJobContext);
+    // 选中岗位属于后续“换一份简历再看”的会话上下文。复用已持久化的 lastSlots 承载保留键，
+    // 避免新增数据库字段，同时由主流程在下一轮任务理解覆盖 slots 时显式合并保留。
+    if (state != null) {
+      state.lastSlots =
+          state.lastSlots == null
+              ? new LinkedHashMap<String, Object>()
+              : new LinkedHashMap<String, Object>(state.lastSlots);
+      state.lastSlots.put(SELECTED_JOB_CONTEXT_KEY, selectedJobContext);
+    }
     sender.sendToolStatus(
         emitter,
         sessionId,
@@ -60,7 +71,7 @@ class SelectedJobAnalysisHandler {
           sessionId,
           state,
           "请先选择或上传 PDF 简历，再分析此岗位与简历的匹配度。",
-          Collections.<String, Object>singletonMap("selectedJob", compactSelectedJob(selectedJob)));
+          Collections.<String, Object>singletonMap("selectedJob", selectedJobContext));
       return;
     }
 
@@ -71,7 +82,7 @@ class SelectedJobAnalysisHandler {
     metadata.put("entrypoint", "chat.selected_job_analysis");
     metadata.put("runtime_execute", true);
     metadata.put("resume_id", state == null ? null : state.resumeId);
-    metadata.put("selected_job", compactSelectedJob(selectedJob));
+    metadata.put("selected_job", selectedJobContext);
     metadata.put("personal_context", requestFactory.buildPersonalContext(rawMessage, null, state));
 
     final StringBuilder buffer = new StringBuilder();
@@ -139,7 +150,7 @@ class SelectedJobAnalysisHandler {
 
     Map<String, Object> finalMeta = new LinkedHashMap<String, Object>();
     finalMeta.put("assistantId", assistantId);
-    finalMeta.put("selectedJob", compactSelectedJob(selectedJob));
+    finalMeta.put("selectedJob", selectedJobContext);
     if (!runtimeResult.isEmpty()) finalMeta.put("runtimeResult", resultDetail);
     if (!reasoning.isEmpty()) finalMeta.put("reasoning", reasoning);
     sender.sendAssistant(emitter, sessionId, state, answer, finalMeta);
@@ -148,6 +159,7 @@ class SelectedJobAnalysisHandler {
   private Map<String, Object> compactSelectedJob(Map<String, Object> job) {
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     if (job == null) return result;
+    putSelectedJobField(result, "securityId", job, "securityId", "id", "jobId", "encryptJobId");
     putSelectedJobField(result, "jobName", job, "jobName", "job_name", "title", "name");
     putSelectedJobField(result, "company", job, "brandName", "companyName", "company");
     putSelectedJobField(result, "salary", job, "salaryDesc", "salary", "salaryText", "jobSalary");

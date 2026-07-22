@@ -36,19 +36,20 @@ from app.models.schemas import (
     AgentRunRequest,
     ChatMessage,
     QueryRewrite,
+    ResolvedReference,
     TaskUnderstandingResult,
 )
-
 
 DEFAULT_TASK_UNDERSTANDING_PROMPT = """
 你是企业级 Agent Runtime 的任务理解与能力路由器。你只负责 Planner 前置理解，不执行工具。
 
 你必须基于 Profile 能力卡，把用户输入转成结构化 TaskUnderstandingResult。请遵守：
-1. 先理解上下文，再选择候选能力，保持业务能力可配置。
-2. 输出必须是严格 JSON，省略 Markdown。
-3. 只能选择能力卡中存在的 capability_id；无法判断时选择 default capability 或返回 needs_clarification。
-4. 高风险或缺少必填槽位的请求必须显式 needs_clarification 或 need_confirm。
-5. 技术问答、代码生成、复杂工程任务应进入 runtime/open_domain 能力。
+1. 先结合 recent_messages、previous_slots 与当前消息解析指代，再选择候选能力。
+2. resolved_query、retrieval_query 和 planner_query 必须是不依赖原对话也能理解的独立表达。
+3. 输出必须是严格 JSON，省略 Markdown。
+4. 只能选择能力卡中存在的 capability_id；无法可靠解析时返回 needs_clarification。
+5. 高风险或缺少必填槽位的请求必须显式 needs_clarification 或 need_confirm。
+6. 技术问答、代码生成、复杂工程任务应进入 runtime/open_domain 能力。
 
 输出 JSON schema:
 {
@@ -57,6 +58,8 @@ DEFAULT_TASK_UNDERSTANDING_PROMPT = """
   "planner_query": "用于 Planner 的可执行表达",
   "context_dependency": "none|optional|required",
   "context_type": [],
+  "resolved_references": [],
+  "reuse_previous_slots": false,
   "selected_capability_id": "capability id",
   "confidence": 0.0,
   "secondary": [],
@@ -274,7 +277,8 @@ class TaskUnderstandingService:
             or self.result_builder.default_capability(profile)
         )
         model_slots = data.get("slots") if isinstance(data.get("slots"), dict) else {}
-        reusable_slots = previous_slots if data.get("reuse_previous_slots") else {}
+        reuse_previous_slots = bool(data.get("reuse_previous_slots"))
+        reusable_slots = previous_slots if reuse_previous_slots else {}
         slots = {**reusable_slots, **model_slots}
         confidence = self._clamp_float(data.get("confidence"), 0.8)
         candidates = [
@@ -298,6 +302,15 @@ class TaskUnderstandingService:
             retrieval_query=str(data.get("retrieval_query") or result.rewritten_query.retrieval_query),
             planner_query=str(data.get("planner_query") or result.rewritten_query.planner_query),
         )
+        dependency = str(data.get("context_dependency") or "").strip().lower()
+        if dependency in {"none", "optional", "required"}:
+            result.context.dependency = dependency
+        if isinstance(data.get("context_type"), list):
+            result.context.context_type = [str(item) for item in data["context_type"] if str(item).strip()]
+        result.context.resolved_references = self._resolved_references(data.get("resolved_references"))
+        if isinstance(data.get("secondary"), list):
+            result.intent.secondary = [str(item) for item in data["secondary"] if str(item).strip()]
+        result.metadata["reuse_previous_slots"] = reuse_previous_slots
         if data.get("needs_clarification") is not None:
             result.clarification.needed = bool(data.get("needs_clarification"))
             result.clarification.blocking = result.clarification.needed
@@ -447,6 +460,23 @@ class TaskUnderstandingService:
     def _safe_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         allow_keys = set(self._GENERIC_METADATA_KEYS) | set(settings.business_metadata_keys)
         return {key: value for key, value in metadata.items() if key in allow_keys}
+
+    def _resolved_references(self, value: Any) -> List[ResolvedReference]:
+        if not isinstance(value, list):
+            return []
+        references: List[ResolvedReference] = []
+        for item in value:
+            if not isinstance(item, dict) or not str(item.get("text") or "").strip():
+                continue
+            references.append(
+                ResolvedReference(
+                    text=str(item.get("text")),
+                    resolved_to=str(item.get("resolved_to")) if item.get("resolved_to") is not None else None,
+                    source=str(item.get("source")) if item.get("source") is not None else None,
+                    confidence=self._clamp_float(item.get("confidence"), 0.0),
+                )
+            )
+        return references
 
     def _safe_list(self, value: Any) -> List[Any]:
         return value if isinstance(value, list) else []

@@ -46,8 +46,8 @@ class McpToolAdapter(BaseTool):
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
         try:
             result = await self._client.call_tool(self._remote_tool_name, arguments)
-        except McpProtocolError as e:
-            raise RuntimeError(f"MCP 调用协议异常: {e}")
+        except McpProtocolError as exc:
+            raise RuntimeError(f"MCP 调用协议异常: {exc}") from exc
 
         if result.get("is_error"):
             text = result.get("text") or ""

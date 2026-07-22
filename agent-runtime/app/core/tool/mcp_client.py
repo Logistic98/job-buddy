@@ -33,8 +33,8 @@ class McpClient:
         try:
             from mcp import ClientSession
             from mcp.client.streamable_http import streamablehttp_client
-        except ImportError as e:
-            raise McpProtocolError(f"未安装 mcp Python SDK: {e}")
+        except ImportError as exc:
+            raise McpProtocolError(f"未安装 mcp Python SDK: {exc}") from exc
 
         headers = dict(self.config.headers or {})
         async with streamablehttp_client(self.config.url, headers=headers) as (read_stream, write_stream, _):

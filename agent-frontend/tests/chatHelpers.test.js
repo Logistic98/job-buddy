@@ -49,8 +49,15 @@ describe('formatSendError', () => {
   it('passes through other messages', () => {
     expect(formatSendError({ message: '限流' })).toBe('限流')
   })
+  it('extracts nested structured errors without rendering object text', () => {
+    expect(formatSendError({ error: { message: '工具 resume_match 执行超时（125 秒）' } })).toBe(
+      '工具 resume_match 执行超时（125 秒）',
+    )
+    expect(formatSendError({ code: 'RUNTIME_TIMEOUT' })).toBe('请求处理失败（错误码：RUNTIME_TIMEOUT）')
+  })
   it('defaults when empty', () => {
     expect(formatSendError(null)).toBe('请求失败，请稍后重试。')
+    expect(formatSendError({})).toBe('请求失败，请稍后重试。')
   })
 })
 

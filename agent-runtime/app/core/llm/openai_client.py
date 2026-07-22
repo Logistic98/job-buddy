@@ -199,8 +199,8 @@ class OpenAICompatibleClient:
                     kind, piece = self._parse_stream_event(chunk)
                     if piece:
                         yield {"type": kind, "text": piece}
-        except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as e:
-            raise LLMServiceError(f"模型流式调用失败：{e}")
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as exc:
+            raise LLMServiceError(f"模型流式调用失败：{exc}") from exc
 
     def _build_payload(
         self,

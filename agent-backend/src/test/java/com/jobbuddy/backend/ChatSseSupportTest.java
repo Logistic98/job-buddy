@@ -137,8 +137,14 @@ class ChatSseSupportTest {
     Map<String, Object> match = new LinkedHashMap<String, Object>();
     match.put("matches", Arrays.asList(top));
     assertTrue(ChatSseSupport.resumeMatchSummary(match).contains("88"));
+
+    Map<String, Object> insufficient = new LinkedHashMap<String, Object>();
+    insufficient.put("score_confidence", "low");
+    insufficient.put("recommendation", "证据不足");
+    match.put("matches", Arrays.asList(insufficient));
+    assertTrue(ChatSseSupport.resumeMatchSummary(match).contains("缺少完整 JD"));
     assertEquals(
-        "简历匹配已完成，详情已更新到岗位匹配面板。",
+        "简历匹配已完成，匹配详情已同步到当前岗位卡片。",
         ChatSseSupport.resumeMatchSummary(new LinkedHashMap<String, Object>()));
   }
 

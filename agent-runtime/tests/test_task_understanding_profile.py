@@ -11,6 +11,7 @@ class FakeIntentLLM:
         self.calls = 0
 
     async def chat(self, messages, tools=None, temperature=None, max_tokens=None, **kwargs):
+        self.last_messages = messages
         self.last_kwargs = kwargs
         self.calls += 1
         import json
@@ -126,6 +127,81 @@ async def test_task_understanding_uses_llm_result_before_semantic_fallback():
     assert result.intent.intent == "resume.match"
     assert result.next_action == "run_resume_match"
     assert result.slots.filled["role"] == "Agent 应用开发"
+
+
+@pytest.mark.asyncio
+async def test_task_understanding_rewrites_resume_switch_follow_up_with_recent_context():
+    llm = FakeIntentLLM(
+        {
+            "resolved_query": "使用当前6年经验简历重新评估上一轮选中的美团AI大模型应用工程师岗位",
+            "retrieval_query": "当前简历与上一轮美团岗位匹配分析",
+            "planner_query": "读取当前简历并复评上一轮选中的美团AI大模型应用工程师岗位",
+            "context_dependency": "required",
+            "context_type": ["recent_dialogue", "resume", "current_jobs"],
+            "resolved_references": [
+                {
+                    "text": "现在这个6年的简历",
+                    "resolved_to": "当前选中的6年经验简历",
+                    "source": "metadata",
+                    "confidence": 0.98,
+                },
+                {
+                    "text": "呢",
+                    "resolved_to": "重新评估上一轮选中的美团岗位",
+                    "source": "previous_slots",
+                    "confidence": 0.96,
+                },
+            ],
+            "reuse_previous_slots": True,
+            "selected_capability_id": "resume.match",
+            "confidence": 0.96,
+            "secondary": ["resume_switched", "reuse_selected_job"],
+            "slots": {},
+            "missing_required": [],
+            "needs_clarification": False,
+            "clarification_question": None,
+            "risk_level": "low",
+            "answer": None,
+            "reason": "当前追问要求用新简历复评上一轮岗位",
+        }
+    )
+    selected_job = {
+        "jobName": "AI大模型应用工程师",
+        "company": "美团",
+        "description": "负责大模型应用开发与工程化落地",
+    }
+    service = TaskUnderstandingService(llm_client=llm)
+    request = AgentRunRequest(
+        messages=[
+            ChatMessage(role="user", content="分析此岗位与当前简历的匹配度"),
+            ChatMessage(role="assistant", content="已完成当前岗位与简历的匹配分析。"),
+            ChatMessage(role="user", content="现在这个6年的简历呢"),
+        ],
+        metadata={
+            "profile": "job-buddy",
+            "resume_id": "resume-6-years",
+            "previous_slots": {"_selected_job": selected_job},
+        },
+    )
+
+    result = await service.understand(request, "s1", "r1", "t1")
+
+    assert result.intent.intent == "resume.match"
+    assert result.next_action == "run_resume_match"
+    assert result.clarification.needed is False
+    assert result.rewritten_query.planner_query.startswith("读取当前简历并复评上一轮")
+    assert result.context.dependency == "required"
+    assert result.context.context_type == ["recent_dialogue", "resume", "current_jobs"]
+    assert result.context.resolved_references[0].resolved_to == "当前选中的6年经验简历"
+    assert result.intent.secondary == ["resume_switched", "reuse_selected_job"]
+    assert result.slots.filled["_selected_job"] == selected_job
+    assert result.metadata["reuse_previous_slots"] is True
+
+    import json
+
+    prompt_payload = json.loads(llm.last_messages[-1].content)
+    assert prompt_payload["recent_messages"][-1]["content"] == "现在这个6年的简历呢"
+    assert prompt_payload["previous_slots"]["_selected_job"]["company"] == "美团"
 
 
 @pytest.mark.asyncio

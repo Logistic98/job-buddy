@@ -44,7 +44,7 @@ class EmbeddingClient:
             fetched = await self._fetch(missing)
             if fetched is None:
                 return None
-            for text, vector in zip(missing, fetched):
+            for text, vector in zip(missing, fetched, strict=False):
                 self._cache_put(self._cache_key(text), vector)
         try:
             return [self._cache[self._cache_key(text)] for text in texts]

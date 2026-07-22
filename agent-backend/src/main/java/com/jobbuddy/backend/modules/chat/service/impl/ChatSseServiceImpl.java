@@ -1,5 +1,6 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.SELECTED_JOB_CONTEXT_KEY;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.directiveAction;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.intentFromRuntime;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.intentHint;
@@ -7,6 +8,7 @@ import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.matchesCapab
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.summarizeRuntimeResult;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.toolStatus;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.withSelectedJobContext;
+import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.errorMessage;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValue;
 
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
@@ -36,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -73,7 +76,9 @@ public class ChatSseServiceImpl implements ChatSseService {
           new ThreadPoolExecutor.CallerRunsPolicy());
   private final ChatPersistenceCoordinator persistence;
   private final ChatSseEventSender sender;
+  private final ChatSseHeartbeatScheduler heartbeatScheduler;
   private final ChatMemoryWriter memoryWriter;
+  private final ChatTaskContextBuilder taskContextBuilder;
   private final RuntimeManagedRequestFactory requestFactory;
   private final SelectedJobAnalysisHandler selectedJobAnalysisHandler;
   private final ResumeFlowHandler resumeFlowHandler;
@@ -113,7 +118,10 @@ public class ChatSseServiceImpl implements ChatSseService {
     this.persistence =
         new ChatPersistenceCoordinator(sessionStore, namedThreadFactory("chat-persist"));
     this.sender = new ChatSseEventSender(emitterCancelled, persistence);
+    this.heartbeatScheduler =
+        new ChatSseHeartbeatScheduler(namedThreadFactory("chat-sse-heartbeat"));
     this.memoryWriter = new ChatMemoryWriter(settingsService, executor);
+    this.taskContextBuilder = new ChatTaskContextBuilder(sessionStore);
     this.requestFactory =
         new RuntimeManagedRequestFactory(integrationService, personalContextBuilder, properties);
     CurrentResumeLoader resumeLoader = new CurrentResumeLoader(resumeStorageService);
@@ -126,6 +134,7 @@ public class ChatSseServiceImpl implements ChatSseService {
             resumeLoader,
             resumeStorageService,
             jobRuntimeService,
+            sessionStore,
             integrationService,
             requestFactory);
     this.jobRecommendHandler =
@@ -137,6 +146,7 @@ public class ChatSseServiceImpl implements ChatSseService {
   @PreDestroy
   public void shutdownExecutors() {
     executor.shutdownNow();
+    heartbeatScheduler.shutdown();
     // 持久化队列允许已提交任务执行完毕，避免关停时丢失尚未落库的会话消息。
     persistence.shutdown();
   }
@@ -148,6 +158,8 @@ public class ChatSseServiceImpl implements ChatSseService {
     final SseEmitter emitter = new SseEmitter(emitterTimeoutMillis);
     final AtomicBoolean cancelled = new AtomicBoolean(false);
     final AtomicReference<Future<?>> taskRef = new AtomicReference<Future<?>>();
+    final AtomicReference<ScheduledFuture<?>> heartbeatRef =
+        new AtomicReference<ScheduledFuture<?>>();
     emitterCancelled.put(emitter, cancelled);
     emitter.onCompletion(
         new Runnable() {
@@ -155,6 +167,7 @@ public class ChatSseServiceImpl implements ChatSseService {
           public void run() {
             // 正常完成或容器侧关闭连接后，阻止后台任务继续向该连接写事件。
             cancelled.set(true);
+            heartbeatScheduler.stop(heartbeatRef.get());
           }
         });
     emitter.onTimeout(
@@ -162,6 +175,7 @@ public class ChatSseServiceImpl implements ChatSseService {
           @Override
           public void run() {
             cancelled.set(true);
+            heartbeatScheduler.stop(heartbeatRef.get());
             log.warn(
                 "SSE 连接超时（{}ms），取消后台任务 sessionId={}", emitterTimeoutMillis, request.getSessionId());
             cancelTask(taskRef);
@@ -172,6 +186,7 @@ public class ChatSseServiceImpl implements ChatSseService {
           @Override
           public void accept(Throwable throwable) {
             cancelled.set(true);
+            heartbeatScheduler.stop(heartbeatRef.get());
             // 客户端断开是常态路径，debug 留痕即可；同时中断后台任务，释放线程池与下游 Runtime 连接。
             log.debug(
                 "SSE 连接异常（客户端可能已断开）sessionId={}: {}",
@@ -213,10 +228,10 @@ public class ChatSseServiceImpl implements ChatSseService {
                         request.getSessionId(),
                         e.getMessage());
                   } else {
-                    log.warn("SSE 会话处理异常: {}", e.getMessage(), e);
+                    String message = errorMessage(e, "智能引擎处理失败，请稍后重试。");
+                    log.warn("SSE 会话处理异常: {}", message, e);
                     try {
-                      sender.send(
-                          emitter, "error", Collections.singletonMap("message", e.getMessage()));
+                      sender.send(emitter, "error", Collections.singletonMap("message", message));
                       sender.send(emitter, "done", Collections.singletonMap("ok", false));
                     } catch (Exception sendError) {
                       // 客户端可能已断开，写 SSE 失败属预期，debug 留痕即可。
@@ -225,13 +240,35 @@ public class ChatSseServiceImpl implements ChatSseService {
                   }
                   sender.completeQuietly(emitter);
                 } finally {
-                  // 任务结束后清理取消标记与线程身份，避免线程池复用时串用其他用户凭据。
+                  // 任务结束后停止保活并清理取消标记与线程身份，避免连接泄漏或线程池复用时串用其他用户凭据。
+                  cancelled.set(true);
+                  heartbeatScheduler.stop(heartbeatRef.get());
                   emitterCancelled.remove(emitter);
                   AuthenticationScope.clear();
                 }
               }
             });
     taskRef.set(future);
+    long heartbeatIntervalMillis =
+        agentServiceProperties.getStreamHeartbeatInterval() == null
+            ? 0L
+            : agentServiceProperties.getStreamHeartbeatInterval().toMillis();
+    ScheduledFuture<?> heartbeat =
+        heartbeatScheduler.start(
+            emitter,
+            sender,
+            cancelled,
+            heartbeatIntervalMillis,
+            request.getSessionId(),
+            new Runnable() {
+              @Override
+              public void run() {
+                cancelTask(taskRef);
+              }
+            });
+    heartbeatRef.set(heartbeat);
+    // 极短请求可能在心跳任务登记前已经结束；登记后再次检查，避免留下永不发送但持续调度的任务。
+    if (cancelled.get()) heartbeatScheduler.stop(heartbeat);
     return emitter;
   }
 
@@ -391,7 +428,16 @@ public class ChatSseServiceImpl implements ChatSseService {
     Map<String, Object> directive =
         runTaskUnderstanding(sessionId, effectiveMessage, state, preIntent);
     IntentResult intent = intentFromRuntime(directive);
-    state.lastSlots = intent.getSlots();
+    Object selectedJobContext =
+        state.lastSlots == null ? null : state.lastSlots.get(SELECTED_JOB_CONTEXT_KEY);
+    state.lastSlots =
+        intent.getSlots() == null
+            ? new LinkedHashMap<String, Object>()
+            : new LinkedHashMap<String, Object>(intent.getSlots());
+    if (selectedJobContext instanceof Map) {
+      // Runtime 每轮会产生新的业务槽位，但上一轮明确选中的岗位需要跨轮保留，供“换简历再看”复评。
+      state.lastSlots.put(SELECTED_JOB_CONTEXT_KEY, selectedJobContext);
+    }
     sender.send(emitter, "intent", intent);
     sender.sendToolStatus(
         emitter,
@@ -420,6 +466,7 @@ public class ChatSseServiceImpl implements ChatSseService {
     // 把一次多余的 LLM/工具往返从首字延迟链路上移除；真正的答案合成由后续流式托管调用完成。
     Map<String, Object> request =
         RuntimeRequestBuilder.forEntrypoint(sessionId, message, "chat.stream")
+            .messages(taskContextBuilder.build(state, message))
             .budget(1, 0, 1)
             .metadata("understanding_only", true)
             .metadata("intent_hint", intentHint(preIntent))
@@ -475,7 +522,7 @@ public class ChatSseServiceImpl implements ChatSseService {
     }
     if (matchesCapability(
         action, intent, "call_resume_match", "run_resume_match", "resume.match")) {
-      resumeFlowHandler.handleResumeMatch(emitter, sessionId, state, intent, rawMessage);
+      resumeFlowHandler.handleResumeMatch(emitter, sessionId, state, intent, rawMessage, directive);
       return;
     }
     if (matchesCapability(

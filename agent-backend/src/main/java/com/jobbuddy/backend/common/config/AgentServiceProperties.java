@@ -15,9 +15,10 @@ public class AgentServiceProperties {
   private String sandboxUrl;
   private String internalServiceToken;
   private Duration connectTimeout = Duration.ofSeconds(2);
-  private Duration readTimeout = Duration.ofSeconds(75);
+  private Duration readTimeout = Duration.ofSeconds(135);
   private Duration streamConnectTimeout = Duration.ofSeconds(10);
   private Duration streamReadTimeout = Duration.ofSeconds(180);
+  private Duration streamHeartbeatInterval = Duration.ofSeconds(10);
   private int maxAttempts = 2;
   private Duration retryBackoff = Duration.ofMillis(200);
   private int circuitFailureThreshold = 5;
@@ -134,6 +135,14 @@ public class AgentServiceProperties {
 
   public void setStreamReadTimeout(Duration streamReadTimeout) {
     this.streamReadTimeout = streamReadTimeout;
+  }
+
+  public Duration getStreamHeartbeatInterval() {
+    return streamHeartbeatInterval;
+  }
+
+  public void setStreamHeartbeatInterval(Duration streamHeartbeatInterval) {
+    this.streamHeartbeatInterval = streamHeartbeatInterval;
   }
 
   public int getMaxAttempts() {

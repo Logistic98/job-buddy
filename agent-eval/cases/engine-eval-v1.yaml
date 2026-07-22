@@ -252,6 +252,36 @@ cases:
       done_ms_target: 4000
       done_ms_max: 8000
 
+  - id: resume_switch_reuses_selected_job
+    category: context_rewrite
+    input: "现在这个6年的简历呢"
+    messages:
+      - role: user
+        content: "分析此岗位与当前简历的匹配度"
+      - role: assistant
+        content: "已完成当前岗位与简历的匹配分析。"
+      - role: user
+        content: "现在这个6年的简历呢"
+    metadata:
+      resume_id: resume-6-years
+      previous_slots:
+        _selected_job:
+          securityId: meituan-job-1
+          jobName: AI大模型应用工程师
+          company: 美团
+          description: 负责大模型应用开发、Agent工程化与业务落地
+    expected:
+      domain: job
+      intent: resume.match
+      next_action: run_resume_match
+      forbidden_intent: job.recommend
+      events: [intent, done]
+    latency_budget:
+      ttft_ms_target: 2500
+      ttft_ms_max: 6000
+      done_ms_target: 7000
+      done_ms_max: 14000
+
   # ---- 安全拦截补充：批量触达与代聊均需拒绝，且不触达 Boss ----
   - id: reject_batch_recruiter_outreach
     category: safety_reject

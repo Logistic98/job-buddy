@@ -123,12 +123,17 @@ class BaseTool(ABC):
                 metadata=metadata,
             )
         except (ValueError, TimeoutError, asyncio.TimeoutError) as e:
-            logger.warning(f"工具执行失败：tool={self.name}, error={e}")
+            if isinstance(e, (TimeoutError, asyncio.TimeoutError)):
+                configured_timeout = self.timeout_seconds or settings.tool_timeout_seconds
+                error_message = f"工具 {self.name} 执行超时（{configured_timeout} 秒）"
+            else:
+                error_message = str(e).strip() or f"工具 {self.name} 执行失败"
+            logger.warning(f"工具执行失败：tool={self.name}, error={error_message}")
             return ToolResult(
                 tool_call_id=tool_call.id,
                 tool_name=self.name,
                 success=False,
-                error=str(e),
+                error=error_message,
                 latency_ms=TimeUtils.calculate_latency_ms(start_timestamp, TimeUtils.get_timestamp()),
             )
         except Exception as e:

@@ -9,6 +9,7 @@ import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService.JobProgressConsumer;
 import com.jobbuddy.backend.modules.chat.service.RuntimeToolClient;
+import com.jobbuddy.backend.modules.chat.util.ChatValueSupport;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
@@ -573,7 +574,8 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     if (sections != null && !sections.isEmpty()) args.put("sections", sections);
     Map<String, Object> result = runtimeToolClient.invoke("resume_match", args, sessionId, null);
     if (!Boolean.TRUE.equals(result.get("success"))) {
-      throw new RuntimeException(String.valueOf(result.get("error")));
+      throw new RuntimeException(
+          ChatValueSupport.errorMessage(result.get("error"), "Runtime 简历匹配执行失败，请稍后重试。"));
     }
     Object output = result.get("output");
     Map<String, Object> match =

@@ -25,13 +25,13 @@ from app.core.llm.openai_client import LLMServiceError, OpenAICompatibleClient
 from app.core.tool.base import BaseTool, ToolExecutionContext
 from app.models.schemas import ChatMessage
 
-
 MAX_RESUME_TEXT_CHARS = 9000
 MAX_RESUME_PARSE_TOKENS = 3072
 MAX_RESUME_ANALYSIS_TOKENS = 4096
 MAX_RESUME_MATCH_TOKENS = 8192
 MAX_PROFILE_SUMMARY_TOKENS = 1024
-MAX_JOBS_PER_MATCH = 80
+# 单次模型调用需要为每个岗位输出结构化证据，过大的批次会使响应稳定超过工具超时并被取消。
+MAX_JOBS_PER_MATCH = 15
 
 RESUME_SCORE_DIMENSIONS = {
     "content_completeness": {"label": "内容完整性", "weight": 15},
@@ -50,8 +50,8 @@ def _resolve_workspace_path(file_path: str, workspace_dir: str) -> Path:
     target = target.resolve()
     try:
         target.relative_to(base)
-    except ValueError:
-        raise ValueError(f"路径越界,必须位于 workspace 下: {file_path}")
+    except ValueError as exc:
+        raise ValueError(f"路径越界,必须位于 workspace 下: {file_path}") from exc
     if not target.exists():
         raise ValueError(f"文件不存在: {target}")
     if not target.is_file():
@@ -69,8 +69,8 @@ def _read_resume_text(path: Path) -> str:
 def _extract_pdf_text(path: Path) -> str:
     try:
         from pypdf import PdfReader
-    except ImportError as e:
-        raise RuntimeError(f"未安装 pypdf,无法解析 PDF: {e}")
+    except ImportError as exc:
+        raise RuntimeError(f"未安装 pypdf,无法解析 PDF: {exc}") from exc
 
     reader = PdfReader(str(path))
     chunks: List[str] = []
@@ -114,7 +114,7 @@ def _extract_json(text: str) -> Any:
                 pass
 
         preview = candidate[:200].replace("\n", " ")
-        raise ValueError(f"LLM 输出不是完整 JSON：{first_error.msg}; preview={preview}")
+        raise ValueError(f"LLM 输出不是完整 JSON：{first_error.msg}; preview={preview}") from first_error
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -137,8 +137,8 @@ def _normalize_resume_score_breakdown(value: Any) -> tuple[int, Dict[str, Dict[s
         raw_score = item.get("score")
         try:
             numeric_score = float(raw_score)
-        except (TypeError, ValueError):
-            raise ValueError(f"简历评分维度 {key} 的 score 不是数字")
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"简历评分维度 {key} 的 score 不是数字") from exc
         if numeric_score != numeric_score or numeric_score in (float("inf"), float("-inf")):
             raise ValueError(f"简历评分维度 {key} 的 score 不是有限数字")
         score = int(max(0, min(100, numeric_score)) + 0.5)
@@ -221,8 +221,8 @@ class ResumeParseTool(BaseTool):
             response = await self._client().chat(
                 messages=messages, temperature=0.0, max_tokens=MAX_RESUME_PARSE_TOKENS, disable_thinking=True
             )
-        except LLMServiceError as e:
-            raise RuntimeError(f"简历抽取调用 LLM 失败：{e}")
+        except LLMServiceError as exc:
+            raise RuntimeError(f"简历抽取调用 LLM 失败：{exc}") from exc
 
         content = response.get("content") or ""
         data = _extract_json(content)
@@ -346,8 +346,8 @@ class ResumeAnalyzeTool(BaseTool):
             response = await self._client().chat(
                 messages=messages, temperature=0.1, max_tokens=MAX_RESUME_ANALYSIS_TOKENS, disable_thinking=True
             )
-        except LLMServiceError as e:
-            raise RuntimeError(f"简历分析调用 LLM 失败：{e}")
+        except LLMServiceError as exc:
+            raise RuntimeError(f"简历分析调用 LLM 失败：{exc}") from exc
         data = _extract_json(response.get("content") or "")
         if not isinstance(data, dict):
             raise ValueError("LLM 输出的简历分析不是 JSON 对象")
@@ -425,8 +425,8 @@ class JobProfileSummaryTool(BaseTool):
             response = await self._client().chat(
                 messages=messages, temperature=0.1, max_tokens=MAX_PROFILE_SUMMARY_TOKENS, disable_thinking=True
             )
-        except LLMServiceError as e:
-            raise RuntimeError(f"画像摘要调用 LLM 失败：{e}")
+        except LLMServiceError as exc:
+            raise RuntimeError(f"画像摘要调用 LLM 失败：{exc}") from exc
         data = _extract_json(response.get("content") or "")
         if not isinstance(data, dict):
             raise ValueError("LLM 输出的画像摘要不是 JSON 对象")
@@ -514,7 +514,8 @@ class ResumeMatchTool(BaseTool):
         "required": ["resume", "jobs"],
     }
     tags = ["resume", "job", "match"]
-    timeout_seconds = 60
+    # 底层 LLM 单次请求默认允许 120 秒；工具预算必须略大于模型预算，不能在模型仍正常生成时提前取消。
+    timeout_seconds = 125
     risk_level = ToolRiskLevel.LOW
     read_only = True
 
@@ -590,8 +591,8 @@ class ResumeMatchTool(BaseTool):
                 max_tokens=MAX_RESUME_MATCH_TOKENS,
                 disable_thinking=True,
             )
-        except LLMServiceError as e:
-            raise RuntimeError(f"岗位匹配调用 LLM 失败：{e}")
+        except LLMServiceError as exc:
+            raise RuntimeError(f"岗位匹配调用 LLM 失败：{exc}") from exc
 
         content = response.get("content") or ""
         data = _extract_json(content)

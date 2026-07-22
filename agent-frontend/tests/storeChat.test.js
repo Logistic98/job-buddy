@@ -183,7 +183,7 @@ describe('chat store - send', () => {
     handlers.message?.({ content: '账号 A 的最终回答' })
     handlers.done?.({ ok: true })
     finish()
-    await sending
+    await expect(sending).resolves.toBe(false)
 
     expect(store.messages).toEqual([])
     expect(store.sessionSnapshots).toEqual({})

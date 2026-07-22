@@ -20,6 +20,7 @@
   # 离线自检（不连真实引擎，用内置样例事件流验证评分链路）：
   uv run python scripts/run_engine_eval.py --self-check
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,19 +49,30 @@ def _now_ms(start: float) -> int:
     return int((time.perf_counter() - start) * 1000)
 
 
+def _case_payload(case: dict) -> dict:
+    """构造与生产任务理解协议一致的请求，允许用例提供多轮消息和结构化会话槽位。"""
+    messages = case.get("messages")
+    if not isinstance(messages, list) or not messages:
+        messages = [{"role": "user", "content": case["input"]}]
+    metadata = {
+        "eval": True,
+        "case_id": case.get("id"),
+        # 与生产链路对齐：Java 后端固定注入 job-buddy profile，缺失会回退为 general.chat。
+        "profile": case.get("runtime_profile", "job-buddy"),
+    }
+    if isinstance(case.get("metadata"), dict):
+        metadata.update(case["metadata"])
+    payload = {"messages": messages, "stream": True, "metadata": metadata}
+    if case.get("session_id"):
+        payload["session_id"] = case["session_id"]
+    return payload
+
+
 def _stream_case(runtime_url: str, case: dict, timeout: float) -> dict:
     """发起一次流式请求，返回采集到的事件、时延指标与终态聚合。"""
     import httpx
 
-    payload = {
-        "messages": [{"role": "user", "content": case["input"]}],
-        "stream": True,
-        # 与生产链路对齐：Java 后端 RuntimeRequestBuilder 固定注入 metadata.profile=job-buddy，
-        # 缺失会落到 default profile，意图全部塌缩为 general.chat。
-        "metadata": {"eval": True, "case_id": case.get("id"), "profile": case.get("runtime_profile", "job-buddy")},
-    }
-    if case.get("session_id"):
-        payload["session_id"] = case["session_id"]
+    payload = _case_payload(case)
 
     metrics: dict[str, Any] = {"ttfb_ms": None, "ttft_ms": None, "ttfr_ms": None, "done_ms": None}
     events: list[dict] = []
@@ -79,11 +91,11 @@ def _stream_case(runtime_url: str, case: dict, timeout: float) -> dict:
                         continue
                     line = raw.decode() if isinstance(raw, bytes) else raw
                     if line.startswith("event:"):
-                        event_name = line[len("event:"):].strip()
+                        event_name = line[len("event:") :].strip()
                         continue
                     if not line.startswith("data:"):
                         continue
-                    data_str = line[len("data:"):].strip()
+                    data_str = line[len("data:") :].strip()
                     if data_str == "[DONE]":
                         break
                     elapsed = _now_ms(start)
@@ -156,25 +168,59 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
         checks.append({"code": code, "passed": bool(ok), "detail": detail})
 
     if "intent" in exp:
-        add("intent", directive.get("intent") == exp["intent"], {"actual": directive.get("intent"), "expected": exp["intent"]})
+        add(
+            "intent",
+            directive.get("intent") == exp["intent"],
+            {"actual": directive.get("intent"), "expected": exp["intent"]},
+        )
     if "domain" in exp:
-        add("domain", directive.get("domain") == exp["domain"], {"actual": directive.get("domain"), "expected": exp["domain"]})
+        add(
+            "domain",
+            directive.get("domain") == exp["domain"],
+            {"actual": directive.get("domain"), "expected": exp["domain"]},
+        )
     if "next_action" in exp:
-        add("next_action", directive.get("next_action") == exp["next_action"], {"actual": directive.get("next_action"), "expected": exp["next_action"]})
+        add(
+            "next_action",
+            directive.get("next_action") == exp["next_action"],
+            {"actual": directive.get("next_action"), "expected": exp["next_action"]},
+        )
     if "forbidden_intent" in exp:
-        add("forbidden_intent", directive.get("intent") != exp["forbidden_intent"], {"actual": directive.get("intent"), "forbidden": exp["forbidden_intent"]})
+        add(
+            "forbidden_intent",
+            directive.get("intent") != exp["forbidden_intent"],
+            {"actual": directive.get("intent"), "forbidden": exp["forbidden_intent"]},
+        )
     if "router_in" in exp:
-        add("router_in", directive.get("router") in exp["router_in"], {"actual": directive.get("router"), "allowed": exp["router_in"]})
+        add(
+            "router_in",
+            directive.get("router") in exp["router_in"],
+            {"actual": directive.get("router"), "allowed": exp["router_in"]},
+        )
     if "expect_status" in exp:
-        add("expect_status", status == str(exp["expect_status"]).lower(), {"actual": status, "expected": exp["expect_status"]})
+        add(
+            "expect_status",
+            status == str(exp["expect_status"]).lower(),
+            {"actual": status, "expected": exp["expect_status"]},
+        )
     if "stop_reason" in exp:
-        add("stop_reason", stop_reason == str(exp["stop_reason"]).lower(), {"actual": stop_reason, "expected": exp["stop_reason"]})
+        add(
+            "stop_reason",
+            stop_reason == str(exp["stop_reason"]).lower(),
+            {"actual": stop_reason, "expected": exp["stop_reason"]},
+        )
     if exp.get("needs_clarification"):
         add("needs_clarification", bool(directive.get("needs_clarification")) or stop_reason == "need_clarification")
     if "answer_min_chars" in exp:
-        add("answer_min_chars", len(answer.strip()) >= int(exp["answer_min_chars"]), {"chars": len(answer.strip()), "min": exp["answer_min_chars"]})
+        add(
+            "answer_min_chars",
+            len(answer.strip()) >= int(exp["answer_min_chars"]),
+            {"chars": len(answer.strip()), "min": exp["answer_min_chars"]},
+        )
     if exp.get("expect_rejection"):
-        rejected = stop_reason in {"safety_blocked", "rejected"} or any(w in answer for w in ["不能", "无法", "不支持", "拒绝", "不会"])
+        rejected = stop_reason in {"safety_blocked", "rejected"} or any(
+            w in answer for w in ["不能", "无法", "不支持", "拒绝", "不会"]
+        )
         add("expect_rejection", rejected, {"stop_reason": stop_reason})
     if exp.get("disallow_boss"):
         blob = (answer + json.dumps(sample.get("events"), ensure_ascii=False)).lower()
@@ -208,7 +254,11 @@ def _evaluate_sample(case: dict, sample: dict) -> dict:
         "error": sample.get("error"),
         "metrics": run.get("metrics"),
         "effect": {"score": effect_score, "checks": effect},
-        "process": {"score": process.get("score"), "passed": process.get("passed"), "missing_events": process.get("missing_events")},
+        "process": {
+            "score": process.get("score"),
+            "passed": process.get("passed"),
+            "missing_events": process.get("missing_events"),
+        },
         "speed": {"score": speed.get("score"), "passed": speed.get("passed"), "issues": speed.get("issues")},
         "quality": {"score": quality.get("score"), "passed": quality.get("passed"), "issues": quality.get("issues")},
         "answer_preview": (run.get("answer") or "")[:160],
@@ -302,7 +352,15 @@ def _write_reports(out_dir: Path, results: list[dict], raw: list[dict], meta: di
 
 
 def _render_markdown(results: list[dict], meta: dict) -> str:
-    lines = ["# 智能引擎评估报告", "", f"- 时间：{meta['timestamp']}", f"- Runtime：{meta['runtime_url']}", f"- 重复次数/用例：{meta['repeats']}", f"- 执行用例：{len(results)}（跳过 {meta['skipped']} 个高风控 Boss 用例）", ""]
+    lines = [
+        "# 智能引擎评估报告",
+        "",
+        f"- 时间：{meta['timestamp']}",
+        f"- Runtime：{meta['runtime_url']}",
+        f"- 重复次数/用例：{meta['repeats']}",
+        f"- 执行用例：{len(results)}（跳过 {meta['skipped']} 个高风控 Boss 用例）",
+        "",
+    ]
     total = len(results)
     stable = sum(1 for r in results if r["pass_pow_k"])
     lines.append(f"- 稳定通过（pass^k）：{stable}/{total}")
@@ -316,13 +374,16 @@ def _render_markdown(results: list[dict], meta: dict) -> str:
         done = lat.get("done_ms", {})
         lines.append(
             "| {id} | {cat} | {pk} | {pr} | {ttfb} | {ttft} | {done} | {eff} | {spd} | {proc} |".format(
-                id=r["id"], cat=r["category"],
+                id=r["id"],
+                cat=r["category"],
                 pk="✅" if r["pass_pow_k"] else "❌",
                 pr=f"{r['pass_rate']:.0%}",
                 ttfb=ttfb.get("p50", "-"),
-                ttft=f"{ttft.get('p50','-')}/{ttft.get('max','-')}",
-                done=f"{done.get('p50','-')}/{done.get('max','-')}",
-                eff=f"{r['effect_score']:.2f}", spd=f"{r['speed_score']:.2f}", proc=f"{r['process_score']:.2f}",
+                ttft=f"{ttft.get('p50', '-')}/{ttft.get('max', '-')}",
+                done=f"{done.get('p50', '-')}/{done.get('max', '-')}",
+                eff=f"{r['effect_score']:.2f}",
+                spd=f"{r['speed_score']:.2f}",
+                proc=f"{r['process_score']:.2f}",
             )
         )
     lines.append("")
@@ -365,8 +426,28 @@ def _self_check() -> int:
             "status": "success",
             "stop_reason": "task_complete",
             "answer": "volatile 保证可见性和禁止指令重排序。",
-            "trace_events": [{"event": e} for e in ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]] + [
-                {"event": "task_understanding", "payload": {"domain": "open_domain", "intent": "technical_qa", "router": "llm", "confidence": 0.9, "next_action": "run_runtime_planner"}}
+            "trace_events": [
+                {"event": e}
+                for e in [
+                    "run_start",
+                    "understand_goal",
+                    "task_understanding",
+                    "capability_route",
+                    "finalize",
+                    "run_end",
+                ]
+            ]
+            + [
+                {
+                    "event": "task_understanding",
+                    "payload": {
+                        "domain": "open_domain",
+                        "intent": "technical_qa",
+                        "router": "llm",
+                        "confidence": 0.9,
+                        "next_action": "run_runtime_planner",
+                    },
+                }
             ],
         },
         "error": None,
@@ -430,7 +511,9 @@ def main() -> int:
         raw_records.append({"id": case.get("id"), "aggregate": agg, "samples": [_sample_record(s) for s in samples]})
         status = "OK" if agg["pass_pow_k"] else "FAIL"
         ttft = agg["latency"].get("ttft_ms", {})
-        print(f"[{status}] {case['id']:<32} pass_rate={agg['pass_rate']:.0%} ttft_p50={ttft.get('p50','-')}ms speed={agg['speed_score']:.2f}")
+        print(
+            f"[{status}] {case['id']:<32} pass_rate={agg['pass_rate']:.0%} ttft_p50={ttft.get('p50', '-')}ms speed={agg['speed_score']:.2f}"
+        )
 
     meta = {
         "timestamp": datetime.now(timezone.utc).isoformat(),

@@ -48,17 +48,17 @@ export async function streamSse(path, options = {}, handlers = {}) {
       }
       throw new Error('SSE 连接已结束但未收到 done 事件')
     } catch (error) {
-      const isAbort = isAbortError(error, signal)
+      // fetch/reader 在 AbortController 被 TimeoutError 终止时，部分浏览器仍只抛出普通 AbortError。
+      // 优先恢复 signal.reason，才能区分内部心跳超时与用户主动取消，并向上层保留真实诊断。
+      const streamError = normalizeStreamError(error, signal)
+      const isAbort = isAbortError(streamError, signal)
       const shouldRetry = reconnect && attempt < maxRetries && !isAbort
-      if (!shouldRetry) {
-        if (parentSignal?.aborted || isAbort) throw error
-        throw error
-      }
+      if (!shouldRetry) throw streamError
 
       const retryWait = Math.min(maxDelayMs, Math.floor(baseDelayMs * Math.pow(2, attempt)))
       attempt += 1
       try {
-        handlers.onRetry?.(attempt, { waitMs: retryWait, error })
+        handlers.onRetry?.(attempt, { waitMs: retryWait, error: streamError })
         await sleep(retryWait, parentSignal)
       } catch (sleepError) {
         throw sleepError
@@ -156,18 +156,25 @@ function createAbortController(parentSignal) {
   }
 }
 
+function normalizeStreamError(error, signal) {
+  const reason = signal?.aborted ? signal.reason : null
+  if (reason instanceof DOMException || reason instanceof Error) {
+    if (reason.name === 'TimeoutError') return reason
+  }
+  if (String(reason || '').includes('SSE 心跳超时')) {
+    return new DOMException('SSE 心跳超时', 'TimeoutError')
+  }
+  return error
+}
+
 function isAbortError(error, signal) {
-  if (error instanceof DOMException) return error.name === 'AbortError'
-  if (error?.name === 'AbortError') return true
   if (error?.name === 'TimeoutError') return false
+  if (error instanceof DOMException || error instanceof Error) return error.name === 'AbortError'
   if (!signal?.aborted) return false
 
   const reason = signal.reason
   if (!reason) return true
-  if (reason instanceof DOMException || reason instanceof Error) {
-    if (reason.name === 'TimeoutError') return false
-    return reason.name === 'AbortError'
-  }
+  if (reason instanceof DOMException || reason instanceof Error) return reason.name === 'AbortError'
   return !String(reason).includes('SSE 心跳超时') && String(reason) !== 'TimeoutError'
 }
 

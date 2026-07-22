@@ -89,10 +89,10 @@ class BossService:
         """
         try:
             await self._limiter.acquire(action)
-        except BackstopError:
+        except BackstopError as exc:
             auth = await self._session.status()
             if not auth.get("authenticated"):
-                raise AuthRequiredError("Boss 未登录或登录态失效，请扫码登录。")
+                raise AuthRequiredError("Boss 未登录或登录态失效，请扫码登录。") from exc
             raise
 
     async def favorite_jobs(self, page: int = 1) -> dict[str, Any]:

@@ -21,6 +21,8 @@ import java.util.Map;
  */
 public final class ChatSseSupport {
 
+  public static final String SELECTED_JOB_CONTEXT_KEY = "_selected_job";
+
   private ChatSseSupport() {}
 
   /**
@@ -244,9 +246,12 @@ public final class ChatSseSupport {
               + (confidence.isEmpty() ? "" : "，置信度：" + confidence)
               + suffix
               + "。";
+        if ("证据不足".equals(recommendation) || "low".equalsIgnoreCase(confidence)) {
+          return "简历匹配已完成，但当前岗位缺少完整 JD，暂不展示精确评分" + suffix + "。匹配依据已同步到当前岗位卡片。";
+        }
       }
     }
-    return "简历匹配已完成，详情已更新到岗位匹配面板。";
+    return "简历匹配已完成，匹配详情已同步到当前岗位卡片。";
   }
 
   public static String fallbackGeneralResumeMatchAnswer(ResumeRecord resume, String targetRole) {

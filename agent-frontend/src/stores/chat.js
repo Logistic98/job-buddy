@@ -530,6 +530,7 @@ export const useChatStore = defineStore('chat', {
         const msg = assistantCreated ? this.messages.find((item) => item.id === assistantId) : null
         if (msg?.pending) msg.pending = false
       }
+      let requestCompleted = true
       try {
         await streamChat(
           {
@@ -602,7 +603,7 @@ export const useChatStore = defineStore('chat', {
             },
             error: (data) => {
               if (errorAppended) return
-              const errorText = data?.message || data || '请求失败，请稍后重试。'
+              const errorText = formatSendError(data)
               errorAppended = true
               appendAssistant(`请求失败：${errorText}`)
               if (!isRequestVisible()) this.mergeRequestAccIntoSnapshot(requestSessionId, requestAcc)
@@ -677,29 +678,31 @@ export const useChatStore = defineStore('chat', {
         }
       } finally {
         finishRequest()
-        if (isStreamStale()) return false
-        // 后台会话在异常收尾（未收到 done）时也要把已累积的增量并入快照，切回时保留部分产出。
-        if (!isRequestVisible() && !doneReceived) this.mergeRequestAccIntoSnapshot(requestSessionId, requestAcc)
-        if (isRequestVisible()) {
-          // 流正常返回但既没有 done 也没有 error 事件，说明连接被中途断开（服务端崩溃/网络掐断）。
-          // 此时不能静默收尾让用户误以为回答完整：有部分内容则补一句中断提示，无产出则明确报错。
-          if (!doneReceived && !errorAppended && !streamSignal.aborted) {
-            const partial = assistantCreated ? this.messages.find((item) => item.id === assistantId) : null
-            if (partial && String(partial.content || '').trim()) {
-              partial.content = `${partial.content}\n\n（连接中断，回答可能不完整，请重试。）`
-            } else if (!partial || (!partial.jobCards?.length && !partial.toolEvents?.length)) {
-              this.serviceError = '连接中断，请稍后重试。'
-              errorAppended = true
-              appendAssistant('请求失败：连接中断，请稍后重试。')
+        requestCompleted = !isStreamStale()
+        if (requestCompleted) {
+          // 后台会话在异常收尾（未收到 done）时也要把已累积的增量并入快照，切回时保留部分产出。
+          if (!isRequestVisible() && !doneReceived) this.mergeRequestAccIntoSnapshot(requestSessionId, requestAcc)
+          if (isRequestVisible()) {
+            // 流正常返回但既没有 done 也没有 error 事件，说明连接被中途断开（服务端崩溃/网络掐断）。
+            // 此时不能静默收尾让用户误以为回答完整：有部分内容则补一句中断提示，无产出则明确报错。
+            if (!doneReceived && !errorAppended && !streamSignal.aborted) {
+              const partial = assistantCreated ? this.messages.find((item) => item.id === assistantId) : null
+              if (partial && String(partial.content || '').trim()) {
+                partial.content = `${partial.content}\n\n（连接中断，回答可能不完整，请重试。）`
+              } else if (!partial || (!partial.jobCards?.length && !partial.toolEvents?.length)) {
+                this.serviceError = '连接中断，请稍后重试。'
+                errorAppended = true
+                appendAssistant('请求失败：连接中断，请稍后重试。')
+              }
+            }
+            const msg = assistantCreated ? this.messages.find((item) => item.id === assistantId) : null
+            if (msg && !String(msg.content || '').trim() && !msg.jobCards?.length && !msg.toolEvents?.length) {
+              this.messages = this.messages.filter((item) => item.id !== assistantId)
             }
           }
-          const msg = assistantCreated ? this.messages.find((item) => item.id === assistantId) : null
-          if (msg && !String(msg.content || '').trim() && !msg.jobCards?.length && !msg.toolEvents?.length) {
-            this.messages = this.messages.filter((item) => item.id !== assistantId)
-          }
         }
-        return true
       }
+      return requestCompleted
     },
     stop() {
       const sessionId = this.sessionId

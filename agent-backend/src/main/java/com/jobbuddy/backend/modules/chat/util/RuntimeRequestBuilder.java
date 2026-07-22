@@ -43,6 +43,17 @@ public final class RuntimeRequestBuilder {
     return this;
   }
 
+  /** 替换默认的单条用户消息，用于需要近期对话完成指代解析和查询重写的入口。 */
+  public RuntimeRequestBuilder messages(List<Map<String, Object>> messages) {
+    if (messages == null || messages.isEmpty()) return this;
+    List<Map<String, Object>> snapshot = new ArrayList<Map<String, Object>>();
+    for (Map<String, Object> item : messages) {
+      if (item != null) snapshot.add(new LinkedHashMap<String, Object>(item));
+    }
+    if (!snapshot.isEmpty()) payload.put("messages", snapshot);
+    return this;
+  }
+
   public RuntimeRequestBuilder metadata(String key, Object value) {
     metadata.put(key, value);
     return this;

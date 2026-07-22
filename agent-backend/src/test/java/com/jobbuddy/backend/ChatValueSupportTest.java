@@ -31,6 +31,18 @@ class ChatValueSupportTest {
   }
 
   @Test
+  void errorMessageShouldExtractNestedMessageAndFallbackForEmptyObjects() {
+    Map<String, Object> nested = new LinkedHashMap<String, Object>();
+    nested.put("message", "工具 resume_match 执行超时（125 秒）");
+    Map<String, Object> error = new LinkedHashMap<String, Object>();
+    error.put("error", nested);
+
+    assertEquals("工具 resume_match 执行超时（125 秒）", ChatValueSupport.errorMessage(error, "fallback"));
+    assertEquals("fallback", ChatValueSupport.errorMessage(new LinkedHashMap<>(), "fallback"));
+    assertEquals("fallback", ChatValueSupport.errorMessage(new RuntimeException(), "fallback"));
+  }
+
+  @Test
   void doubleValueShouldParseNumbersAndFallback() {
     assertEquals(1.5, ChatValueSupport.doubleValue("1.5", 0), 1e-9);
     assertEquals(2.0, ChatValueSupport.doubleValue(2, 0), 1e-9);

@@ -514,8 +514,9 @@ class AgentExecutor:
         system_prompt = self.prompt_loader.load(
             "synthesis/default.md", fallback="你是答案合成器，直接输出面向用户的自然语言答案。"
         )
-        objective = str(request.messages[-1].content) if request.messages else ""
+        original_query = str(request.messages[-1].content) if request.messages else ""
         metadata = request.metadata or {}
+        objective = self._upstream_planner_query(metadata) or original_query
         personal = metadata.get("personal_context")
         context_lines: List[str] = []
         if isinstance(personal, dict):
@@ -524,13 +525,31 @@ class AgentExecutor:
                     continue
                 context_lines.append(f"- {key}: {value}")
         context_text = "\n".join(context_lines) if context_lines else "（无额外个人上下文）"
-        user_content = (
-            f"用户问题：\n{objective}\n\n已知个人上下文：\n{context_text}\n\n请据此直接生成面向用户的最终答案。"
-        )
+        if objective == original_query:
+            task_text = f"用户问题：\n{original_query}"
+        else:
+            task_text = f"用户原始问题：\n{original_query}\n\n已解析的独立任务：\n{objective}"
+        user_content = f"{task_text}\n\n已知个人上下文：\n{context_text}\n\n请据此直接生成面向用户的最终答案。"
         return [
             ChatMessage(role="system", content=system_prompt),
             ChatMessage(role="user", content=user_content),
         ]
+
+    def _upstream_planner_query(self, metadata: Dict) -> str:
+        directive = metadata.get("upstream_directive")
+        if not isinstance(directive, dict):
+            return ""
+        task = directive.get("task")
+        if not isinstance(task, dict):
+            return ""
+        rewrite = task.get("rewritten_query")
+        if not isinstance(rewrite, dict):
+            return ""
+        for key in ("planner_query", "resolved_query"):
+            value = rewrite.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return ""
 
     def _truthy(self, *values) -> bool:
         for value in values:

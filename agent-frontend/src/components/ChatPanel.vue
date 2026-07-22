@@ -224,12 +224,12 @@ const lastStreamedAssistantId = ref('')
 const defaultWorkbenchCopy = {
   title: '求职工作台',
   description: '支持岗位推荐、简历分析、面试准备、笔试计划、项目深挖和求职进展梳理。',
-  placeholder: '例如：筛选上海 Java 大模型应用开发 40-50K 岗位，或分析简历是否匹配 Java Agent 应用开发岗位',
+  placeholder: '例如：筛选上海 Agent 与大模型应用开发 40-50K 岗位',
   quick_prompts: [
-    '帮我筛选上海 Java 大模型应用开发 40-50K 岗位',
-    '分析当前简历是否匹配 Java Agent 应用开发岗位',
-    '根据 Java 大模型应用开发岗位生成面试准备清单',
-    '帮我准备 RAG、Tool Calling 和 Agent 方向笔试计划',
+    '筛选上海大模型应用开发 40-50K 岗位',
+    '分析当前简历与大模型应用开发岗位的匹配度',
+    '根据大模型应用开发岗位生成面试准备清单',
+    '制定 RAG 与 Agent 工程笔试计划',
     '围绕我的大模型应用项目生成面试深挖问题',
     '帮我记录这家 AI 公司进入一面阶段',
   ],
