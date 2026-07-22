@@ -387,8 +387,40 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   }
 
   public synchronized boolean isBlacklistedJob(Map<String, Object> job) {
-    Map<String, Object> settings = getSettingsMap();
-    Map<String, Object> blacklist = asMap(settings.get("blacklist"), blacklistDefaults());
+    return isBlacklistedJob(job, loadBlacklistSnapshot());
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> loadBlacklistSnapshot() {
+    Map<String, Object> savedSettings = readSavedSettings();
+    Map<String, Object> blacklist = new LinkedHashMap<String, Object>();
+    blacklist.put("enabled", true);
+    blacklist.put("matchMode", "contains");
+    Object savedBlacklist = savedSettings.get("blacklist");
+    if (savedBlacklist instanceof Map) {
+      Map<String, Object> saved = (Map<String, Object>) savedBlacklist;
+      if (saved.containsKey("enabled")) blacklist.put("enabled", saved.get("enabled"));
+      if (saved.containsKey("matchMode")) blacklist.put("matchMode", saved.get("matchMode"));
+    }
+    List<Map<String, Object>> items = databaseBlacklistItems();
+    mergeManualBlacklistItems(items, savedSettings);
+    blacklist.put("items", items);
+    return blacklist;
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<Map<String, Object>> blacklistItems(Map<String, Object> blacklist) {
+    List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+    Object items = blacklist == null ? null : blacklist.get("items");
+    if (!(items instanceof List)) return result;
+    for (Object item : (List<Object>) items) {
+      if (item instanceof Map)
+        result.add(new LinkedHashMap<String, Object>((Map<String, Object>) item));
+    }
+    return result;
+  }
+
+  private boolean isBlacklistedJob(Map<String, Object> job, Map<String, Object> blacklist) {
     if (!booleanValue(blacklist.get("enabled"), true) || job == null) return false;
     String companyText =
         blacklistFieldText(
@@ -413,7 +445,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
             "welfareList",
             "welfare",
             "benefits");
-    for (Map<String, Object> item : listBlacklistItemsMap()) {
+    for (Map<String, Object> item : blacklistItems(blacklist)) {
       if (!booleanValue(item.get("enabled"), true)) continue;
       String name = normalizedBlacklistText(item.get("name"));
       if (name.isEmpty()) continue;
@@ -450,7 +482,9 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
       List<Map<String, Object>> jobs) {
     List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
     if (jobs == null) return result;
-    for (Map<String, Object> job : jobs) if (!isBlacklistedJob(job)) result.add(job);
+    // 一批岗位只加载一次保存设置和一次数据库黑名单，随后纯内存匹配；禁止逐岗位重复访问远程数据库阻塞 SSE。
+    Map<String, Object> blacklist = loadBlacklistSnapshot();
+    for (Map<String, Object> job : jobs) if (!isBlacklistedJob(job, blacklist)) result.add(job);
     return result;
   }
 

@@ -10,6 +10,7 @@ import com.jobbuddy.backend.modules.auth.dto.request.RbacMenuRequest;
 import com.jobbuddy.backend.modules.auth.mapper.RbacMapper;
 import com.jobbuddy.backend.modules.auth.service.DynamicRbacService;
 import com.jobbuddy.backend.modules.auth.service.UserLoginService;
+import com.jobbuddy.backend.modules.auth.service.impl.DynamicRbacServiceImpl;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -20,7 +21,7 @@ class DynamicRbacServiceTest {
   void rejectsCrossTenantRolesWhenReplacingUserRoles() {
     RbacMapper mapper = mock(RbacMapper.class);
     when(mapper.countRolesByIds("tenant-a", Arrays.asList("role-b"))).thenReturn(0);
-    DynamicRbacService service = new DynamicRbacService(mapper, mock(UserLoginService.class));
+    DynamicRbacService service = new DynamicRbacServiceImpl(mapper, mock(UserLoginService.class));
 
     assertThrows(
         IllegalArgumentException.class,
@@ -33,7 +34,7 @@ class DynamicRbacServiceTest {
     RbacMapper mapper = mock(RbacMapper.class);
     when(mapper.findMenu("tenant-a", "menu-a")).thenReturn(menu("menu-a", ""));
     when(mapper.findMenu("tenant-a", "menu-b")).thenReturn(menu("menu-b", "menu-a"));
-    DynamicRbacService service = new DynamicRbacService(mapper, mock(UserLoginService.class));
+    DynamicRbacService service = new DynamicRbacServiceImpl(mapper, mock(UserLoginService.class));
     RbacMenuRequest request = request("menu-a");
 
     assertThrows(
@@ -65,7 +66,7 @@ class DynamicRbacServiceTest {
     when(mapper.findMenu("tenant-a", "menu-child")).thenReturn(menu("menu-child", "menu-parent"));
     when(mapper.findMenu("tenant-a", "menu-parent")).thenReturn(menu("menu-parent", ""));
     when(mapper.countManagementUsers("tenant-a")).thenReturn(1);
-    DynamicRbacService service = new DynamicRbacService(mapper, mock(UserLoginService.class));
+    DynamicRbacService service = new DynamicRbacServiceImpl(mapper, mock(UserLoginService.class));
 
     service.replaceRoleMenus("tenant-a", "role-a", Arrays.asList("menu-child"));
 
@@ -86,7 +87,7 @@ class DynamicRbacServiceTest {
   @Test
   void rejectsUnsafeExternalMenuUrls() {
     DynamicRbacService service =
-        new DynamicRbacService(mock(RbacMapper.class), mock(UserLoginService.class));
+        new DynamicRbacServiceImpl(mock(RbacMapper.class), mock(UserLoginService.class));
     RbacMenuRequest request = request("");
     request.setMenuType("external");
     request.setExternalUrl("javascript:alert(1)");
@@ -98,7 +99,7 @@ class DynamicRbacServiceTest {
     RbacMapper mapper = mock(RbacMapper.class);
     when(mapper.findRole("tenant-a", "role-a")).thenReturn(role("role-a"));
     when(mapper.countRoleUsers("tenant-a", "role-a")).thenReturn(1);
-    DynamicRbacService service = new DynamicRbacService(mapper, mock(UserLoginService.class));
+    DynamicRbacService service = new DynamicRbacServiceImpl(mapper, mock(UserLoginService.class));
 
     assertThrows(IllegalArgumentException.class, () -> service.deleteRole("tenant-a", "role-a"));
     verify(mapper, never()).deleteRole("tenant-a", "role-a");
@@ -108,7 +109,7 @@ class DynamicRbacServiceTest {
   void protectsLastEffectiveManagementAccount() {
     RbacMapper mapper = mock(RbacMapper.class);
     when(mapper.countManagementUsers("tenant-a")).thenReturn(0);
-    DynamicRbacService service = new DynamicRbacService(mapper, mock(UserLoginService.class));
+    DynamicRbacService service = new DynamicRbacServiceImpl(mapper, mock(UserLoginService.class));
     assertThrows(IllegalArgumentException.class, () -> service.protectManagementAccess("tenant-a"));
   }
 

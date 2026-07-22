@@ -13,6 +13,7 @@ import com.jobbuddy.backend.modules.auth.repository.UserAuthRepository;
 import com.jobbuddy.backend.modules.auth.service.DynamicRbacService;
 import com.jobbuddy.backend.modules.auth.service.TenantUserAdminService;
 import com.jobbuddy.backend.modules.auth.service.UserLoginService;
+import com.jobbuddy.backend.modules.auth.service.impl.TenantUserAdminServiceImpl;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,7 @@ class TenantUserAdminServiceTest {
         .when(rbacService)
         .protectManagementAccess("tenant-1");
     TenantUserAdminService service =
-        new TenantUserAdminService(repository, loginService, rbacService);
+        new TenantUserAdminServiceImpl(repository, loginService, rbacService);
     ManagedUserUpdateRequest request = new ManagedUserUpdateRequest();
     request.setEnabled(false);
 
@@ -42,7 +43,7 @@ class TenantUserAdminServiceTest {
     UserAuthRepository repository = mock(UserAuthRepository.class);
     when(repository.findUserById("tenant-1", "user-1")).thenReturn(user("user-1", true));
     TenantUserAdminService service =
-        new TenantUserAdminService(
+        new TenantUserAdminServiceImpl(
             repository, mock(UserLoginService.class), mock(DynamicRbacService.class));
 
     assertThrows(
@@ -63,7 +64,7 @@ class TenantUserAdminServiceTest {
   void cannotManageUserFromAnotherTenant() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
     TenantUserAdminService service =
-        new TenantUserAdminService(
+        new TenantUserAdminServiceImpl(
             repository, mock(UserLoginService.class), mock(DynamicRbacService.class));
     ManagedUserUpdateRequest request = new ManagedUserUpdateRequest();
     request.setEnabled(false);

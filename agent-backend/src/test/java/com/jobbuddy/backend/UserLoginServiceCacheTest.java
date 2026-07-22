@@ -12,6 +12,7 @@ import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import com.jobbuddy.backend.modules.auth.dto.response.LoginResponse;
 import com.jobbuddy.backend.modules.auth.repository.UserAuthRepository;
 import com.jobbuddy.backend.modules.auth.service.UserLoginService;
+import com.jobbuddy.backend.modules.auth.service.impl.UserLoginServiceImpl;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
@@ -31,7 +32,7 @@ class UserLoginServiceCacheTest {
     when(repository.findRoles("admin")).thenReturn(Arrays.asList("platform-manager"));
     when(repository.findPermissions("admin")).thenReturn(Arrays.asList("users:manage"));
     when(repository.findMenus("admin")).thenReturn(Collections.<Map<String, Object>>emptyList());
-    UserLoginService service = new UserLoginService(repository);
+    UserLoginService service = new UserLoginServiceImpl(repository);
 
     LoginResponse response = service.login("admin", "secret123");
 
@@ -46,7 +47,7 @@ class UserLoginServiceCacheTest {
   void repeatedTokenValidationShouldUseShortLivedMemoryCache() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
     when(repository.findUserByToken("token-1")).thenReturn(userRow());
-    UserLoginService service = new UserLoginService(repository);
+    UserLoginService service = new UserLoginServiceImpl(repository);
 
     AuthenticatedUser first = service.currentUser("token-1");
     AuthenticatedUser second = service.currentUser("token-1");
@@ -62,7 +63,7 @@ class UserLoginServiceCacheTest {
   void logoutShouldEvictCachedSessionImmediately() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
     when(repository.findUserByToken("token-2")).thenReturn(userRow()).thenReturn(null);
-    UserLoginService service = new UserLoginService(repository);
+    UserLoginService service = new UserLoginServiceImpl(repository);
 
     service.currentUser("token-2");
     service.logout("token-2");
