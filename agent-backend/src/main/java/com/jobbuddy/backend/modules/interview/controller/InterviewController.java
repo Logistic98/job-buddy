@@ -14,6 +14,7 @@ import com.jobbuddy.backend.modules.interview.dto.request.InterviewImportRequest
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewQuestionRequest;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewBatchResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewCodeRunResponse;
+import com.jobbuddy.backend.modules.interview.dto.response.InterviewDocumentExtractResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewExamResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewExamSubmitResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewGenerateResponse;
@@ -21,11 +22,13 @@ import com.jobbuddy.backend.modules.interview.dto.response.InterviewImportRespon
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewQuestionMetaResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewQuestionPageResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewQuestionResponse;
+import com.jobbuddy.backend.modules.interview.service.InterviewDocumentTextExtractor;
 import com.jobbuddy.backend.modules.interview.service.InterviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /** 面试题库接口，提供题目管理、题目生成、考试创建和考试提交能力。 */
 @Tag(name = "面试题库接口")
@@ -43,9 +47,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/interview")
 public class InterviewController {
   private final InterviewService interviewService;
+  private final InterviewDocumentTextExtractor documentTextExtractor;
 
-  public InterviewController(InterviewService interviewService) {
+  public InterviewController(
+      InterviewService interviewService, InterviewDocumentTextExtractor documentTextExtractor) {
     this.interviewService = interviewService;
+    this.documentTextExtractor = documentTextExtractor;
   }
 
   /**
@@ -102,6 +109,19 @@ public class InterviewController {
   public ApiResponse<InterviewImportResponse> importQuestions(
       @RequestBody InterviewImportRequest payload) {
     return ApiResponse.success(interviewService.importQuestions(payload));
+  }
+
+  /**
+   * 提取 AI 出题参考资料中的纯文本。
+   *
+   * @return 统一接口响应
+   */
+  @Operation(summary = "提取 AI 出题参考资料文本")
+  @RequirePermission(PermissionCodes.TENANT_MANAGE)
+  @PostMapping(value = "/documents/extract", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public ApiResponse<InterviewDocumentExtractResponse> extractDocumentText(
+      @RequestParam("file") MultipartFile file) {
+    return ApiResponse.success(documentTextExtractor.extract(file));
   }
 
   /**

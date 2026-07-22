@@ -397,13 +397,15 @@ button:disabled {
   color: #3157ff;
 }
 .quick-prompts {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  flex-wrap: wrap;
   padding: 14px 28px;
   border-bottom: 1px solid #edf1f7;
 }
 .quick-prompts button {
+  width: 100%;
+  min-width: 0;
   border: 1px solid #dfe6f2;
   border-radius: 999px;
   background: #fff;
@@ -421,6 +423,11 @@ button:disabled {
 .quick-prompts button:not(:disabled):hover {
   transform: translateY(-1px);
   border-color: #b9c7ff;
+}
+@media (max-width: 900px) {
+  .quick-prompts {
+    grid-template-columns: 1fr;
+  }
 }
 .loading-banner,
 .tool-thinking-step {
@@ -16457,6 +16464,9 @@ select option[value=''] {
 .question-manual-form {
   margin-top: 18px;
 }
+.question-manual-form > .project-answer-editor {
+  grid-column: 1 / -1;
+}
 .project-answer-editor {
   display: flex;
   min-width: 0;
@@ -16883,6 +16893,11 @@ select option[value=''] {
 .markdown-preview-content .practice-markdown :where(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6) {
   margin-top: 0 !important;
   margin-bottom: 8px !important;
+}
+.form-grid .markdown-preview-content .practice-markdown span {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
 }
 .markdown-answer-editor .markdown-preview-content {
   min-height: clamp(360px, 44vh, 480px);

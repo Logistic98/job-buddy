@@ -240,6 +240,7 @@ import { getResume, resumeDownloadUrl, resumePreviewUrl, resumeThumbnailUrl } fr
 import ResumeAnalysisSummary from './ResumeAnalysisSummary.vue'
 import { useChatStore } from '../stores/chat'
 import { useResumeStore } from '../stores/resume'
+import { validateFile } from '../utils/formValidation'
 import {
   mergeResumePickerDetail,
   resumePickerSearchText,
@@ -362,8 +363,14 @@ function scorePresentation(score) {
 }
 function pick(e) {
   const file = e.target.files?.[0]
-  if (file) resume.upload(file, chat.sessionId)
   e.target.value = ''
+  if (!file) return
+  try {
+    validatePdfResume(file)
+    resume.upload(file, chat.sessionId)
+  } catch (err) {
+    resume.error = err.message
+  }
 }
 async function openResumePicker() {
   resumeKeyword.value = ''
@@ -376,10 +383,23 @@ function closeResumePicker() {
   pickerLoadVersion += 1
   pickerDetailLoadingIds.value = new Set()
 }
+function validatePdfResume(file) {
+  return validateFile(file, 'PDF 简历', {
+    extensions: ['pdf'],
+    mimeTypes: ['application/pdf'],
+    maxBytes: 20 * 1024 * 1024,
+  })
+}
 async function uploadFromPicker(e) {
   const file = e.target.files?.[0]
   e.target.value = ''
   if (!file) return
+  try {
+    validatePdfResume(file)
+  } catch (err) {
+    resume.error = err.message
+    return
+  }
   await resume.upload(file, chat.sessionId).catch(() => {})
   hydratePickerResumes(analysisResumes.value)
 }

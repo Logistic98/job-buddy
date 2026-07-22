@@ -13,24 +13,46 @@
         </div>
         <div class="form-grid">
           <label
-            ><span>Intent URL</span><input v-model="services.intentUrl" placeholder="http://localhost:8020"
+            ><span>Intent URL</span
+            ><input
+              v-model.trim="services.intentUrl"
+              type="url"
+              maxlength="512"
+              placeholder="例如 http://localhost:8020"
           /></label>
           <label
-            ><span>Runtime URL</span><input v-model="services.runtimeUrl" placeholder="http://localhost:8010"
+            ><span>Runtime URL</span
+            ><input
+              v-model.trim="services.runtimeUrl"
+              type="url"
+              maxlength="512"
+              placeholder="例如 http://localhost:8010"
           /></label>
           <label
-            ><span>Memory URL</span><input v-model="services.memoryUrl" placeholder="http://localhost:8030"
+            ><span>Memory URL</span
+            ><input
+              v-model.trim="services.memoryUrl"
+              type="url"
+              maxlength="512"
+              placeholder="例如 http://localhost:8030"
           /></label>
-          <label><span>Tool URL</span><input v-model="services.toolUrl" placeholder="http://localhost:8040" /></label>
-          <label><span>Eval URL</span><input v-model="services.evalUrl" placeholder="http://localhost:8050" /></label>
+          <label
+            ><span>Tool URL</span
+            ><input v-model.trim="services.toolUrl" type="url" maxlength="512" placeholder="例如 http://localhost:8040"
+          /></label>
+          <label
+            ><span>Eval URL</span
+            ><input v-model.trim="services.evalUrl" type="url" maxlength="512" placeholder="例如 http://localhost:8050"
+          /></label>
           <label
             ><span>连接超时（秒）</span
             ><input
               :value="durationSeconds(services.connectTimeout)"
               type="number"
               min="1"
+              max="3600"
               step="1"
-              placeholder="2"
+              placeholder="请输入 1-3600 的整数，例如 2"
               @input="setDuration('connectTimeout', $event.target.value)"
           /></label>
           <label
@@ -39,8 +61,9 @@
               :value="durationSeconds(services.readTimeout)"
               type="number"
               min="1"
+              max="3600"
               step="1"
-              placeholder="75"
+              placeholder="请输入 1-3600 的整数，例如 75"
               @input="setDuration('readTimeout', $event.target.value)"
           /></label>
         </div>
@@ -111,6 +134,7 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getSettings, refreshServiceHealth } from '../../api/settings'
 import { useScopedSettings } from '../../composables/useScopedSettings'
+import { validateHttpUrl, validateInteger } from '../../utils/formValidation'
 
 const emit = defineEmits(['state-change'])
 const normalizeServices = (value) => ({
@@ -122,7 +146,15 @@ const normalizeServices = (value) => ({
   connectTimeout: value?.connectTimeout || '2s',
   readTimeout: value?.readTimeout || '75s',
 })
-const { value: services, loading, saving, error, dirty, load, save } = useScopedSettings('services', normalizeServices)
+const {
+  value: services,
+  loading,
+  saving,
+  error,
+  dirty,
+  load,
+  save: saveServices,
+} = useScopedSettings('services', normalizeServices)
 const serviceStatuses = ref({})
 const expandedServiceId = ref('')
 let timer = null
@@ -141,6 +173,27 @@ onActivated(startPolling)
 onDeactivated(stopPolling)
 onUnmounted(stopPolling)
 defineExpose({ save })
+
+async function save() {
+  error.value = ''
+  try {
+    for (const [key, label] of [
+      ['intentUrl', 'Intent URL'],
+      ['runtimeUrl', 'Runtime URL'],
+      ['memoryUrl', 'Memory URL'],
+      ['toolUrl', 'Tool URL'],
+      ['evalUrl', 'Eval URL'],
+    ]) {
+      services.value[key] = validateHttpUrl(services.value[key], label, { required: true })
+    }
+    validateInteger(durationSeconds(services.value.connectTimeout), '连接超时', { min: 1, max: 3600 })
+    validateInteger(durationSeconds(services.value.readTimeout), '读取超时', { min: 1, max: 3600 })
+  } catch (err) {
+    error.value = err.message
+    return false
+  }
+  return saveServices()
+}
 
 function startPolling() {
   stopPolling()

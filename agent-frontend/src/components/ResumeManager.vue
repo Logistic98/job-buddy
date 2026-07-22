@@ -8,9 +8,10 @@
       </div>
       <div class="resume-manager-actions">
         <button class="secondary-btn" @click="showFolderModal = true">新建分组</button>
-        <label class="primary-btn upload-entry">
-          上传简历
-          <input type="file" accept=".pdf,application/pdf" @change="pick" />
+        <label class="primary-btn upload-entry" :class="{ disabled: resume.uploading }">
+          <span v-if="resume.uploading" class="resume-upload-spinner" aria-hidden="true"></span>
+          {{ resume.uploading ? '上传中...' : '上传简历' }}
+          <input type="file" accept=".pdf,application/pdf" :disabled="resume.uploading" @change="pick" />
         </label>
       </div>
     </header>
@@ -31,7 +32,13 @@
       </button>
     </div>
 
-    <div v-if="filteredResumes.length" class="resume-card-grid">
+    <div v-if="resume.loading && !filteredResumes.length" class="empty-state manager-empty">
+      <span class="favorite-analysis-loading-mark" aria-hidden="true"></span>
+      <strong>正在加载简历</strong>
+      <p>请稍候。</p>
+    </div>
+
+    <div v-else-if="filteredResumes.length" class="resume-card-grid">
       <article
         v-for="item in filteredResumes"
         :key="item.resumeId"
@@ -88,7 +95,9 @@
             <span>{{ tagModal.item?.originalName || '当前简历' }}</span>
           </div>
           <div v-if="tagModal.mode === 'version'" class="resume-meta-form single">
-            <label><span>版本号</span><input v-model.trim="versionDraft" placeholder="例如：20260602_001" /></label>
+            <label
+              ><span>版本号</span><input v-model.trim="versionDraft" maxlength="64" placeholder="例如：20260602_001"
+            /></label>
           </div>
           <template v-else>
             <label class="resume-tag-input">
@@ -172,7 +181,12 @@
           <p>分组用于对简历进行分类管理。</p>
           <label class="resume-tag-input">
             <span>分组名称</span>
-            <input v-model.trim="folderText" placeholder="请输入分组名称" @keydown.enter.prevent="createFolder" />
+            <input
+              v-model.trim="folderText"
+              maxlength="64"
+              placeholder="请输入分组名称"
+              @keydown.enter.prevent="createFolder"
+            />
           </label>
           <p v-if="folderError" class="resume-tag-error">{{ folderError }}</p>
           <div class="modal-actions resume-tag-actions">
@@ -205,6 +219,7 @@ import { resumeDownloadUrl, resumePreviewUrl, resumeThumbnailUrl } from '../api/
 import { getWorkspaceState, saveWorkspaceState } from '../api/workspace'
 import { useChatStore } from '../stores/chat'
 import { useResumeStore } from '../stores/resume'
+import { validateFile } from '../utils/formValidation'
 
 const chat = useChatStore()
 const resume = useResumeStore()
@@ -234,14 +249,24 @@ const filteredResumes = computed(() =>
     : managedResumes.value,
 )
 const tagDraftPlaceholder = computed(() =>
-  tagDrafts.value.length >= MAX_TAGS ? '标签数量已达上限' : '输入后回车添加，例如：Java后端',
+  tagDrafts.value.length >= MAX_TAGS ? '标签数量已达上限' : '输入后回车添加，例如：Agent工程',
 )
-const tagSuggestions = ['Java后端', 'Python', 'AI应用', '大模型', '上海', '远程', '3年经验', '5年经验', '重点简历']
+const tagSuggestions = ['Agent工程', 'LLM应用', 'RAG', '大模型', '上海', '远程', '3年经验', '5年经验', '重点简历']
 
 function pick(event) {
   const file = event.target.files?.[0]
-  if (file) resume.upload(file, chat.sessionId).catch(() => {})
   event.target.value = ''
+  if (!file) return
+  try {
+    validateFile(file, 'PDF 简历', {
+      extensions: ['pdf'],
+      mimeTypes: ['application/pdf'],
+      maxBytes: 20 * 1024 * 1024,
+    })
+    resume.upload(file, chat.sessionId).catch(() => {})
+  } catch (err) {
+    resume.error = err.message
+  }
 }
 function shortTime(value) {
   return value
@@ -277,11 +302,12 @@ function persistFolders() {
     folderError.value = error?.message || '分组保存失败'
   })
 }
-onMounted(() =>
+onMounted(() => {
+  resume.load().catch(() => {})
   loadFolders().catch((error) => {
     folderError.value = error?.message || '分组加载失败'
-  }),
-)
+  })
+})
 function folderOf(item) {
   return String(item?.parsed?.folder || item?.parsed?.resumeFolder || '').trim()
 }
@@ -449,3 +475,35 @@ async function confirmRemoveResume() {
   closeDeleteModal()
 }
 </script>
+
+<style scoped>
+.resume-manager-actions .upload-entry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 110px;
+}
+
+.resume-manager-actions .upload-entry.disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.resume-upload-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  border-radius: 50%;
+  display: inline-block;
+  animation: resume-spin 0.7s linear infinite;
+}
+
+@keyframes resume-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>

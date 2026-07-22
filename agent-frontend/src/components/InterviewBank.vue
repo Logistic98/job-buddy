@@ -81,7 +81,7 @@
           <button class="danger-btn" :disabled="saving" @click="applyBatchDelete">删除所选</button>
         </div>
         <div v-if="showBatchEditor" class="selection-toolbar-editor">
-          <input v-model.trim="batchForm.category" placeholder="分类，如 Java" />
+          <input v-model.trim="batchForm.category" placeholder="分类，如 Agent 工程" />
           <select v-model="batchForm.difficulty">
             <option value="">难度不变</option>
             <option>简单</option>
@@ -359,6 +359,8 @@
               <textarea
                 v-model="answers[activeQuestion.questionId]"
                 :disabled="currentExam.status === 'submitted' || timerExpired"
+                aria-label="编程题代码答案"
+                placeholder="请在此编写完整代码答案"
                 spellcheck="false"
                 class="leetcode-code-editor practice-code-editor"
               />
@@ -906,7 +908,7 @@ function handleGlobalKeydown(event) {
 }
 
 function openCreateModal() {
-  editModalRef.value?.openCreate(filters.bankType)
+  editModalRef.value?.openCreate()
 }
 function openEditModal(item) {
   editModalRef.value?.openEdit(item)

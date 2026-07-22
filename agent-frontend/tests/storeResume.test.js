@@ -28,6 +28,7 @@ import {
   startResumeAnalysisTask,
   streamAnalysisTask,
   updateResumeParsed,
+  uploadResume,
 } from '../src/api/resume'
 import { getWorkspaceState, saveWorkspaceState } from '../src/api/workspace'
 import { useResumeStore } from '../src/stores/resume'
@@ -52,6 +53,90 @@ describe('resume store loading', () => {
     expect(getWorkspaceState).toHaveBeenCalledTimes(1)
     expect(getResume).toHaveBeenCalledTimes(1)
     expect(store.current.parsed.analysis.overall_score).toBe(82)
+  })
+
+  it('forces a fresh list load when force is true', async () => {
+    let firstResolve
+    let secondResolve
+    listResumes
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            firstResolve = resolve
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            secondResolve = resolve
+          }),
+      )
+    getResume.mockImplementation((resumeId) =>
+      Promise.resolve({ resumeId, suffix: 'pdf', parsed: { analysis: { overall_score: 90 } } }),
+    )
+
+    const store = useResumeStore()
+    getWorkspaceState.mockResolvedValue({})
+
+    const first = store.load()
+    const force = store.load(true)
+    expect(listResumes).toHaveBeenCalledTimes(2)
+
+    firstResolve([{ resumeId: 'r1', suffix: 'pdf' }])
+    secondResolve([{ resumeId: 'r2', suffix: 'pdf' }])
+
+    await first
+    await force
+
+    expect(listResumes).toHaveBeenCalledTimes(2)
+    expect(store.items).toHaveLength(1)
+    expect(store.items[0].resumeId).toBe('r2')
+  })
+
+  it('updates list cache after upload and refreshes from API', async () => {
+    const uploaded = { resumeId: 'new', suffix: 'pdf', originalName: 'new.pdf' }
+    uploadResume.mockResolvedValue(uploaded)
+    listResumes.mockResolvedValue([{ resumeId: 'new', suffix: 'pdf', originalName: 'new.pdf' }])
+    getResume.mockImplementation((resumeId) => Promise.resolve({ resumeId, suffix: 'pdf' }))
+
+    const store = useResumeStore()
+    store.items = [{ resumeId: 'old', suffix: 'pdf', originalName: 'old.pdf' }]
+    store.current = { resumeId: 'old', suffix: 'pdf', originalName: 'old.pdf' }
+    getWorkspaceState.mockResolvedValue({ resumeId: 'old' })
+
+    const file = { name: 'new.pdf', type: 'application/pdf', size: 1024 }
+    await store.upload(file)
+
+    expect(uploadResume).toHaveBeenCalledWith(file, undefined)
+    expect(store.uploading).toBe(false)
+    expect(store.current?.resumeId).toBe('new')
+    expect(store.items[0].resumeId).toBe('new')
+    expect(listResumes).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps uploaded item when list API is eventually stale', async () => {
+    const uploaded = { resumeId: 'new', suffix: 'pdf', originalName: 'new.pdf' }
+    uploadResume.mockResolvedValue(uploaded)
+    listResumes.mockResolvedValue([])
+    getResume.mockImplementation((resumeId) =>
+      Promise.resolve(
+        resumeId === 'new'
+          ? { resumeId: 'new', suffix: 'pdf', originalName: 'new.pdf', parsed: { status: 'ready' } }
+          : { resumeId, suffix: 'pdf' },
+      ),
+    )
+
+    const store = useResumeStore()
+    store.items = [{ resumeId: 'old', suffix: 'pdf', originalName: 'old.pdf' }]
+    store.current = { resumeId: 'old', suffix: 'pdf', originalName: 'old.pdf' }
+    getWorkspaceState.mockResolvedValue({ resumeId: 'old' })
+
+    const file = { name: 'new.pdf', type: 'application/pdf', size: 1024 }
+    await store.upload(file)
+
+    expect(store.items.some((item) => item.resumeId === 'new')).toBe(true)
+    expect(store.current?.resumeId).toBe('new')
+    expect(listResumes).toHaveBeenCalledTimes(1)
   })
 
   it('drops a late resume load after an authentication change', async () => {

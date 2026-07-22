@@ -24,6 +24,7 @@
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
         <spotless-maven-plugin.version>3.8.0</spotless-maven-plugin.version>
         <google-java-format.version>1.24.0</google-java-format.version>
+        <apache-poi.version>5.4.1</apache-poi.version>
     </properties>
     <dependencies>
         <dependency>
@@ -99,6 +100,16 @@
                     <artifactId>commons-logging</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${apache-poi.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-scratchpad</artifactId>
+            <version>${apache-poi.version}</version>
         </dependency>
         <dependency>
             <groupId>com.h2database</groupId>

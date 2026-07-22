@@ -29,7 +29,14 @@
     <div class="resume-clean-toolbar">
       <label class="resume-filename-field" title="导出 PDF、MD、HTML 时使用该文件名">
         <span>文件名</span>
-        <input v-model="fileName" placeholder="请输入导出文件名" @input="saveFileName" @blur="normalizeFileName" />
+        <input
+          v-model="fileName"
+          maxlength="120"
+          aria-label="导出文件名"
+          placeholder="请输入导出文件名，最多 120 字且不能包含路径非法字符"
+          @input="saveFileName"
+          @blur="normalizeFileName"
+        />
       </label>
       <div class="resume-view-switch">
         <button :class="{ active: editorMode === 'source' }" @click="editorMode = 'source'">源码模式</button>
@@ -294,6 +301,7 @@ import {
   stripManagedResumePhoto,
 } from '../utils/resumeRender'
 import { sanitizeResumeHtml } from '../utils/sanitizeHtml'
+import { validateFile, validateLength } from '../utils/formValidation'
 import {
   clampPhotoNumber,
   downloadFile,
@@ -524,10 +532,16 @@ function cycleTheme() {
   themeIndex.value = (themeIndex.value + 1) % themes.length
 }
 async function importPhoto(event) {
-  const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'))
+  const files = Array.from(event.target.files || [])
   if (!files.length) return
   photoUploading.value = true
   try {
+    if (files.length > 10) throw new Error('单次最多上传 10 张照片')
+    for (const file of files)
+      validateFile(file, '照片', {
+        extensions: ['png', 'jpg', 'jpeg', 'webp'],
+        maxBytes: 10 * 1024 * 1024,
+      })
     const uploaded = (
       await Promise.all(
         files.map(async (file) => {
@@ -784,6 +798,10 @@ async function importMarkdown(event) {
   const file = event.target.files?.[0]
   if (!file) return
   try {
+    validateFile(file, 'Markdown 文件', {
+      extensions: ['md', 'markdown', 'txt'],
+      maxBytes: 5 * 1024 * 1024,
+    })
     const current = writerState()
     if (String(current.markdown || '').trim()) {
       await backupWriterState(current, `导入「${file.name}」前的草稿备份`)
@@ -851,8 +869,14 @@ function openSaveVersionDialog() {
   showSaveVersionDialog.value = true
 }
 async function saveManualVersion() {
-  savingVersion.value = true
   versionError.value = ''
+  try {
+    validateLength(versionTitle.value, '版本标题', { max: 256, required: true })
+  } catch (error) {
+    versionError.value = error.message
+    return
+  }
+  savingVersion.value = true
   try {
     await saveWorkspaceState(WRITER_STATE_KEY, writerState())
     await createWriterVersion({
@@ -1068,7 +1092,13 @@ function saveFileName() {
   saveDraft()
 }
 function normalizeFileName() {
-  fileName.value = sanitizeResumeFileName(fileName.value)
+  try {
+    validateLength(fileName.value, '导出文件名', { max: 120, required: true })
+    if (/[\\/:*?"<>|]/.test(fileName.value)) throw new Error('导出文件名不能包含 \\ / : * ? " < > |')
+    fileName.value = sanitizeResumeFileName(fileName.value)
+  } catch (error) {
+    alert(error.message)
+  }
   saveDraft()
 }
 function exportBaseName() {

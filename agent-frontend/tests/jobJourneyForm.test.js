@@ -76,7 +76,7 @@ describe('JobJourney form placeholders', () => {
 
     expect(wrapper.find('input[placeholder="请输入企业名称，例如：字节跳动"]').exists()).toBe(true)
     expect(wrapper.find('input[placeholder="请输入所在地域，例如：上海"]').exists()).toBe(true)
-    expect(wrapper.find('input[placeholder="请输入岗位名称，例如：Java 大模型应用开发工程师"]').exists()).toBe(true)
+    expect(wrapper.find('input[placeholder="请输入岗位名称，例如：Agent 与大模型应用开发工程师"]').exists()).toBe(true)
     expect(wrapper.find('input[placeholder="请选择或输入企业性质"]').exists()).toBe(true)
     expect(wrapper.find('input[placeholder="请选择或输入企业规模"]').exists()).toBe(true)
 

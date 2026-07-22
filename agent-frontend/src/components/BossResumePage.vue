@@ -76,7 +76,7 @@
           >
           <label class="wide"
             ><span>期望岗位</span
-            ><input v-model="form.expectation.position" placeholder="例如：Java 大模型应用开发工程师"
+            ><input v-model="form.expectation.position" placeholder="例如：Agent 与大模型应用开发工程师"
           /></label>
         </div>
       </section>
@@ -472,7 +472,9 @@
             <div class="profile-project-editor">
               <div class="boss-fixed-grid">
                 <label><span>项目名称</span><input v-model="item.name" placeholder="项目名称" /></label>
-                <label><span>项目角色</span><input v-model="item.role" placeholder="例如：后端负责人" /></label>
+                <label
+                  ><span>项目角色</span><input v-model="item.role" placeholder="例如：Agent 应用开发负责人"
+                /></label>
                 <label><span>开始时间</span><input v-model="item.startDate" type="month" /></label>
                 <label><span>结束时间</span><input v-model="item.endDate" type="month" /></label>
                 <div class="wide profile-project-tech-editor">
@@ -488,7 +490,7 @@
                   <div class="profile-project-tech-input-row">
                     <input
                       v-model.trim="item.techDraft"
-                      placeholder="输入一项技术后按回车，例如 Spring Boot"
+                      placeholder="输入一项技术后按回车，例如 LangGraph"
                       @keydown.enter.prevent="addProjectTech(item)"
                     />
                     <button type="button" :disabled="!item.techDraft.trim()" @click="addProjectTech(item)">
@@ -656,6 +658,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { generateJobProfileSummary } from '../api/resume'
 import { useResumeStore } from '../stores/resume'
+import { validateInteger, validateLength, validateMonthRange, validateTags } from '../utils/formValidation'
 
 const resume = useResumeStore()
 const saving = ref(false)
@@ -1128,10 +1131,46 @@ async function requestAiSummary({ autoApply, showCompare, saveAfterApply }) {
     generatingSummary.value = false
   }
 }
+function validateProfileForm() {
+  validateLength(form.basic.name, '姓名', { max: 64 })
+  if (form.basic.age !== '') validateInteger(form.basic.age, '年龄', { min: 16, max: 80 })
+  validateLength(form.basic.city, '所在城市', { max: 64 })
+  validateLength(form.expectation.position, '期望岗位', { max: 120 })
+  validateLength(form.personalAdvantage, '个人优势', { max: 5000 })
+  validateLength(form.summary, '画像摘要', { max: 5000 })
+  if (form.basic.phone && !/^1\d{10}$/.test(form.basic.phone.trim())) throw new Error('手机号格式不正确')
+  if (form.basic.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.basic.email.trim())) throw new Error('邮箱格式不正确')
+  validateTags(skillTags.value, '技能标签', { maxCount: 50, maxLength: 64 })
+  for (const item of form.educationExperiences) {
+    if (![item.school, item.college, item.major, item.startDate, item.endDate].some(Boolean)) continue
+    validateLength(item.school, '学校名称', { max: 120 })
+    validateMonthRange(item.startDate, item.endDate, '教育经历')
+  }
+  for (const item of form.workExperiences) {
+    if (![item.company, item.position, item.startDate, item.endDate].some(Boolean)) continue
+    validateLength(item.company, '公司名称', { max: 120 })
+    validateLength(item.position, '职位名称', { max: 120 })
+    validateMonthRange(item.startDate, item.endDate, '工作经历')
+  }
+  for (const item of form.projectExperiences) {
+    if (![item.name, item.role, item.startDate, item.endDate].some(Boolean)) continue
+    validateLength(item.name, '项目名称', { max: 120 })
+    validateLength(item.role, '项目角色', { max: 120 })
+    validateMonthRange(item.startDate, item.endDate, '项目经历')
+  }
+}
+
 async function saveProfile() {
-  saving.value = true
   error.value = ''
   saveHint.value = ''
+  try {
+    validateProfileForm()
+  } catch (err) {
+    error.value = err.message
+    showWarning(error.value)
+    return false
+  }
+  saving.value = true
   const summaryWasEmpty = !form.summary.trim()
   try {
     await resume.saveProfile(buildParsed('手动填写'))

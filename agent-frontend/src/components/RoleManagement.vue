@@ -67,15 +67,24 @@
               </div>
               <div class="rbac-form-grid">
                 <label class="rbac-field"
-                  ><span>角色编码</span><input v-model.trim="form.roleCode" placeholder="例如 developer" /></label
+                  ><span>角色编码</span
+                  ><input
+                    v-model.trim="form.roleCode"
+                    maxlength="64"
+                    placeholder="例如 developer，字母开头，仅限字母、数字、下划线或连字符" /></label
                 ><label class="rbac-field"
-                  ><span>角色名称</span><input v-model.trim="form.roleName" placeholder="例如研发人员" /></label
+                  ><span>角色名称</span
+                  ><input v-model.trim="form.roleName" maxlength="64" placeholder="例如研发人员，最多 64 字" /></label
                 ><label class="rbac-field wide"
                   ><span>角色说明</span
-                  ><input v-model.trim="form.description" placeholder="说明该角色的职责和适用范围" /></label
+                  ><input
+                    v-model.trim="form.description"
+                    maxlength="500"
+                    placeholder="说明该角色的职责和适用范围，最多 500 字" /></label
                 ><label class="rbac-field"
                   ><span>角色状态</span
                   ><select v-model="form.enabled">
+                    <option :value="null" disabled>请选择角色状态</option>
                     <option :value="true">启用</option>
                     <option :value="false">停用</option>
                   </select></label
@@ -116,6 +125,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { createRole, deleteRole, listAssignableMenus, listRoles, updateRole } from '../api/users'
+import { validateCode, validateLength } from '../utils/formValidation'
 
 const roles = ref([])
 const menus = ref([])
@@ -124,7 +134,7 @@ const modalError = ref('')
 const modal = ref('')
 const selected = ref(null)
 const saving = ref(false)
-const form = reactive({ roleCode: '', roleName: '', description: '', enabled: true, menuIds: [] })
+const form = reactive({ roleCode: '', roleName: '', description: '', enabled: null, menuIds: [] })
 const enabledCount = computed(() => roles.value.filter((role) => role.enabled).length)
 const authorizationCount = computed(() => roles.value.reduce((total, role) => total + (role.menuIds?.length || 0), 0))
 const orderedMenus = computed(() => {
@@ -152,7 +162,7 @@ async function load() {
 }
 function openCreate() {
   selected.value = null
-  Object.assign(form, { roleCode: '', roleName: '', description: '', enabled: true, menuIds: [] })
+  Object.assign(form, { roleCode: '', roleName: '', description: '', enabled: null, menuIds: [] })
   modal.value = 'create'
   modalError.value = ''
 }
@@ -183,8 +193,17 @@ function menuDepth(menu) {
   return depth
 }
 async function save() {
-  saving.value = true
   modalError.value = ''
+  try {
+    validateCode(form.roleCode, '角色编码')
+    validateLength(form.roleName, '角色名称', { max: 64, required: true })
+    validateLength(form.description, '角色说明', { max: 500 })
+    if (form.enabled == null) throw new Error('请选择角色状态')
+  } catch (e) {
+    modalError.value = e.message
+    return
+  }
+  saving.value = true
   try {
     const payload = { ...form, menuIds: [...form.menuIds] }
     if (modal.value === 'create') await createRole(payload)

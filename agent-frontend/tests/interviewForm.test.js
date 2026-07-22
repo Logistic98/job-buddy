@@ -6,7 +6,6 @@ import {
   buildDebugTestCase,
   buildQuestionPayload,
   codingResultSummary,
-  defaultPracticeTitle,
   displayExamTitle,
   examRuleTotal,
   formatExamStartedAt,
@@ -41,13 +40,6 @@ function baseForm(overrides = {}) {
     ...overrides,
   }
 }
-
-describe('defaultPracticeTitle', () => {
-  it('formats date and time with zero padding', () => {
-    const title = defaultPracticeTitle(new Date(2026, 0, 5, 9, 7))
-    expect(title).toBe('随机组卷 2026-01-05 09:07')
-  })
-})
 
 describe('displayExamTitle', () => {
   it('uses the persisted title and handles missing values', () => {
@@ -112,9 +104,18 @@ describe('validateAiForm', () => {
     expect(() => validateAiForm({ topic: '', documentText: '', count: 5 })).toThrow('请填写方向主题或上传参考资料')
   })
 
-  it('bounds the count', () => {
-    expect(() => validateAiForm({ topic: 'Java', count: 0 })).toThrow('生成数量需在 1-20 之间')
-    expect(() => validateAiForm({ topic: 'Java', count: 5 })).not.toThrow()
+  it('requires explicit generation settings and bounds the count', () => {
+    const valid = {
+      topic: 'Agent 工程',
+      bankType: 'qa',
+      category: 'Agent 工程',
+      difficulty: '中等',
+      questionType: '简答',
+      count: 5,
+    }
+    expect(() => validateAiForm({ ...valid, bankType: '' })).toThrow('请选择题库')
+    expect(() => validateAiForm({ ...valid, count: 0 })).toThrow('生成数量需在 1-20 之间')
+    expect(() => validateAiForm(valid)).not.toThrow()
   })
 })
 
@@ -123,14 +124,29 @@ describe('examRuleTotal and validatePracticeConfig', () => {
     expect(examRuleTotal([{ count: 3 }, { count: 2 }, { count: -5 }])).toBe(5)
   })
 
-  it('rejects empty practice config', () => {
-    expect(() => validatePracticeConfig({ title: '练习', durationMinutes: 30, rules: [{ count: 0 }] })).toThrow(
-      '请至少配置 1 道题',
-    )
+  it('rejects incomplete practice config', () => {
+    expect(() =>
+      validatePracticeConfig({ title: '练习', durationMinutes: 30, answerMode: '', rules: [{ count: 0 }] }),
+    ).toThrow('请选择练习模式')
+    expect(() =>
+      validatePracticeConfig({
+        title: '练习',
+        durationMinutes: 30,
+        answerMode: 'hidden',
+        rules: [{ bankType: 'qa', questionType: '简答', count: 0 }],
+      }),
+    ).toThrow('请至少配置 1 道题')
   })
 
-  it('accepts a valid config', () => {
-    expect(() => validatePracticeConfig({ title: '练习', durationMinutes: 30, rules: [{ count: 5 }] })).not.toThrow()
+  it('accepts a valid config with explicitly selected fields', () => {
+    expect(() =>
+      validatePracticeConfig({
+        title: '练习',
+        durationMinutes: 30,
+        answerMode: 'hidden',
+        rules: [{ bankType: 'qa', questionType: '简答', count: 5 }],
+      }),
+    ).not.toThrow()
   })
 })
 

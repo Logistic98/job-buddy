@@ -3,6 +3,7 @@
 // isolation, while the component keeps only its reactive state and API orchestration. None of
 // these functions read or mutate component state; everything flows through explicit arguments.
 
+import { validateInteger, validateLength, validateTags } from './formValidation'
 import {
   buildDefaultTemplate,
   defaultSignature,
@@ -12,11 +13,6 @@ import {
   requireText,
   splitCleanTags,
 } from './interviewBank'
-
-export function defaultPracticeTitle(now = new Date()) {
-  const pad = (value) => String(value).padStart(2, '0')
-  return `随机组卷 ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
-}
 
 export function displayExamTitle(exam) {
   return String(exam?.title || '未命名练习')
@@ -40,11 +36,16 @@ export function isCurrentExam(exam, currentExam) {
   return Boolean(exam?.examId && currentExam?.examId && exam.examId === currentExam.examId)
 }
 
-// 按向导步骤校验手动录入表单，避免用户进入最后一步后才被前置字段错误打断。
+// 按向导步骤校验手动录入表单，提交失败时用于定位首个需要修正的步骤。
 export function validateQuestionStep(form, step) {
   const choice = isChoiceType(form.questionType)
   if (step === 0) {
-    requireText(form.title, '请填写题目标题')
+    validateLength(form.title, '题目标题', { max: 200, required: true })
+    requireText(form.bankType, '请选择题库')
+    validateLength(form.category, '分类', { max: 64, required: true })
+    requireText(form.difficulty, '请选择难度')
+    requireText(form.questionType, '请选择题型')
+    validateTags(form.tags, '标签', { maxCount: 20, maxLength: 32 })
     return
   }
   if (step === 1) {
@@ -54,16 +55,23 @@ export function validateQuestionStep(form, step) {
       if (validOptions.length < 2) throw new Error('选择题至少需要 2 个有效选项')
     }
     if (form.bankType === 'leetcode') {
+      requireText(form.codingLanguage, '请选择默认语言')
       requireText(form.codingTemplate, '请填写初始代码模板')
       if (!extractFunctionName(form.codingTemplate, form.codingLanguage))
         throw new Error('代码模板中需要包含可识别的函数或方法声明')
-      const parameterCount = Number(form.codingParameterCount || 0)
-      if (!Number.isInteger(parameterCount) || parameterCount < 1 || parameterCount > 10)
-        throw new Error('参数个数需在 1-10 之间')
+      validateInteger(form.codingParameterCount, '参数个数', { min: 1, max: 10 })
     }
     return
   }
-  if (choice) requireText(form.answer, '请填写正确答案')
+  if (choice) {
+    requireText(form.answer, '请填写正确答案')
+    const validKeys = new Set(form.options.filter((item) => String(item.text || '').trim()).map((item) => item.key))
+    const answerKeys = selectedAnswerKeys(form.answer)
+    if (form.questionType === '单选' && answerKeys.length !== 1) throw new Error('单选题只能填写一个正确答案')
+    if (!answerKeys.length || answerKeys.some((key) => !validKeys.has(key.toUpperCase())))
+      throw new Error('正确答案必须使用现有选项编号')
+  }
+  validateLength(form.answer, '参考答案', { max: 20000 })
   if (form.bankType === 'leetcode') buildCodingMetaFromForm(form)
 }
 
@@ -77,8 +85,14 @@ export function validateQuestionForm(form) {
 export function validateAiForm(aiForm) {
   if (!String(aiForm.topic || '').trim() && !String(aiForm.documentText || '').trim())
     throw new Error('请填写方向主题或上传参考资料')
-  const count = Number(aiForm.count || 0)
-  if (!Number.isFinite(count) || count < 1 || count > 20) throw new Error('生成数量需在 1-20 之间')
+  validateLength(aiForm.topic, '方向主题', { max: 200 })
+  requireText(aiForm.bankType, '请选择题库')
+  validateLength(aiForm.category, '分类', { max: 64, required: true })
+  requireText(aiForm.difficulty, '请选择难度')
+  requireText(aiForm.questionType, '请选择题型')
+  validateInteger(aiForm.count, '生成数量', { min: 1, max: 20 })
+  validateLength(aiForm.requirements, '补充要求', { max: 2000 })
+  validateLength(aiForm.documentText, '参考资料', { max: 20000 })
 }
 
 export function examRuleTotal(rules = []) {
@@ -87,12 +101,14 @@ export function examRuleTotal(rules = []) {
 
 export function validatePracticeConfig(examConfig) {
   requireText(examConfig.title, '请填写练习名称')
-  const duration = Number(examConfig.durationMinutes || 0)
-  if (!Number.isFinite(duration) || duration < 1 || duration > 240) throw new Error('限时时长需在 1-240 分钟之间')
+  validateLength(examConfig.title, '练习名称', { max: 120, required: true })
+  validateInteger(examConfig.durationMinutes, '限时时长', { min: 1, max: 240 })
+  requireText(examConfig.answerMode, '请选择练习模式')
   if (!examRuleTotal(examConfig.rules)) throw new Error('请至少配置 1 道题')
   for (const rule of examConfig.rules) {
-    const count = Number(rule.count || 0)
-    if (!Number.isFinite(count) || count < 0 || count > 50) throw new Error('单条组卷规则题数需在 0-50 之间')
+    requireText(rule.bankType, '请选择组卷规则的题库')
+    requireText(rule.questionType, '请选择组卷规则的题型')
+    validateInteger(rule.count, '单条组卷规则题数', { min: 1, max: 50 })
   }
 }
 

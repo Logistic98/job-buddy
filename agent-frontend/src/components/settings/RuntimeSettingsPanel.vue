@@ -248,6 +248,7 @@ import { getBossLoginStatus } from '../../api/boss'
 import { restoreWorkspaceDefaults } from '../../api/settings'
 import { normalizeRuntimeSettings } from '../../composables/useRuntimeSettings'
 import { useScopedSettings } from '../../composables/useScopedSettings'
+import { validateInteger } from '../../utils/formValidation'
 import { useChatStore } from '../../stores/chat'
 import BossLoginQrModal from '../BossLoginQrModal.vue'
 
@@ -326,7 +327,27 @@ onMounted(() => {
 defineExpose({ save, openRestoreConfirm })
 
 async function save() {
-  normalizeLimits()
+  error.value = ''
+  try {
+    const rules = [
+      ['maxJobsPerRecommend', '每批展示岗位数', 1, 30],
+      ['recommendOverfetchFactor', '候选池倍率', 1, 10],
+      ['minimumRecommendedMatchScore', '最低推荐匹配度', 0, 100],
+      ['bossSearchMaxPages', '单次抓取页数', 1, 5],
+      ['bossSearchMaxPageDepth', '最大检索页深', 1, 10],
+      ['bossSearchCacheTtlMinutes', '候选缓存时间', 1, 1440],
+      ['bossSearchCooldownMinutesOnRisk', '风控冷却时间', 1, 1440],
+      ['runtimeMaxTurns', '最大执行轮数', 1, 20],
+      ['runtimeMaxToolCalls', '最大工具调用数', 1, 30],
+      ['runtimeMaxFailures', '最大连续失败数', 1, 10],
+      ['resumeWriterVersionLimit', '版本历史保留数', 5, 100],
+    ]
+    for (const [key, label, min, max] of rules) validateInteger(workspace.value?.[key], label, { min, max })
+    validateInteger(resumeSizeMb(workspace.value?.maxResumeBytes), '上传大小上限', { min: 1, max: 20 })
+  } catch (err) {
+    error.value = err.message
+    return false
+  }
   return saveWorkspace()
 }
 

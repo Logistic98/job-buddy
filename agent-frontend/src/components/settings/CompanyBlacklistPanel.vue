@@ -49,6 +49,7 @@
             <input
               v-model.trim="forms[type.key]"
               :aria-label="type.inputLabel"
+              maxlength="100"
               :placeholder="type.placeholder"
               @keyup.enter="addItem(type.key)"
             />
@@ -63,6 +64,7 @@
             <input
               v-model.trim="filters[type.key]"
               :aria-label="type.searchLabel"
+              maxlength="100"
               :placeholder="type.searchPlaceholder"
             />
           </div>
@@ -106,6 +108,7 @@ import {
   findBlacklistDuplicate,
 } from '../../composables/useCompanyBlacklist'
 import { useScopedSettings } from '../../composables/useScopedSettings'
+import { validateLength } from '../../utils/formValidation'
 
 const emit = defineEmits(['state-change'])
 const normalizeBlacklist = (value) => ({
@@ -133,7 +136,7 @@ const types = [
     description: '只检查岗位的公司或品牌名称，不扫描岗位描述。',
     unit: '家',
     inputLabel: '屏蔽公司名称',
-    placeholder: '输入公司或品牌名称',
+    placeholder: '输入公司或品牌名称，2-100 字',
     addLabel: '添加公司',
     searchLabel: '搜索屏蔽公司',
     searchPlaceholder: '搜索公司名称或说明',
@@ -150,7 +153,7 @@ const types = [
     description: '检查岗位名称、描述、标签和福利，不匹配公司名称。',
     unit: '个',
     inputLabel: '屏蔽关键词',
-    placeholder: '例如：外包、驻场',
+    placeholder: '例如：外包、驻场，1-100 字',
     addLabel: '添加关键词',
     searchLabel: '搜索屏蔽关键词',
     searchPlaceholder: '搜索关键词或说明',
@@ -190,7 +193,14 @@ function typeLabel(type) {
 }
 function addItem(type) {
   const name = forms.value[type]
-  if (!name || !blacklist.value?.items) return
+  if (!blacklist.value?.items) return
+  try {
+    validateLength(name, typeLabel(type), { min: type === 'company' ? 2 : 1, max: 100, required: true })
+    if (/[\r\n\t]/.test(name)) throw new Error(`${typeLabel(type)}不能包含换行或制表符`)
+  } catch (err) {
+    setFeedback(type, 'warning', err.message)
+    return
+  }
   const duplicate = findBlacklistDuplicate(blacklist.value.items, type, name)
   if (duplicate) {
     if (duplicate.enabled) return setFeedback(type, 'warning', `「${duplicate.name}」已启用，无需重复添加。`)

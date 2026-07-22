@@ -29,7 +29,31 @@ const props = defineProps({
   emptyText: { type: String, default: '' },
 })
 
-const normalizedContent = computed(() => String(props.content ?? '').trim())
+function normalizeThematicBreaks(content) {
+  const lines = String(content ?? '')
+    .trim()
+    .split('\n')
+  const normalizedLines = []
+  let fence = null
+
+  for (const line of lines) {
+    const fenceMatch = line.match(/^[ \t]{0,3}(`{3,}|~{3,})/)
+    if (fenceMatch) {
+      const marker = fenceMatch[1]
+      if (!fence) fence = { character: marker[0], length: marker.length }
+      else if (marker[0] === fence.character && marker.length >= fence.length) fence = null
+    }
+
+    const followsText = normalizedLines.length > 0 && normalizedLines.at(-1).trim()
+    const isDashThematicBreak = /^[ \t]{0,3}(?:-[ \t]*){3,}$/.test(line)
+    if (!fence && isDashThematicBreak && followsText) normalizedLines.push('')
+    normalizedLines.push(line)
+  }
+
+  return normalizedLines.join('\n')
+}
+
+const normalizedContent = computed(() => normalizeThematicBreaks(props.content))
 const containerRef = ref(null)
 let observer = null
 let feedbackTimer = null

@@ -3,6 +3,7 @@ package com.jobbuddy.backend;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -16,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest(
@@ -36,13 +38,36 @@ class InterviewPracticeControllerTest {
   @Autowired private ObjectMapper objectMapper;
 
   @Test
+  void shouldExtractInterviewReferenceDocument() throws Exception {
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "file",
+            "reference.txt",
+            "text/plain",
+            "上海 Java 大模型应用开发岗，月薪40-50k".getBytes(StandardCharsets.UTF_8));
+
+    mockMvc
+        .perform(multipart("/api/interview/documents/extract").file(file))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.code").value(200))
+        .andExpect(jsonPath("$.data.fileName").value("reference.txt"))
+        .andExpect(jsonPath("$.data.text").value("上海 Java 大模型应用开发岗，月薪40-50k"))
+        .andExpect(jsonPath("$.data.truncated").value(false));
+  }
+
+  @Test
   void shouldCreatePracticeFromManualQuestionIds() throws Exception {
     JsonNode first =
         createQuestion(
-            "{\"bankType\":\"leetcode\",\"title\":\"手动算法题\",\"category\":\"数组\",\"difficulty\":\"简单\",\"questionType\":\"编程题\",\"content\":\"实现数组求和。\",\"answer\":\"通过测试用例\",\"tags\":[\"算法\"],\"codingMeta\":{\"language\":\"javascript\",\"functionName\":\"sum\",\"parameterCount\":1,\"template\":\"function sum(nums) { return 0 }\",\"tests\":[{\"name\":\"示例\",\"args\":[[1,2]],\"expected\":3,\"sample\":true}]}}");
+            "{\"bankType\":\"leetcode\",\"title\":\"手动算法题\",\"category\":\"数组\",\"difficulty\":\"简单\",\"questionType\":\"编程题\",\"content\":\"实现数组求和。\",\"answer\":\"通过测试用例\",\"tags\":[\"算法\"],\"codingMeta\":{\"language\":\"javascript\",\"functionName\":\"sum\",\"parameterCount\":1,\"template\":\"function"
+                + " sum(nums) { return 0"
+                + " }\",\"tests\":[{\"name\":\"示例\",\"args\":[[1,2]],\"expected\":3,\"sample\":true}]}}");
     JsonNode second =
         createQuestion(
-            "{\"bankType\":\"qa\",\"title\":\"手动理论题\",\"category\":\"Java\",\"difficulty\":\"中等\",\"questionType\":\"单选\",\"content\":\"正确的是？\\n\\nA. JVM 支持 GC\\nB. JVM 不支持 GC\",\"answer\":\"A\",\"tags\":[\"Java\"]}");
+            "{\"bankType\":\"qa\",\"title\":\"手动理论题\",\"category\":\"Java\",\"difficulty\":\"中等\",\"questionType\":\"单选\",\"content\":\"正确的是？\\n"
+                + "\\n"
+                + "A. JVM 支持 GC\\n"
+                + "B. JVM 不支持 GC\",\"answer\":\"A\",\"tags\":[\"Java\"]}");
 
     mockMvc
         .perform(get("/api/interview/questions/meta"))
@@ -78,11 +103,24 @@ class InterviewPracticeControllerTest {
   @Test
   void shouldCreateMixedTimedPracticeAndSubmitCodingResult() throws Exception {
     createQuestion(
-        "{\"bankType\":\"leetcode\",\"title\":\"Two Sum 验证题\",\"category\":\"数组与哈希表\",\"difficulty\":\"简单\",\"questionType\":\"编程题\",\"content\":\"实现 twoSum。\",\"answer\":\"通过测试用例\",\"tags\":[\"LeetCode\",\"数组\"],\"codingMeta\":{\"language\":\"javascript\",\"functionName\":\"twoSum\",\"parameterCount\":2,\"signature\":\"function twoSum(nums, target): number[]\",\"template\":\"function twoSum(nums, target) { return [0, 1] }\",\"tests\":[{\"name\":\"示例\",\"args\":[[2,7],9],\"expected\":[0,1],\"sample\":true}]}} ");
+        "{\"bankType\":\"leetcode\",\"title\":\"Two Sum"
+            + " 验证题\",\"category\":\"数组与哈希表\",\"difficulty\":\"简单\",\"questionType\":\"编程题\",\"content\":\"实现"
+            + " twoSum。\",\"answer\":\"通过测试用例\",\"tags\":[\"LeetCode\",\"数组\"],\"codingMeta\":{\"language\":\"javascript\",\"functionName\":\"twoSum\",\"parameterCount\":2,\"signature\":\"function"
+            + " twoSum(nums, target): number[]\",\"template\":\"function twoSum(nums, target) {"
+            + " return [0, 1]"
+            + " }\",\"tests\":[{\"name\":\"示例\",\"args\":[[2,7],9],\"expected\":[0,1],\"sample\":true}]}}"
+            + " ");
     createQuestion(
-        "{\"bankType\":\"qa\",\"title\":\"HashMap 选择题\",\"category\":\"Java 基础\",\"difficulty\":\"中等\",\"questionType\":\"单选\",\"content\":\"正确的是？\\n\\nA. 扩容通常为 2 倍\\nB. 永不扩容\",\"answer\":\"A\",\"tags\":[\"Java\"]}");
+        "{\"bankType\":\"qa\",\"title\":\"HashMap 选择题\",\"category\":\"Java"
+            + " 基础\",\"difficulty\":\"中等\",\"questionType\":\"单选\",\"content\":\"正确的是？\\n"
+            + "\\n"
+            + "A. 扩容通常为 2 倍\\n"
+            + "B. 永不扩容\",\"answer\":\"A\",\"tags\":[\"Java\"]}");
     createQuestion(
-        "{\"bankType\":\"qa\",\"title\":\"Redis 持久化简答\",\"category\":\"Redis\",\"difficulty\":\"中等\",\"questionType\":\"简答\",\"content\":\"请简述 RDB 与 AOF 的原理与差异。\",\"answer\":\"RDB 生成内存快照恢复快；AOF 追加写命令日志数据更安全\",\"tags\":[\"Redis\"]}");
+        "{\"bankType\":\"qa\",\"title\":\"Redis"
+            + " 持久化简答\",\"category\":\"Redis\",\"difficulty\":\"中等\",\"questionType\":\"简答\",\"content\":\"请简述"
+            + " RDB 与 AOF 的原理与差异。\",\"answer\":\"RDB 生成内存快照恢复快；AOF"
+            + " 追加写命令日志数据更安全\",\"tags\":[\"Redis\"]}");
 
     mockMvc
         .perform(get("/api/interview/questions/meta"))

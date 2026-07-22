@@ -11,7 +11,11 @@
         <div class="practice-section">
           <label class="practice-field">
             <span class="practice-field-label">练习名称</span>
-            <input v-model="examConfig.title" placeholder="例如：Java 后端算法与理论组合练习" />
+            <input
+              v-model="examConfig.title"
+              maxlength="120"
+              placeholder="例如：上海大模型应用开发岗综合练习（最多 120 字）"
+            />
             <small class="field-hint">建议写清方向和题型组合，便于练习记录复盘。</small>
           </label>
           <div class="practice-field">
@@ -27,7 +31,14 @@
                 {{ min }} 分钟
               </button>
               <label class="practice-duration-custom">
-                <input v-model.number="examConfig.durationMinutes" type="number" min="1" max="240" />
+                <input
+                  v-model.number="examConfig.durationMinutes"
+                  type="number"
+                  min="1"
+                  max="240"
+                  step="1"
+                  placeholder="请输入 1-240 的整数"
+                />
                 <span>分钟</span>
               </label>
               <small class="field-hint inline">限时范围 1-240 分钟。</small>
@@ -62,22 +73,30 @@
             </div>
             <div v-for="(rule, index) in examConfig.rules" :key="rule.id" class="practice-rule-row">
               <select v-model="rule.bankType">
-                <option value="">全部题库</option>
+                <option value="" disabled>请选择题库</option>
                 <option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
               </select>
               <select v-model="rule.category">
-                <option value="">全部分类</option>
+                <option value="" disabled>请选择分类</option>
                 <option v-for="item in categories" :key="item" :value="item">{{ item }}</option>
               </select>
               <select v-model="rule.difficulty">
-                <option value="">全部难度</option>
+                <option value="" disabled>请选择难度</option>
                 <option v-for="item in difficulties" :key="item" :value="item">{{ item }}</option>
               </select>
               <select v-model="rule.questionType">
-                <option value="">全部题型</option>
+                <option value="" disabled>请选择题型</option>
                 <option v-for="item in questionTypes" :key="item" :value="item">{{ item }}</option>
               </select>
-              <input v-model.number="rule.count" type="number" min="1" max="50" />
+              <input
+                v-model.number="rule.count"
+                type="number"
+                min="1"
+                max="50"
+                step="1"
+                placeholder="1-50"
+                aria-label="题数"
+              />
               <button
                 type="button"
                 class="practice-rule-remove"
@@ -111,11 +130,7 @@
 // duration in seconds so the parent can start the practice desk timer.
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { createRandomExam } from '../../api/interview'
-import {
-  defaultPracticeTitle,
-  examRuleTotal as computeExamRuleTotal,
-  validatePracticeConfig,
-} from '../../utils/interviewForm'
+import { examRuleTotal as computeExamRuleTotal, validatePracticeConfig } from '../../utils/interviewForm'
 
 defineProps({
   bankTypeOptions: { type: Array, default: () => [] },
@@ -130,7 +145,7 @@ const visible = ref(false)
 const examLoading = ref(false)
 const practiceModalError = ref('')
 const durationPresets = [15, 30, 45, 60, 90]
-const examConfig = reactive({ title: '', durationMinutes: 30, answerMode: 'hidden', rules: [newExamRule()] })
+const examConfig = reactive(emptyExamConfig())
 const examRuleTotal = computed(() => computeExamRuleTotal(examConfig.rules))
 
 onMounted(() => document.addEventListener('keydown', handleKeydown))
@@ -143,18 +158,21 @@ function handleKeydown(event) {
 
 function open() {
   practiceModalError.value = ''
-  if (!examConfig.title.trim()) examConfig.title = defaultPracticeTitle()
+  Object.assign(examConfig, emptyExamConfig())
   visible.value = true
 }
 function close() {
   if (examLoading.value) return
   visible.value = false
 }
-function newExamRule(data = {}) {
-  return { id: crypto.randomUUID(), bankType: '', category: '', difficulty: '', questionType: '', count: 5, ...data }
+function emptyExamConfig() {
+  return { title: '', durationMinutes: '', answerMode: '', rules: [newExamRule()] }
+}
+function newExamRule() {
+  return { id: crypto.randomUUID(), bankType: '', category: '', difficulty: '', questionType: '', count: '' }
 }
 function addExamRule() {
-  examConfig.rules.push(newExamRule({ count: 3 }))
+  examConfig.rules.push(newExamRule())
 }
 function removeExamRule(index) {
   if (examConfig.rules.length <= 1) return
@@ -167,7 +185,7 @@ async function startExam() {
     validatePracticeConfig(examConfig)
     const payload = {
       title: examConfig.title,
-      durationMinutes: Number(examConfig.durationMinutes || 30),
+      durationMinutes: Number(examConfig.durationMinutes),
       showAnswer: examConfig.answerMode === 'visible',
       rules: examConfig.rules
         .map((rule) => ({

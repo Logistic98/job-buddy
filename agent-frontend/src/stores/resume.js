@@ -75,7 +75,7 @@ export const useResumeStore = defineStore('resume', {
     async load(force = false) {
       if (!force && this.loaded) return this.items
       const revision = this.lifecycleRevision
-      if (loadRequest?.revision === revision) return loadRequest.promise
+      if (!force && loadRequest?.revision === revision) return loadRequest.promise
       this.loading = true
       let request
       request = (async () => {
@@ -95,12 +95,13 @@ export const useResumeStore = defineStore('resume', {
         this.loaded = true
         return this.items
       })()
-      loadRequest = { revision, promise: request }
+      loadRequest = { revision, promise: request, force }
       try {
         return await request
       } finally {
-        if (loadRequest?.promise === request) loadRequest = null
-        if (revision === this.lifecycleRevision) this.loading = false
+        const isActiveRequest = loadRequest?.promise === request
+        if (isActiveRequest) loadRequest = null
+        if (isActiveRequest && revision === this.lifecycleRevision) this.loading = false
       }
     },
     async select(item) {
@@ -311,11 +312,27 @@ export const useResumeStore = defineStore('resume', {
       this.error = ''
       try {
         const uploaded = await uploadResume(file, sessionId)
+        const uploadedId = uploaded?.resumeId
         if (revision !== this.lifecycleRevision) return null
-        this.current = uploaded
+        if (uploaded?.resumeId) {
+          const index = this.items.findIndex((item) => item.resumeId === uploaded.resumeId)
+          this.items =
+            index >= 0
+              ? this.items.map((item) => (item.resumeId === uploaded.resumeId ? uploaded : item))
+              : [uploaded, ...this.items]
+          this.current = uploaded
+        }
         await this.persistCurrent()
         if (revision !== this.lifecycleRevision) return null
         await this.load(true)
+        if (revision !== this.lifecycleRevision) return null
+        if (uploadedId && !this.items.some((item) => item.resumeId === uploadedId)) {
+          const detail = await getResume(uploadedId).catch(() => null)
+          if (detail?.resumeId && revision === this.lifecycleRevision) {
+            this.items = [detail, ...this.items.filter((item) => item.resumeId !== detail.resumeId)]
+            this.current = detail
+          }
+        }
       } catch (error) {
         if (revision !== this.lifecycleRevision) return null
         this.error = error.message

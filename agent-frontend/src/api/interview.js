@@ -50,6 +50,16 @@ export async function createQuestion(payload) {
   return parseApiResponse(response, '笔试题保存失败')
 }
 
+export async function extractInterviewDocument(file) {
+  const body = new FormData()
+  body.append('file', file)
+  const response = await apiFetch('/interview/documents/extract', {
+    method: 'POST',
+    body,
+  })
+  return parseApiResponse(response, '参考资料读取失败')
+}
+
 export async function generateQuestions(payload) {
   const response = await apiFetch('/interview/questions/generate', {
     method: 'POST',

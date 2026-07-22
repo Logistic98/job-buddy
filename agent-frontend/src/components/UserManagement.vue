@@ -106,9 +106,18 @@
                 <div class="rbac-form-grid">
                   <label v-if="modal === 'create'" class="rbac-field"
                     ><span>全局唯一用户名</span
-                    ><input v-model.trim="form.username" autocomplete="off" placeholder="例如 zhangsan" /></label
+                    ><input
+                      v-model.trim="form.username"
+                      autocomplete="off"
+                      minlength="3"
+                      maxlength="32"
+                      placeholder="例如 zhangsan，3-32 位且以字母开头" /></label
                   ><label class="rbac-field"
-                    ><span>显示名称</span><input v-model.trim="form.displayName" placeholder="用于页面展示" /></label
+                    ><span>显示名称</span
+                    ><input
+                      v-model.trim="form.displayName"
+                      maxlength="64"
+                      placeholder="用于页面展示，最多 64 字" /></label
                   ><label v-if="modal === 'create'" class="rbac-field"
                     ><span>初始密码</span
                     ><input
@@ -158,6 +167,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { createUser, listAssignableRoles, listUsers, resetUserPassword, updateUser } from '../api/users'
+import { validateLength, validateUsername } from '../utils/formValidation'
 
 const users = ref([])
 const roles = ref([])
@@ -167,7 +177,7 @@ const error = ref('')
 const modalError = ref('')
 const modal = ref('')
 const selected = ref(null)
-const form = reactive({ username: '', displayName: '', password: '', enabled: true, roleIds: [] })
+const form = reactive({ username: '', displayName: '', password: '', enabled: null, roleIds: [] })
 const enabledCount = computed(() => users.value.filter((user) => user.enabled).length)
 const disabledCount = computed(() => users.value.length - enabledCount.value)
 const assignedRoleCount = computed(() => new Set(users.value.flatMap((user) => user.roleIds || [])).size)
@@ -195,7 +205,7 @@ function userInitial(user) {
 }
 function openCreate() {
   selected.value = null
-  Object.assign(form, { username: '', displayName: '', password: '', enabled: true, roleIds: [] })
+  Object.assign(form, { username: '', displayName: '', password: '', enabled: null, roleIds: [] })
   modal.value = 'create'
   modalError.value = ''
 }
@@ -222,8 +232,23 @@ function closeModal() {
   selected.value = null
 }
 async function save() {
-  saving.value = true
   modalError.value = ''
+  try {
+    if (modal.value === 'create') {
+      validateUsername(form.username)
+      validateLength(form.displayName, '显示名称', { max: 64, required: true })
+      validateLength(form.password, '初始密码', { min: 8, max: 16, required: true })
+    } else if (modal.value === 'password') {
+      validateLength(form.password, '新密码', { min: 8, max: 16, required: true })
+    } else {
+      validateLength(form.displayName, '显示名称', { max: 64, required: true })
+      if (typeof form.enabled !== 'boolean') throw new Error('请选择账号状态')
+    }
+  } catch (e) {
+    modalError.value = e.message
+    return
+  }
+  saving.value = true
   try {
     if (modal.value === 'create')
       await createUser({

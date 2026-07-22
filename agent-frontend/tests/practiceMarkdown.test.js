@@ -34,6 +34,15 @@ describe('PracticeMarkdown', () => {
     wrapper.unmount()
   })
 
+  it('treats a dash line after plain text as a thematic break instead of a setext heading', async () => {
+    const wrapper = await renderMarkdown('一句话：这是普通正文。\n---')
+
+    expect(wrapper.find('h2').exists()).toBe(false)
+    expect(wrapper.find('p').text()).toBe('一句话：这是普通正文。')
+    expect(wrapper.find('hr').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('renders the configured empty state when no answer is maintained', async () => {
     const wrapper = await renderMarkdown('   ', { emptyText: '未维护参考答案' })
 

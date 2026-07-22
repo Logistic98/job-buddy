@@ -212,6 +212,7 @@ describe('BossResumePage editable profile fields', () => {
     const collegeField = educationCard.findAll('label').find((label) => label.text().includes('学院'))
     await collegeField.get('input').setValue('计算机学院')
     await startField.get('input').setValue('2031-09')
+    await endField.get('input').setValue('2032-06')
     expect(startField.get('input').element.value).toBe('2031-09')
 
     await wrapper.get('.profile-save-state .primary-btn').trigger('click')

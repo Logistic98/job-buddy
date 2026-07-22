@@ -89,12 +89,18 @@
               </div>
               <div class="rbac-form-grid">
                 <label class="rbac-field"
-                  ><span>菜单编码</span><input v-model.trim="form.menuCode" placeholder="例如 reports" /></label
+                  ><span>菜单编码</span
+                  ><input
+                    v-model.trim="form.menuCode"
+                    maxlength="64"
+                    placeholder="例如 reports，字母开头，仅限字母、数字、下划线或连字符" /></label
                 ><label class="rbac-field"
-                  ><span>菜单名称</span><input v-model.trim="form.menuName" placeholder="例如 数据报表" /></label
+                  ><span>菜单名称</span
+                  ><input v-model.trim="form.menuName" maxlength="64" placeholder="例如 数据报表，最多 64 字" /></label
                 ><label class="rbac-field"
                   ><span>菜单类型</span
                   ><select v-model="form.menuType">
+                    <option :value="null" disabled>请选择菜单类型</option>
                     <option value="directory">目录</option>
                     <option value="page">页面</option>
                     <option value="external">外链</option>
@@ -103,6 +109,7 @@
                 ><label class="rbac-field"
                   ><span>父菜单</span
                   ><select v-model="form.parentId">
+                    <option :value="null" disabled>请选择父菜单</option>
                     <option value="">顶级菜单</option>
                     <option v-for="item in parentOptions" :key="item.menuId" :value="item.menuId">
                       {{ '—'.repeat(depth(item)) }} {{ item.menuName }}
@@ -117,16 +124,32 @@
               </div>
               <div class="rbac-form-grid">
                 <label class="rbac-field"
-                  ><span>内部路由</span><input v-model.trim="form.routePath" placeholder="/resumes" /></label
+                  ><span>内部路由</span
+                  ><input
+                    v-model.trim="form.routePath"
+                    maxlength="256"
+                    placeholder="例如 /resumes，必须以 / 开头" /></label
                 ><label class="rbac-field"
-                  ><span>页面组件键</span><input v-model.trim="form.componentKey" placeholder="resumes" /></label
+                  ><span>页面组件键</span
+                  ><input v-model.trim="form.componentKey" maxlength="64" placeholder="例如 resumes，字母开头" /></label
                 ><label class="rbac-field wide"
                   ><span>外部地址</span
-                  ><input v-model.trim="form.externalUrl" placeholder="https://example.com" /></label
+                  ><input
+                    v-model.trim="form.externalUrl"
+                    maxlength="512"
+                    placeholder="例如 https://example.com，仅支持 HTTP/HTTPS" /></label
                 ><label class="rbac-field"
-                  ><span>图标键</span><input v-model.trim="form.iconKey" placeholder="folder" /></label
+                  ><span>图标键</span
+                  ><input v-model.trim="form.iconKey" maxlength="64" placeholder="例如 folder，最多 64 字" /></label
                 ><label class="rbac-field"
-                  ><span>排序值</span><input v-model.number="form.displayOrder" type="number"
+                  ><span>排序值</span
+                  ><input
+                    v-model.number="form.displayOrder"
+                    type="number"
+                    min="0"
+                    max="100000"
+                    step="1"
+                    placeholder="请输入 0-100000 的整数"
                 /></label>
               </div>
             </section>
@@ -138,6 +161,7 @@
                 <label class="rbac-field wide"
                   ><span>关联权限码</span
                   ><select v-model="form.permissionCode">
+                    <option :value="null" disabled>请选择关联权限</option>
                     <option value="">无</option>
                     <option v-for="item in permissions" :key="item.permissionCode" :value="item.permissionCode">
                       {{ item.permissionName }}（{{ item.permissionCode }}）
@@ -148,13 +172,15 @@
                   ><select v-model="form.visible" :disabled="form.menuType === 'action'">
                     <option v-if="form.menuType === 'action'" :value="false">不参与导航</option>
                     <template v-else
-                      ><option :value="true">显示</option>
+                      ><option :value="null" disabled>请选择显示状态</option>
+                      <option :value="true">显示</option>
                       <option :value="false">隐藏</option></template
                     >
                   </select></label
                 ><label class="rbac-field"
                   ><span>菜单状态</span
                   ><select v-model="form.enabled">
+                    <option :value="null" disabled>请选择菜单状态</option>
                     <option :value="true">启用</option>
                     <option :value="false">停用</option>
                   </select></label
@@ -176,6 +202,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { createMenu, deleteMenu, listMenus, listPermissionDefinitions, updateMenu } from '../api/users'
+import { validateCode, validateHttpUrl, validateInteger, validateLength } from '../utils/formValidation'
 
 const menus = ref([])
 const permissions = ref([])
@@ -185,18 +212,18 @@ const modal = ref('')
 const selected = ref(null)
 const saving = ref(false)
 const form = reactive({
-  parentId: '',
+  parentId: null,
   menuCode: '',
   menuName: '',
-  menuType: 'page',
+  menuType: null,
   routePath: '',
   componentKey: '',
   externalUrl: '',
   iconKey: '',
-  permissionCode: '',
-  displayOrder: 0,
-  visible: true,
-  enabled: true,
+  permissionCode: null,
+  displayOrder: '',
+  visible: null,
+  enabled: null,
 })
 const sortedMenus = computed(() => {
   const result = []
@@ -239,18 +266,18 @@ async function load() {
 function openCreate() {
   selected.value = null
   Object.assign(form, {
-    parentId: '',
+    parentId: null,
     menuCode: '',
     menuName: '',
-    menuType: 'page',
+    menuType: null,
     routePath: '',
     componentKey: '',
     externalUrl: '',
     iconKey: '',
-    permissionCode: '',
-    displayOrder: 0,
-    visible: true,
-    enabled: true,
+    permissionCode: null,
+    displayOrder: '',
+    visible: null,
+    enabled: null,
   })
   modal.value = 'create'
   modalError.value = ''
@@ -301,10 +328,23 @@ function permissionFallback(menu) {
   return menus.value.some((item) => item.parentId === menu.menuId && item.permissionCode) ? '由子菜单控制' : '无需权限'
 }
 async function save() {
-  saving.value = true
   modalError.value = ''
   try {
-    const payload = { ...form }
+    validateCode(form.menuCode, '菜单编码')
+    validateLength(form.menuName, '菜单名称', { max: 64, required: true })
+    if (!form.menuType) throw new Error('请选择菜单类型')
+    const displayOrder = validateInteger(form.displayOrder, '排序值', { min: 0, max: 100000 })
+    if (form.visible == null || form.enabled == null) throw new Error('请选择显示状态和菜单状态')
+    validateLength(form.iconKey, '图标键', { max: 64 })
+    if (form.menuType === 'page') {
+      validateLength(form.routePath, '内部路由', { max: 256, required: true })
+      if (!form.routePath.startsWith('/')) throw new Error('内部路由必须以 / 开头')
+      validateCode(form.componentKey, '页面组件键')
+    }
+    if (form.menuType === 'external') validateHttpUrl(form.externalUrl, '外部地址', { required: true })
+    saving.value = true
+    const payload = { ...form, displayOrder }
+    if (payload.externalUrl) payload.externalUrl = validateHttpUrl(payload.externalUrl, '外部地址')
     if (modal.value === 'create') await createMenu(payload)
     else await updateMenu(selected.value.menuId, payload)
     close()

@@ -168,6 +168,7 @@ describe('ProjectDeepDive two-level workflow', () => {
 
     const modal = wrapper.find('.project-editor-card')
     expect(modal.find('.project-editor-actions .primary-btn').text()).toBe('创建')
+    expect(modal.find('input[placeholder="Agent 应用开发 / LLM 工程"]').element.value).toBe('')
     expect(modal.text()).not.toContain('使用逗号分隔')
 
     const techInput = modal.find('.project-tech-input-row input')
@@ -256,6 +257,35 @@ describe('ProjectDeepDive two-level workflow', () => {
     expect(answerBlock.text()).not.toContain('**')
     expect(answerBlock.html()).toContain('<li')
     expect(wrapper.text()).toContain('为什么分层？')
+  })
+
+  it('keeps plain text before a dash separator consistent in detail and editor preview', async () => {
+    const answer = '一句话：我做的不是“套壳 ChatGPT”，而是把研发流程工程化。\n---'
+    mocks.route.query = { project: 'p1', stage: 'questions' }
+    mocks.detail.mockResolvedValue({
+      ...JSON.parse(JSON.stringify(detail)),
+      questions: [{ ...detail.questions[0], answer }],
+    })
+    const wrapper = mount(ProjectDeepDive)
+    await flushPromises()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    await flushPromises()
+
+    const detailAnswer = wrapper.find('.question-detail-block .deep-markdown')
+    expect(detailAnswer.find('h2').exists()).toBe(false)
+    expect(detailAnswer.find('p').text()).toContain('一句话：我做的不是')
+    expect(detailAnswer.find('hr').exists()).toBe(true)
+
+    await wrapper.find('.question-detail-actions .secondary-btn').trigger('click')
+    await wrapper.findAll('[aria-label="参考答案编辑模式"] button')[1].trigger('click')
+    await flushPromises()
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    await flushPromises()
+
+    const preview = wrapper.find('[aria-label="参考答案 Markdown 预览"]')
+    expect(preview.find('h2').exists()).toBe(false)
+    expect(preview.find('p').text()).toContain('一句话：我做的不是')
+    expect(preview.find('hr').exists()).toBe(true)
   })
 
   it('edits project info from the overview stage', async () => {
@@ -574,6 +604,9 @@ describe('ProjectDeepDive two-level workflow', () => {
     expect(wrapper.find('.question-editor-card h2').text()).toBe('添加问题')
     expect(wrapper.findAll('.question-create-methods button')).toHaveLength(2)
     expect(wrapper.findAll('.question-create-methods button')[0].classes()).toContain('active')
+    expect(wrapper.find('.question-generate-form input[type="number"]').element.value).toBe('')
+    expect(wrapper.find('.question-generate-form input:not([type])').element.value).toBe('')
+    await wrapper.find('.question-generate-form input[type="number"]').setValue(12)
     await wrapper.find('.question-editor-card .modal-actions .question-add-btn').trigger('click')
     await flushPromises()
 
@@ -605,7 +638,9 @@ describe('ProjectDeepDive two-level workflow', () => {
     await flushPromises()
 
     expect(wrapper.find('.question-editor-card').text()).not.toContain('必填')
+    expect(wrapper.find('.question-editor-card select').element.value).toBe('')
     await wrapper.find('.question-editor-card textarea').setValue('手动补充的问题')
+    await wrapper.find('.question-editor-card select').setValue('常规')
     await wrapper.find('.question-editor-card .modal-actions .question-add-btn').trigger('click')
     await flushPromises()
 
@@ -624,8 +659,11 @@ describe('ProjectDeepDive two-level workflow', () => {
     await wrapper.findAll('.question-create-methods button')[1].trigger('click')
     await flushPromises()
 
+    const answerEditor = wrapper.find('.question-manual-form > .project-answer-editor')
     const answerSource = wrapper.find('#project-question-answer-markdown')
     const answerTabs = wrapper.find('[aria-label="参考答案编辑模式"]')
+    expect(answerEditor.exists()).toBe(true)
+    expect(answerEditor.classes()).toContain('wide')
     expect(answerSource.exists()).toBe(true)
     expect(wrapper.find('[aria-label="参考答案 Markdown 预览"]').exists()).toBe(false)
 
@@ -633,9 +671,9 @@ describe('ProjectDeepDive two-level workflow', () => {
     await answerTabs.findAll('[role="tab"]')[1].trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('#project-question-answer-markdown').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="参考答案 Markdown 预览"]').exists()).toBe(true)
-    expect(wrapper.findComponent(PracticeMarkdown).props('content')).toContain('**核心结论**')
+    const answerPreview = wrapper.find('[aria-label="参考答案 Markdown 预览"]')
+    expect(answerPreview.exists()).toBe(true)
+    expect(answerPreview.findComponent(PracticeMarkdown).props('content')).toContain('**核心结论**')
 
     await wrapper.find('.question-editor-card .close').trigger('click')
     await wrapper.find('.question-detail-actions .secondary-btn').trigger('click')

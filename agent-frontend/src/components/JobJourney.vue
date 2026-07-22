@@ -372,7 +372,7 @@
             /></label>
             <label
               ><span>岗位</span
-              ><input v-model="form.positionName" placeholder="请输入岗位名称，例如：Java 大模型应用开发工程师"
+              ><input v-model="form.positionName" placeholder="请输入岗位名称，例如：Agent 与大模型应用开发工程师"
             /></label>
             <label
               ><span>薪资</span><input v-model="form.salaryRange" placeholder="请输入薪资范围，例如：40-50k"
@@ -473,6 +473,7 @@
             </div>
           </template>
         </div>
+        <p v-if="modalMode !== 'view' && error" class="error settings-error">{{ error }}</p>
         <div class="detail-actions modal-actions-right">
           <button class="secondary-btn" @click="closeModal">{{ modalMode === 'view' ? '关闭' : '取消' }}</button>
           <button v-if="modalMode === 'view'" class="primary-btn" @click="modalMode = 'edit'">编辑</button>
@@ -496,6 +497,7 @@ import {
 } from '../api/journey'
 import { useJobStore } from '../stores/job'
 import { formatJourneyDateTime, toJourneyDateTimeLocalValue } from '../utils/journeyDateTime'
+import { validateLength, validateTags } from '../utils/formValidation'
 import { journeyResultClass } from '../utils/journeyResult'
 
 const job = useJobStore()
@@ -729,8 +731,36 @@ function removeTag(tag) {
 }
 async function saveRecord() {
   addTag()
-  savingRecord.value = true
   error.value = ''
+  try {
+    validateLength(form.company, '企业名称', { max: 120 })
+    validateLength(form.positionName, '岗位名称', { max: 120 })
+    for (const [key, label, max] of [
+      ['city', '地域', 64],
+      ['companyNature', '企业性质', 64],
+      ['companyScale', '企业规模', 64],
+      ['salaryRange', '薪资范围', 64],
+      ['businessDirection', '业务方向', 200],
+      ['interviewRound', '类型或轮次', 64],
+      ['interviewFormat', '面试形式', 64],
+      ['result', '面试结果', 64],
+      ['status', '当前状态', 64],
+      ['priority', '优先级', 32],
+      ['interviewContent', '面试内容', 5000],
+      ['jobDescription', '岗位 JD', 10000],
+      ['interviewProcess', '面试流程', 5000],
+      ['reflection', '反思总结', 5000],
+      ['nextAction', '下一步动作', 2000],
+    ])
+      validateLength(form[key], label, { max })
+    if (form.interviewTime && Number.isNaN(new Date(form.interviewTime).getTime()))
+      throw new Error('面试时间格式不正确')
+    validateTags(form.tags, '标签', { maxCount: 20, maxLength: 64 })
+  } catch (err) {
+    error.value = err.message
+    return
+  }
+  savingRecord.value = true
   const payload = { ...form, tags: [...form.tags] }
   try {
     const saved = editing.recordId

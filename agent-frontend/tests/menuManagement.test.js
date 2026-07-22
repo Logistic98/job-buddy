@@ -66,7 +66,15 @@ describe('menu management semantics', () => {
     await wrapper.find('.primary-btn').trigger('click')
 
     const fields = Array.from(document.body.querySelectorAll('.rbac-field'))
-    const typeField = new DOMWrapper(fields.find((field) => field.textContent.includes('菜单类型')))
+    const fieldByLabel = (label) => new DOMWrapper(fields.find((field) => field.textContent.includes(label)))
+    expect(fieldByLabel('菜单类型').find('select').element.selectedOptions[0].text).toBe('请选择菜单类型')
+    expect(fieldByLabel('父菜单').find('select').element.selectedOptions[0].text).toBe('请选择父菜单')
+    expect(fieldByLabel('排序值').find('input').element.value).toBe('')
+    expect(fieldByLabel('关联权限码').find('select').element.selectedOptions[0].text).toBe('请选择关联权限')
+    expect(fieldByLabel('前台显示').find('select').element.selectedOptions[0].text).toBe('请选择显示状态')
+    expect(fieldByLabel('菜单状态').find('select').element.selectedOptions[0].text).toBe('请选择菜单状态')
+
+    const typeField = fieldByLabel('菜单类型')
     await typeField.find('select').setValue('action')
 
     const visibilityField = new DOMWrapper(fields.find((field) => field.textContent.includes('前台显示')))

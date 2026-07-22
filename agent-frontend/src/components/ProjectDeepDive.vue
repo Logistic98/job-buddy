@@ -550,18 +550,12 @@
                   </div>
                   <section class="question-detail-block">
                     <h4>参考答案</h4>
-                    <MarkdownRender
+                    <PracticeMarkdown
                       v-if="answerMarkdown"
                       :key="`answer-${selectedQuestion.questionId || questionPosition}-${answerMarkdown.length}`"
                       class="deep-markdown"
                       custom-id="project-deep-answer"
                       :content="answerMarkdown"
-                      :final="true"
-                      html-policy="escape"
-                      :max-live-nodes="0"
-                      :fade="false"
-                      :typewriter="false"
-                      :smooth-streaming="false"
                     />
                     <p v-else class="question-detail-empty">
                       暂无参考答案。建议补充项目背景、个人职责、方案取舍、结果指标和复盘。
@@ -569,32 +563,20 @@
                   </section>
                   <section v-if="followUpMarkdown" class="question-detail-block">
                     <h4>可能追问</h4>
-                    <MarkdownRender
+                    <PracticeMarkdown
                       :key="`followup-${selectedQuestion.questionId || questionPosition}-${followUpMarkdown.length}`"
                       class="deep-markdown"
                       custom-id="project-deep-followup"
                       :content="followUpMarkdown"
-                      :final="true"
-                      html-policy="escape"
-                      :max-live-nodes="0"
-                      :fade="false"
-                      :typewriter="false"
-                      :smooth-streaming="false"
                     />
                   </section>
                   <section v-if="evidenceMarkdown" class="question-detail-block">
                     <h4>材料依据</h4>
-                    <MarkdownRender
+                    <PracticeMarkdown
                       :key="`evidence-${selectedQuestion.questionId || questionPosition}-${evidenceMarkdown.length}`"
                       class="deep-markdown"
                       custom-id="project-deep-evidence"
                       :content="evidenceMarkdown"
-                      :final="true"
-                      html-policy="escape"
-                      :max-live-nodes="0"
-                      :fade="false"
-                      :typewriter="false"
-                      :smooth-streaming="false"
                     />
                   </section>
                 </article>
@@ -672,7 +654,8 @@
                 placeholder="例如：企业知识库检索助手"
             /></label>
             <label
-              ><span>项目角色</span><input v-model.trim="form.role" maxlength="40" placeholder="核心开发 / 后端开发"
+              ><span>项目角色</span
+              ><input v-model.trim="form.role" maxlength="40" placeholder="Agent 应用开发 / LLM 工程"
             /></label>
             <label
               ><span>项目周期</span
@@ -705,7 +688,7 @@
                 <input
                   v-model.trim="techDraft"
                   maxlength="64"
-                  placeholder="输入一项技术，例如 Spring Boot"
+                  placeholder="输入一项技术，例如 LangGraph"
                   @keydown.enter.prevent="addFormTech"
                 />
                 <button type="button" :disabled="!techDraft.trim()" @click="addFormTech">添加标签</button>
@@ -819,11 +802,18 @@
           class="question-generate-form"
         >
           <label
-            ><span>生成数量</span><input v-model.number="generateForm.count" type="number" min="4" max="40"
+            ><span>生成数量</span
+            ><input
+              v-model.number="generateForm.count"
+              type="number"
+              min="4"
+              max="40"
+              step="1"
+              placeholder="请输入 4-40 的整数"
           /></label>
           <label
             ><span>关注方向</span
-            ><input v-model.trim="generateForm.focus" placeholder="架构设计、技术难点、性能优化、项目复盘"
+            ><input v-model.trim="generateForm.focus" placeholder="Agent 架构、RAG、模型评测、性能优化"
           /></label>
           <p v-if="selectedProject.questions?.length" class="question-generate-notice">
             重新生成会替换智能生成的问题，手动添加或编辑过的问题会保留。
@@ -838,16 +828,17 @@
               v-model.trim="questionModal.question"
               maxlength="500"
               rows="2"
-              placeholder="例如：这个模块的幂等是怎么保证的？"
+              placeholder="例如：这个 Agent 如何进行工具选择与失败恢复？"
             />
           </label>
           <label
             ><span>分类</span
-            ><input v-model.trim="questionModal.category" maxlength="40" placeholder="架构设计 / 技术难点"
+            ><input v-model.trim="questionModal.category" maxlength="40" placeholder="Agent 架构 / 模型评测"
           /></label>
           <label
             ><span>难度</span
             ><select v-model="questionModal.difficulty">
+              <option value="" disabled>请选择难度</option>
               <option value="常规">常规</option>
               <option value="深入">深入</option>
             </select></label
@@ -972,8 +963,8 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import MarkdownRender from 'markstream-vue'
 import { useRoute, useRouter } from 'vue-router'
+import { validateFile, validateInteger, validateLength, validateTags } from '../utils/formValidation'
 import {
   addProjectMaterial,
   addProjectQuestion,
@@ -1018,7 +1009,7 @@ const questionPage = ref(1)
 const questionPageSize = 6
 const emptyProjectForm = () => ({
   name: '',
-  role: '核心开发',
+  role: '',
   techStack: '',
   projectPeriod: '',
   teamSize: '',
@@ -1033,7 +1024,7 @@ const emptyProjectForm = () => ({
   outcomes: '',
 })
 const form = reactive(emptyProjectForm())
-const generateForm = reactive({ count: 12, focus: '架构设计、技术难点、性能优化、项目复盘' })
+const generateForm = reactive({ count: '', focus: '' })
 const deleteDialog = reactive({ visible: false, projectId: '', name: '' })
 const questionModal = reactive({
   visible: false,
@@ -1043,7 +1034,7 @@ const questionModal = reactive({
   question: '',
   answer: '',
   category: '',
-  difficulty: '常规',
+  difficulty: '',
   error: '',
 })
 const questionDeleteDialog = reactive({ visible: false, questionId: '', name: '' })
@@ -1128,8 +1119,10 @@ const evidenceMarkdown = computed(() =>
 )
 const questionModalSubmitDisabled = computed(() => {
   if (saving.value || generating.value) return true
-  if (questionModal.mode === 'edit' || questionModal.entryType === 'manual') return !questionModal.question.trim()
-  return !canGenerate.value
+  if (questionModal.mode === 'edit' || questionModal.entryType === 'manual')
+    return !questionModal.question.trim() || !questionModal.difficulty
+  const count = Number(generateForm.count || 0)
+  return !canGenerate.value || !Number.isInteger(count) || count < 4 || count > 40
 })
 const questionModalSubmitText = computed(() => {
   if (questionModal.mode === 'edit') return saving.value ? '保存中' : '保存修改'
@@ -1358,7 +1351,7 @@ async function openEditProject(section = 'basic') {
   projectEditorSection.value = section
   Object.assign(form, emptyProjectForm(), {
     name: project.name || '',
-    role: project.role || '核心开发',
+    role: project.role || '',
     techStack: parseTechStack(project.techStack).join(', '),
     projectPeriod: project.projectPeriod || '',
     teamSize: project.teamSize || '',
@@ -1383,8 +1376,27 @@ function closeCreate() {
   if (!saving.value) showModal.value = false
 }
 async function saveProject() {
-  if (!form.name.trim()) {
-    modalError.value = '请填写项目名称'
+  modalError.value = ''
+  try {
+    validateLength(form.name, '项目名称', { max: 80, required: true })
+    validateLength(form.role, '项目角色', { max: 40 })
+    for (const [key, label, max] of [
+      ['projectPeriod', '项目周期', 128],
+      ['teamSize', '团队规模', 64],
+      ['projectType', '项目类型', 128],
+      ['businessDomain', '业务领域', 128],
+      ['projectStatus', '项目状态', 64],
+      ['summary', '项目摘要', 1000],
+      ['background', '项目背景', 2000],
+      ['responsibilities', '职责范围', 2000],
+      ['highlights', '技术亮点', 2000],
+      ['challenges', '项目难点', 2000],
+      ['outcomes', '项目成果', 2000],
+    ])
+      validateLength(form[key], label, { max })
+    validateTags(formTechLabels.value, '技术栈', { maxCount: 20, maxLength: 64 })
+  } catch (e) {
+    modalError.value = e.message
     return
   }
   saving.value = true
@@ -1438,9 +1450,20 @@ async function uploadMaterialFiles(event) {
   if (!files.length || !selectedProject.value) return
 
   const maxBytes = 1024 * 1024 * 1024
-  const rejected = files.filter((file) => file.size <= 0 || file.size > maxBytes)
-  const accepted = files.filter((file) => file.size > 0 && file.size <= maxBytes)
-  const failures = rejected.map((file) => `${file.name}（${file.size <= 0 ? '空文件' : '超过 1GB'}）`)
+  if (files.length > 20) {
+    materialError.value = '单次最多上传 20 个文件'
+    return
+  }
+  const accepted = []
+  const failures = []
+  for (const file of files) {
+    try {
+      validateFile(file, file.name || '项目材料', { maxBytes })
+      accepted.push(file)
+    } catch (err) {
+      failures.push(`${file.name}（${err.message}）`)
+    }
+  }
   let uploaded = 0
   saving.value = true
   try {
@@ -1462,6 +1485,13 @@ async function uploadMaterialFiles(event) {
 }
 async function generateQuestions() {
   if (!selectedProject.value || !canGenerate.value) return
+  try {
+    validateInteger(generateForm.count, '生成数量', { min: 4, max: 40 })
+    validateLength(generateForm.focus, '关注方向', { max: 500 })
+  } catch (err) {
+    questionModal.error = err.message
+    return
+  }
   generating.value = true
   questionModal.error = ''
   questionActionError.value = ''
@@ -1516,7 +1546,7 @@ async function openQuestionModal(question) {
           question: question.question || '',
           answer: question.answer || '',
           category: question.category || '',
-          difficulty: question.difficulty === '深入' ? '深入' : '常规',
+          difficulty: ['常规', '深入'].includes(question.difficulty) ? question.difficulty : '',
           error: '',
         }
       : {
@@ -1527,10 +1557,11 @@ async function openQuestionModal(question) {
           question: '',
           answer: '',
           category: '',
-          difficulty: '常规',
+          difficulty: '',
           error: '',
         },
   )
+  if (!question) Object.assign(generateForm, { count: '', focus: '' })
   await nextTick()
   if (questionModal.mode === 'edit' || questionModal.entryType === 'manual') questionInput.value?.focus()
 }
@@ -1552,8 +1583,13 @@ async function submitQuestionModal() {
   else await saveQuestionModal()
 }
 async function saveQuestionModal() {
-  if (!questionModal.question.trim()) {
-    questionModal.error = '请填写问题内容'
+  try {
+    validateLength(questionModal.question, '问题内容', { max: 500, required: true })
+    validateLength(questionModal.category, '问题分类', { max: 40 })
+    if (!questionModal.difficulty) throw new Error('请选择问题难度')
+    validateLength(questionModal.answer, '参考答案', { max: 8000 })
+  } catch (err) {
+    questionModal.error = err.message
     return
   }
   if (!selectedProject.value) return

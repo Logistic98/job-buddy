@@ -6,12 +6,14 @@ import PracticeMarkdown from '../src/components/interview/PracticeMarkdown.vue'
 
 const mocks = vi.hoisted(() => ({
   createQuestion: vi.fn(),
+  extractInterviewDocument: vi.fn(),
   generateQuestions: vi.fn(),
   updateQuestion: vi.fn(),
 }))
 
 vi.mock('../src/api/interview', () => ({
   createQuestion: mocks.createQuestion,
+  extractInterviewDocument: mocks.extractInterviewDocument,
   generateQuestions: mocks.generateQuestions,
   updateQuestion: mocks.updateQuestion,
 }))
@@ -41,6 +43,12 @@ function editableQuestion() {
 
 beforeEach(() => {
   mocks.createQuestion.mockReset().mockResolvedValue({ questionId: 'q-new' })
+  mocks.extractInterviewDocument.mockReset().mockResolvedValue({
+    fileName: 'reference.pdf',
+    text: '上海 Java 大模型应用开发岗，月薪40-50k',
+    characterCount: 28,
+    truncated: false,
+  })
   mocks.generateQuestions.mockReset().mockResolvedValue([])
   mocks.updateQuestion.mockReset().mockResolvedValue(editableQuestion())
 })
@@ -48,7 +56,7 @@ beforeEach(() => {
 describe('QuestionEditModal', () => {
   it('splits manual creation into three steps with one scrollable content area', async () => {
     const wrapper = mountModal()
-    wrapper.vm.openCreate('qa')
+    wrapper.vm.openCreate()
     await nextTick()
 
     expect(wrapper.find('[role="dialog"]').attributes('aria-modal')).toBe('true')
@@ -59,13 +67,26 @@ describe('QuestionEditModal', () => {
     expect(stepButtons.every((button) => !Object.hasOwn(button.attributes(), 'disabled'))).toBe(true)
     expect(wrapper.find('.practice-section').text()).toContain('基本信息')
     expect(wrapper.find('.practice-modal-actions .primary-btn').text()).toBe('下一步')
+    expect(wrapper.findAll('.maintain-field-grid select').map((select) => select.element.value)).toEqual(['', '', ''])
+    expect(
+      wrapper
+        .findAll('.maintain-field-grid input')
+        .slice(0, 2)
+        .map((input) => input.element.value),
+    ).toEqual(['', ''])
 
     await stepButtons[2].trigger('click')
-    expect(wrapper.find('.practice-section').text()).toContain('基本信息')
-    expect(wrapper.find('.question-wizard-error').text()).toBe('请填写题目标题')
+    expect(wrapper.find('.practice-section').text()).toContain('参考答案 / 判分关键词')
+    expect(wrapper.find('.question-wizard-error').exists()).toBe(false)
 
-    await wrapper.find('.practice-field input').setValue('Java 并发基础')
-    await wrapper.findAll('.practice-field select')[2].setValue('简答')
+    await stepButtons[0].trigger('click')
+    const basicInputs = wrapper.findAll('.maintain-field-grid input')
+    const basicSelects = wrapper.findAll('.maintain-field-grid select')
+    await basicInputs[0].setValue('Agent 并发基础')
+    await basicSelects[0].setValue('qa')
+    await basicInputs[1].setValue('Agent 工程')
+    await basicSelects[1].setValue('中等')
+    await basicSelects[2].setValue('简答')
     await wrapper.find('.practice-modal-actions .primary-btn').trigger('click')
     expect(wrapper.find('.practice-section').text()).toContain('题目内容')
     expect(wrapper.find('.question-content-textarea--standalone').exists()).toBe(true)
@@ -93,14 +114,69 @@ describe('QuestionEditModal', () => {
     await wrapper.findAll('[role="tab"]')[1].trigger('click')
     expect(wrapper.findAll('.question-wizard-steps button')).toHaveLength(2)
     expect(wrapper.find('.practice-section').text()).toContain('生成设置')
+    expect(wrapper.findAll('.maintain-field-grid input').map((input) => input.element.value)).toEqual(['', '', ''])
+    expect(wrapper.findAll('.maintain-field-grid select').map((select) => select.element.value)).toEqual(['', '', ''])
 
     await wrapper.find('.practice-modal-actions .primary-btn').trigger('click')
     expect(wrapper.find('.practice-section').text()).toContain('参考资料')
-    expect(wrapper.find('.doc-upload-box input[type="file"]').exists()).toBe(true)
+    const documentInput = wrapper.find('.doc-upload-box input[type="file"]')
+    expect(documentInput.exists()).toBe(true)
+    expect(documentInput.attributes('accept')).toContain('.pdf')
+    expect(documentInput.attributes('accept')).toContain('.doc')
+    expect(documentInput.attributes('accept')).toContain('.docx')
     expect(wrapper.find('.doc-upload-box b').text()).toBe('选择文档')
     expect(wrapper.find('.question-document-textarea').exists()).toBe(true)
     expect(wrapper.find('.question-requirements-textarea').exists()).toBe(true)
     expect(wrapper.find('.practice-modal-actions .primary-btn').text()).toBe('生成并入库')
+
+    wrapper.unmount()
+  })
+
+  it('extracts uploaded PDF or Word content and keeps existing text when extraction fails', async () => {
+    let resolveExtraction
+    mocks.extractInterviewDocument.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveExtraction = resolve
+      }),
+    )
+    const wrapper = mountModal()
+    wrapper.vm.openCreate('qa')
+    await nextTick()
+    await wrapper.findAll('[role="tab"]')[1].trigger('click')
+    await wrapper.find('.practice-modal-actions .primary-btn').trigger('click')
+
+    const input = wrapper.find('.doc-upload-box input[type="file"]')
+    const pdf = new File(['pdf'], 'reference.pdf', { type: 'application/pdf' })
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [pdf] })
+    await input.trigger('change')
+
+    expect(mocks.extractInterviewDocument).toHaveBeenCalledWith(pdf)
+    expect(wrapper.find('.doc-upload-box b').text()).toBe('正在读取')
+    expect(wrapper.find('.practice-modal-actions .primary-btn').attributes()).toHaveProperty('disabled')
+
+    resolveExtraction({
+      fileName: 'reference.pdf',
+      text: '上海 Java 大模型应用开发岗，月薪40-50k',
+      characterCount: 22000,
+      truncated: true,
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.question-document-textarea').element.value).toBe('上海 Java 大模型应用开发岗，月薪40-50k')
+    expect(wrapper.find('.doc-upload-box').text()).toContain('reference.pdf')
+    expect(wrapper.find('.field-hint').text()).toContain('已提取前 20000 个字符')
+
+    mocks.extractInterviewDocument.mockRejectedValueOnce(new Error('Word 文档解析失败'))
+    const docx = new File(['broken'], 'broken.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [docx] })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(wrapper.find('.question-wizard-error').text()).toBe('Word 文档解析失败')
+    expect(wrapper.find('.question-document-textarea').element.value).toBe('上海 Java 大模型应用开发岗，月薪40-50k')
+    expect(wrapper.find('.doc-upload-box').text()).toContain('reference.pdf')
 
     wrapper.unmount()
   })
@@ -143,6 +219,7 @@ describe('QuestionEditModal', () => {
     await nextTick()
 
     await wrapper.find('.practice-field input').setValue('两数之和')
+    await wrapper.findAll('.practice-field select')[0].setValue('leetcode')
     await wrapper.find('.practice-modal-actions .primary-btn').trigger('click')
     expect(wrapper.find('.question-content-textarea').exists()).toBe(true)
     expect(wrapper.find('.question-code-template-textarea').exists()).toBe(true)
@@ -160,14 +237,36 @@ describe('QuestionEditModal', () => {
     wrapper.unmount()
   })
 
+  it('returns to the first invalid step when final submission validates the whole form', async () => {
+    const wrapper = mountModal()
+    wrapper.vm.openCreate('qa')
+    await nextTick()
+
+    await wrapper.findAll('.question-wizard-steps button')[2].trigger('click')
+    await wrapper.find('.practice-modal-actions .primary-btn').trigger('click')
+
+    expect(wrapper.find('.question-wizard-steps button[aria-current="step"]').text()).toContain('基本信息')
+    expect(wrapper.find('.question-wizard-error').text()).toBe('请填写题目标题')
+    expect(mocks.createQuestion).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
   it('keeps the final step open when save validation fails', async () => {
     const wrapper = mountModal()
     wrapper.vm.openCreate('leetcode')
     await nextTick()
 
     await wrapper.find('.practice-field input').setValue('两数之和')
+    const basicSelects = wrapper.findAll('.practice-field select')
+    await basicSelects[0].setValue('leetcode')
+    await wrapper.find('.maintain-field-grid .practice-field:nth-child(3) input').setValue('算法')
+    await basicSelects[1].setValue('中等')
     await wrapper.find('.practice-modal-actions .primary-btn').trigger('click')
     await wrapper.find('#question-content-markdown').setValue('给定整数数组和目标值，返回两个下标。')
+    await wrapper.find('.coding-meta-editor select').setValue('python')
+    await wrapper.find('.coding-meta-editor input[type="number"]').setValue(1)
+    await wrapper.find('.question-code-template-textarea').setValue('def solution(*args):\n    return None')
     await wrapper.find('.practice-modal-actions .primary-btn').trigger('click')
     await wrapper.find('.question-tests-textarea').setValue('11')
     await wrapper.find('.practice-modal-actions .primary-btn').trigger('click')

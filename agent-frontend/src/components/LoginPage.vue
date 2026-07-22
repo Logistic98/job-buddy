@@ -31,11 +31,24 @@
       <form class="login-form" autocomplete="off" @submit.prevent="submit">
         <label>
           <span>用户名</span>
-          <input v-model.trim="username" autocomplete="off" placeholder="请输入用户名" />
+          <input
+            v-model.trim="username"
+            autocomplete="off"
+            minlength="3"
+            maxlength="32"
+            placeholder="请输入 3-32 位用户名，字母开头"
+          />
         </label>
         <label>
           <span>密码</span>
-          <input v-model="password" type="password" autocomplete="new-password" placeholder="请输入密码" />
+          <input
+            v-model="password"
+            type="password"
+            autocomplete="new-password"
+            minlength="8"
+            maxlength="64"
+            placeholder="请输入 8-64 位密码"
+          />
         </label>
         <button class="primary-btn login-submit" :disabled="auth.loading || !username || !password">
           {{ auth.loading ? '登录中' : '登录' }}
@@ -60,6 +73,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { validateLength, validateUsername } from '../utils/formValidation'
 import JobBuddyLogo from './JobBuddyLogo.vue'
 
 const emit = defineEmits(['logged-in'])
@@ -67,9 +81,10 @@ const auth = useAuthStore()
 const username = ref('')
 const password = ref('')
 const showError = ref(false)
+const validationError = ref('')
 
 // 始终展示稳定的用户向文案，绝不把后端原始异常/堆栈直接抛给用户。
-const errorText = computed(() => friendlyMessage(auth.error))
+const errorText = computed(() => validationError.value || friendlyMessage(auth.error))
 
 function friendlyMessage(raw) {
   const text = (raw || '').trim()
@@ -83,10 +98,20 @@ function friendlyMessage(raw) {
 
 function closeError() {
   showError.value = false
+  validationError.value = ''
   auth.error = ''
 }
 
 async function submit() {
+  try {
+    validateUsername(username.value)
+    validateLength(password.value, '密码', { min: 8, max: 64, required: true })
+  } catch (err) {
+    validationError.value = err.message
+    showError.value = true
+    return
+  }
+  validationError.value = ''
   const ok = await auth.login(username.value, password.value)
   if (ok) {
     emit('logged-in')
