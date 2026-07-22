@@ -42,6 +42,9 @@ services:
       AGENT_MEMORY_DATABASE_URL: ""
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_APP_DB:-job_buddy}
       AGENT_MEMORY_DB_SSL_MODE: disable
+    depends_on:
+      agent-backend:
+        condition: service_healthy
     expose:
       - "8030"
 
@@ -121,19 +124,6 @@ services:
       JOB_BUDDY_RESUME_RUNTIME_WORKSPACE: /workspace
     volumes:
       - runtime-workspace:/workspace
-    depends_on:
-      agent-runtime:
-        condition: service_healthy
-      agent-intent:
-        condition: service_healthy
-      agent-memory:
-        condition: service_healthy
-      agent-tool:
-        condition: service_healthy
-      agent-eval:
-        condition: service_healthy
-      agent-sandbox:
-        condition: service_healthy
     ports:
       - "${JOB_BUDDY_BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8080}:8080"
 

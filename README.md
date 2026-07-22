@@ -143,7 +143,7 @@ unset COMPOSE_PROJECT_NAME
 docker compose --env-file .env -f docker-compose-infra.yml up -d --wait
 ```
 
-首次使用空数据卷时，Compose 会自动创建应用数据库和独立的 Memory 数据库，Redis 会初始化空数据集；Backend 首次启动时会检查并自动创建 `JOB_BUDDY_MINIO_BUCKET`。上述操作均为幂等检查，重复启动不会覆盖已有数据库、Redis 数据或 MinIO 对象。
+首次使用空数据卷时，Compose 只创建 `POSTGRES_APP_DB` 指定的统一应用数据库，Backend 与 Memory 共用该数据库，Redis 会初始化空数据集；Backend 首次启动时会检查并自动创建 `JOB_BUDDY_MINIO_BUCKET`。应用 Compose 会先启动 Backend 并完成 Flyway 迁移，再允许 Memory 创建 `agent_memory_*` 表，避免空库被 Memory 抢先写入后触发 Flyway 的非空 Schema 保护。上述操作均为幂等检查，重复启动不会覆盖已有数据库、Redis 数据或 MinIO 对象。
 
 再构建并启动八个应用服务：
 
@@ -180,7 +180,7 @@ docker compose --env-file .env -f docker-compose-infra.yml down
 ./scripts/stop-all.sh
 ```
 
-启动脚本按依赖顺序等待每个健康端点；服务提前退出或超过 `START_ALL_READY_TIMEOUT_SECONDS` 时会快速失败并打印日志尾部。日志默认写入 `.run/logs/YYYYMMDD/{service}.log`，PID 写入 `.run/pids/`。
+启动脚本按依赖顺序等待每个健康端点，其中 Backend 必须先完成 Flyway 迁移，Memory 才能在同一数据库中创建 `agent_memory_*` 表；Backend 启动期间下游 Agent 服务尚未就绪是允许的，完整启动结束前脚本仍会逐项等待全部服务健康。服务提前退出或超过 `START_ALL_READY_TIMEOUT_SECONDS` 时会快速失败并打印日志尾部；默认等待 300 秒，以覆盖远程 PostgreSQL 首次执行全部 Flyway 迁移的耗时。日志默认写入 `.run/logs/YYYYMMDD/{service}.log`，PID 写入 `.run/pids/`。
 
 ### 单独启动后端
 

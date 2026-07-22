@@ -7,7 +7,7 @@ verify_cmd: ./.agent-harness/scripts/gate.sh agent-backend --quick
 # Goal: 后端开发质量门禁
 
 ## 背景
-用于后续任何 `agent-backend` 相关开发任务的默认验收目标。任务完成前必须同时通过后端测试和行为评估，不能只凭编译通过或人工观察判断完成。
+用于 `agent-backend` 开发任务的默认验收目标。任务完成前必须同时通过后端测试和行为评估，不能只凭编译通过或人工观察判断完成。
 
 ## 完成条件
 1. `./.agent-harness/scripts/gate.sh agent-backend --quick` 退出码为 0。

@@ -6,8 +6,8 @@
 
 本手册是整个自检体系中唯一可能产生真实 Boss 直聘流量的环节。自动化脚本（`doctor.sh`、`verify.sh`、`evaluate.sh`、`gate.sh`）与单元测试均不触达 Boss；浏览器验证若触发登录状态导入、岗位搜索或岗位详情访问，必须严格遵守以下约束，避免自检本身把账号搞进风控：
 
-- 复用持久化登录态，不要反复扫码登录。`BOSS_CLI_HOME` 默认指向仓库根目录 `.run/boss-cli-home`，其中保存 `boss-cli` 的 credential.json。
-- 推荐先在本机常用浏览器中正常登录 Boss 直聘网页端，再由 `boss-cli` 导入 Cookie。
+- 复用 PostgreSQL `auth_state` 中的持久化登录态，不要反复扫码登录；凭证仅在工具调用期间注入 agent-tool 内存。
+- 浏览器 Cookie 导入默认关闭；只有明确接受本机钥匙串授权时才能显式开启。
 - 真实 Boss 动作只跑最小一遍。同一项验证不要反复发起搜索或重复打开岗位详情；一次能确认 UI 行为即可，不要为“多看几眼”重复触发深链访问。
 - 尊重 Boss 工具限速与配额，不要绕过 RateLimiter。出现限速、冷却、硬停提示属预期保护，不允许通过改配置、清状态文件或直连绕开。
 - 只有改动确实落在 Boss 实时链路（搜索、详情、扫码、原岗位预览）时才驱动真实 Boss；纯前端、SSE、状态管理类改动优先用 Mock / 既有 Fixture / 非 Boss 路径验证。
@@ -16,11 +16,11 @@
 
 ## 启动服务
 
-先确认本机常用浏览器已登录 Boss 直聘网页端，再启动 agent-tool、Runtime 和后端。Boss 具体实现位于 `agent-tool`，`agent-runtime` 只代理 `boss_browser` 工具调用：
+启动 agent-tool、Runtime 和后端。Boss 具体实现位于 `agent-tool`，`agent-runtime` 只代理 `boss_browser` 工具调用，后端从 PostgreSQL `auth_state` 注入凭证：
 
 ```bash
 cd agent-tool
-BOSS_CLI_HOME="$(cd .. && pwd)/.run/boss-cli-home" PORT=8040 ./scripts/start.sh
+PORT=8040 ./scripts/start.sh
 
 # 另开终端
 cd agent-runtime
@@ -28,7 +28,7 @@ AGENT_TOOL_URL=http://127.0.0.1:8040 PORT=8010 ./scripts/start.sh
 
 # 另开终端
 cd agent-backend
-BOSS_CLI_HOME="$(cd .. && pwd)/.run/boss-cli-home" AGENT_RUNTIME_URL=http://127.0.0.1:8010 mvn spring-boot:run
+AGENT_RUNTIME_URL=http://127.0.0.1:8010 mvn spring-boot:run
 ```
 
 启动前端：
@@ -69,14 +69,10 @@ http://localhost:5173
 - 如果登录态有效，工作台直接继续执行，不弹二维码。
 - 如果登录态无效，才显示 Boss 扫码弹窗，并且二维码图片可见；但 HTTP 二维码登录可能缺少 `__zp_stoken__`，若扫码后仍无效，应在常用浏览器中登录 Boss 后重新导入 Cookie。
 - 扫码完成后应从当前任务检查点继续，不应重复执行完整前置流程。
-- 验证 `/api/boss/login-status` 返回的 `homeDir` 是仓库根目录下的 `.run/boss-cli-home`，例如：
-
-```text
-<repo_root>/.run/boss-cli-home
-```
+- 验证 `/api/boss/login-status` 能从 PostgreSQL `auth_state` 恢复状态，agent-tool 未生成 `credential.json` 或持久浏览器 profile，Redis 风控键均设置 TTL。
 
 - 岗位列表默认不带职位描述（JD），需点击岗位卡片上的“加载职位描述”按钮才懒加载 JD；未登录时应触发扫码弹窗而非静默失败。
-- 原岗位预览/打开如需要登录态，应复用 boss-cli 导入的本机浏览器 Cookie。
+- 原岗位预览/打开如需要登录态，应复用后端注入 agent-tool 内存的 Cookie。
 
 ## 建议使用浏览器工具记录证据
 

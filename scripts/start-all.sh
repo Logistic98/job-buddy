@@ -64,7 +64,7 @@ wait_for_http() {
   local name="$1"
   local url="$2"
   local pid_file="$PID_DIR/${name}.pid"
-  local timeout="${START_ALL_READY_TIMEOUT_SECONDS:-60}"
+  local timeout="${START_ALL_READY_TIMEOUT_SECONDS:-300}"
   local deadline=$((SECONDS + timeout))
 
   while (( SECONDS < deadline )); do
@@ -95,9 +95,17 @@ main() {
   local backend_health="http://127.0.0.1:${BACKEND_PORT:-8080}/actuator/health"
   local frontend_health="http://127.0.0.1:${FRONTEND_PORT:-5173}/"
 
-  # Start dependencies first and fail fast before launching their consumers.
+  # Backend owns the shared database schema. It must complete Flyway migrations
+  # before agent-memory creates its agent_memory_* tables in the same schema.
   start_service "agent-sandbox" "$ROOT_DIR/agent-sandbox/scripts/start.sh" "$sandbox_health" "PORT=${SANDBOX_PORT:-8061}"
   wait_for_http "agent-sandbox" "$sandbox_health"
+  start_service "agent-backend" "$ROOT_DIR/agent-backend/scripts/start.sh" "$backend_health" \
+    "SERVER_PORT=${BACKEND_PORT:-8080}" \
+    "AGENT_SANDBOX_URL=${AGENT_SANDBOX_URL:-http://127.0.0.1:${SANDBOX_PORT:-8061}}" \
+    "AGENT_RUNTIME_URL=${AGENT_RUNTIME_URL:-http://127.0.0.1:${RUNTIME_PORT:-8010}}"
+  wait_for_http "agent-backend" "$backend_health"
+  start_service "agent-memory" "$ROOT_DIR/agent-memory/scripts/start.sh" "$memory_health" "PORT=${MEMORY_PORT:-8030}"
+  wait_for_http "agent-memory" "$memory_health"
   start_service "agent-tool" "$ROOT_DIR/agent-tool/scripts/start.sh" "$tool_health" "PORT=${TOOL_PORT:-8040}"
   wait_for_http "agent-tool" "$tool_health"
   start_service "agent-runtime" "$ROOT_DIR/agent-runtime/scripts/start.sh" "$runtime_health" \
@@ -106,15 +114,8 @@ main() {
   wait_for_http "agent-runtime" "$runtime_health"
   start_service "agent-intent" "$ROOT_DIR/agent-intent/scripts/start.sh" "$intent_health" "PORT=${INTENT_PORT:-8020}"
   wait_for_http "agent-intent" "$intent_health"
-  start_service "agent-memory" "$ROOT_DIR/agent-memory/scripts/start.sh" "$memory_health" "PORT=${MEMORY_PORT:-8030}"
-  wait_for_http "agent-memory" "$memory_health"
   start_service "agent-eval" "$ROOT_DIR/agent-eval/scripts/start.sh" "$eval_health" "PORT=${EVAL_PORT:-8050}"
   wait_for_http "agent-eval" "$eval_health"
-  start_service "agent-backend" "$ROOT_DIR/agent-backend/scripts/start.sh" "$backend_health" \
-    "SERVER_PORT=${BACKEND_PORT:-8080}" \
-    "AGENT_SANDBOX_URL=${AGENT_SANDBOX_URL:-http://127.0.0.1:${SANDBOX_PORT:-8061}}" \
-    "AGENT_RUNTIME_URL=${AGENT_RUNTIME_URL:-http://127.0.0.1:${RUNTIME_PORT:-8010}}"
-  wait_for_http "agent-backend" "$backend_health"
   start_service "agent-frontend" "$ROOT_DIR/agent-frontend/scripts/start.sh" "$frontend_health" \
     "FRONTEND_PORT=${FRONTEND_PORT:-5173}" \
     "VITE_PROXY_TARGET=${VITE_PROXY_TARGET:-http://localhost:${BACKEND_PORT:-8080}}"

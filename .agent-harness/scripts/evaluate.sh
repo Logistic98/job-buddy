@@ -23,6 +23,12 @@ TARGET="${1:-all}"
 log() { printf "[eval] %s\n" "$*"; }
 fail() { printf "[eval] FAIL: %s\n" "$*" >&2; exit 1; }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "$2 requires '$1' in PATH"; }
+run_python_tests() {
+  env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER \
+    AGENT_INTERNAL_SERVICE_TOKEN= \
+    JOB_BUDDY_ENVIRONMENT=development \
+    uv run python -m pytest "$@"
+}
 
 run_agent_eval() {
   if [[ ! -d agent-eval ]]; then
@@ -32,8 +38,8 @@ run_agent_eval() {
   log "agent-eval: pytest grader"
   pushd agent-eval >/dev/null
   need_cmd uv "agent-eval"
-  uv sync --extra dev --quiet || fail "agent-eval: uv sync --extra dev failed"
-  uv run python -m pytest -q || fail "agent-eval: pytest failed"
+  uv sync --frozen --extra dev --quiet || fail "agent-eval: uv sync --frozen --extra dev failed"
+  run_python_tests -q || fail "agent-eval: pytest failed"
   uv run python - <<'PY' || exit 1
 from app.grader import grade_run, grade_trace
 trace = [{"nodeId": node} for node in ["A", "D1", "E", "F", "Z", "AH"]]
@@ -51,6 +57,18 @@ quality = grade_run(bad_run, {"intent": "job.recommend", "domain": "job"})
 assert quality["passed"] is False, quality
 assert any(issue["code"] == "no_fixture_or_mock_claims" for issue in quality["issues"]), quality
 print("[eval] agent-eval trace and quality gates passed")
+PY
+  uv run python scripts/run_engine_eval.py --self-check || fail "agent-eval: engine eval self-check failed"
+  uv run python - <<'PY' || exit 1
+from pathlib import Path
+import yaml
+for path in sorted(Path("cases").glob("*.yaml")):
+    spec = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert isinstance(spec, dict) and spec.get("version"), f"invalid eval suite: {path}"
+    assert isinstance(spec.get("cases"), list) and spec["cases"], f"empty eval suite: {path}"
+    ids = [case.get("id") for case in spec["cases"]]
+    assert all(ids) and len(ids) == len(set(ids)), f"invalid or duplicate case ids: {path}"
+    print(f"[eval] loaded {path}: cases={len(ids)}")
 PY
   popd >/dev/null
 }
@@ -76,8 +94,8 @@ run_runtime_eval() {
   log "agent-runtime: task-understanding/profile regression evals"
   pushd agent-runtime >/dev/null
   need_cmd uv "agent-runtime"
-  uv sync --extra dev --quiet || fail "agent-runtime: uv sync --extra dev failed"
-  env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER uv run python -m pytest -q \
+  uv sync --frozen --extra dev --quiet || fail "agent-runtime: uv sync --frozen --extra dev failed"
+  run_python_tests -q \
     tests/test_job_buddy_router.py \
     tests/test_task_understanding_profile.py \
     tests/test_agent_executor.py || fail "agent-runtime: task-understanding/profile eval failed"
@@ -92,8 +110,8 @@ run_intent_eval() {
   log "agent-intent: job-domain, layered-routing, clarification-gate and transcript-review regression evals"
   pushd agent-intent >/dev/null
   need_cmd uv "agent-intent"
-  uv sync --extra dev --quiet || fail "agent-intent: uv sync --extra dev failed"
-  env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER uv run python -m pytest -q || fail "agent-intent: regression failed"
+  uv sync --frozen --extra dev --quiet || fail "agent-intent: uv sync --frozen --extra dev failed"
+  run_python_tests -q || fail "agent-intent: regression failed"
   popd >/dev/null
 }
 
@@ -105,8 +123,8 @@ run_tool_eval() {
   log "agent-tool: execution contract evals (8-element registry, confirm gate, error structure)"
   pushd agent-tool >/dev/null
   need_cmd uv "agent-tool"
-  uv sync --extra dev --quiet || fail "agent-tool: uv sync --extra dev failed"
-  uv run python -m pytest -q tests/test_tools.py || fail "agent-tool: execution contract eval failed"
+  uv sync --frozen --extra dev --quiet || fail "agent-tool: uv sync --frozen --extra dev failed"
+  run_python_tests -q tests/test_tools.py || fail "agent-tool: execution contract eval failed"
   popd >/dev/null
 }
 
@@ -118,8 +136,22 @@ run_memory_eval() {
   log "agent-memory: retrieval ranking and memory lifecycle contract evals"
   pushd agent-memory >/dev/null
   need_cmd uv "agent-memory"
-  uv sync --extra dev --quiet || fail "agent-memory: uv sync --extra dev failed"
-  uv run python -m pytest -q tests/test_relevance.py tests/test_memory_api.py || fail "agent-memory: retrieval/lifecycle eval failed"
+  uv sync --frozen --extra dev --quiet || fail "agent-memory: uv sync --frozen --extra dev failed"
+  run_python_tests -q tests/test_relevance.py tests/test_memory_api.py || fail "agent-memory: retrieval/lifecycle eval failed"
+  popd >/dev/null
+}
+
+run_frontend_eval() {
+  if [[ ! -d agent-frontend ]]; then
+    log "agent-frontend directory missing, skipping"
+    return
+  fi
+  log "agent-frontend: SSE lifecycle and auth-reset behavior evals"
+  pushd agent-frontend >/dev/null
+  need_cmd npm "agent-frontend"
+  [[ -d node_modules ]] || npm ci --silent || fail "agent-frontend: npm ci failed"
+  npm test -- tests/storeChat.test.js tests/storeJob.test.js tests/storeResume.test.js tests/authStore.test.js \
+    || fail "agent-frontend: lifecycle behavior eval failed"
   popd >/dev/null
 }
 
@@ -131,8 +163,8 @@ run_sandbox_eval() {
   log "agent-sandbox: isolation boundary contract evals (policy hardening, env isolation)"
   pushd agent-sandbox >/dev/null
   need_cmd uv "agent-sandbox"
-  uv sync --extra dev --quiet || fail "agent-sandbox: uv sync --extra dev failed"
-  uv run python -m pytest -q tests/test_server.py || fail "agent-sandbox: isolation boundary eval failed"
+  uv sync --frozen --extra dev --quiet || fail "agent-sandbox: uv sync --frozen --extra dev failed"
+  run_python_tests -q tests/test_server.py || fail "agent-sandbox: isolation boundary eval failed"
   popd >/dev/null
 }
 
@@ -144,6 +176,7 @@ case "$TARGET" in
     run_tool_eval
     run_memory_eval
     run_sandbox_eval
+    run_frontend_eval
     ;;
   agent-backend|backend)
     run_backend_eval
@@ -167,7 +200,7 @@ case "$TARGET" in
     run_sandbox_eval
     ;;
   agent-frontend)
-    log "no behavioral evals defined for $TARGET yet, skipping"
+    run_frontend_eval
     ;;
   *)
     fail "unknown eval target: $TARGET"

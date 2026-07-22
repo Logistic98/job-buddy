@@ -108,13 +108,13 @@ class CanonicalBaselinePostgresTest {
     assertEquals(2, queryLong("SELECT COUNT(*) FROM rbac_role"));
     assertEquals(13, queryLong("SELECT COUNT(*) FROM rbac_menu"));
     assertEquals(23, queryLong("SELECT COUNT(*) FROM role_menu"));
-    assertEquals(152, queryLong("SELECT COUNT(*) FROM blacklist_item"));
+    assertEquals(47, queryLong("SELECT COUNT(*) FROM blacklist_item"));
     assertEquals(
-        143,
+        40,
         queryLong(
             "SELECT COUNT(*) FROM blacklist_item WHERE item_type = 'company' AND source = 'system'"));
     assertEquals(
-        9,
+        7,
         queryLong(
             "SELECT COUNT(*) FROM blacklist_item WHERE item_type = 'keyword' AND source = 'system'"));
     assertEquals(

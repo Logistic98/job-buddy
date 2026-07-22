@@ -74,6 +74,7 @@ fail_with_log() {
     tail -n 120 "$EVAL_LOG" 2>/dev/null || true
     echo '```'
   } > "$SUMMARY"
+  cat "$SUMMARY" >&2
   exit 1
 }
 

@@ -34,6 +34,10 @@ public class ResumeObjectStorage {
 
   @PostConstruct
   public void init() throws IOException {
+    if (!properties.getMinio().isInitializeBucket()) {
+      LOG.info("已跳过启动期简历对象存储检查 - bucket: {}", properties.getMinio().getBucket());
+      return;
+    }
     ensureBucketExists();
     LOG.info("简历对象存储已就绪 - bucket: {}", properties.getMinio().getBucket());
   }

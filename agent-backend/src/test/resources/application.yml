@@ -20,3 +20,4 @@ job-buddy:
     access-key: test-access-key
     secret-key: test-secret-key
     bucket: job-buddy-test-resumes
+    initialize-bucket: false

@@ -8,7 +8,7 @@ verify_cmd: ./.agent-harness/scripts/doctor.sh && ./.agent-harness/scripts/verif
 # Goal: 验证 job-buddy 自动化 harness 的基本可用性
 
 ## 背景
-这是一个低风险 smoke goal，用于在正式无人值守任务前验证 harness、项目上下文、基础依赖与已落地模块的快速验证链路是否可用。当前仓库包含 Spring Boot 后端、Vue 前端、意图识别、Python Runtime 与 Sandbox 等模块，smoke goal 不要求所有规划模块都已有构建文件。
+这是一个低风险 smoke goal，用于验证 Harness、项目上下文、基础依赖和模块验证链路。仓库包含 Spring Boot 后端、Vue 前端、意图识别、Python Runtime 与 Sandbox 等模块。
 
 ## 完成条件
 1. `./.agent-harness/scripts/doctor.sh` 退出码为 0。

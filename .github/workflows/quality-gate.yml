@@ -19,6 +19,7 @@ jobs:
     name: detect changed modules
     runs-on: ubuntu-latest
     outputs:
+      shared: ${{ steps.filter.outputs.shared }}
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       runtime: ${{ steps.filter.outputs.runtime }}
@@ -35,6 +36,18 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           filters: |
+            shared:
+              - 'README.md'
+              - 'AGENTS.md'
+              - 'CLAUDE.md'
+              - '.env.example'
+              - '.gitignore'
+              - 'docker-compose.yml'
+              - 'docker-compose-infra.yml'
+              - 'scripts/**'
+              - 'agent-doc/**'
+              - '.agent-harness/**'
+              - '.github/workflows/quality-gate.yml'
             backend:
               - '.agent-harness/**'
               - '.github/workflows/quality-gate.yml'
@@ -71,7 +84,7 @@ jobs:
   gate-backend:
     name: agent-backend gate
     needs: changes
-    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -81,20 +94,21 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "8"
+          java-version: "17"
           cache: maven
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10.16"
       - uses: astral-sh/setup-uv@v5
         with:
+          version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-backend --quick
 
   gate-frontend:
     name: agent-frontend gate
     needs: changes
-    if: needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.frontend == 'true' || needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -104,12 +118,12 @@ jobs:
           node-version: "22.16.0"
           cache: npm
           cache-dependency-path: agent-frontend/package-lock.json
-      - run: ./.agent-harness/scripts/gate.sh agent-frontend --quick
+      - run: ./.agent-harness/scripts/gate.sh agent-frontend --full
 
   gate-runtime:
     name: agent-runtime gate
     needs: changes
-    if: needs.changes.outputs.runtime == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.runtime == 'true' || needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -119,13 +133,14 @@ jobs:
           python-version: "3.10.16"
       - uses: astral-sh/setup-uv@v5
         with:
+          version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-runtime --quick
 
   gate-intent:
     name: agent-intent gate
     needs: changes
-    if: needs.changes.outputs.intent == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.intent == 'true' || needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -135,13 +150,14 @@ jobs:
           python-version: "3.10.16"
       - uses: astral-sh/setup-uv@v5
         with:
+          version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-intent --quick
 
   gate-sandbox:
     name: agent-sandbox gate
     needs: changes
-    if: needs.changes.outputs.sandbox == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.sandbox == 'true' || needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -151,13 +167,14 @@ jobs:
           python-version: "3.10.16"
       - uses: astral-sh/setup-uv@v5
         with:
+          version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-sandbox --quick
 
   gate-eval:
     name: agent-eval gate
     needs: changes
-    if: needs.changes.outputs.eval == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.eval == 'true' || needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -167,13 +184,14 @@ jobs:
           python-version: "3.10.16"
       - uses: astral-sh/setup-uv@v5
         with:
+          version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-eval --quick
 
   gate-memory:
     name: agent-memory gate
     needs: changes
-    if: needs.changes.outputs.memory == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.memory == 'true' || needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -183,13 +201,14 @@ jobs:
           python-version: "3.10.16"
       - uses: astral-sh/setup-uv@v5
         with:
+          version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-memory --quick
 
   gate-tool:
     name: agent-tool gate
     needs: changes
-    if: needs.changes.outputs.tool == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.tool == 'true' || needs.changes.outputs.shared == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -199,5 +218,65 @@ jobs:
           python-version: "3.10.16"
       - uses: astral-sh/setup-uv@v5
         with:
+          version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-tool --quick
+
+  gate-summary:
+    name: quality gate summary
+    if: always()
+    needs:
+      - changes
+      - gate-backend
+      - gate-frontend
+      - gate-runtime
+      - gate-intent
+      - gate-sandbox
+      - gate-eval
+      - gate-memory
+      - gate-tool
+    runs-on: ubuntu-latest
+    env:
+      CHANGES_RESULT: ${{ needs.changes.result }}
+      EXPECT_BACKEND: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.backend == 'true' }}
+      EXPECT_FRONTEND: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.frontend == 'true' }}
+      EXPECT_RUNTIME: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.runtime == 'true' }}
+      EXPECT_INTENT: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.intent == 'true' }}
+      EXPECT_SANDBOX: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.sandbox == 'true' }}
+      EXPECT_EVAL: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.eval == 'true' }}
+      EXPECT_MEMORY: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.memory == 'true' }}
+      EXPECT_TOOL: ${{ github.event_name == 'workflow_dispatch' || needs.changes.outputs.shared == 'true' || needs.changes.outputs.tool == 'true' }}
+      RESULT_BACKEND: ${{ needs.gate-backend.result }}
+      RESULT_FRONTEND: ${{ needs.gate-frontend.result }}
+      RESULT_RUNTIME: ${{ needs.gate-runtime.result }}
+      RESULT_INTENT: ${{ needs.gate-intent.result }}
+      RESULT_SANDBOX: ${{ needs.gate-sandbox.result }}
+      RESULT_EVAL: ${{ needs.gate-eval.result }}
+      RESULT_MEMORY: ${{ needs.gate-memory.result }}
+      RESULT_TOOL: ${{ needs.gate-tool.result }}
+    steps:
+      - name: Verify expected gates completed
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CHANGES_RESULT" == "success" ]] || { echo "change detection failed: $CHANGES_RESULT"; exit 1; }
+          check_gate() {
+            local name="$1" expected="$2" result="$3"
+            if [[ "$expected" == "true" && "$result" != "success" ]]; then
+              echo "$name was expected but result=$result"
+              exit 1
+            fi
+            if [[ "$expected" != "true" && "$result" != "skipped" && "$result" != "success" ]]; then
+              echo "$name had unexpected result=$result"
+              exit 1
+            fi
+          }
+          check_gate backend "$EXPECT_BACKEND" "$RESULT_BACKEND"
+          check_gate frontend "$EXPECT_FRONTEND" "$RESULT_FRONTEND"
+          check_gate runtime "$EXPECT_RUNTIME" "$RESULT_RUNTIME"
+          check_gate intent "$EXPECT_INTENT" "$RESULT_INTENT"
+          check_gate sandbox "$EXPECT_SANDBOX" "$RESULT_SANDBOX"
+          check_gate eval "$EXPECT_EVAL" "$RESULT_EVAL"
+          check_gate memory "$EXPECT_MEMORY" "$RESULT_MEMORY"
+          check_gate tool "$EXPECT_TOOL" "$RESULT_TOOL"
+          echo "all expected quality gates completed successfully"

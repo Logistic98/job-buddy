@@ -36,7 +36,7 @@ JOB_BUDDY_INFRA_BIND_HOST=127.0.0.1
 docker compose --env-file .env -f docker-compose-infra.yml up -d --wait
 ```
 
-基础设施项目创建 PostgreSQL、Redis、MinIO 的独立命名卷和共享网络。首次使用空卷时会自动创建应用数据库、Memory 数据库和 Redis 空数据集；随后 Backend 启动会自动创建缺失的 MinIO Bucket。重复执行启动命令只做幂等检查，不会清空或覆盖已有数据。确认状态：
+基础设施项目创建 PostgreSQL、Redis、MinIO 的独立命名卷和共享网络。首次使用空卷时只会创建 `POSTGRES_APP_DB` 指定的统一应用数据库和 Redis 空数据集，Backend 与 Memory 共用该 PostgreSQL 数据库；随后 Backend 启动会自动创建缺失的 MinIO Bucket。重复执行启动命令只做幂等检查，不会清空或覆盖已有数据。确认状态：
 
 ```bash
 docker compose --env-file .env -f docker-compose-infra.yml ps
@@ -48,6 +48,8 @@ docker compose --env-file .env -f docker-compose-infra.yml logs --tail=200
 ```bash
 docker compose --env-file .env -f docker-compose.yml up -d --build --wait
 ```
+
+应用 Compose 将 Backend 作为共享数据库结构的所有者：Backend 先完成 Flyway 迁移并通过健康检查，Memory 才启动并幂等创建 `agent_memory_*` 表。Backend 不等待 Runtime、Intent、Memory、Tool、Eval 或 Sandbox 才启动，因为这些下游 HTTP 服务不参与 Backend 的数据库基线初始化；Compose 最终仍会等待所有服务健康。不得颠倒这一依赖方向，也不得通过开启 Flyway baseline、执行 repair 或手工创建历史表绕过空库校验。
 
 查看应用状态与日志：
 

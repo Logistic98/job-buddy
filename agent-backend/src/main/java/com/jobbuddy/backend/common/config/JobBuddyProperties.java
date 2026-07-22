@@ -236,6 +236,7 @@ public class JobBuddyProperties {
     private String region = "";
     private boolean secure = true;
     private String signatureVersion = "v4";
+    private boolean initializeBucket = true;
 
     public String getEndpoint() {
       return endpoint;
@@ -291,6 +292,14 @@ public class JobBuddyProperties {
 
     public void setSignatureVersion(String signatureVersion) {
       this.signatureVersion = signatureVersion;
+    }
+
+    public boolean isInitializeBucket() {
+      return initializeBucket;
+    }
+
+    public void setInitializeBucket(boolean initializeBucket) {
+      this.initializeBucket = initializeBucket;
     }
   }
 
