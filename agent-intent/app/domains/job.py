@@ -10,7 +10,6 @@ from typing import Any, Dict, Optional, Tuple
 
 from ..models import IntentResult
 
-
 CITY_PATTERNS = [
     "上海",
     "北京",

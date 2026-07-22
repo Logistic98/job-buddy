@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from app.tools.boss_browser.core.boss_cli_engine import BossCliEngine, PRIMARY_COOKIE
+from app.tools.boss_browser.core.boss_cli_engine import PRIMARY_COOKIE, BossCliEngine
 from app.tools.boss_browser.core.settings import Settings
 
 

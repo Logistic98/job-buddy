@@ -4,8 +4,8 @@ import httpx
 from fastapi.testclient import TestClient
 
 from app import judge as judge_module
-from app.judge import _build_judge_input, _parse_verdict, judge_enabled, judge_run
 from app.api import app
+from app.judge import _build_judge_input, _parse_verdict, judge_enabled, judge_run
 
 
 def _clear_judge_env(monkeypatch):

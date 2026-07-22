@@ -697,7 +697,7 @@ def _event_order_issues(events: list[str]) -> list[str]:
     order = ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]
     positions = {event: events.index(event) for event in order if event in events}
     issues = []
-    for left, right in zip(order, order[1:]):
+    for left, right in zip(order, order[1:], strict=False):
         if left in positions and right in positions and positions[left] > positions[right]:
             issues.append(f"{left}_after_{right}")
     return issues

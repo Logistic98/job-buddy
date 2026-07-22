@@ -16,10 +16,10 @@ from fastapi import FastAPI, HTTPException
 from loguru import logger
 
 from ..core.config import FilesystemConfig, NetworkConfig, SandboxRuntimeConfig
-from ..internal_auth import install_internal_auth
 from ..core.exceptions import SandboxCommandNotFoundError, SandboxProcessError
 from ..core.models import CodeSpec, ExecutionOptions, SandboxResult
 from ..core.policies import SandboxPolicies
+from ..internal_auth import install_internal_auth
 from ..sdk import SandboxClient
 from .schemas import (
     CliRequest,

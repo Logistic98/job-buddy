@@ -9,7 +9,6 @@ from app.core.workflow.models import WorkflowDefinition
 from app.core.workflow.registry import WorkflowRegistry
 from app.models.schemas import AgentRunRequest, ChatMessage
 
-
 RUNTIME_ROOT = Path(__file__).resolve().parent.parent
 
 

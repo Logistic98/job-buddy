@@ -1,8 +1,8 @@
 import pytest
 
+from app.core.agent.executor import AgentExecutor
 from app.core.checkpoint.store import CheckpointStore
 from app.core.observability.trace import TraceRecorder
-from app.core.agent.executor import AgentExecutor
 from app.models.schemas import AgentRunRequest, ChatMessage
 
 
@@ -54,6 +54,7 @@ def test_checkpoint_does_not_inherit_memory_database_url(monkeypatch):
 
 def test_checkpoint_warns_once_when_enabled_without_runtime_dsn(monkeypatch):
     from loguru import logger
+
     from app.core.checkpoint import store as checkpoint_module
     from app.core.common.settings import settings
 

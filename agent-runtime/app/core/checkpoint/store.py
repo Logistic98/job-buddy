@@ -6,10 +6,10 @@ from typing import Any, Dict, Optional
 
 import asyncpg
 from loguru import logger
+
 from app.core.common.settings import settings
 from app.core.security.redaction import redact_sensitive
 from app.core.utils.time_utils import TimeUtils
-
 
 _missing_dsn_warning_emitted = False
 _missing_dsn_warning_lock = Lock()

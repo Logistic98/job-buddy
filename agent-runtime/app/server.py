@@ -7,7 +7,8 @@ from loguru import logger
 
 from app.api.agent import router as agent_router
 from app.api.health import router as health_router
-from app.api.runtime import get_executor, router as runtime_router
+from app.api.runtime import get_executor
+from app.api.runtime import router as runtime_router
 from app.core.common.logging import setup_logging
 from app.core.common.settings import settings
 from app.core.tool.mcp_adapter import register_mcp_tools
