@@ -116,6 +116,106 @@ class JobRuntimeServiceImplTest {
   }
 
   @Test
+  void recommendJobsFastShouldTopUpOnePageWhenFilteringLeavesNoRecommendationReserve() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(4);
+    properties.setMaxJobsPerScoring(80);
+    properties.setBossSearchMaxPages(2);
+    properties.setBossSearchMaxPageDepth(3);
+    properties.setBossSearchPageDelayMillis(0);
+
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(jobsWithPrefix("p1-", 2));
+    when(bossCliService.searchJobsPage(any(IntentResult.class), anyInt()))
+        .thenReturn(jobsWithPrefix("p2-", 3));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "大模型应用开发");
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            slots);
+
+    List<Map<String, Object>> result = service.recommendJobsFast(intent, "s1", null);
+
+    assertEquals(4, result.size());
+    assertTrue(
+        result.stream().anyMatch(row -> String.valueOf(row.get("securityId")).startsWith("p2-")));
+    verify(bossCliService, times(1)).searchJobsFirstPage(any(IntentResult.class));
+    verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), anyInt());
+  }
+
+  @Test
+  void recommendJobsFastShouldUseSecondReservePageWhenPreviousPageAddsNoCandidates() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(4);
+    properties.setMaxJobsPerScoring(80);
+    properties.setBossSearchMaxPages(2);
+    properties.setBossSearchMaxPageDepth(3);
+    properties.setBossSearchPageDelayMillis(0);
+
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(jobsWithPrefix("p1-", 2));
+    when(bossCliService.searchJobsPage(any(IntentResult.class), anyInt()))
+        .thenReturn(jobsWithPrefix("p1-", 2), jobsWithPrefix("p3-", 3));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "大模型应用开发");
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            slots);
+
+    List<Map<String, Object>> result = service.recommendJobsFast(intent, "s1", null);
+
+    assertEquals(4, result.size());
+    assertTrue(
+        result.stream().anyMatch(row -> String.valueOf(row.get("securityId")).startsWith("p3-")));
+    verify(bossCliService, times(1)).searchJobsFirstPage(any(IntentResult.class));
+    verify(bossCliService, times(2)).searchJobsPage(any(IntentResult.class), anyInt());
+  }
+
+  @Test
   void recommendJobsFastShouldDropOffSalaryAndInternJobsWhenSalaryRangeGiven() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
     BossAuthService bossAuthService = mock(BossAuthService.class);
@@ -398,6 +498,44 @@ class JobRuntimeServiceImplTest {
     assertEquals("best", matches.get(0).get("id"));
     assertEquals(true, result.get("recommendation_threshold_relaxed"));
     assertTrue(String.valueOf(result.get("warnings")).contains("匹配度最高"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void matchResumeSectionsShouldNotInferConfidenceForNonEvidencePartialResult() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    Map<String, Object> partial = new LinkedHashMap<String, Object>();
+    partial.put("id", "partial");
+    partial.put("risks", Collections.singletonList("缺少量化领域经验"));
+    partial.put(
+        "dimensions",
+        Collections.singletonMap(
+            "technical_skill", Collections.singletonMap("score", Integer.valueOf(85))));
+    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+        .thenReturn(runtimeMatch(partial));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            new JobBuddyProperties(),
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+
+    Map<String, Object> result =
+        service.matchResumeSections(
+            parsedResume(),
+            Collections.singletonList(realJob("partial")),
+            "s1",
+            java.util.Arrays.asList("dimensions", "risks", "limitations"));
+    List<Map<String, Object>> matches = (List<Map<String, Object>>) result.get("matches");
+
+    assertEquals(1, matches.size());
+    assertFalse(matches.get(0).containsKey("score_confidence"));
+    assertFalse(matches.get(0).containsKey("evidence_count"));
   }
 
   @Test

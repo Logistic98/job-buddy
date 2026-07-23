@@ -39,6 +39,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -64,17 +65,9 @@ public class ChatSseServiceImpl implements ChatSseService {
   // 每条 SSE 流的取消标记：连接超时、出错或完成后置位，send 前检查以便后台任务尽快停止无效工作。
   private final ConcurrentMap<SseEmitter, AtomicBoolean> emitterCancelled =
       new ConcurrentHashMap<SseEmitter, AtomicBoolean>();
-  // SSE 任务运行时间长（单条流可达 180s），改用有界线程池避免无界 newCachedThreadPool 在高并发或异常堆积时线程膨胀打满资源。
-  // 队列满时采用 CallerRunsPolicy 做背压（由提交线程兜底执行），既不静默丢任务，也给系统降速保护的机会。
-  private final ExecutorService executor =
-      new ThreadPoolExecutor(
-          4,
-          64,
-          60L,
-          TimeUnit.SECONDS,
-          new ArrayBlockingQueue<Runnable>(256),
-          namedThreadFactory("chat-sse"),
-          new ThreadPoolExecutor.CallerRunsPolicy());
+  // SSE 长连接只在独立有界线程池执行，队列满时必须在提交阶段拒绝，禁止占用 servlet 请求线程。
+  private final ExecutorService executor;
+  private final ChatStreamAdmissionController admissionController;
   private final ChatPersistenceCoordinator persistence;
   private final ChatSseEventSender sender;
   private final ChatSseHeartbeatScheduler heartbeatScheduler;
@@ -108,13 +101,27 @@ public class ChatSseServiceImpl implements ChatSseService {
       PersonalContextBuilder personalContextBuilder,
       SystemSettingsService settingsService,
       JobBuddyProperties properties,
-      AgentServiceProperties agentServiceProperties) {
+      AgentServiceProperties agentServiceProperties,
+      ChatStreamAdmissionController admissionController) {
     this.jobRuntimeService = jobRuntimeService;
     this.sessionStore = sessionStore;
     this.integrationService = integrationService;
     this.intentService = intentService;
     this.properties = properties;
     this.agentServiceProperties = agentServiceProperties;
+    this.admissionController = admissionController;
+    int coreThreads = Math.max(1, agentServiceProperties.getStreamCoreThreads());
+    int maxThreads = Math.max(coreThreads, agentServiceProperties.getStreamMaxThreads());
+    this.executor =
+        new ThreadPoolExecutor(
+            coreThreads,
+            maxThreads,
+            60L,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<Runnable>(
+                Math.max(1, agentServiceProperties.getStreamQueueCapacity())),
+            namedThreadFactory("chat-sse"),
+            new ThreadPoolExecutor.AbortPolicy());
     // 会话持久化（Postgres/Redis 读写）从 SSE 主线程剥离，统一交给单线程顺序执行，
     // 既保证用户消息/助手消息/工具事件的落库顺序，又避免每次 tool_status 的 DB 写阻塞首包与答案流式。
     this.persistence =
@@ -162,6 +169,9 @@ public class ChatSseServiceImpl implements ChatSseService {
   }
 
   public SseEmitter stream(final ChatStreamRequest request) {
+    final ChatStreamAdmissionController.Lease admissionLease =
+        admissionController.acquire(
+            request.getAuthenticatedTenantId(), request.getAuthenticatedUserId());
     // SSE 连接超时与下游 Runtime 流式读超时对齐并预留 10s 余量，保证下游超时错误还来得及经 SSE 下发给前端。
     final long emitterTimeoutMillis =
         agentServiceProperties.getStreamReadTimeout().toMillis() + 10000L;
@@ -178,6 +188,7 @@ public class ChatSseServiceImpl implements ChatSseService {
             // 正常完成或容器侧关闭连接后，阻止后台任务继续向该连接写事件。
             cancelled.set(true);
             heartbeatScheduler.stop(heartbeatRef.get());
+            admissionLease.close();
           }
         });
     emitter.onTimeout(
@@ -189,6 +200,7 @@ public class ChatSseServiceImpl implements ChatSseService {
             log.warn(
                 "SSE 连接超时（{}ms），取消后台任务 sessionId={}", emitterTimeoutMillis, request.getSessionId());
             cancelTask(taskRef);
+            admissionLease.close();
           }
         });
     emitter.onError(
@@ -203,61 +215,72 @@ public class ChatSseServiceImpl implements ChatSseService {
                 request.getSessionId(),
                 throwable.getMessage());
             cancelTask(taskRef);
+            admissionLease.close();
           }
         });
-    Future<?> future =
-        executor.submit(
-            new Runnable() {
-              @Override
-              public void run() {
-                AuthenticationScope.set(
-                    request.getAuthenticatedTenantId(), request.getAuthenticatedUserId());
-                try {
-                  handle(request, emitter);
-                  // done 之前先把本轮助手消息与会话状态（含推理过程）落库完成，
-                  // 确保前端收到 done 后从服务端重载时能拿到完整推理过程，不会被未完成的异步落库覆盖丢失。
-                  persistence.awaitPersistFlush();
-                  sender.send(emitter, "done", Collections.singletonMap("ok", true));
-                  sender.completeQuietly(emitter);
-                } catch (BossAuthRequiredException e) {
+    final Future<?> future;
+    try {
+      future =
+          executor.submit(
+              new Runnable() {
+                @Override
+                public void run() {
+                  AuthenticationScope.set(
+                      request.getAuthenticatedTenantId(), request.getAuthenticatedUserId());
                   try {
-                    sender.send(emitter, "auth_required", e.getAuthData());
-                    sender.send(emitter, "done", Collections.singletonMap("ok", false));
-                  } catch (Exception sendError) {
-                    // 客户端可能已断开，写 SSE 失败属预期，debug 留痕即可。
-                    log.debug("下发 auth_required 事件失败（客户端可能已断开）: {}", sendError.getMessage());
-                  }
-                  sender.completeQuietly(emitter);
-                } catch (Exception e) {
-                  if (cancelled.get() || isClientDisconnect(e)) {
-                    // Broken pipe / connection reset 表示浏览器刷新、切换会话或主动取消，属于正常生命周期。
-                    // 某些容器会先让 send 抛异常、稍后才触发 emitter.onError，因此不能只依赖 cancelled 标记。
-                    cancelled.set(true);
-                    log.debug(
-                        "SSE 客户端已断开，终止后台任务 sessionId={}: {}",
-                        request.getSessionId(),
-                        e.getMessage());
-                  } else {
-                    String message = errorMessage(e, "智能引擎处理失败，请稍后重试。");
-                    log.warn("SSE 会话处理异常: {}", message, e);
+                    handle(request, emitter);
+                    // done 之前先把本轮助手消息与会话状态（含推理过程）落库完成，
+                    // 确保前端收到 done 后从服务端重载时能拿到完整推理过程，不会被未完成的异步落库覆盖丢失。
+                    persistence.awaitPersistFlush();
+                    sender.send(emitter, "done", Collections.singletonMap("ok", true));
+                    sender.completeQuietly(emitter);
+                  } catch (BossAuthRequiredException e) {
                     try {
-                      sender.send(emitter, "error", Collections.singletonMap("message", message));
+                      sender.send(emitter, "auth_required", e.getAuthData());
                       sender.send(emitter, "done", Collections.singletonMap("ok", false));
                     } catch (Exception sendError) {
                       // 客户端可能已断开，写 SSE 失败属预期，debug 留痕即可。
-                      log.debug("下发 error 事件失败（客户端可能已断开）: {}", sendError.getMessage());
+                      log.debug("下发 auth_required 事件失败（客户端可能已断开）: {}", sendError.getMessage());
                     }
+                    sender.completeQuietly(emitter);
+                  } catch (Exception e) {
+                    if (cancelled.get() || isClientDisconnect(e)) {
+                      // Broken pipe / connection reset 表示浏览器刷新、切换会话或主动取消，属于正常生命周期。
+                      // 某些容器会先让 send 抛异常、稍后才触发 emitter.onError，因此不能只依赖 cancelled 标记。
+                      cancelled.set(true);
+                      log.debug(
+                          "SSE 客户端已断开，终止后台任务 sessionId={}: {}",
+                          request.getSessionId(),
+                          e.getMessage());
+                    } else {
+                      String message = errorMessage(e, "智能引擎处理失败，请稍后重试。");
+                      log.warn("SSE 会话处理异常: {}", message, e);
+                      try {
+                        sender.send(emitter, "error", Collections.singletonMap("message", message));
+                        sender.send(emitter, "done", Collections.singletonMap("ok", false));
+                      } catch (Exception sendError) {
+                        // 客户端可能已断开，写 SSE 失败属预期，debug 留痕即可。
+                        log.debug("下发 error 事件失败（客户端可能已断开）: {}", sendError.getMessage());
+                      }
+                    }
+                    sender.completeQuietly(emitter);
+                  } finally {
+                    // 任务结束后停止保活并清理取消标记与线程身份，避免连接泄漏或线程池复用时串用其他用户凭据。
+                    cancelled.set(true);
+                    heartbeatScheduler.stop(heartbeatRef.get());
+                    emitterCancelled.remove(emitter);
+                    AuthenticationScope.clear();
+                    admissionLease.close();
                   }
-                  sender.completeQuietly(emitter);
-                } finally {
-                  // 任务结束后停止保活并清理取消标记与线程身份，避免连接泄漏或线程池复用时串用其他用户凭据。
-                  cancelled.set(true);
-                  heartbeatScheduler.stop(heartbeatRef.get());
-                  emitterCancelled.remove(emitter);
-                  AuthenticationScope.clear();
                 }
-              }
-            });
+              });
+    } catch (RejectedExecutionException exception) {
+      cancelled.set(true);
+      emitterCancelled.remove(emitter);
+      admissionLease.close();
+      throw new com.jobbuddy.backend.modules.chat.exception.ChatStreamRejectedException(
+          "流式任务执行队列已满，请稍后重试", true);
+    }
     taskRef.set(future);
     long heartbeatIntervalMillis =
         agentServiceProperties.getStreamHeartbeatInterval() == null

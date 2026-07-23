@@ -114,7 +114,7 @@ class BossCliServiceImplTest {
         .thenReturn(envelope(200, "success", data));
     BossCliServiceImpl service = newService(browserClient);
 
-    Map<String, Object> result = JSON.toMap(service.qrStatus("qr1"));
+    Map<String, Object> result = JSON.toMap(service.qrStatus("qr1", "opaque-token"));
 
     assertEquals(true, result.get("ok"));
     Map<?, ?> resultData = (Map<?, ?>) result.get("data");

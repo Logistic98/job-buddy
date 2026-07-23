@@ -21,6 +21,14 @@ public interface AuthStateMapper {
 
   int upsertQrSession(@Param("state") Map<String, Object> state);
 
+  int updateQrSessionToken(
+      @Param("qrSessionId") String qrSessionId,
+      @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
+      @Param("toolSessionToken") String toolSessionToken,
+      @Param("toolSessionVersion") int toolSessionVersion,
+      @Param("updatedAt") Instant updatedAt);
+
   Map<String, Object> findQrSession(@Param("qrSessionId") String qrSessionId);
 
   Map<String, Object> findActiveQrSession(

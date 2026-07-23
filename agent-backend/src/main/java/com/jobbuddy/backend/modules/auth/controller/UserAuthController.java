@@ -38,15 +38,11 @@ public class UserAuthController {
   @PostMapping("/login")
   public ApiResponse<LoginResponse> login(
       @RequestBody LoginRequest body, HttpServletRequest request, HttpServletResponse response) {
-    try {
-      String username = body == null || body.getUsername() == null ? "" : body.getUsername();
-      String password = body == null || body.getPassword() == null ? "" : body.getPassword();
-      LoginResponse login = userLoginService.login(username, password);
-      AuthSessionCookie.write(response, login.getToken(), request.isSecure());
-      return ApiResponse.success(login);
-    } catch (IllegalArgumentException e) {
-      return ApiResponse.error(401, e.getMessage());
-    }
+    String username = body == null || body.getUsername() == null ? "" : body.getUsername();
+    String password = body == null || body.getPassword() == null ? "" : body.getPassword();
+    LoginResponse login = userLoginService.login(username, password, request.getRemoteAddr());
+    AuthSessionCookie.write(response, login.getToken(), request.isSecure());
+    return ApiResponse.success(login);
   }
 
   /**

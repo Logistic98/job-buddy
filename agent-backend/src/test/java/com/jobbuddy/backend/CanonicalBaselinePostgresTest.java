@@ -15,7 +15,6 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -73,11 +72,11 @@ class CanonicalBaselinePostgresTest {
   void emptyDatabaseMigratesWithDefaultUsersAuthorizationAndJobBlacklist() throws Exception {
     var result = flyway().migrate();
 
-    assertEquals(9, result.migrationsExecuted);
-    assertEquals("1.0.8", result.targetSchemaVersion);
+    assertEquals(11, result.migrationsExecuted);
+    assertEquals("1.0.10", result.targetSchemaVersion);
     assertEquals(EXPECTED_TABLES, applicationTables());
     assertEquals(
-        287,
+        289,
         queryLong(
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
                 + "AND table_name <> 'flyway_schema_history'"));
@@ -95,20 +94,25 @@ class CanonicalBaselinePostgresTest {
         "admin", queryString("SELECT username FROM app_user WHERE user_id = 'job_buddy_admin'"));
     assertEquals(
         "user", queryString("SELECT username FROM app_user WHERE user_id = 'job_buddy_user'"));
-    BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
-    assertTrue(
-        passwordEncoder.matches(
-            "12345678",
-            queryString("SELECT password_hash FROM app_user WHERE user_id = 'job_buddy_admin'")));
-    assertTrue(
-        passwordEncoder.matches(
-            "12345678",
-            queryString("SELECT password_hash FROM app_user WHERE user_id = 'job_buddy_user'")));
-    assertEquals(11, queryLong("SELECT COUNT(*) FROM permission_definition"));
+    assertTrue(queryBoolean("SELECT enabled FROM app_user WHERE user_id = 'job_buddy_admin'"));
+    assertTrue(queryBoolean("SELECT enabled FROM app_user WHERE user_id = 'job_buddy_user'"));
+    assertEquals(12, queryLong("SELECT COUNT(*) FROM permission_definition"));
     assertEquals(2, queryLong("SELECT COUNT(*) FROM rbac_role"));
-    assertEquals(13, queryLong("SELECT COUNT(*) FROM rbac_menu"));
-    assertEquals(23, queryLong("SELECT COUNT(*) FROM role_menu"));
+    assertEquals(14, queryLong("SELECT COUNT(*) FROM rbac_menu"));
+    assertEquals(22, queryLong("SELECT COUNT(*) FROM role_menu"));
+    assertEquals(
+        1,
+        queryLong(
+            "SELECT COUNT(*) FROM role_menu WHERE role_id = 'role_admin' "
+                + "AND menu_id = 'menu_settings_platform'"));
+    assertEquals(
+        0,
+        queryLong(
+            "SELECT COUNT(*) FROM role_menu WHERE role_id = 'role_user' "
+                + "AND menu_id IN ('menu_settings', 'menu_settings_tenant')"));
     assertEquals(47, queryLong("SELECT COUNT(*) FROM blacklist_item"));
+    assertTrue(tableExists("idx_app_user_tenant_created_username"));
+    assertTrue(tableExists("idx_rbac_role_tenant_created_name"));
     assertEquals(
         40,
         queryLong(
@@ -190,6 +194,15 @@ class CanonicalBaselinePostgresTest {
         ResultSet rows = statement.executeQuery(sql)) {
       rows.next();
       return rows.getLong(1);
+    }
+  }
+
+  private boolean queryBoolean(String sql) throws Exception {
+    try (Connection connection = connection();
+        Statement statement = connection.createStatement();
+        ResultSet rows = statement.executeQuery(sql)) {
+      rows.next();
+      return rows.getBoolean(1);
     }
   }
 

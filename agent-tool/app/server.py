@@ -97,6 +97,17 @@ def execute_tool(
     logger.info(f"执行工具: tool_name={name}, operation={operation}, trace_id={trace_id}")
     try:
         arguments = dict(request.arguments)
+        if name == "boss_browser":
+            tenant_id = (x_tenant_id or "").strip()
+            operator_id = (x_operator_id or "").strip()
+            if not tenant_id or not operator_id:
+                raise ValueError("Boss 工具必须携带可信的租户与操作人身份")
+            payload = arguments.get("payload")
+            if not isinstance(payload, dict):
+                payload = {}
+            payload = dict(payload)
+            payload["_trusted_owner_key"] = tenant_id + "\u0000" + operator_id
+            arguments["payload"] = payload
         if name == "memory_search":
             arguments["tenant_id"] = (x_tenant_id or "default-tenant").strip()
             arguments["operator_id"] = (x_operator_id or "agent-tool").strip()

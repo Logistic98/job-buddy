@@ -80,19 +80,19 @@ class ToolGateway:
     def _filter_by_task_scope(
         self, tools: List[ToolDefinition], task: TaskUnderstandingResult | None
     ) -> List[ToolDefinition]:
-        allowed = set(self._task_tool_scope(task))
-        if not allowed:
+        mode, allowed, _required = self._task_tool_policy(task)
+        if mode == "unrestricted":
             return tools
-        # 能力卡声明了工具范围时严格收窄候选集：即使关键词召回没命中范围内工具，
-        # 也不能回退到全量工具，否则候选集会包含 echo 等范围外工具，Planner 选中后会在
-        # 执行阶段被 _call_allowed_by_task 拒绝（permission_denied），造成纯生成任务直接失败。
-        # 范围内工具由 _include_required_tools 负责补齐。
-        return [tool for tool in tools if tool.name in allowed or tool.always_load]
+        if mode == "none":
+            return []
+        return [tool for tool in tools if tool.name in allowed]
 
     def _include_required_tools(
         self, task: TaskUnderstandingResult | None, tools: List[ToolDefinition], limit: int
     ) -> List[ToolDefinition]:
-        required_names = self._task_tool_scope(task, required_only=True)
+        mode, _allowed, required_names = self._task_tool_policy(task)
+        if mode != "allowlist":
+            return list(tools or [])
         selected = list(tools or [])
         seen = {tool.name for tool in selected}
         for name in required_names:
@@ -106,26 +106,38 @@ class ToolGateway:
             seen.add(tool.name)
         return selected[: max(limit, len(selected))]
 
-    def _task_tool_scope(self, task: TaskUnderstandingResult | None, required_only: bool = False) -> List[str]:
-        if not task or not isinstance(task.metadata, dict):
-            return []
+    def _task_tool_policy(self, task: TaskUnderstandingResult | None) -> tuple[str, set[str], List[str]]:
+        if not task:
+            return "unrestricted", set(), []
+        if not isinstance(task.metadata, dict):
+            return "none", set(), []
         capability_contract = task.metadata.get("capability_contract")
         if not isinstance(capability_contract, dict):
-            return []
+            return "none", set(), []
         required = [str(item) for item in (capability_contract.get("required_tools") or [])]
-        if required_only:
-            return required
         allowed = [
             str(item) for item in (capability_contract.get("allowed_tools") or capability_contract.get("tools") or [])
         ]
-        return list(dict.fromkeys(required + allowed))
+        mode = str(capability_contract.get("tool_scope") or "").strip().lower()
+        if not mode:
+            mode = "allowlist" if required or allowed else "none"
+        if mode not in {"none", "allowlist", "unrestricted"}:
+            logger.warning(f"能力工具范围模式无效，按 none 失败关闭：mode={mode}")
+            mode = "none"
+        scoped = set(dict.fromkeys(required + allowed))
+        if mode == "none":
+            return mode, set(), []
+        if mode == "unrestricted":
+            return mode, set(), []
+        return mode, scoped, list(dict.fromkeys(required))
 
     def _call_allowed_by_task(self, tool_name: str, task: TaskUnderstandingResult) -> bool:
-        scope = self._task_tool_scope(task)
-        tool = self.registry.get(tool_name)
-        if tool and tool.definition().always_load:
+        mode, scope, _required = self._task_tool_policy(task)
+        if mode == "unrestricted":
             return True
-        return not scope or tool_name in scope
+        if mode == "none":
+            return False
+        return tool_name in scope
 
     def _normalize_result(self, result: ToolResult) -> ToolResult:
         metadata: Dict[str, Any] = dict(result.metadata or {})

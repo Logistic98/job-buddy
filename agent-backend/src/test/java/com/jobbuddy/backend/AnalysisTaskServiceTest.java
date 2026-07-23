@@ -76,6 +76,48 @@ class AnalysisTaskServiceTest {
   }
 
   @Test
+  void shouldCancelOnlyAnOwnedActiveTask() {
+    AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
+    AnalysisTask running = task("task-1", "tenant-a", "user-a", "favorite_job", "job-1", "running");
+    AnalysisTask cancelled =
+        task("task-1", "tenant-a", "user-a", "favorite_job", "job-1", "cancelled");
+    cancelled.setStage("cancelled");
+    when(mapper.findOwned("task-1", "tenant-a", "user-a"))
+        .thenReturn(running)
+        .thenReturn(cancelled);
+    when(mapper.markCancelled("task-1")).thenReturn(1);
+    service =
+        new AnalysisTaskServiceImpl(
+            mapper,
+            new JsonCodec(),
+            mock(ResumeStorageService.class),
+            mock(JobFavoriteService.class));
+
+    AnalysisTaskResponse response = service.cancel("task-1", "tenant-a", "user-a");
+
+    assertEquals("cancelled", response.getStatus());
+    assertEquals("cancelled", response.getStage());
+    verify(mapper).markCancelled("task-1");
+  }
+
+  @Test
+  void shouldRejectCrossOwnerCancellationWithoutChangingTaskState() {
+    AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
+    when(mapper.findOwned("task-1", "tenant-b", "user-b")).thenReturn(null);
+    service =
+        new AnalysisTaskServiceImpl(
+            mapper,
+            new JsonCodec(),
+            mock(ResumeStorageService.class),
+            mock(JobFavoriteService.class));
+
+    assertThrows(
+        IllegalArgumentException.class, () -> service.cancel("task-1", "tenant-b", "user-b"));
+
+    verify(mapper, never()).markCancelled(anyString());
+  }
+
+  @Test
   void shouldRejectUnsupportedTaskTypeBeforeQueryingLatest() {
     AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
     service =

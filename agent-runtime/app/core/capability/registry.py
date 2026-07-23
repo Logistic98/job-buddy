@@ -87,6 +87,7 @@ class CapabilityRegistry:
                     keywords=["hello", "runtime", "回显", "解释", "是什么", "如何"],
                     next_action="run_runtime_planner",
                     planner_needed=True,
+                    allowed_tools=["echo"],
                 )
             ],
         )

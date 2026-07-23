@@ -324,6 +324,7 @@ capabilities:
     risk: medium
     next_action: run_runtime_planner
     planner_needed: true
+    allowed_tools: ["file_read", "file_write", "file_edit", "glob", "grep", "shell_exec", "web_search", "web_fetch"]
     secondary: ["plan", "code_generation", "technical"]
     capability_tags: ["runtime", "code", "planner"]
 
@@ -417,4 +418,5 @@ capabilities:
     risk: low
     next_action: run_runtime_planner
     planner_needed: true
+    allowed_tools: ["echo"]
     capability_tags: ["chat", "runtime"]

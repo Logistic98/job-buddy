@@ -20,6 +20,7 @@ import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
 import com.jobbuddy.backend.modules.chat.service.IntentService;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
 import com.jobbuddy.backend.modules.chat.service.impl.ChatSseServiceImpl;
+import com.jobbuddy.backend.modules.chat.service.impl.ChatStreamAdmissionController;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
 import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
@@ -63,7 +64,8 @@ class ChatSseLifecycleTest {
         mock(PersonalContextBuilder.class),
         mock(SystemSettingsService.class),
         new JobBuddyProperties(),
-        new AgentServiceProperties());
+        new AgentServiceProperties(),
+        new ChatStreamAdmissionController(new AgentServiceProperties()));
   }
 
   @SuppressWarnings("unchecked")

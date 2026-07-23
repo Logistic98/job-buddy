@@ -59,6 +59,26 @@
     FROM app_user u WHERE u.tenant_id = #{tenantId} ORDER BY u.created_at, u.username
   </select>
 
+  <select id="listUserRoleAssignments" resultType="map">
+    SELECT ur.user_id AS "userId", r.role_id AS "roleId", r.role_name AS "roleName"
+    FROM user_role ur
+    JOIN rbac_role r ON r.tenant_id = ur.tenant_id AND r.role_id = ur.role_id
+    WHERE ur.tenant_id = #{tenantId}
+    ORDER BY ur.user_id, r.role_name, r.role_id
+  </select>
+
+  <select id="listUserPermissionAssignments" resultType="map">
+    SELECT DISTINCT ur.user_id AS "userId", m.permission_code AS "permissionCode"
+    FROM user_role ur
+    JOIN rbac_role r
+      ON r.tenant_id = ur.tenant_id AND r.role_id = ur.role_id AND r.enabled = TRUE
+    JOIN role_menu rm ON rm.tenant_id = r.tenant_id AND rm.role_id = r.role_id
+    JOIN rbac_menu m
+      ON m.tenant_id = rm.tenant_id AND m.menu_id = rm.menu_id AND m.enabled = TRUE
+    WHERE ur.tenant_id = #{tenantId} AND m.permission_code IS NOT NULL
+    ORDER BY ur.user_id, m.permission_code
+  </select>
+
   <select id="findUserById" resultType="map">
     SELECT u.user_id AS "userId", u.tenant_id AS "tenantId", u.username,
            u.display_name AS "displayName", u.role, u.enabled,
@@ -88,7 +108,8 @@
   </insert>
 
   <update id="updateUser">
-    UPDATE app_user SET display_name = #{displayName}, role = #{role}, enabled = #{enabled}, updated_at = #{now}
+    UPDATE app_user
+    SET username = #{username}, display_name = #{displayName}, role = #{role}, enabled = #{enabled}, updated_at = #{now}
     WHERE tenant_id = #{tenantId} AND user_id = #{userId}
   </update>
 

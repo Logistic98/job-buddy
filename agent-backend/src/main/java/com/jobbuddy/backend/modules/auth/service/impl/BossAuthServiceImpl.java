@@ -65,9 +65,13 @@ public class BossAuthServiceImpl implements BossAuthService {
     if (Boolean.TRUE.equals(start.get("ok"))) {
       Map<String, Object> data = asMap(start.get("data"));
       String qrSessionId = stringValue(data.get("session_id"));
+      String toolSessionToken = trimToNull(stringValue(data.remove("session_token")));
+      if (toolSessionToken == null) {
+        throw new IllegalStateException("Boss 二维码工具会话未返回安全令牌");
+      }
       Instant expiresAt = Instant.now().plus(QR_SESSION_TTL_MINUTES, ChronoUnit.MINUTES);
       authStateRepository.saveQrSession(
-          currentTenantId(), currentUserId(), sessionId, qrSessionId, expiresAt);
+          currentTenantId(), currentUserId(), sessionId, qrSessionId, toolSessionToken, expiresAt);
       response.put("qrSessionId", qrSessionId);
       response.put("qrId", data.get("qr_id"));
       response.put("imageBase64", data.get("image_base64"));
@@ -99,9 +103,13 @@ public class BossAuthServiceImpl implements BossAuthService {
     if (qrSessionId == null) qrSessionId = qrSessionIdForOwner();
     if (qrSessionId == null)
       return jsonCodec.convert(bossCliService.cancelLogin(), BossLoginCancelResponse.class);
-    requireQrOwner(qrSessionId);
+    Map<String, Object> qrSession = requireQrOwner(qrSessionId);
+    BossLoginCancelResponse response =
+        jsonCodec.convert(
+            bossCliService.qrCancel(qrSessionId, requiredToolSessionToken(qrSession)),
+            BossLoginCancelResponse.class);
     authStateRepository.deleteQrSession(currentTenantId(), currentUserId(), qrSessionId);
-    return jsonCodec.convert(bossCliService.qrCancel(qrSessionId), BossLoginCancelResponse.class);
+    return response;
   }
 
   public boolean isLoggedIn(String sessionId) {
@@ -136,12 +144,23 @@ public class BossAuthServiceImpl implements BossAuthService {
   }
 
   private Map<String, Object> qrLoginStatus(String qrSessionId) {
-    Map<String, Object> result = jsonCodec.toMap(bossCliService.qrStatus(qrSessionId));
+    Map<String, Object> qrSession = requireQrOwner(qrSessionId);
+    Map<String, Object> result =
+        jsonCodec.toMap(bossCliService.qrStatus(qrSessionId, requiredToolSessionToken(qrSession)));
     Map<String, Object> data =
         Boolean.TRUE.equals(result.get("ok"))
             ? asMap(result.get("data"))
             : new LinkedHashMap<String, Object>();
     String credentialJson = trimToNull(stringValue(data.remove("credential_json")));
+    String rotatedToken = trimToNull(stringValue(data.remove("session_token")));
+    if (rotatedToken != null) {
+      authStateRepository.updateQrSessionToken(
+          currentTenantId(),
+          currentUserId(),
+          qrSessionId,
+          rotatedToken,
+          intValue(qrSession.get("toolSessionVersion")));
+    }
 
     Map<String, Object> response = new LinkedHashMap<String, Object>();
     response.put("qrSessionId", qrSessionId);
@@ -208,7 +227,7 @@ public class BossAuthServiceImpl implements BossAuthService {
     return row == null ? null : trimToNull(stringValue(row.get("qrSessionId")));
   }
 
-  private void requireQrOwner(String qrSessionId) {
+  private Map<String, Object> requireQrOwner(String qrSessionId) {
     Map<String, Object> owner = authStateRepository.findQrSession(qrSessionId);
     if (owner == null) throw new IllegalArgumentException("Boss 登录会话不存在或已过期");
     if (!currentTenantId().equals(stringValue(owner.get("tenantId")))
@@ -220,6 +239,17 @@ public class BossAuthServiceImpl implements BossAuthService {
       authStateRepository.deleteQrSession(currentTenantId(), currentUserId(), qrSessionId);
       throw new IllegalArgumentException("Boss 登录会话不存在或已过期");
     }
+    return owner;
+  }
+
+  private String requiredToolSessionToken(Map<String, Object> session) {
+    String value = trimToNull(stringValue(session.get("toolSessionToken")));
+    if (value == null) throw new IllegalStateException("Boss 登录会话缺少工具状态令牌");
+    return value;
+  }
+
+  private int intValue(Object value) {
+    return value instanceof Number ? ((Number) value).intValue() : 0;
   }
 
   private boolean isCachedAuthenticated() {

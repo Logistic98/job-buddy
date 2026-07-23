@@ -4,7 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.jobbuddy.backend.common.result.ApiResponse;
 import com.jobbuddy.backend.common.result.ErrorCode;
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.auth.exception.AuthorizationDeniedException;
 import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
+import com.jobbuddy.backend.modules.auth.exception.InvalidCredentialsException;
+import com.jobbuddy.backend.modules.auth.exception.LoginRateLimitException;
+import com.jobbuddy.backend.modules.chat.exception.ChatStreamRejectedException;
 import com.jobbuddy.backend.modules.job.exception.JobAnalysisException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -58,6 +62,34 @@ public class GlobalExceptionHandler {
             .map(error -> error.getField() + ": " + error.getDefaultMessage())
             .orElse(ErrorCode.BAD_REQUEST.getMessage());
     return ApiResponse.error(ErrorCode.BAD_REQUEST.getCode(), message);
+  }
+
+  @ExceptionHandler(InvalidCredentialsException.class)
+  @ResponseStatus(HttpStatus.UNAUTHORIZED)
+  public ApiResponse<Void> handleInvalidCredentials(InvalidCredentialsException exception) {
+    return ApiResponse.error(HttpStatus.UNAUTHORIZED.value(), exception.getMessage());
+  }
+
+  @ExceptionHandler(LoginRateLimitException.class)
+  @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+  public ApiResponse<Void> handleLoginRateLimit(
+      LoginRateLimitException exception, jakarta.servlet.http.HttpServletResponse response) {
+    response.setHeader("Retry-After", String.valueOf(exception.getRetryAfterSeconds()));
+    return ApiResponse.error(HttpStatus.TOO_MANY_REQUESTS.value(), exception.getMessage());
+  }
+
+  @ExceptionHandler(AuthorizationDeniedException.class)
+  @ResponseStatus(HttpStatus.FORBIDDEN)
+  public ApiResponse<Void> handleAccessDenied(AuthorizationDeniedException exception) {
+    return ApiResponse.error(HttpStatus.FORBIDDEN.value(), exception.getMessage());
+  }
+
+  @ExceptionHandler(ChatStreamRejectedException.class)
+  @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+  public ApiResponse<Void> handleChatStreamRejected(
+      ChatStreamRejectedException exception, jakarta.servlet.http.HttpServletResponse response) {
+    if (exception.isRetryable()) response.setHeader("Retry-After", "1");
+    return ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE.value(), exception.getMessage());
   }
 
   /** 非法入参属于客户端错误：统一返回 400 与真实校验文案，避免落到兜底分支被当成 500。 */

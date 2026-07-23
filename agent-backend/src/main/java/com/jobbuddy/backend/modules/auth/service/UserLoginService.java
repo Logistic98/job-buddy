@@ -4,7 +4,7 @@ import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import com.jobbuddy.backend.modules.auth.dto.response.LoginResponse;
 
 public interface UserLoginService {
-  LoginResponse login(String username, String password);
+  LoginResponse login(String username, String password, String source);
 
   AuthenticatedUser currentUser(String token);
 

@@ -19,6 +19,12 @@ public class AgentServiceProperties {
   private Duration streamConnectTimeout = Duration.ofSeconds(10);
   private Duration streamReadTimeout = Duration.ofSeconds(180);
   private Duration streamHeartbeatInterval = Duration.ofSeconds(10);
+  private int streamCoreThreads = 4;
+  private int streamMaxThreads = 64;
+  private int streamQueueCapacity = 128;
+  private int streamMaxGlobal = 96;
+  private int streamMaxPerTenant = 48;
+  private int streamMaxPerUser = 6;
   private int maxAttempts = 2;
   private Duration retryBackoff = Duration.ofMillis(200);
   private int circuitFailureThreshold = 5;
@@ -143,6 +149,54 @@ public class AgentServiceProperties {
 
   public void setStreamHeartbeatInterval(Duration streamHeartbeatInterval) {
     this.streamHeartbeatInterval = streamHeartbeatInterval;
+  }
+
+  public int getStreamCoreThreads() {
+    return streamCoreThreads;
+  }
+
+  public void setStreamCoreThreads(int streamCoreThreads) {
+    this.streamCoreThreads = streamCoreThreads;
+  }
+
+  public int getStreamMaxThreads() {
+    return streamMaxThreads;
+  }
+
+  public void setStreamMaxThreads(int streamMaxThreads) {
+    this.streamMaxThreads = streamMaxThreads;
+  }
+
+  public int getStreamQueueCapacity() {
+    return streamQueueCapacity;
+  }
+
+  public void setStreamQueueCapacity(int streamQueueCapacity) {
+    this.streamQueueCapacity = streamQueueCapacity;
+  }
+
+  public int getStreamMaxGlobal() {
+    return streamMaxGlobal;
+  }
+
+  public void setStreamMaxGlobal(int streamMaxGlobal) {
+    this.streamMaxGlobal = streamMaxGlobal;
+  }
+
+  public int getStreamMaxPerTenant() {
+    return streamMaxPerTenant;
+  }
+
+  public void setStreamMaxPerTenant(int streamMaxPerTenant) {
+    this.streamMaxPerTenant = streamMaxPerTenant;
+  }
+
+  public int getStreamMaxPerUser() {
+    return streamMaxPerUser;
+  }
+
+  public void setStreamMaxPerUser(int streamMaxPerUser) {
+    this.streamMaxPerUser = streamMaxPerUser;
   }
 
   public int getMaxAttempts() {

@@ -8,6 +8,10 @@ import org.apache.ibatis.annotations.Param;
 public interface RbacMapper {
   List<Map<String, Object>> listRoles(@Param("tenantId") String tenantId);
 
+  List<Map<String, Object>> listRoleMenuAssignments(@Param("tenantId") String tenantId);
+
+  List<Map<String, Object>> listRolePermissionAssignments(@Param("tenantId") String tenantId);
+
   Map<String, Object> findRole(@Param("tenantId") String tenantId, @Param("roleId") String roleId);
 
   List<String> findRoleMenuIds(@Param("tenantId") String tenantId, @Param("roleId") String roleId);

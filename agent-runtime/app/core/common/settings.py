@@ -50,6 +50,16 @@ class WebSearchConfig(BaseModel):
     fallback_to_duckduckgo: bool = True
 
 
+class WebFetchConfig(BaseModel):
+    """Untrusted HTTP response budgets enforced before result serialization."""
+
+    max_wire_bytes: int = 512 * 1024
+    max_decoded_bytes: int = 1024 * 1024
+    max_expansion_ratio: int = 20
+    max_text_chars: int = 24000
+    chunk_bytes: int = 16 * 1024
+
+
 class RuntimeConfig(BaseModel):
     """运行时主链路配置。"""
 
@@ -161,6 +171,17 @@ class McpConfig(BaseModel):
 
     enabled: bool = False
     connect_timeout_seconds: int = 10
+    max_tools_per_server: int = 128
+    max_catalog_bytes: int = 512 * 1024
+    max_tool_name_chars: int = 128
+    max_tool_description_chars: int = 4096
+    max_schema_bytes: int = 64 * 1024
+    max_schema_nodes: int = 2048
+    max_schema_depth: int = 16
+    max_result_bytes: int = 1024 * 1024
+    max_result_items: int = 256
+    max_result_nodes: int = 8192
+    max_result_depth: int = 32
     servers: Dict[str, McpServerConfig] = Field(default_factory=dict)
 
 
@@ -171,6 +192,7 @@ class AppConfig(BaseModel):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     tool_search: ToolSearchConfig = Field(default_factory=ToolSearchConfig)
     web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    web_fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
     checkpoint: CheckpointConfig = Field(default_factory=CheckpointConfig)
     permission: PermissionConfig = Field(default_factory=PermissionConfig)
     tool_runtime: ToolRuntimeConfig = Field(default_factory=ToolRuntimeConfig)

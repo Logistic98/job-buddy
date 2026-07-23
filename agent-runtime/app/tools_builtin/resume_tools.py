@@ -92,11 +92,25 @@ def _extract_json(text: str) -> Any:
     if not text:
         raise ValueError("LLM 返回为空，请检查模型服务 content")
     stripped = text.strip()
-    fence_match = re.search(r"```(?:json)?\s*(.+?)\s*```", stripped, re.DOTALL)
-    candidate = fence_match.group(1) if fence_match else stripped
     try:
-        return json.loads(candidate)
+        return json.loads(stripped)
     except json.JSONDecodeError as first_error:
+        fenced_blocks = re.findall(r"```(?:json)?\s*(.+?)\s*```", stripped, re.DOTALL)
+        parsed_blocks: List[Any] = []
+        for block in fenced_blocks:
+            try:
+                parsed_blocks.append(json.loads(block))
+            except json.JSONDecodeError:
+                continue
+        if parsed_blocks:
+            if all(isinstance(item, dict) for item in parsed_blocks):
+                merged: Dict[str, Any] = {}
+                for item in parsed_blocks:
+                    merged.update(item)
+                return merged
+            return parsed_blocks[0]
+
+        candidate = stripped
         object_start = candidate.find("{")
         object_end = candidate.rfind("}")
         array_start = candidate.find("[")
@@ -568,12 +582,19 @@ class ResumeMatchTool(BaseTool):
                     "输出严格 JSON 对象,字段为: evaluation_schema, matches, limitations。matches 为数组,顺序与输入岗位一致。"
                     "每个 match 字段固定如下: id(string), score(0-100整数或 null), score_confidence(high|medium|low), "
                     "recommendation(enum: 推荐|可尝试|谨慎|不建议|证据不足), reasoning(str), "
-                    "dimensions{technical_skill{score,evidence,gap}, seniority{score,evidence,gap}, project_relevance{score,evidence,gap}, domain_fit{score,evidence,gap}, constraints{score,evidence,gap}}, "
+                    "dimensions{technical_skill{score,evidence,gap}, seniority{score,evidence,gap}, education_fit{score,evidence,gap}, project_relevance{score,evidence,gap}, domain_fit{score,evidence,gap}, constraints{score,evidence,gap}}, "
                     "evidence[{resume_evidence,job_requirement,assessment}], hits[str], gaps[str], risks[str], interview_focus[str], improvement_actions[str], limitations[str]。"
+                    "dimensions 必须完整输出上述六个维度。education_fit.score 必须输出 0-100 整数，不得输出 null；"
+                    "学历与资质需综合学历层次、专业相关性和岗位明确要求评分，专业名称不要求严格一致，"
+                    "相近专业、交叉学科以及能由项目或工作经历证明的相关知识均应按相关程度评估。"
+                    "岗位未明确学历、专业或资质要求时不得因此扣分；简历信息不完整时仍给出保守数值分，并在 gap 中说明缺失信息。"
                     "reasoning 必须用 2-3 句话直接回答是否值得投递、核心依据和最大阻碍,不得只复述岗位名称或技能词。"
                     "hits 和 gaps 必须引用当前简历与当前 JD 的具体内容；risks 只写可能影响筛选、定级或录用的关键风险。"
                     "improvement_actions 必须是投递前可执行动作,优先说明简历哪段应补充什么项目证据、指标或技能验证；禁止使用继续学习、加强能力等空话。"
                     "interview_focus 必须结合当前 JD 与简历经历给出具体追问方向或准备问题。"
+                    "score_confidence 衡量输入信息和证据链是否足以支撑结论，与匹配分高低、推荐结果和差距数量无关。"
+                    "完整 JD 与简历能够形成至少 3 条具体要求-证据对照时应为 high；只有部分要求可核实时为 medium；"
+                    "仅当 JD、简历核心信息或证据链明显缺失时才为 low。不得仅因存在技能差距、风险项或不建议投递就输出 low。"
                     "评分规则: 只有岗位要求和简历证据都明确时才给高分；证据不足不得给 80 以上；只有岗位名称没有 JD 时 score_confidence 必须 low, recommendation 必须证据不足。"
                     f"本次每个 match 只生成 id 和这些字段: {', '.join(sections)}。除指定字段外不要输出其他 match 字段。只返回 JSON。"
                 ),
@@ -599,10 +620,18 @@ class ResumeMatchTool(BaseTool):
         if not isinstance(data, dict):
             raise ValueError("LLM 输出的匹配结果不是 JSON 对象")
         payload: Dict[str, Any] = data
-        rows = payload.get("matches") if isinstance(payload.get("matches"), list) else []
+        rows = self._extract_match_rows(payload)
         if not rows:
+            logger.warning(
+                "岗位匹配模型输出未包含有效结果：keys={}, matches_type={}",
+                sorted(payload.keys()),
+                type(payload.get("matches")).__name__,
+            )
             raise ValueError("大模型未返回有效的岗位匹配结果，请重试")
-        normalized = [self._normalize_match(item, idx, scoped_jobs) for idx, item in enumerate(rows)]
+        normalized = [
+            self._normalize_match(item, idx, scoped_jobs, evidence_requested="evidence" in sections)
+            for idx, item in enumerate(rows)
+        ]
         if requested:
             normalized = [{key: row.get(key) for key in ["id", *sections] if key in row} for row in normalized]
         else:
@@ -611,16 +640,38 @@ class ResumeMatchTool(BaseTool):
             "matches": normalized,
             "scored_count": len(normalized),
             "total_jobs": len(jobs),
-            "evaluation_schema": payload.get("evaluation_schema") or "evidence_based_resume_job_match_v2",
+            "evaluation_schema": payload.get("evaluation_schema") or "evidence_based_resume_job_match_v4",
             "limitations": [str(x) for x in (payload.get("limitations") or [])][:10],
             "evidence_policy": "no_fabrication_score_requires_resume_and_job_evidence",
         }
+
+    @staticmethod
+    def _extract_match_rows(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        for key in ("matches", "results", "job_matches", "evaluations"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+            if isinstance(value, dict):
+                return [value]
+        match = payload.get("match")
+        if isinstance(match, dict):
+            return [match]
+        if any(key in payload for key in ("score", "score_confidence", "confidence", "recommendation", "evidence")):
+            return [payload]
+        return []
 
     @staticmethod
     def _compact_resume(resume: Dict[str, Any]) -> Dict[str, Any]:
         skills = resume.get("skills") or []
         experiences = resume.get("experiences") or resume.get("work_experiences") or []
         projects = resume.get("projects") or resume.get("project_experiences") or []
+        education = (
+            resume.get("education")
+            or resume.get("educations")
+            or resume.get("education_experiences")
+            or resume.get("educationExperience")
+            or []
+        )
 
         def compact_records(records: Any, field_groups: Dict[str, tuple[str, ...]], limit: int) -> List[Any]:
             if not isinstance(records, list):
@@ -660,12 +711,23 @@ class ResumeMatchTool(BaseTool):
             },
             5,
         )
+        education_details = compact_records(
+            education,
+            {
+                "school": ("school", "schoolName", "university"),
+                "degree": ("degree", "degreeName", "education"),
+                "major": ("major", "majorName", "speciality"),
+                "period": ("period", "dateRange", "time"),
+            },
+            4,
+        )
         return {
             "summary": str(resume.get("summary") or resume.get("personal_advantage") or "")[:800],
             "years_experience": resume.get("years_experience") or resume.get("work_years") or 0,
             "current_title": resume.get("current_title") or "",
             "expected_titles": resume.get("expected_titles") or [],
             "skills": skills[:30] if isinstance(skills, list) else str(skills)[:800],
+            "education": education_details,
             "work_experiences": work_details,
             "project_experiences": project_details,
         }
@@ -679,6 +741,7 @@ class ResumeMatchTool(BaseTool):
             "salaryDesc": job.get("salaryDesc", ""),
             "cityName": job.get("cityName", ""),
             "jobExperience": job.get("jobExperience", ""),
+            "jobDegree": job.get("jobDegree") or job.get("degreeName") or job.get("education") or "",
             "brandName": job.get("brandName", ""),
             "industry": job.get("industry", ""),
             "jobLabels": (job.get("jobLabels") or [])[:8],
@@ -690,14 +753,48 @@ class ResumeMatchTool(BaseTool):
         }
 
     @staticmethod
-    def _normalize_match(item: Any, idx: int, jobs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _normalize_dimensions(value: Any) -> Dict[str, Dict[str, Any]]:
+        dimensions = value if isinstance(value, dict) else {}
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for key in (
+            "technical_skill",
+            "seniority",
+            "education_fit",
+            "project_relevance",
+            "domain_fit",
+            "constraints",
+        ):
+            row = dimensions.get(key) if isinstance(dimensions.get(key), dict) else {}
+            raw_score = row.get("score")
+            try:
+                score = int(raw_score) if raw_score is not None and str(raw_score).strip() else None
+            except (TypeError, ValueError):
+                score = None
+            if score is not None:
+                score = max(0, min(100, score))
+            evidence = str(row.get("evidence") or "").strip()
+            gap = str(row.get("gap") or "").strip()
+            if key == "education_fit" and score is None:
+                score = 50
+                if not gap:
+                    gap = "学历、专业或资质证据不足，当前按保守中性分评估"
+            if not evidence and not gap:
+                gap = "缺少可核验的简历或岗位证据"
+            normalized[key] = {"score": score, "evidence": evidence, "gap": gap}
+        return normalized
+
+    @staticmethod
+    def _normalize_match(
+        item: Any,
+        idx: int,
+        jobs: List[Dict[str, Any]],
+        *,
+        evidence_requested: bool = True,
+    ) -> Dict[str, Any]:
         item = item if isinstance(item, dict) else {}
+        job = jobs[idx] if idx < len(jobs) and isinstance(jobs[idx], dict) else {}
         fallback_id = (
-            jobs[idx].get("securityId")
-            or jobs[idx].get("id")
-            or jobs[idx].get("jobId")
-            or jobs[idx].get("encryptJobId")
-            or f"job_{idx}"
+            job.get("securityId") or job.get("id") or job.get("jobId") or job.get("encryptJobId") or f"job_{idx}"
         )
         score_raw = item.get("score")
         score: Optional[int]
@@ -708,11 +805,24 @@ class ResumeMatchTool(BaseTool):
         if score is not None:
             score = max(0, min(100, score))
         evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
-        dimensions = item.get("dimensions") if isinstance(item.get("dimensions"), dict) else {}
+        dimensions = ResumeMatchTool._normalize_dimensions(item.get("dimensions"))
         limitations = [str(x) for x in (item.get("limitations") or [])][:8]
         confidence = str(item.get("score_confidence") or item.get("confidence") or "").lower()
         if confidence not in {"high", "medium", "low"}:
             confidence = "medium" if evidence else "low"
+        grounded_evidence_count = ResumeMatchTool._grounded_evidence_count(evidence)
+        job_description = str(
+            job.get("jobDescription") or job.get("description") or job.get("postDescription") or ""
+        ).strip()
+        has_detailed_job_context = len(job_description) >= 40
+        has_structured_job_context = bool(job.get("skills") or job.get("jobLabels"))
+        if evidence_requested and grounded_evidence_count == 0:
+            confidence = "low"
+        elif has_detailed_job_context and grounded_evidence_count >= 3:
+            confidence = "high"
+        elif (has_detailed_job_context or has_structured_job_context) and grounded_evidence_count >= 1:
+            if confidence == "low":
+                confidence = "medium"
         if score is not None and score >= 80 and not evidence:
             score = min(score, 70)
             confidence = "low"
@@ -732,3 +842,14 @@ class ResumeMatchTool(BaseTool):
             "improvement_actions": [str(x) for x in (item.get("improvement_actions") or [])][:8],
             "limitations": limitations,
         }
+
+    @staticmethod
+    def _grounded_evidence_count(value: Any) -> int:
+        evidence = value if isinstance(value, list) else []
+        return sum(
+            1
+            for item in evidence
+            if isinstance(item, dict)
+            and str(item.get("resume_evidence") or "").strip()
+            and str(item.get("job_requirement") or item.get("requirement") or "").strip()
+        )

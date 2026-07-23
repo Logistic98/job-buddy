@@ -12,6 +12,7 @@ import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import com.jobbuddy.backend.modules.auth.dto.response.LoginResponse;
 import com.jobbuddy.backend.modules.auth.repository.UserAuthRepository;
 import com.jobbuddy.backend.modules.auth.service.UserLoginService;
+import com.jobbuddy.backend.modules.auth.service.impl.LoginAttemptGuard;
 import com.jobbuddy.backend.modules.auth.service.impl.UserLoginServiceImpl;
 import java.time.Instant;
 import java.util.Arrays;
@@ -19,6 +20,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 class UserLoginServiceCacheTest {
@@ -32,9 +35,9 @@ class UserLoginServiceCacheTest {
     when(repository.findRoles("admin")).thenReturn(Arrays.asList("platform-manager"));
     when(repository.findPermissions("admin")).thenReturn(Arrays.asList("users:manage"));
     when(repository.findMenus("admin")).thenReturn(Collections.<Map<String, Object>>emptyList());
-    UserLoginService service = new UserLoginServiceImpl(repository);
+    UserLoginService service = new UserLoginServiceImpl(repository, loginGuard());
 
-    LoginResponse response = service.login("admin", "secret123");
+    LoginResponse response = service.login("admin", "secret123", "127.0.0.1");
 
     assertEquals(Arrays.asList("platform-manager"), response.getUser().getRoles());
     assertEquals(Arrays.asList("users:manage"), response.getUser().getPermissions());
@@ -44,10 +47,31 @@ class UserLoginServiceCacheTest {
   }
 
   @Test
+  void loginAcceptsFlywaySeededDefaultPassword() {
+    UserAuthRepository repository = mock(UserAuthRepository.class);
+    Map<String, Object> row = userRow();
+    row.put("passwordHash", "$2y$10$/EhR7XPpYytk1JNM5FgdN.jq0zjp4AnUU4ej4VtpDPrF0aa5TxTF6");
+    when(repository.findUserByUsername("admin")).thenReturn(row);
+    when(repository.findRoles("admin")).thenReturn(Arrays.asList("admin"));
+    when(repository.findPermissions("admin")).thenReturn(Collections.<String>emptyList());
+    when(repository.findMenus("admin")).thenReturn(Collections.<Map<String, Object>>emptyList());
+    UserLoginService service = new UserLoginServiceImpl(repository, loginGuard());
+
+    LoginResponse response = service.login("admin", "12345678", "127.0.0.1");
+
+    assertEquals("admin", response.getUser().getUsername());
+    verify(repository)
+        .saveSession(
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.eq("admin"),
+            org.mockito.ArgumentMatchers.any(Instant.class));
+  }
+
+  @Test
   void repeatedTokenValidationShouldUseShortLivedMemoryCache() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
     when(repository.findUserByToken("token-1")).thenReturn(userRow());
-    UserLoginService service = new UserLoginServiceImpl(repository);
+    UserLoginService service = new UserLoginServiceImpl(repository, loginGuard());
 
     AuthenticatedUser first = service.currentUser("token-1");
     AuthenticatedUser second = service.currentUser("token-1");
@@ -63,7 +87,7 @@ class UserLoginServiceCacheTest {
   void logoutShouldEvictCachedSessionImmediately() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
     when(repository.findUserByToken("token-2")).thenReturn(userRow()).thenReturn(null);
-    UserLoginService service = new UserLoginServiceImpl(repository);
+    UserLoginService service = new UserLoginServiceImpl(repository, loginGuard());
 
     service.currentUser("token-2");
     service.logout("token-2");
@@ -82,5 +106,12 @@ class UserLoginServiceCacheTest {
     row.put("enabled", true);
     row.put("expiresAt", Instant.now().plusSeconds(3600).toString());
     return row;
+  }
+
+  @SuppressWarnings("unchecked")
+  private LoginAttemptGuard loginGuard() {
+    ObjectProvider<StringRedisTemplate> provider = mock(ObjectProvider.class);
+    when(provider.getIfAvailable()).thenReturn(null);
+    return new LoginAttemptGuard(provider);
   }
 }

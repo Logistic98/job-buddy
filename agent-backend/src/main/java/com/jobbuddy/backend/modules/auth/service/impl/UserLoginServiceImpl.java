@@ -4,6 +4,7 @@ import com.jobbuddy.backend.common.security.AuthenticatedMenu;
 import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import com.jobbuddy.backend.modules.auth.dto.response.CurrentUserResponse;
 import com.jobbuddy.backend.modules.auth.dto.response.LoginResponse;
+import com.jobbuddy.backend.modules.auth.exception.InvalidCredentialsException;
 import com.jobbuddy.backend.modules.auth.repository.UserAuthRepository;
 import com.jobbuddy.backend.modules.auth.service.UserLoginService;
 import java.security.SecureRandom;
@@ -28,26 +29,36 @@ public class UserLoginServiceImpl implements UserLoginService {
   private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
   private final Map<String, CachedSession> sessionCache =
       new ConcurrentHashMap<String, CachedSession>();
+  private final LoginAttemptGuard loginAttemptGuard;
+  private final String dummyPasswordHash;
 
-  public UserLoginServiceImpl(UserAuthRepository repository) {
+  public UserLoginServiceImpl(UserAuthRepository repository, LoginAttemptGuard loginAttemptGuard) {
     this.repository = repository;
+    this.loginAttemptGuard = loginAttemptGuard;
+    this.dummyPasswordHash = passwordEncoder.encode("job-buddy-dummy-password");
   }
 
   @Override
-  public LoginResponse login(String username, String password) {
+  public LoginResponse login(String username, String password, String source) {
     String safeUsername = username == null ? "" : username.trim();
     String safePassword = password == null ? "" : password;
     if (safeUsername.isEmpty() || safePassword.isEmpty()) {
-      throw new IllegalArgumentException("请输入用户名和密码");
+      throw new InvalidCredentialsException();
     }
-    Map<String, Object> user = repository.findUserByUsername(safeUsername);
-    if (user == null || !Boolean.TRUE.equals(user.get("enabled"))) {
-      throw new IllegalArgumentException("用户名或密码错误");
+    try (LoginAttemptGuard.AttemptLease ignored = loginAttemptGuard.acquire(safeUsername, source)) {
+      Map<String, Object> user = repository.findUserByUsername(safeUsername);
+      String passwordHash =
+          user == null ? dummyPasswordHash : String.valueOf(user.get("passwordHash"));
+      boolean passwordMatches = passwordEncoder.matches(safePassword, passwordHash);
+      if (user == null || !Boolean.TRUE.equals(user.get("enabled")) || !passwordMatches) {
+        throw new InvalidCredentialsException();
+      }
+      loginAttemptGuard.recordSuccess(safeUsername);
+      return createSession(user);
     }
-    String passwordHash = String.valueOf(user.get("passwordHash"));
-    if (!passwordEncoder.matches(safePassword, passwordHash)) {
-      throw new IllegalArgumentException("用户名或密码错误");
-    }
+  }
+
+  private LoginResponse createSession(Map<String, Object> user) {
     repository.deleteExpiredSessions();
     String token = newToken();
     Instant expiresAt = Instant.now().plus(7, ChronoUnit.DAYS);

@@ -83,4 +83,10 @@
       completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, version = version + 1
     WHERE task_id = #{taskId} AND status IN ('queued', 'running')
   </update>
+
+  <update id="markCancelled">
+    UPDATE analysis_task SET status = 'cancelled', stage = 'cancelled', message = '分析已取消', error_message = NULL,
+      completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, version = version + 1
+    WHERE task_id = #{taskId} AND status IN ('queued', 'running')
+  </update>
 </mapper>

@@ -69,30 +69,37 @@ async def register_mcp_tools(registry: ToolRegistry, mcp_config: McpConfig) -> L
     """
 
     if not mcp_config or not mcp_config.enabled:
+        for source in registry.source_ids("mcp:"):
+            registry.unregister_source(source)
         logger.info("MCP 接入未启用，跳过注册")
         return []
 
     registered: List[str] = []
+    active_sources = {f"mcp:{server_id}" for server_id in mcp_config.servers}
+    for source in registry.source_ids("mcp:"):
+        if source not in active_sources:
+            registry.unregister_source(source)
     for server_id, server_cfg in mcp_config.servers.items():
+        source = f"mcp:{server_id}"
         if not server_cfg.enabled:
+            registry.unregister_source(source)
             logger.info(f"MCP 服务已禁用，跳过注册：server={server_id}")
             continue
 
-        client = McpClient(server_id, server_cfg)
+        client = McpClient(server_id, server_cfg, mcp_config)
         connect_timeout = float(mcp_config.connect_timeout_seconds or 8)
         try:
             tool_defs = await asyncio.wait_for(client.list_tools(), timeout=connect_timeout)
         except Exception as e:
+            registry.unregister_source(source)
             logger.warning(f"MCP 服务连接失败，跳过注册：server={server_id}, url={server_cfg.url}, error={e}")
             continue
 
         prefix = server_cfg.name_prefix or ""
+        staged: List[BaseTool] = []
         for tool_def in tool_defs:
             remote_name = tool_def["name"]
             display_name = f"{prefix}{remote_name}"
-            if registry.has(display_name):
-                logger.warning(f"MCP 工具冲突，跳过注册：name={display_name}, server={server_id}")
-                continue
             adapter = McpToolAdapter(
                 client=client,
                 remote_tool_name=remote_name,
@@ -102,8 +109,15 @@ async def register_mcp_tools(registry: ToolRegistry, mcp_config: McpConfig) -> L
                 tool_tag=server_cfg.tool_tag,
                 timeout_seconds=server_cfg.timeout_seconds,
             )
-            registry.register(adapter)
-            registered.append(display_name)
+            staged.append(adapter)
+
+        try:
+            registry.replace_source(source, staged)
+        except ValueError as exc:
+            registry.unregister_source(source)
+            logger.warning(f"MCP 服务目录存在冲突，已移除该来源：server={server_id}, error={exc}")
+            continue
+        registered.extend(tool.name for tool in staged)
 
         logger.info(f"MCP 工具注册完成：server={server_id}, tools={len(tool_defs)}, registered={len(registered)}")
 

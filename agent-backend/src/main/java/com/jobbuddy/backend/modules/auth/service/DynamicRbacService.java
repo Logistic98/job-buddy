@@ -1,5 +1,6 @@
 package com.jobbuddy.backend.modules.auth.service;
 
+import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import com.jobbuddy.backend.modules.auth.dto.request.RbacMenuRequest;
 import com.jobbuddy.backend.modules.auth.dto.request.RbacRoleRequest;
 import com.jobbuddy.backend.modules.auth.dto.response.RbacMenuResponse;
@@ -9,27 +10,35 @@ import java.util.List;
 public interface DynamicRbacService {
   List<RbacRoleResponse> listRoles(String tenantId);
 
-  RbacRoleResponse createRole(String tenantId, RbacRoleRequest request);
+  List<RbacRoleResponse> listAssignableRoles(String tenantId, AuthenticatedUser actor);
 
-  RbacRoleResponse updateRole(String tenantId, String roleId, RbacRoleRequest request);
+  RbacRoleResponse createRole(String tenantId, AuthenticatedUser actor, RbacRoleRequest request);
 
-  RbacRoleResponse replaceRoleMenus(String tenantId, String roleId, List<String> menuIds);
+  RbacRoleResponse updateRole(
+      String tenantId, AuthenticatedUser actor, String roleId, RbacRoleRequest request);
 
-  void deleteRole(String tenantId, String roleId);
+  RbacRoleResponse replaceRoleMenus(
+      String tenantId, AuthenticatedUser actor, String roleId, List<String> menuIds);
+
+  void deleteRole(String tenantId, AuthenticatedUser actor, String roleId);
 
   List<RbacMenuResponse> listMenus(String tenantId);
 
-  RbacMenuResponse createMenu(String tenantId, RbacMenuRequest request);
+  List<RbacMenuResponse> listAssignableMenus(String tenantId, AuthenticatedUser actor);
 
-  RbacMenuResponse updateMenu(String tenantId, String menuId, RbacMenuRequest request);
+  RbacMenuResponse createMenu(String tenantId, AuthenticatedUser actor, RbacMenuRequest request);
 
-  void deleteMenu(String tenantId, String menuId);
+  RbacMenuResponse updateMenu(
+      String tenantId, AuthenticatedUser actor, String menuId, RbacMenuRequest request);
+
+  void deleteMenu(String tenantId, AuthenticatedUser actor, String menuId);
 
   List<String> userRoleIds(String tenantId, String userId);
 
   List<String> userRoleNames(String tenantId, String userId);
 
-  void replaceUserRoles(String tenantId, String userId, List<String> roleIds);
+  void replaceUserRoles(
+      String tenantId, AuthenticatedUser actor, String userId, List<String> roleIds);
 
   void protectManagementAccess(String tenantId);
 }

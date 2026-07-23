@@ -18,6 +18,10 @@ public interface UserAuthMapper {
 
   List<Map<String, Object>> listUsers(@Param("tenantId") String tenantId);
 
+  List<Map<String, Object>> listUserRoleAssignments(@Param("tenantId") String tenantId);
+
+  List<Map<String, Object>> listUserPermissionAssignments(@Param("tenantId") String tenantId);
+
   Map<String, Object> findUserById(
       @Param("tenantId") String tenantId, @Param("userId") String userId);
 
@@ -40,6 +44,7 @@ public interface UserAuthMapper {
   int updateUser(
       @Param("tenantId") String tenantId,
       @Param("userId") String userId,
+      @Param("username") String username,
       @Param("displayName") String displayName,
       @Param("role") String role,
       @Param("enabled") boolean enabled,

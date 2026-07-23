@@ -5,6 +5,14 @@
   <sql id="menuColumns">menu_id AS "menuId", parent_id AS "parentId", menu_code AS "menuCode", menu_name AS "menuName", menu_type AS "menuType", route_path AS "routePath", component_key AS "componentKey", external_url AS "externalUrl", icon_key AS "iconKey", permission_code AS "permissionCode", display_order AS "displayOrder", visible, enabled, created_at AS "createdAt", updated_at AS "updatedAt"</sql>
 
   <select id="listRoles" resultType="map">SELECT <include refid="roleColumns"/> FROM rbac_role WHERE tenant_id=#{tenantId} ORDER BY created_at, role_name</select>
+  <select id="listRoleMenuAssignments" resultType="map">SELECT role_id AS "roleId", menu_id AS "menuId" FROM role_menu WHERE tenant_id=#{tenantId} ORDER BY role_id, menu_id</select>
+  <select id="listRolePermissionAssignments" resultType="map">
+    SELECT DISTINCT rm.role_id AS "roleId", m.permission_code AS "permissionCode"
+    FROM role_menu rm
+    JOIN rbac_menu m ON m.tenant_id=rm.tenant_id AND m.menu_id=rm.menu_id
+    WHERE rm.tenant_id=#{tenantId} AND m.permission_code IS NOT NULL
+    ORDER BY rm.role_id, m.permission_code
+  </select>
   <select id="findRole" resultType="map">SELECT <include refid="roleColumns"/> FROM rbac_role WHERE tenant_id=#{tenantId} AND role_id=#{roleId}</select>
   <select id="findRoleMenuIds" resultType="string">SELECT menu_id FROM role_menu WHERE tenant_id=#{tenantId} AND role_id=#{roleId} ORDER BY menu_id</select>
   <insert id="insertRole">INSERT INTO rbac_role(role_id,tenant_id,role_code,role_name,description,enabled,created_at,updated_at) VALUES(#{role.roleId},#{role.tenantId},#{role.roleCode},#{role.roleName},#{role.description},#{role.enabled},#{role.createdAt},#{role.updatedAt})</insert>

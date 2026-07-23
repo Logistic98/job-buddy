@@ -81,3 +81,23 @@ def test_search_success_after_login(tmp_path):
     jobs = asyncio.run(service.search("Java", "上海"))
     assert jobs and jobs[0].get("jobName") == "Java"
     assert service.rate_snapshot()["consecutive_failures"] == 0
+
+
+def test_temporary_token_refresh_failure_does_not_request_qr_login(tmp_path):
+    service = _service(tmp_path, authenticated=False)
+
+    async def _temporary_failure(*_args, **_kwargs):
+        return {
+            "payload": None,
+            "login_redirect": False,
+            "risk_marker": None,
+            "temporary_auth_refresh_failed": True,
+            "error_message": "Boss 临时安全令牌刷新失败，请稍后重试；现有凭据已保留。",
+        }
+
+    service._session.search = _temporary_failure  # noqa: SLF001
+
+    with pytest.raises(RuntimeError, match="临时安全令牌刷新失败"):
+        asyncio.run(service.search("Java", "上海"))
+
+    assert service.rate_snapshot()["consecutive_failures"] == 1

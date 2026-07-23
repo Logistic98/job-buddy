@@ -86,6 +86,12 @@ agent:
     stream-connect-timeout: ${AGENT_SERVICE_STREAM_CONNECT_TIMEOUT:10s}
     stream-read-timeout: ${AGENT_SERVICE_STREAM_READ_TIMEOUT:180s}
     stream-heartbeat-interval: ${AGENT_SERVICE_STREAM_HEARTBEAT_INTERVAL:10s}
+    stream-core-threads: ${AGENT_SERVICE_STREAM_CORE_THREADS:4}
+    stream-max-threads: ${AGENT_SERVICE_STREAM_MAX_THREADS:64}
+    stream-queue-capacity: ${AGENT_SERVICE_STREAM_QUEUE_CAPACITY:128}
+    stream-max-global: ${AGENT_SERVICE_STREAM_MAX_GLOBAL:96}
+    stream-max-per-tenant: ${AGENT_SERVICE_STREAM_MAX_PER_TENANT:48}
+    stream-max-per-user: ${AGENT_SERVICE_STREAM_MAX_PER_USER:6}
     max-attempts: ${AGENT_SERVICE_MAX_ATTEMPTS:2}
     retry-backoff: ${AGENT_SERVICE_RETRY_BACKOFF:200ms}
     circuit-failure-threshold: ${AGENT_SERVICE_CIRCUIT_FAILURE_THRESHOLD:5}

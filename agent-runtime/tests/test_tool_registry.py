@@ -41,3 +41,19 @@ def test_registry_list_definitions_sorted_and_enabled(fresh_registry):
     names = [item.name for item in definitions]
     assert names == sorted(names)
     assert all(item.enabled for item in definitions)
+
+
+def test_registry_replace_source_is_atomic_and_removes_old_aliases():
+    registry = ToolRegistry()
+    first = EchoTool()
+    registry.replace_source("mcp:test", [first])
+
+    replacement = EchoTool()
+    replacement.name = "replacement"
+    replacement.aliases = ["replacement_alias"]
+    registry.replace_source("mcp:test", [replacement])
+
+    assert not registry.has("echo")
+    assert not registry.has("print_text")
+    assert registry.has("replacement")
+    assert registry.has("replacement_alias")

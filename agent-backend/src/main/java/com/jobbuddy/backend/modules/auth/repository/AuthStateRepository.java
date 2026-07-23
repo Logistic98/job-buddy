@@ -93,23 +93,51 @@ public class AuthStateRepository {
   }
 
   public void saveQrSession(
-      String tenantId, String userId, String chatSessionId, String qrSessionId, Instant expiresAt) {
+      String tenantId,
+      String userId,
+      String chatSessionId,
+      String qrSessionId,
+      String toolSessionToken,
+      Instant expiresAt) {
     requireOwner(tenantId, userId);
     if (qrSessionId == null || qrSessionId.trim().isEmpty())
       throw new IllegalArgumentException("qrSessionId 不能为空");
     if (expiresAt == null || !expiresAt.isAfter(Instant.now()))
       throw new IllegalArgumentException("Boss 二维码会话必须具有未来过期时间");
+    if (toolSessionToken == null || toolSessionToken.trim().isEmpty())
+      throw new IllegalArgumentException("Boss 二维码工具会话令牌不能为空");
     Instant now = Instant.now();
     Map<String, Object> row = new HashMap<String, Object>();
     row.put("tenantId", tenantId.trim());
     row.put("userId", userId.trim());
     row.put("chatSessionId", chatSessionId == null ? null : chatSessionId.trim());
     row.put("qrSessionId", qrSessionId.trim());
+    row.put("toolSessionToken", toolSessionToken.trim());
+    row.put("toolSessionVersion", 1);
     row.put("expiresAt", expiresAt);
     row.put("createdAt", now);
     row.put("updatedAt", now);
     mapper.deleteExpiredQrSessions(now);
     mapper.upsertQrSession(row);
+  }
+
+  public void updateQrSessionToken(
+      String tenantId,
+      String userId,
+      String qrSessionId,
+      String toolSessionToken,
+      int currentVersion) {
+    requireOwner(tenantId, userId);
+    if (toolSessionToken == null || toolSessionToken.trim().isEmpty()) return;
+    int updated =
+        mapper.updateQrSessionToken(
+            qrSessionId.trim(),
+            tenantId.trim(),
+            userId.trim(),
+            toolSessionToken.trim(),
+            Math.max(1, currentVersion + 1),
+            Instant.now());
+    if (updated != 1) throw new IllegalArgumentException("Boss 登录会话不存在或不属于当前账号");
   }
 
   public Map<String, Object> findQrSession(String qrSessionId) {

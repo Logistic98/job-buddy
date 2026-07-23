@@ -151,8 +151,10 @@ public class BossCliServiceImpl implements BossCliService {
 
   // ---- 扫码登录 ----
   public BossCliQrResult qrStart() {
-    Map<String, Object> envelope =
-        browserClient.post("/login/qr/start", Collections.<String, Object>emptyMap());
+    String sessionId = UUID.randomUUID().toString();
+    Map<String, Object> requestPayload = new LinkedHashMap<String, Object>();
+    requestPayload.put("session_id", sessionId);
+    Map<String, Object> envelope = browserClient.post("/login/qr/start", requestPayload);
     Map<String, Object> response = new LinkedHashMap<String, Object>();
     if (!success(envelope)) {
       response.put("ok", false);
@@ -161,9 +163,9 @@ public class BossCliServiceImpl implements BossCliService {
       return jsonCodec.convert(response, BossCliQrResult.class);
     }
     Map<String, Object> data = dataOf(envelope);
-    // 浏览器模型只有一条登录流，这里合成 session_id 让既有前端轮询路径继续生效。
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
-    payload.put("session_id", UUID.randomUUID().toString());
+    payload.put("session_id", stringOrDefault(data.get("session_id"), sessionId));
+    payload.put("session_token", data.get("session_token"));
     payload.put("qr_id", null);
     payload.put("image_base64", data.get("image_base64"));
     payload.put("image_mime", data.get("image_mime"));
@@ -175,9 +177,11 @@ public class BossCliServiceImpl implements BossCliService {
     return jsonCodec.convert(response, BossCliQrResult.class);
   }
 
-  public BossCliQrResult qrStatus(String sessionId) {
-    Map<String, Object> envelope =
-        browserClient.post("/login/qr/status", Collections.<String, Object>emptyMap());
+  public BossCliQrResult qrStatus(String sessionId, String sessionToken) {
+    Map<String, Object> requestPayload = new LinkedHashMap<String, Object>();
+    requestPayload.put("session_id", sessionId);
+    requestPayload.put("session_token", sessionToken);
+    Map<String, Object> envelope = browserClient.post("/login/qr/status", requestPayload);
     Map<String, Object> response = new LinkedHashMap<String, Object>();
     int code = code(envelope);
     Map<String, Object> data = dataOf(envelope);
@@ -220,6 +224,7 @@ public class BossCliServiceImpl implements BossCliService {
     // 仅在 Java 服务内部返回给 BossAuthService 立即按当前 tenant/user 加密持久化；
     // Controller 响应会显式剥离该字段，不能进入前端、日志、Trace 或聊天事件。
     payload.put("credential_json", data.get("credential_json"));
+    payload.put("session_token", data.get("session_token"));
     if (errorMessage != null) {
       Map<String, Object> error = new LinkedHashMap<String, Object>();
       error.put("message", String.valueOf(errorMessage));
@@ -232,8 +237,18 @@ public class BossCliServiceImpl implements BossCliService {
     return jsonCodec.convert(response, BossCliQrResult.class);
   }
 
-  public BossCliCancelResult qrCancel(String sessionId) {
-    return noop();
+  public BossCliCancelResult qrCancel(String sessionId, String sessionToken) {
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("session_id", sessionId);
+    payload.put("session_token", sessionToken);
+    Map<String, Object> envelope = browserClient.post("/login/qr/cancel", payload);
+    if (!success(envelope)) {
+      throw new IllegalStateException(message(envelope));
+    }
+    Map<String, Object> response = new LinkedHashMap<String, Object>();
+    response.put("ok", true);
+    response.put("status", "cancelled");
+    return jsonCodec.convert(response, BossCliCancelResult.class);
   }
 
   public BossCliCancelResult cancelLogin() {

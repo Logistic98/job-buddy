@@ -2,7 +2,10 @@ from app.tools.boss_browser.tool import run_boss_browser
 
 
 def test_boss_browser_rate_operation_returns_envelope():
-    result = run_boss_browser({"operation": "rate", "payload": {}}, trace_id="boss_rate_test")
+    result = run_boss_browser(
+        {"operation": "rate", "payload": {"_trusted_owner_key": "tenant-a\u0000user-a"}},
+        trace_id="boss_rate_test",
+    )
 
     assert result.status == "success"
     assert result.trace_id == "boss_rate_test"

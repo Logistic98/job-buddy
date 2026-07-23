@@ -115,6 +115,7 @@ async def test_boss_browser_tool_keeps_qr_payload_inline(monkeypatch, tool_conte
             return FakeResponse()
 
     monkeypatch.setattr("app.tools_builtin.boss_browser_tool.httpx.AsyncClient", FakeClient)
+    tool_context.metadata.update({"tenant_id": "tenant-a", "operator_id": "user-a"})
 
     tool = BossBrowserTool()
     result = await tool.safe_run(
@@ -129,12 +130,32 @@ async def test_boss_browser_tool_keeps_qr_payload_inline(monkeypatch, tool_conte
 
 @pytest.mark.asyncio
 async def test_boss_browser_tool_accepts_read_only_favorite_list_operation(tool_context):
+    tool_context.metadata.update({"tenant_id": "tenant-a", "operator_id": "user-a"})
     tool = BossBrowserTool()
 
     result = await tool.validate_input({"operation": "favorite_list", "payload": {"page": 1}}, tool_context)
 
     assert result.result is True
     assert "favorite_list" in tool.definition().input_schema["properties"]["operation"]["enum"]
+    assert "qr_cancel" in tool.definition().input_schema["properties"]["operation"]["enum"]
+
+
+@pytest.mark.asyncio
+async def test_boss_browser_tool_rejects_missing_authenticated_owner(tool_context):
+    tool_context.metadata.clear()
+    tool = BossBrowserTool()
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="call_boss_unowned",
+            name="boss_browser",
+            arguments={"operation": "rate", "payload": {}},
+        ),
+        tool_context,
+    )
+
+    assert result.success is False
+    assert "已认证的租户与操作人" in (result.error or "")
 
 
 @pytest.mark.asyncio

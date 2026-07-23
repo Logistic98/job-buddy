@@ -28,6 +28,7 @@ _ALLOWED_OPERATIONS = {
     "refresh_auth",
     "qr_start",
     "qr_status",
+    "qr_cancel",
     "search",
     "favorite_list",
     "detail",
@@ -117,16 +118,31 @@ def run_boss_browser(arguments: Dict[str, Any], trace_id: str | None = None) -> 
 
 async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        service = get_service()
+        owner_key = str(payload.pop("_trusted_owner_key", "") or "").strip()
+        if not owner_key:
+            return err("Boss 工具调用缺少可信所有者身份", code=400)
+        service = get_service(owner_key)
         service.load_credential_json(payload.get("credential_json"))
         if operation == "status":
             return ok(await service.status())
         if operation == "refresh_auth":
             return ok(await service.refresh_auth())
         if operation == "qr_start":
-            return ok(await service.qr_start())
+            return ok(await service.qr_start(str(payload.get("session_id") or "").strip()))
         if operation == "qr_status":
-            return ok(await service.qr_status())
+            return ok(
+                await service.qr_status(
+                    str(payload.get("session_id") or "").strip(),
+                    str(payload.get("session_token") or "").strip(),
+                )
+            )
+        if operation == "qr_cancel":
+            return ok(
+                await service.qr_cancel(
+                    str(payload.get("session_id") or "").strip(),
+                    str(payload.get("session_token") or "").strip(),
+                )
+            )
         if operation == "rate":
             return ok(service.rate_snapshot())
         if operation == "favorite_list":

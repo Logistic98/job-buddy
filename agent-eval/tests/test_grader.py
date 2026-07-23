@@ -243,6 +243,13 @@ def test_grade_run_accepts_evidence_based_resume_match():
                     "evidence": [
                         {"resume_evidence": "Agent 项目", "job_requirement": "Agent 应用开发", "assessment": "相关"}
                     ],
+                    "dimensions": {
+                        "education_fit": {
+                            "score": 78,
+                            "evidence": "相关专业本科",
+                            "gap": "",
+                        }
+                    },
                 }
             ]
         },
@@ -252,6 +259,58 @@ def test_grade_run_accepts_evidence_based_resume_match():
 
     assert result["passed"] is True
     assert result["dimensions"]["grounding"]["score"] == 1.0
+
+
+def test_resume_match_rejects_empty_education_fit_score():
+    run = _valid_run()
+    run["resume_match"] = {
+        "matches": [
+            {
+                "id": "j1",
+                "score": 72,
+                "score_confidence": "medium",
+                "evidence": [
+                    {"resume_evidence": "信息与计算科学本科", "job_requirement": "计算机相关专业", "assessment": "相近"}
+                ],
+                "dimensions": {
+                    "education_fit": {
+                        "score": None,
+                        "evidence": "专业方向相近",
+                        "gap": "学历要求需确认",
+                    }
+                },
+            }
+        ]
+    }
+
+    result = grade_run(run, {"intent": "resume.match", "domain": "job", "requires_evidence": True})
+
+    assert any(issue["code"] == "education_fit_has_numeric_score" for issue in result["issues"])
+
+
+def test_resume_match_rejects_low_confidence_with_complete_evidence_coverage():
+    run = _valid_run()
+    run["resume_match"] = {
+        "matches": [
+            {
+                "id": "j1",
+                "score": 78,
+                "score_confidence": "low",
+                "evidence": [
+                    {
+                        "resume_evidence": f"简历证据 {index}",
+                        "job_requirement": f"岗位要求 {index}",
+                        "assessment": "可核验",
+                    }
+                    for index in range(1, 4)
+                ],
+            }
+        ]
+    }
+
+    result = grade_run(run, {"intent": "resume.match", "domain": "job", "requires_evidence": True})
+
+    assert any(issue["code"] == "confidence_matches_evidence_coverage" for issue in result["issues"])
 
 
 def test_grade_capability_inventory_rejects_non_object_items():

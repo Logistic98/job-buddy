@@ -16,6 +16,8 @@ public interface AnalysisTaskService {
 
   AnalysisTaskResponse getOwned(String taskId, String tenantId, String userId);
 
+  AnalysisTaskResponse cancel(String taskId, String tenantId, String userId);
+
   AnalysisTaskResponse findLatest(
       String tenantId, String userId, String taskType, String resourceKey);
 

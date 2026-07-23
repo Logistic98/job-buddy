@@ -15,8 +15,9 @@ class ToolRegistry:
     def __init__(self):
         self._tools: Dict[str, BaseTool] = {}
         self._aliases: Dict[str, str] = {}
+        self._sources: Dict[str, set[str]] = {}
 
-    def register(self, tool: BaseTool):
+    def register(self, tool: BaseTool, source: str | None = None):
         if not tool.name:
             raise ValueError("工具名称不能为空")
         if tool.name in self._tools:
@@ -26,6 +27,8 @@ class ToolRegistry:
             if alias in self._aliases and self._aliases[alias] != tool.name:
                 raise ValueError(f"工具别名冲突: {alias}")
             self._aliases[alias] = tool.name
+        if source:
+            self._sources.setdefault(source, set()).add(tool.name)
         logger.info(f"工具注册成功：tool={tool.name}, kind={tool.kind}")
 
     def unregister(self, name: str):
@@ -36,6 +39,38 @@ class ToolRegistry:
         for alias in list(self._aliases.keys()):
             if self._aliases[alias] == tool.name:
                 self._aliases.pop(alias, None)
+        for source in list(self._sources):
+            self._sources[source].discard(tool.name)
+            if not self._sources[source]:
+                self._sources.pop(source, None)
+
+    def replace_source(self, source: str, tools: List[BaseTool]) -> None:
+        old_names = set(self._sources.get(source, set()))
+        staged_names: set[str] = set()
+        staged_aliases: set[str] = set()
+        for tool in tools:
+            if not tool.name or tool.name in staged_names:
+                raise ValueError(f"工具来源 {source} 包含空名称或重复名称: {tool.name}")
+            if tool.name in self._tools and tool.name not in old_names:
+                raise ValueError(f"工具重复注册: {tool.name}")
+            staged_names.add(tool.name)
+            for alias in tool.aliases:
+                existing = self._aliases.get(alias)
+                if alias in staged_aliases or (existing and existing not in old_names):
+                    raise ValueError(f"工具别名冲突: {alias}")
+                staged_aliases.add(alias)
+
+        for name in list(old_names):
+            self.unregister(name)
+        for tool in tools:
+            self.register(tool, source=source)
+
+    def unregister_source(self, source: str) -> None:
+        for name in list(self._sources.get(source, set())):
+            self.unregister(name)
+
+    def source_ids(self, prefix: str = "") -> List[str]:
+        return sorted(source for source in self._sources if source.startswith(prefix))
 
     def get(self, name: str) -> Optional[BaseTool]:
         primary_name = self._aliases.get(name, name)

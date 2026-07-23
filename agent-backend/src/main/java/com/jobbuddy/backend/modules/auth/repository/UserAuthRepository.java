@@ -44,6 +44,16 @@ public class UserAuthRepository {
     return mapper.listUsers(tenantId);
   }
 
+  public List<Map<String, Object>> listUserRoleAssignments(String tenantId) {
+    List<Map<String, Object>> assignments = mapper.listUserRoleAssignments(tenantId);
+    return assignments == null ? Collections.<Map<String, Object>>emptyList() : assignments;
+  }
+
+  public List<Map<String, Object>> listUserPermissionAssignments(String tenantId) {
+    List<Map<String, Object>> assignments = mapper.listUserPermissionAssignments(tenantId);
+    return assignments == null ? Collections.<Map<String, Object>>emptyList() : assignments;
+  }
+
   public Map<String, Object> findUserById(String tenantId, String userId) {
     return mapper.findUserById(tenantId, userId);
   }
@@ -73,8 +83,13 @@ public class UserAuthRepository {
   }
 
   public void updateUser(
-      String tenantId, String userId, String displayName, String role, boolean enabled) {
-    mapper.updateUser(tenantId, userId, displayName, role, enabled, Instant.now());
+      String tenantId,
+      String userId,
+      String username,
+      String displayName,
+      String role,
+      boolean enabled) {
+    mapper.updateUser(tenantId, userId, username, displayName, role, enabled, Instant.now());
   }
 
   public void replacePermissions(String tenantId, String userId, List<String> permissions) {

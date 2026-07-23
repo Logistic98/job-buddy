@@ -47,4 +47,6 @@ public interface AnalysisTaskMapper {
   int markSucceeded(@Param("taskId") String taskId, @Param("resultJson") String resultJson);
 
   int markFailed(@Param("taskId") String taskId, @Param("errorMessage") String errorMessage);
+
+  int markCancelled(@Param("taskId") String taskId);
 }

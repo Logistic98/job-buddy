@@ -12,6 +12,7 @@ public final class PermissionCodes {
   public static final String ROLES_MANAGE = "roles:manage";
   public static final String MENUS_MANAGE = "menus:manage";
   public static final String TENANT_MANAGE = "tenant:manage";
+  public static final String PLATFORM_MANAGE = "platform:manage";
 
   private PermissionCodes() {}
 }

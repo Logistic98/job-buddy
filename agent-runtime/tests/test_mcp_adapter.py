@@ -58,7 +58,7 @@ async def test_register_mcp_tools_applies_prefix(monkeypatch):
 
     from app.core.tool import mcp_adapter
 
-    monkeypatch.setattr(mcp_adapter, "McpClient", lambda server_id, config: stub)
+    monkeypatch.setattr(mcp_adapter, "McpClient", lambda server_id, config, limits: stub)
 
     config = McpConfig(
         enabled=True,
@@ -88,7 +88,11 @@ async def test_register_mcp_tools_skip_disabled_server(monkeypatch):
 
     from app.core.tool import mcp_adapter
 
-    monkeypatch.setattr(mcp_adapter, "McpClient", lambda server_id, config: pytest.fail("should not be called"))
+    monkeypatch.setattr(
+        mcp_adapter,
+        "McpClient",
+        lambda server_id, config, limits: pytest.fail("should not be called"),
+    )
 
     config = McpConfig(
         enabled=True,
@@ -107,7 +111,7 @@ async def test_register_mcp_tools_tolerates_unreachable_server(monkeypatch):
 
     from app.core.tool import mcp_adapter
 
-    monkeypatch.setattr(mcp_adapter, "McpClient", lambda server_id, config: stub)
+    monkeypatch.setattr(mcp_adapter, "McpClient", lambda server_id, config, limits: stub)
 
     config = McpConfig(
         enabled=True,
@@ -117,6 +121,60 @@ async def test_register_mcp_tools_tolerates_unreachable_server(monkeypatch):
 
     registered = await register_mcp_tools(registry, config)
     assert registered == []
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_tools_atomically_replaces_previous_generation(monkeypatch):
+    registry = ToolRegistry()
+    first = _StubClient(
+        server_id="docs",
+        tools=[{"name": "old", "description": "old", "input_schema": {"type": "object"}}],
+    )
+    second = _StubClient(
+        server_id="docs",
+        tools=[{"name": "new", "description": "new", "input_schema": {"type": "object"}}],
+    )
+    clients = iter([first, second])
+
+    from app.core.tool import mcp_adapter
+
+    monkeypatch.setattr(mcp_adapter, "McpClient", lambda server_id, config, limits: next(clients))
+    config = McpConfig(
+        enabled=True,
+        servers={"docs": McpServerConfig(enabled=True, url="http://example.test/mcp")},
+    )
+
+    await register_mcp_tools(registry, config)
+    await register_mcp_tools(registry, config)
+
+    assert not registry.has("old")
+    assert registry.has("new")
+    assert registry.source_ids("mcp:") == ["mcp:docs"]
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_tools_removes_stale_generation_on_reload_failure(monkeypatch):
+    registry = ToolRegistry()
+    first = _StubClient(
+        server_id="docs",
+        tools=[{"name": "old", "description": "old", "input_schema": {"type": "object"}}],
+    )
+    failed = _StubClient(server_id="docs", list_raises=ConnectionError("down"))
+    clients = iter([first, failed])
+
+    from app.core.tool import mcp_adapter
+
+    monkeypatch.setattr(mcp_adapter, "McpClient", lambda server_id, config, limits: next(clients))
+    config = McpConfig(
+        enabled=True,
+        servers={"docs": McpServerConfig(enabled=True, url="http://example.test/mcp")},
+    )
+
+    await register_mcp_tools(registry, config)
+    await register_mcp_tools(registry, config)
+
+    assert not registry.has("old")
+    assert registry.source_ids("mcp:") == []
 
 
 @pytest.mark.asyncio

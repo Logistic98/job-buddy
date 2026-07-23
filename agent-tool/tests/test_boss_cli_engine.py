@@ -340,6 +340,78 @@ def test_search_uses_boss_cli_client_and_filter_mapping(tmp_path, monkeypatch):
     assert _FakeClient.captured_config["max_retries"] == 2
 
 
+def test_search_reuses_shared_login_after_temporary_token_expires(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    initial = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "expired", "wbg": "w", "zp_at": "z"})
+    fresh = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "fresh", "wbg": "w", "zp_at": "z"})
+    attempts = {"count": 0}
+
+    class _SessionExpired(RuntimeError):
+        pass
+
+    class _ExpiringSearchClient(_FakeClient):
+        def search_jobs(self, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise _SessionExpired("temporary token expired")
+            return super().search_jobs(**kwargs)
+
+    engine._client_cls = _ExpiringSearchClient  # noqa: SLF001
+    engine._SessionExpiredError = _SessionExpired  # noqa: SLF001
+    credentials = iter((initial, fresh))
+    monkeypatch.setattr(engine, "_credential_or_none", lambda: next(credentials))
+    monkeypatch.setattr(engine, "_refresh_after_auth_failure", lambda: True)
+
+    result = engine._search_sync("Java", "上海", 1, {})  # noqa: SLF001
+
+    assert attempts["count"] == 2
+    assert result["login_redirect"] is False
+    assert result["payload"]["jobList"][0]["securityId"] == "sec-1"
+
+
+def test_search_preserves_login_when_temporary_browser_refresh_closes(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    persisted = _FakeCredential(
+        {PRIMARY_COOKIE: "identity", "__zp_stoken__": "expired", "wbg": "w", "zp_at": "account"}
+    )
+
+    class _SessionExpired(RuntimeError):
+        pass
+
+    class _ExpiredSearchClient(_FakeClient):
+        def search_jobs(self, **kwargs):
+            raise _SessionExpired("temporary token expired")
+
+    engine._client_cls = _ExpiredSearchClient  # noqa: SLF001
+    engine._SessionExpiredError = _SessionExpired  # noqa: SLF001
+    engine._memory_credential = persisted  # noqa: SLF001
+    monkeypatch.setattr(
+        engine,
+        "_run_headless_cookie_completion",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("Target page, context or browser has been closed")
+        ),
+    )
+
+    result = engine._search_sync("Java", "上海", 1, {})  # noqa: SLF001
+
+    assert result["payload"] is None
+    assert result["login_redirect"] is False
+    assert result["temporary_auth_refresh_failed"] is True
+    assert engine._memory_credential is persisted  # noqa: SLF001
+    assert engine._auth_degraded is False  # noqa: SLF001
+
+
+def test_successful_fetch_clears_transient_refresh_failure(tmp_path):
+    engine = _engine(tmp_path)
+    engine._transient_refresh_failure = True  # noqa: SLF001
+
+    result = engine._classify_payload({"jobList": []}, "url")  # noqa: SLF001
+
+    assert result["login_redirect"] is False
+    assert engine._transient_refresh_failure is False  # noqa: SLF001
+
+
 def test_detail_extracts_security_id_and_lid_from_url(tmp_path, monkeypatch):
     engine = _engine(tmp_path)
     engine._client_cls = _FakeClient  # noqa: SLF001

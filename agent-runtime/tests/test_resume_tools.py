@@ -38,6 +38,28 @@ class _StubLLM:
         return {"content": self._content}
 
 
+def test_extract_json_merges_multiple_fenced_object_blocks():
+    payload = _extract_json(
+        """
+        ```json
+        {"evaluation_schema": "evidence_based_resume_job_match_v4"}
+        ```
+        ```json
+        {"matches": [{"id": "j1", "score": 80}]}
+        ```
+        ```json
+        {"limitations": []}
+        ```
+        """
+    )
+
+    assert payload == {
+        "evaluation_schema": "evidence_based_resume_job_match_v4",
+        "matches": [{"id": "j1", "score": 80}],
+        "limitations": [],
+    }
+
+
 def _write_pdf_stub(path, text):
     path.write_bytes(b"%PDF-1.4\n% job-buddy test pdf stub\n")
     return text
@@ -310,7 +332,7 @@ async def test_resume_match_sorts_and_clamps_scores_with_evidence(workspace):
     ]
 
     llm_response = {
-        "evaluation_schema": "evidence_based_resume_job_match_v2",
+        "evaluation_schema": "evidence_based_resume_job_match_v4",
         "matches": [
             {
                 "id": "j1",
@@ -355,13 +377,191 @@ async def test_resume_match_sorts_and_clamps_scores_with_evidence(workspace):
     assert matches[1]["score"] == 88
     assert matches[1]["score_confidence"] == "high"
     assert matches[1]["evidence"][0]["assessment"] == "技术栈匹配"
-    assert result.output["evaluation_schema"] == "evidence_based_resume_job_match_v2"
+    assert result.output["evaluation_schema"] == "evidence_based_resume_job_match_v4"
+    assert set(matches[1]["dimensions"]) == {
+        "technical_skill",
+        "seniority",
+        "education_fit",
+        "project_relevance",
+        "domain_fit",
+        "constraints",
+    }
     assert result.output["scored_count"] == 2
     assert stub.calls[0]["disable_thinking"] is True
     system_prompt = stub.calls[0]["messages"][0].content
     assert "是否值得投递" in system_prompt
     assert "投递前可执行动作" in system_prompt
     assert "具体追问方向" in system_prompt
+    assert "education_fit" in system_prompt
+    assert "上述六个维度" in system_prompt
+    assert "education_fit.score 必须输出 0-100 整数" in system_prompt
+    assert "专业名称不要求严格一致" in system_prompt
+    assert "相近专业、交叉学科" in system_prompt
+    assert "与匹配分高低、推荐结果和差距数量无关" in system_prompt
+    assert "不得仅因存在技能差距、风险项或不建议投递就输出 low" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_resume_match_recalibrates_confidence_from_grounded_evidence(workspace):
+    evidence = [
+        {
+            "resume_evidence": f"简历证据 {index}",
+            "job_requirement": f"岗位要求 {index}",
+            "assessment": "证据可核验",
+        }
+        for index in range(1, 4)
+    ]
+    stub = _StubLLM(
+        content=json.dumps(
+            {
+                "matches": [
+                    {
+                        "id": "j1",
+                        "score": 78,
+                        "score_confidence": "low",
+                        "recommendation": "可尝试",
+                        "evidence": evidence,
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="confidence-calibration",
+            name="resume_match",
+            arguments={
+                "resume": {"summary": "6 年 Agent 与 RAG 工程经验", "skills": ["Python", "LangGraph"]},
+                "jobs": [
+                    {
+                        "securityId": "j1",
+                        "jobName": "Agent 工程师",
+                        "jobDescription": "负责 Agent 平台架构、RAG 检索链路、工具治理和工程交付，要求具备完整项目落地经验。",
+                    }
+                ],
+            },
+        ),
+        _context(workspace),
+    )
+
+    assert result.success is True
+    assert result.output["matches"][0]["score_confidence"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_resume_match_upgrades_low_confidence_to_medium_with_partial_grounding(workspace):
+    stub = _StubLLM(
+        content=json.dumps(
+            {
+                "matches": [
+                    {
+                        "id": "j1",
+                        "score": 65,
+                        "score_confidence": "low",
+                        "recommendation": "谨慎",
+                        "evidence": [
+                            {
+                                "resume_evidence": "具备 Python 项目经验",
+                                "job_requirement": "熟悉 Python",
+                                "assessment": "匹配",
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="partial-confidence-calibration",
+            name="resume_match",
+            arguments={
+                "resume": {"skills": ["Python"]},
+                "jobs": [{"securityId": "j1", "jobName": "Python 工程师", "skills": ["Python"]}],
+            },
+        ),
+        _context(workspace),
+    )
+
+    assert result.success is True
+    assert result.output["matches"][0]["score_confidence"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_resume_match_accepts_single_match_object(workspace):
+    stub = _StubLLM(
+        content=json.dumps(
+            {
+                "evaluation_schema": "evidence_based_resume_job_match_v4",
+                "matches": {
+                    "id": "j1",
+                    "score": 82,
+                    "score_confidence": "low",
+                    "recommendation": "推荐",
+                    "reasoning": "岗位要求与简历证据充分对应。",
+                    "evidence": [
+                        {
+                            "resume_evidence": "负责 Agent 平台落地",
+                            "job_requirement": "具备 Agent 工程经验",
+                            "assessment": "匹配",
+                        },
+                        {
+                            "resume_evidence": "负责 RAG 检索链路",
+                            "job_requirement": "具备 RAG 项目经验",
+                            "assessment": "匹配",
+                        },
+                        {
+                            "resume_evidence": "使用 Python 开发服务",
+                            "job_requirement": "熟悉 Python",
+                            "assessment": "匹配",
+                        },
+                    ],
+                    "hits": ["Agent、RAG 与 Python 均有项目证据"],
+                    "gaps": [],
+                },
+                "limitations": [],
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="single-match-object",
+            name="resume_match",
+            arguments={
+                "resume": {"summary": "5 年平台研发经验"},
+                "jobs": [
+                    {
+                        "securityId": "j1",
+                        "jobName": "大模型应用研发",
+                        "jobDescription": "负责 Agent 与 RAG 平台开发，要求熟悉 Python 并具备完整工程落地经验。",
+                    }
+                ],
+                "sections": [
+                    "score",
+                    "score_confidence",
+                    "recommendation",
+                    "reasoning",
+                    "evidence",
+                    "hits",
+                    "gaps",
+                ],
+            },
+        ),
+        _context(workspace),
+    )
+
+    assert result.success is True
+    assert result.output["matches"][0]["score_confidence"] == "high"
+    assert result.output["scored_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -398,6 +598,16 @@ async def test_resume_match_returns_only_requested_partial_fields(workspace):
 
     row = result.output["matches"][0]
     assert set(row) == {"id", "dimensions", "risks"}
+    assert set(row["dimensions"]) == {
+        "technical_skill",
+        "seniority",
+        "education_fit",
+        "project_relevance",
+        "domain_fit",
+        "constraints",
+    }
+    assert row["dimensions"]["education_fit"]["score"] == 50
+    assert row["dimensions"]["education_fit"]["gap"] == "学历、专业或资质证据不足，当前按保守中性分评估"
     assert "score" not in row
     assert "本次每个 match 只生成" in stub.calls[0]["messages"][0].content
 
@@ -423,6 +633,14 @@ def test_resume_match_compacts_detailed_work_and_project_evidence():
                     "achievement": "答案命中率提升 20%",
                 }
             ],
+            "education": [
+                {
+                    "schoolName": "示例大学",
+                    "degreeName": "本科",
+                    "majorName": "计算机科学与技术",
+                    "dateRange": "2013-2017",
+                }
+            ],
         }
     )
 
@@ -431,6 +649,12 @@ def test_resume_match_compacts_detailed_work_and_project_evidence():
     assert compacted["work_experiences"][0]["description"] == "负责 RAG 与 Agent 平台架构设计"
     assert compacted["project_experiences"][0]["skills"] == ["Python", "LangGraph", "Milvus"]
     assert compacted["project_experiences"][0]["achievement"] == "答案命中率提升 20%"
+    assert compacted["education"][0] == {
+        "school": "示例大学",
+        "degree": "本科",
+        "major": "计算机科学与技术",
+        "period": "2013-2017",
+    }
 
 
 @pytest.mark.asyncio

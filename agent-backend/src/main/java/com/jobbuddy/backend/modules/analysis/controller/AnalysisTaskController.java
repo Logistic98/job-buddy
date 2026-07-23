@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -30,6 +31,17 @@ public class AnalysisTaskController {
       @PathVariable String taskId, HttpServletRequest request) {
     return ApiResponse.success(
         service.getOwned(
+            taskId,
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request)));
+  }
+
+  @Operation(summary = "取消分析任务")
+  @PostMapping("/{taskId}/cancel")
+  public ApiResponse<AnalysisTaskResponse> cancel(
+      @PathVariable String taskId, HttpServletRequest request) {
+    return ApiResponse.success(
+        service.cancel(
             taskId,
             AuthenticatedUserContext.tenantId(request),
             AuthenticatedUserContext.userId(request)));

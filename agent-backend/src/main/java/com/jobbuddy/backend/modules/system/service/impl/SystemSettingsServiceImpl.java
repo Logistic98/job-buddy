@@ -13,9 +13,7 @@ import com.jobbuddy.backend.modules.system.dto.response.SystemMemoryResponse;
 import com.jobbuddy.backend.modules.system.dto.response.SystemSettingsResponse;
 import com.jobbuddy.backend.modules.system.mapper.SystemSettingsMapper;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -25,7 +23,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -35,8 +32,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private static final String SETTINGS_KEY = "settings";
   private static final String USER_MEMORY_KEY = "memory";
   private static final String USER_MEMORY_SCOPE_PREFIX = "user-memory:";
-  private static final int HEALTH_TIMEOUT_MILLIS = 1500;
-  private static final int HEALTH_HISTORY_LIMIT = 60;
   private static final int MIN_JOBS_PER_RECOMMEND = 1;
   private static final int MAX_JOBS_PER_RECOMMEND = 30;
   private static final int MIN_RECOMMEND_OVERFETCH_FACTOR = 1;
@@ -83,7 +78,8 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private final ObjectMapper objectMapper = new ObjectMapper();
   private final SystemSettingsMapper systemSettingsMapper;
   private final JsonCodec jsonCodec = new JsonCodec();
-  private Map<String, Object> monitoredServiceStatuses = new LinkedHashMap<String, Object>();
+  private final ServiceHealthMonitor serviceHealthMonitor;
+  private final JobBlacklistPolicy blacklistPolicy;
   private boolean persistedRuntimeSettingsLoaded;
 
   public SystemSettingsServiceImpl(
@@ -94,6 +90,9 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     this.jobBuddyProperties = jobBuddyProperties;
     this.workspaceDefaultSettings = workspaceSettingsFromProperties();
     this.systemSettingsMapper = systemSettingsMapper;
+    this.serviceHealthMonitor =
+        new ServiceHealthMonitor(agentServiceProperties, jobBuddyProperties);
+    this.blacklistPolicy = new JobBlacklistPolicy(systemSettingsMapper);
     this.objectMapper.findAndRegisterModules();
     this.objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
   }
@@ -309,26 +308,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   }
 
   private Map<String, Object> blacklistDefaults() {
-    Map<String, Object> data = new LinkedHashMap<String, Object>();
-    data.put("enabled", true);
-    data.put("matchMode", "contains");
-    data.put("items", databaseBlacklistItems());
-    return data;
-  }
-
-  private List<Map<String, Object>> databaseBlacklistItems() {
-    try {
-      List<Map<String, Object>> rows = systemSettingsMapper.listBlacklistItems();
-      for (Map<String, Object> item : rows) {
-        Object createdAt = item.get("createdAt");
-        if (createdAt instanceof java.sql.Timestamp) {
-          item.put("createdAt", ((java.sql.Timestamp) createdAt).toInstant().toString());
-        }
-      }
-      return rows;
-    } catch (Exception e) {
-      return new ArrayList<Map<String, Object>>();
-    }
+    return blacklistPolicy.defaults();
   }
 
   @SuppressWarnings("unchecked")
@@ -338,197 +318,34 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
 
   @SuppressWarnings("unchecked")
   private synchronized List<Map<String, Object>> listBlacklistItemsMap() {
-    Map<String, Object> settings = getSettingsMap();
-    Map<String, Object> blacklist = asMap(settings.get("blacklist"), blacklistDefaults());
-    Object items = blacklist.get("items");
-    List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
-    if (items instanceof List) {
-      for (Object item : (List<Object>) items) {
-        if (item instanceof Map)
-          result.add(new LinkedHashMap<String, Object>((Map<String, Object>) item));
-      }
-    }
-    return result;
+    return blacklistPolicy.listItems(getSettingsMap());
   }
 
   @SuppressWarnings("unchecked")
   private void applyBlacklistItems(
       Map<String, Object> settings, Map<String, Object> savedSettings) {
-    Map<String, Object> blacklist = asMap(settings.get("blacklist"), blacklistDefaults());
-    List<Map<String, Object>> items = databaseBlacklistItems();
-    mergeManualBlacklistItems(items, savedSettings);
-    blacklist.put("items", items);
-    settings.put("blacklist", blacklist);
-  }
-
-  @SuppressWarnings("unchecked")
-  private void mergeManualBlacklistItems(
-      List<Map<String, Object>> result, Map<String, Object> savedSettings) {
-    Object savedBlacklist = savedSettings == null ? null : savedSettings.get("blacklist");
-    if (!(savedBlacklist instanceof Map)) return;
-    Object savedItems = ((Map<String, Object>) savedBlacklist).get("items");
-    if (!(savedItems instanceof List)) return;
-    Map<String, Map<String, Object>> byKey = new LinkedHashMap<String, Map<String, Object>>();
-    for (Map<String, Object> item : result)
-      byKey.put(String.valueOf(item.get("name")) + "#" + String.valueOf(item.get("type")), item);
-    for (Object item : (List<Object>) savedItems) {
-      if (!(item instanceof Map)) continue;
-      Map<String, Object> row = new LinkedHashMap<String, Object>((Map<String, Object>) item);
-      String key = String.valueOf(row.get("name")) + "#" + String.valueOf(row.get("type"));
-      Map<String, Object> existing = byKey.get(key);
-      if (existing != null) {
-        if (row.containsKey("enabled")) existing.put("enabled", row.get("enabled"));
-        if (row.containsKey("reason")) existing.put("reason", row.get("reason"));
-        continue;
-      }
-      result.add(row);
-      byKey.put(key, row);
-    }
+    blacklistPolicy.applyItems(settings, savedSettings);
   }
 
   public synchronized boolean isBlacklistedJob(Map<String, Object> job) {
-    return isBlacklistedJob(job, loadBlacklistSnapshot());
-  }
-
-  @SuppressWarnings("unchecked")
-  private Map<String, Object> loadBlacklistSnapshot() {
-    Map<String, Object> savedSettings = readSavedSettings();
-    Map<String, Object> blacklist = new LinkedHashMap<String, Object>();
-    blacklist.put("enabled", true);
-    blacklist.put("matchMode", "contains");
-    Object savedBlacklist = savedSettings.get("blacklist");
-    if (savedBlacklist instanceof Map) {
-      Map<String, Object> saved = (Map<String, Object>) savedBlacklist;
-      if (saved.containsKey("enabled")) blacklist.put("enabled", saved.get("enabled"));
-      if (saved.containsKey("matchMode")) blacklist.put("matchMode", saved.get("matchMode"));
-    }
-    List<Map<String, Object>> items = databaseBlacklistItems();
-    mergeManualBlacklistItems(items, savedSettings);
-    blacklist.put("items", items);
-    return blacklist;
-  }
-
-  @SuppressWarnings("unchecked")
-  private List<Map<String, Object>> blacklistItems(Map<String, Object> blacklist) {
-    List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
-    Object items = blacklist == null ? null : blacklist.get("items");
-    if (!(items instanceof List)) return result;
-    for (Object item : (List<Object>) items) {
-      if (item instanceof Map)
-        result.add(new LinkedHashMap<String, Object>((Map<String, Object>) item));
-    }
-    return result;
-  }
-
-  private boolean isBlacklistedJob(Map<String, Object> job, Map<String, Object> blacklist) {
-    if (!booleanValue(blacklist.get("enabled"), true) || job == null) return false;
-    String companyText =
-        blacklistFieldText(
-            job, "brandName", "companyName", "company", "companyShortName", "brandFullName");
-    String jobContentText =
-        blacklistFieldText(
-            job,
-            "jobName",
-            "job_name",
-            "title",
-            "name",
-            "jobDescription",
-            "description",
-            "postDescription",
-            "jobDesc",
-            "jobSecText",
-            "detailText",
-            "jobRequire",
-            "skills",
-            "jobLabels",
-            "labels",
-            "welfareList",
-            "welfare",
-            "benefits");
-    for (Map<String, Object> item : blacklistItems(blacklist)) {
-      if (!booleanValue(item.get("enabled"), true)) continue;
-      String name = normalizedBlacklistText(item.get("name"));
-      if (name.isEmpty()) continue;
-      String type = normalizedBlacklistText(item.get("type"));
-      if ("company".equals(type) && companyText.contains(name)) return true;
-      if ("keyword".equals(type) && blacklistKeywordMatches(jobContentText, name)) return true;
-    }
-    return false;
-  }
-
-  private boolean blacklistKeywordMatches(String jobContentText, String keyword) {
-    if (!keyword.matches("[a-z0-9]+")) return jobContentText.contains(keyword);
-    Pattern boundaryPattern =
-        Pattern.compile("(?<![a-z0-9])" + Pattern.quote(keyword) + "(?![a-z0-9])");
-    return boundaryPattern.matcher(jobContentText).find();
-  }
-
-  private String blacklistFieldText(Map<String, Object> job, String... keys) {
-    StringBuilder text = new StringBuilder();
-    for (String key : keys) {
-      Object value = job.get(key);
-      if (value == null) continue;
-      if (text.length() > 0) text.append(' ');
-      text.append(String.valueOf(value));
-    }
-    return text.toString().toLowerCase(java.util.Locale.ROOT);
-  }
-
-  private String normalizedBlacklistText(Object value) {
-    return value == null ? "" : String.valueOf(value).trim().toLowerCase(java.util.Locale.ROOT);
+    return blacklistPolicy.isBlacklisted(job, readSavedSettings());
   }
 
   public synchronized List<Map<String, Object>> filterBlacklistedJobs(
       List<Map<String, Object>> jobs) {
-    List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
-    if (jobs == null) return result;
-    // 一批岗位只加载一次保存设置和一次数据库黑名单，随后纯内存匹配；禁止逐岗位重复访问远程数据库阻塞 SSE。
-    Map<String, Object> blacklist = loadBlacklistSnapshot();
-    for (Map<String, Object> job : jobs) if (!isBlacklistedJob(job, blacklist)) result.add(job);
-    return result;
+    return blacklistPolicy.filter(jobs, readSavedSettings());
   }
 
   private Map<String, Object> serviceDefaults() {
-    Map<String, Object> data = new LinkedHashMap<String, Object>();
-    data.put("intentUrl", agentServiceProperties.getIntentUrl());
-    data.put("runtimeUrl", agentServiceProperties.getRuntimeUrl());
-    data.put("memoryUrl", agentServiceProperties.getMemoryUrl());
-    data.put("toolUrl", agentServiceProperties.getToolUrl());
-    data.put("evalUrl", agentServiceProperties.getEvalUrl());
-    data.put("connectTimeout", agentServiceProperties.getConnectTimeout().toString());
-    data.put("readTimeout", agentServiceProperties.getReadTimeout().toString());
-    return data;
+    return serviceHealthMonitor.serviceDefaults();
   }
 
   private Map<String, Object> runtimeSettings() {
-    Map<String, Object> data = new LinkedHashMap<String, Object>();
-    data.put("intentUrl", agentServiceProperties.getIntentUrl());
-    data.put("runtimeUrl", agentServiceProperties.getRuntimeUrl());
-    data.put("memoryUrl", agentServiceProperties.getMemoryUrl());
-    data.put("toolUrl", agentServiceProperties.getToolUrl());
-    data.put("evalUrl", agentServiceProperties.getEvalUrl());
-    data.put("connectTimeout", agentServiceProperties.getConnectTimeout().toString());
-    data.put("readTimeout", agentServiceProperties.getReadTimeout().toString());
-    data.put("maxJobsPerRecommend", jobBuddyProperties.getMaxJobsPerRecommend());
-    data.put("recommendOverfetchFactor", jobBuddyProperties.getRecommendOverfetchFactor());
-    data.put("maxJobsPerScoring", jobBuddyProperties.getMaxJobsPerScoring());
-    data.put("minimumRecommendedMatchScore", jobBuddyProperties.getMinimumRecommendedMatchScore());
-    data.put("bossSearchMaxPages", jobBuddyProperties.getBossSearchMaxPages());
-    data.put("bossSearchMaxPageDepth", jobBuddyProperties.getBossSearchMaxPageDepth());
-    data.put("bossSearchCacheTtlMinutes", jobBuddyProperties.getBossSearchCacheTtlMinutes());
-    data.put(
-        "bossSearchCooldownMinutesOnRisk", jobBuddyProperties.getBossSearchCooldownMinutesOnRisk());
-    data.put("runtimeMaxTurns", jobBuddyProperties.getRuntimeMaxTurns());
-    data.put("runtimeMaxToolCalls", jobBuddyProperties.getRuntimeMaxToolCalls());
-    data.put("runtimeMaxFailures", jobBuddyProperties.getRuntimeMaxFailures());
-    data.put("maxResumeBytes", jobBuddyProperties.getMaxResumeBytes());
-    data.put("resumeWriterVersionLimit", jobBuddyProperties.getResumeWriterVersionLimit());
-    return data;
+    return serviceHealthMonitor.runtimeSettings();
   }
 
   private synchronized Map<String, Object> serviceStatuses() {
-    if (monitoredServiceStatuses.isEmpty()) refreshServiceStatuses();
-    return copyServiceStatuses(monitoredServiceStatuses);
+    return serviceHealthMonitor.statuses();
   }
 
   @Scheduled(
@@ -541,27 +358,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   @Override
   public synchronized ServiceStatusesResponse refreshServiceStatuses() {
     ensurePersistedRuntimeSettingsLoaded();
-    Map<String, Object> checkedStatuses = probeServiceStatuses();
-    for (Map.Entry<String, Object> entry : checkedStatuses.entrySet()) {
-      if (!(entry.getValue() instanceof Map)) continue;
-      @SuppressWarnings("unchecked")
-      Map<String, Object> current = (Map<String, Object>) entry.getValue();
-      List<Map<String, Object>> history = previousHealthHistory(entry.getKey(), current.get("url"));
-      Map<String, Object> point = new LinkedHashMap<String, Object>();
-      point.put("status", current.get("status"));
-      point.put("checkedAt", current.get("checkedAt"));
-      point.put("message", current.get("message"));
-      history.add(point);
-      if (history.size() > HEALTH_HISTORY_LIMIT) {
-        history =
-            new ArrayList<Map<String, Object>>(
-                history.subList(history.size() - HEALTH_HISTORY_LIMIT, history.size()));
-      }
-      current.put("history", history);
-    }
-    monitoredServiceStatuses = checkedStatuses;
-    return new ServiceStatusesResponse(
-        jsonCodec.toTree(copyServiceStatuses(monitoredServiceStatuses)));
+    return serviceHealthMonitor.refresh();
   }
 
   private void ensurePersistedRuntimeSettingsLoaded() {
@@ -571,98 +368,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     retainBusinessRuntimeSettings(settings);
     applyRuntimeSettings(settings);
     persistedRuntimeSettingsLoaded = true;
-  }
-
-  private Map<String, Object> probeServiceStatuses() {
-    Map<String, Object> data = new LinkedHashMap<String, Object>();
-    data.put(
-        "intent", serviceStatus("intent", "Intent Service", agentServiceProperties.getIntentUrl()));
-    data.put(
-        "runtime",
-        serviceStatus("runtime", "Agent Runtime", agentServiceProperties.getRuntimeUrl()));
-    data.put(
-        "memory", serviceStatus("memory", "Memory Service", agentServiceProperties.getMemoryUrl()));
-    data.put("tool", serviceStatus("tool", "Tool Service", agentServiceProperties.getToolUrl()));
-    data.put("eval", serviceStatus("eval", "Eval Service", agentServiceProperties.getEvalUrl()));
-    return data;
-  }
-
-  @SuppressWarnings("unchecked")
-  private List<Map<String, Object>> previousHealthHistory(String serviceId, Object currentUrl) {
-    Object previousValue = monitoredServiceStatuses.get(serviceId);
-    if (!(previousValue instanceof Map)) return new ArrayList<Map<String, Object>>();
-    Map<String, Object> previous = (Map<String, Object>) previousValue;
-    if (!String.valueOf(previous.get("url")).equals(String.valueOf(currentUrl)))
-      return new ArrayList<Map<String, Object>>();
-    Object historyValue = previous.get("history");
-    if (!(historyValue instanceof List)) return new ArrayList<Map<String, Object>>();
-    List<Map<String, Object>> history = new ArrayList<Map<String, Object>>();
-    for (Object point : (List<?>) historyValue) {
-      if (point instanceof Map)
-        history.add(new LinkedHashMap<String, Object>((Map<String, Object>) point));
-    }
-    return history;
-  }
-
-  @SuppressWarnings("unchecked")
-  private Map<String, Object> copyServiceStatuses(Map<String, Object> statuses) {
-    Map<String, Object> copy = new LinkedHashMap<String, Object>();
-    for (Map.Entry<String, Object> entry : statuses.entrySet()) {
-      if (!(entry.getValue() instanceof Map)) continue;
-      Map<String, Object> source =
-          new LinkedHashMap<String, Object>((Map<String, Object>) entry.getValue());
-      Object historyValue = source.get("history");
-      if (historyValue instanceof List) {
-        List<Map<String, Object>> history = new ArrayList<Map<String, Object>>();
-        for (Object point : (List<?>) historyValue) {
-          if (point instanceof Map)
-            history.add(new LinkedHashMap<String, Object>((Map<String, Object>) point));
-        }
-        source.put("history", history);
-      }
-      copy.put(entry.getKey(), source);
-    }
-    return copy;
-  }
-
-  private Map<String, Object> serviceStatus(String id, String name, String baseUrl) {
-    Map<String, Object> data = new LinkedHashMap<String, Object>();
-    data.put("id", id);
-    data.put("name", name);
-    data.put("url", baseUrl);
-    data.put("checkedAt", Instant.now().toString());
-    if (baseUrl == null || baseUrl.trim().isEmpty()) {
-      data.put("status", "not_configured");
-      data.put("success", false);
-      data.put("message", "未配置服务地址");
-      return data;
-    }
-    try {
-      HttpURLConnection connection =
-          (HttpURLConnection) new URL(healthUrl(baseUrl)).openConnection();
-      connection.setRequestMethod("GET");
-      connection.setConnectTimeout(HEALTH_TIMEOUT_MILLIS);
-      connection.setReadTimeout(HEALTH_TIMEOUT_MILLIS);
-      int code = connection.getResponseCode();
-      boolean success = code >= 200 && code < 300;
-      data.put("healthUrl", healthUrl(baseUrl));
-      data.put("status", success ? "running" : "down");
-      data.put("success", Boolean.valueOf(success));
-      data.put("message", success ? "运行中" : "健康检查失败，HTTP " + code);
-      connection.disconnect();
-    } catch (Exception e) {
-      data.put("healthUrl", healthUrl(baseUrl));
-      data.put("status", "down");
-      data.put("success", false);
-      data.put("message", e.getMessage() == null ? "服务不可达" : e.getMessage());
-    }
-    return data;
-  }
-
-  private String healthUrl(String baseUrl) {
-    String value = baseUrl.trim();
-    if (value.endsWith("/")) value = value.substring(0, value.length() - 1);
-    return value + "/health";
   }
 
   @SuppressWarnings("unchecked")
@@ -894,15 +599,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   @SuppressWarnings("unchecked")
   private Map<String, Object> asMap(Object value, Map<String, Object> fallback) {
     return value instanceof Map ? (Map<String, Object>) value : fallback;
-  }
-
-  @SuppressWarnings("unchecked")
-  private Map<String, Object> ensureMemory(Map<String, Object> settings) {
-    Object memoryValue = settings.get("memory");
-    if (memoryValue instanceof Map) return (Map<String, Object>) memoryValue;
-    Map<String, Object> memory = memoryDefaults();
-    settings.put("memory", memory);
-    return memory;
   }
 
   @SuppressWarnings("unchecked")

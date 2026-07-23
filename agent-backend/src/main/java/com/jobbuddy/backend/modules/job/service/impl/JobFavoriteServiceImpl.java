@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Service;
 
@@ -255,6 +256,7 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
     String[] messages = {"投递结论与关键证据已生成", "能力维度与风险已生成", "简历补强与面试方案已生成"};
     Object schema = null;
     for (int index = 0; index < groups.size(); index++) {
+      throwIfAnalysisCancelled();
       Map<String, Object> output;
       try {
         output =
@@ -263,6 +265,7 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
       } catch (RuntimeException exception) {
         throw new JobAnalysisException("岗位匹配服务执行失败，请稍后重试", exception);
       }
+      throwIfAnalysisCancelled();
       Object matches = output.get("matches");
       if (!(matches instanceof List)
           || ((List) matches).isEmpty()
@@ -283,6 +286,7 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
         consumer.accept(
             new AnalysisPartialResult(
                 sections[index], messages[index], jsonCodec.toTree(partialJob)));
+      throwIfAnalysisCancelled();
     }
     Map<String, Object> analysis = new LinkedHashMap<String, Object>();
     analysis.put("resumeId", resume.getResumeId());
@@ -292,8 +296,13 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
     analysis.put("match", mergedMatch);
     job.put("analysis", analysis);
     job.put("analyzedAt", analysis.get("analyzedAt"));
+    throwIfAnalysisCancelled();
     if (row != null) persistAnalysis(userId, key.trim(), job);
     return jobResponse(job);
+  }
+
+  private void throwIfAnalysisCancelled() {
+    if (Thread.currentThread().isInterrupted()) throw new CancellationException("岗位分析已取消");
   }
 
   private Map<String, Object> attachAnalysis(

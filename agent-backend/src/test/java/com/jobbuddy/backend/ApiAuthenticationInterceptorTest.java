@@ -59,11 +59,11 @@ class ApiAuthenticationInterceptorTest {
         Timestamp.from(Instant.now()),
         Timestamp.from(Instant.now()));
     jdbcTemplate.update(
-        "MERGE INTO permission_definition(permission_code, permission_name, grantable, display_order) KEY(permission_code) VALUES ('tenant:manage','平台设置',FALSE,900)");
+        "MERGE INTO permission_definition(permission_code, permission_name, grantable, display_order) KEY(permission_code) VALUES ('platform:manage','平台设置',FALSE,900)");
     jdbcTemplate.update(
         "INSERT INTO rbac_role(role_id,tenant_id,role_code,role_name,enabled) VALUES ('role-manager','default-tenant','manager','Manager',TRUE)");
     jdbcTemplate.update(
-        "INSERT INTO rbac_menu(menu_id,tenant_id,menu_code,menu_name,menu_type,permission_code,visible,enabled) VALUES ('menu-settings','default-tenant','settings','Settings','action','tenant:manage',FALSE,TRUE)");
+        "INSERT INTO rbac_menu(menu_id,tenant_id,menu_code,menu_name,menu_type,permission_code,visible,enabled) VALUES ('menu-settings','default-tenant','settings','Settings','action','platform:manage',FALSE,TRUE)");
     jdbcTemplate.update(
         "INSERT INTO user_role(tenant_id,user_id,role_id) VALUES ('default-tenant','user-auth-1','role-manager')");
     jdbcTemplate.update(

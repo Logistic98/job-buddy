@@ -1,5 +1,6 @@
 package com.jobbuddy.backend.modules.auth.service.impl;
 
+import com.jobbuddy.backend.common.security.AuthenticatedUser;
 import com.jobbuddy.backend.modules.auth.dto.request.RbacMenuRequest;
 import com.jobbuddy.backend.modules.auth.dto.request.RbacRoleRequest;
 import com.jobbuddy.backend.modules.auth.dto.response.RbacMenuResponse;
@@ -30,28 +31,54 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
 
   private final RbacMapper mapper;
   private final UserLoginService loginService;
+  private final RbacDelegationPolicy delegationPolicy;
 
-  public DynamicRbacServiceImpl(RbacMapper mapper, UserLoginService loginService) {
+  public DynamicRbacServiceImpl(
+      RbacMapper mapper, UserLoginService loginService, RbacDelegationPolicy delegationPolicy) {
     this.mapper = mapper;
     this.loginService = loginService;
+    this.delegationPolicy = delegationPolicy;
   }
 
+  @Transactional(readOnly = true)
   @Override
   public List<RbacRoleResponse> listRoles(String tenantId) {
+    tenantId = requireTenant(tenantId);
+    Map<String, RbacRoleResponse> roles = new LinkedHashMap<String, RbacRoleResponse>();
+    for (Map<String, Object> row : mapper.listRoles(tenantId)) {
+      RbacRoleResponse response = roleResponse(row, Collections.<String>emptyList());
+      roles.put(response.getRoleId(), response);
+    }
+    for (Map<String, Object> assignment : mapper.listRoleMenuAssignments(tenantId)) {
+      RbacRoleResponse response = roles.get(text(assignment.get("roleId")));
+      if (response != null) response.getMenuIds().add(text(assignment.get("menuId")));
+    }
+    return new ArrayList<RbacRoleResponse>(roles.values());
+  }
+
+  @Transactional(readOnly = true)
+  @Override
+  public List<RbacRoleResponse> listAssignableRoles(String tenantId, AuthenticatedUser actor) {
+    Set<String> allowed =
+        new LinkedHashSet<String>(delegationPolicy.assignableRoleIds(tenantId, actor));
     List<RbacRoleResponse> result = new ArrayList<RbacRoleResponse>();
-    for (Map<String, Object> row : mapper.listRoles(requireTenant(tenantId)))
-      result.add(roleResponse(tenantId, row));
+    for (RbacRoleResponse role : listRoles(tenantId)) {
+      if (allowed.contains(role.getRoleId())) result.add(role);
+    }
     return result;
   }
 
   @Transactional
   @Override
-  public RbacRoleResponse createRole(String tenantId, RbacRoleRequest request) {
+  public RbacRoleResponse createRole(
+      String tenantId, AuthenticatedUser actor, RbacRoleRequest request) {
     tenantId = requireTenant(tenantId);
     validateRoleRequest(request);
     List<String> menuIds = normalizeIds(request.getMenuIds());
     validateMenus(tenantId, menuIds);
     menuIds = expandMenuAncestors(tenantId, menuIds);
+    delegationPolicy.validateRoleMenuChange(
+        tenantId, actor, Collections.<String>emptyList(), menuIds);
     Instant now = Instant.now();
     String roleId = "role_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
     Map<String, Object> row = new LinkedHashMap<String, Object>();
@@ -74,7 +101,8 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
 
   @Transactional
   @Override
-  public RbacRoleResponse updateRole(String tenantId, String roleId, RbacRoleRequest request) {
+  public RbacRoleResponse updateRole(
+      String tenantId, AuthenticatedUser actor, String roleId, RbacRoleRequest request) {
     tenantId = requireTenant(tenantId);
     Map<String, Object> current = requiredRoleRow(tenantId, roleId);
     validateRoleRequest(request);
@@ -91,7 +119,16 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
       if (request.getMenuIds() != null) {
         List<String> menuIds = normalizeIds(request.getMenuIds());
         validateMenus(tenantId, menuIds);
-        replaceRoleMenusInternal(tenantId, roleId, expandMenuAncestors(tenantId, menuIds));
+        menuIds = expandMenuAncestors(tenantId, menuIds);
+        delegationPolicy.validateRoleMenuChange(
+            tenantId, actor, mapper.findRoleMenuIds(tenantId, roleId), menuIds);
+        replaceRoleMenusInternal(tenantId, roleId, menuIds);
+      } else {
+        delegationPolicy.validateRoleMenuChange(
+            tenantId,
+            actor,
+            mapper.findRoleMenuIds(tenantId, roleId),
+            mapper.findRoleMenuIds(tenantId, roleId));
       }
       protectManagementAccess(tenantId);
     } catch (DataIntegrityViolationException exception) {
@@ -103,12 +140,15 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
 
   @Transactional
   @Override
-  public RbacRoleResponse replaceRoleMenus(String tenantId, String roleId, List<String> menuIds) {
+  public RbacRoleResponse replaceRoleMenus(
+      String tenantId, AuthenticatedUser actor, String roleId, List<String> menuIds) {
     tenantId = requireTenant(tenantId);
     requiredRoleRow(tenantId, roleId);
     List<String> normalized = normalizeIds(menuIds);
     validateMenus(tenantId, normalized);
     normalized = expandMenuAncestors(tenantId, normalized);
+    delegationPolicy.validateRoleMenuChange(
+        tenantId, actor, mapper.findRoleMenuIds(tenantId, roleId), normalized);
     List<String> affected = mapper.findUserIdsByRole(tenantId, roleId);
     replaceRoleMenusInternal(tenantId, roleId, normalized);
     protectManagementAccess(tenantId);
@@ -118,15 +158,18 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
 
   @Transactional
   @Override
-  public void deleteRole(String tenantId, String roleId) {
+  public void deleteRole(String tenantId, AuthenticatedUser actor, String roleId) {
     tenantId = requireTenant(tenantId);
     requiredRoleRow(tenantId, roleId);
+    delegationPolicy.validateRoleMenuChange(
+        tenantId, actor, mapper.findRoleMenuIds(tenantId, roleId), Collections.<String>emptyList());
     if (mapper.countRoleUsers(tenantId, roleId) > 0)
       throw new IllegalArgumentException("角色仍被用户引用，请先解除用户角色关系");
     mapper.deleteRole(tenantId, roleId);
     protectManagementAccess(tenantId);
   }
 
+  @Transactional(readOnly = true)
   @Override
   public List<RbacMenuResponse> listMenus(String tenantId) {
     List<RbacMenuResponse> result = new ArrayList<RbacMenuResponse>();
@@ -135,11 +178,26 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return result;
   }
 
+  @Transactional(readOnly = true)
+  @Override
+  public List<RbacMenuResponse> listAssignableMenus(String tenantId, AuthenticatedUser actor) {
+    Set<String> allowed =
+        new LinkedHashSet<String>(delegationPolicy.assignableMenuIds(tenantId, actor));
+    List<RbacMenuResponse> result = new ArrayList<RbacMenuResponse>();
+    for (RbacMenuResponse menu : listMenus(tenantId)) {
+      if (allowed.contains(menu.getMenuId())) result.add(menu);
+    }
+    return result;
+  }
+
   @Transactional
   @Override
-  public RbacMenuResponse createMenu(String tenantId, RbacMenuRequest request) {
+  public RbacMenuResponse createMenu(
+      String tenantId, AuthenticatedUser actor, RbacMenuRequest request) {
     tenantId = requireTenant(tenantId);
     validateMenuRequest(tenantId, null, request);
+    delegationPolicy.validateMenuPermissionChange(
+        tenantId, actor, null, request.getPermissionCode());
     Instant now = Instant.now();
     String menuId = "menu_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20);
     Map<String, Object> row = menuMap(tenantId, menuId, request, now);
@@ -153,10 +211,13 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
 
   @Transactional
   @Override
-  public RbacMenuResponse updateMenu(String tenantId, String menuId, RbacMenuRequest request) {
+  public RbacMenuResponse updateMenu(
+      String tenantId, AuthenticatedUser actor, String menuId, RbacMenuRequest request) {
     tenantId = requireTenant(tenantId);
-    requiredMenuRow(tenantId, menuId);
+    Map<String, Object> current = requiredMenuRow(tenantId, menuId);
     validateMenuRequest(tenantId, menuId, request);
+    delegationPolicy.validateMenuPermissionChange(
+        tenantId, actor, text(current.get("permissionCode")), request.getPermissionCode());
     List<String> affected = mapper.findUserIdsByMenu(tenantId, menuId);
     try {
       mapper.updateMenu(
@@ -185,9 +246,11 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
 
   @Transactional
   @Override
-  public void deleteMenu(String tenantId, String menuId) {
+  public void deleteMenu(String tenantId, AuthenticatedUser actor, String menuId) {
     tenantId = requireTenant(tenantId);
-    requiredMenuRow(tenantId, menuId);
+    Map<String, Object> current = requiredMenuRow(tenantId, menuId);
+    delegationPolicy.validateMenuPermissionChange(
+        tenantId, actor, text(current.get("permissionCode")), null);
     if (mapper.countMenuChildren(tenantId, menuId) > 0)
       throw new IllegalArgumentException("菜单包含子节点，不能删除");
     if (mapper.countMenuRoles(tenantId, menuId) > 0)
@@ -208,10 +271,12 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
 
   @Transactional
   @Override
-  public void replaceUserRoles(String tenantId, String userId, List<String> roleIds) {
+  public void replaceUserRoles(
+      String tenantId, AuthenticatedUser actor, String userId, List<String> roleIds) {
     tenantId = requireTenant(tenantId);
     List<String> normalized = normalizeIds(roleIds);
     validateRoles(tenantId, normalized);
+    delegationPolicy.validateUserRoleChange(tenantId, actor, userId, normalized);
     mapper.deleteUserRoles(tenantId, userId);
     Instant now = Instant.now();
     for (String roleId : normalized) mapper.insertUserRole(tenantId, userId, roleId, now);
@@ -319,7 +384,8 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
   }
 
   private RbacRoleResponse requiredRole(String tenantId, String roleId) {
-    return roleResponse(tenantId, requiredRoleRow(tenantId, roleId));
+    return roleResponse(
+        requiredRoleRow(tenantId, roleId), mapper.findRoleMenuIds(tenantId, roleId));
   }
 
   private Map<String, Object> requiredRoleRow(String tenantId, String roleId) {
@@ -334,7 +400,7 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return row;
   }
 
-  private RbacRoleResponse roleResponse(String tenantId, Map<String, Object> row) {
+  private RbacRoleResponse roleResponse(Map<String, Object> row, List<String> menuIds) {
     RbacRoleResponse value = new RbacRoleResponse();
     value.setRoleId(text(row.get("roleId")));
     value.setRoleCode(text(row.get("roleCode")));
@@ -343,7 +409,7 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     value.setEnabled(bool(row.get("enabled")));
     value.setCreatedAt(text(row.get("createdAt")));
     value.setUpdatedAt(text(row.get("updatedAt")));
-    value.setMenuIds(new ArrayList<String>(mapper.findRoleMenuIds(tenantId, value.getRoleId())));
+    value.setMenuIds(new ArrayList<String>(menuIds));
     return value;
   }
 

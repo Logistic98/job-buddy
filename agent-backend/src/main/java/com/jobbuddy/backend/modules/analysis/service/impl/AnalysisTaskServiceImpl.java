@@ -20,7 +20,11 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -63,6 +67,8 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
           new ArrayBlockingQueue<Runnable>(256),
           namedFactory("analysis-stream"),
           new ThreadPoolExecutor.AbortPolicy());
+  private final ConcurrentMap<String, FutureTask<Void>> taskFutures =
+      new ConcurrentHashMap<String, FutureTask<Void>>();
 
   public AnalysisTaskServiceImpl(
       AnalysisTaskMapper mapper,
@@ -100,6 +106,17 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     AnalysisTask task = mapper.findOwned(taskId, tenantId, userId);
     if (task == null) throw new IllegalArgumentException("分析任务不存在");
     return AnalysisTaskResponse.from(task, jsonCodec);
+  }
+
+  @Override
+  public AnalysisTaskResponse cancel(String taskId, String tenantId, String userId) {
+    AnalysisTask owned = mapper.findOwned(taskId, tenantId, userId);
+    if (owned == null) throw new IllegalArgumentException("分析任务不存在");
+    if (!owned.isTerminal() && mapper.markCancelled(taskId) == 1) {
+      FutureTask<Void> future = taskFutures.remove(taskId);
+      if (future != null) future.cancel(true);
+    }
+    return AnalysisTaskResponse.from(mapper.findOwned(taskId, tenantId, userId), jsonCodec);
   }
 
   @Override
@@ -167,9 +184,18 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
   }
 
   private void submit(String taskId) {
+    FutureTask<Void> future =
+        new FutureTask<Void>(withInheritedMdc(() -> execute(taskId)), null) {
+          @Override
+          protected void done() {
+            taskFutures.remove(taskId, this);
+          }
+        };
+    if (taskFutures.putIfAbsent(taskId, future) != null) return;
     try {
-      taskExecutor.submit(withInheritedMdc(() -> execute(taskId)));
+      taskExecutor.execute(future);
     } catch (RuntimeException rejected) {
+      taskFutures.remove(taskId, future);
       mapper.markFailed(taskId, "分析任务队列繁忙，请稍后重新发起");
     }
   }
@@ -181,7 +207,7 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     bindTaskMdcContext(task, "analysis:" + task.getTaskType(), "analysis-" + taskId);
     AuthenticationScope.set(task.getTenantId(), task.getUserId());
     try {
-      mapper.updateProgress(taskId, "analyzing", "正在调用模型生成分析报告");
+      if (mapper.updateProgress(taskId, "analyzing", "正在调用模型生成分析报告") != 1) return;
       JsonNode request = jsonCodec.readTree(task.getRequestJson());
       JsonNode result;
       if (TYPE_RESUME.equals(task.getTaskType())) {
@@ -205,17 +231,32 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
       } else {
         throw new IllegalArgumentException("不支持的分析任务类型: " + task.getTaskType());
       }
-      mapper.updateProgress(taskId, "saving", "正在保存分析结果");
+      if (Thread.currentThread().isInterrupted()
+          || mapper.updateProgress(taskId, "saving", "正在保存分析结果") != 1) return;
       mapper.markSucceeded(taskId, jsonCodec.toJson(result));
-    } catch (Exception error) {
-      String message = safeMessage(error);
-      mapper.markFailed(taskId, message);
-      log.warn(
-          "异步分析任务失败 taskId={}, type={}, resourceKey={}: {}",
+    } catch (CancellationException cancelled) {
+      log.info(
+          "异步分析任务已取消 taskId={}, type={}, resourceKey={}",
           taskId,
           task.getTaskType(),
-          task.getResourceKey(),
-          message);
+          task.getResourceKey());
+    } catch (Exception error) {
+      String message = safeMessage(error);
+      if (Thread.currentThread().isInterrupted() || isCancellationRequested(taskId)) {
+        log.info(
+            "异步分析任务取消后结束 taskId={}, type={}, resourceKey={}",
+            taskId,
+            task.getTaskType(),
+            task.getResourceKey());
+      } else {
+        mapper.markFailed(taskId, message);
+        log.warn(
+            "异步分析任务失败 taskId={}, type={}, resourceKey={}: {}",
+            taskId,
+            task.getTaskType(),
+            task.getResourceKey(),
+            message);
+      }
     } finally {
       AuthenticationScope.clear();
       MDC.clear();
@@ -241,6 +282,7 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
             send(emitter, "snapshot", payload);
           } else if (task.isTerminal()) {
             if ("succeeded".equals(task.getStatus())) send(emitter, "result", payload);
+            else if ("cancelled".equals(task.getStatus())) send(emitter, "cancelled", payload);
             else send(emitter, "error", payload);
             send(emitter, "done", payload);
             emitter.complete();
@@ -274,11 +316,21 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
   }
 
   private void publishPartial(String taskId, AnalysisPartialResult partial) {
-    mapper.updatePartialResult(
-        taskId,
-        "partial_" + partial.getSection(),
-        partial.getMessage(),
-        jsonCodec.toJson(partial.getPayload()));
+    if (Thread.currentThread().isInterrupted()
+        || mapper.updatePartialResult(
+                taskId,
+                "partial_" + partial.getSection(),
+                partial.getMessage(),
+                jsonCodec.toJson(partial.getPayload()))
+            != 1) {
+      if (isCancellationRequested(taskId)) throw new CancellationException("分析已取消");
+      throw new IllegalStateException("分析任务不再处于可更新状态");
+    }
+  }
+
+  private boolean isCancellationRequested(String taskId) {
+    AnalysisTask current = mapper.findById(taskId);
+    return current != null && "cancelled".equals(current.getStatus());
   }
 
   private Runnable withInheritedMdc(Runnable task) {

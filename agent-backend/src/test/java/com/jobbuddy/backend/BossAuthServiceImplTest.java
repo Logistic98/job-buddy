@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.security.AuthenticationScope;
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.auth.dto.internal.BossCliCancelResult;
 import com.jobbuddy.backend.modules.auth.dto.internal.BossCliQrResult;
 import com.jobbuddy.backend.modules.auth.dto.internal.BossCliStatusResult;
 import com.jobbuddy.backend.modules.auth.repository.AuthStateRepository;
@@ -76,6 +77,7 @@ class BossAuthServiceImplTest {
     when(bossCli.status()).thenReturn(status("auth_required", false));
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("session_id", "qr-a");
+    data.put("session_token", "opaque-tool-session");
     data.put("status", "qr_ready");
     when(bossCli.qrStart()).thenReturn(envelope(data));
     BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
@@ -84,7 +86,13 @@ class BossAuthServiceImplTest {
 
     assertEquals("qr-a", response.get("qrSessionId"));
     verify(repository)
-        .saveQrSession(eq("tenant-a"), eq("user-a"), eq("chat-a"), eq("qr-a"), any(Instant.class));
+        .saveQrSession(
+            eq("tenant-a"),
+            eq("user-a"),
+            eq("chat-a"),
+            eq("qr-a"),
+            eq("opaque-tool-session"),
+            any(Instant.class));
   }
 
   @Test
@@ -99,7 +107,7 @@ class BossAuthServiceImplTest {
     Map<String, Object> waiting = new LinkedHashMap<String, Object>();
     waiting.put("status", "waiting");
     waiting.put("image_base64", "shared-qr-image");
-    when(bossCli.qrStatus("qr-a")).thenReturn(envelope(waiting));
+    when(bossCli.qrStatus("qr-a", "token-qr-a")).thenReturn(envelope(waiting));
     BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
     Map<String, Object> response = JSON.toMap(service.startQrLogin("jobs-import"));
@@ -118,7 +126,7 @@ class BossAuthServiceImplTest {
     BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
     assertThrows(IllegalArgumentException.class, () -> service.loginStatus("chat-b", "qr-a"));
-    verify(bossCli, never()).qrStatus("qr-a");
+    verify(bossCli, never()).qrStatus(eq("qr-a"), any());
   }
 
   @Test
@@ -130,7 +138,7 @@ class BossAuthServiceImplTest {
     BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
     assertThrows(IllegalArgumentException.class, () -> service.loginStatus("chat-a", "unknown"));
-    verify(bossCli, never()).qrStatus("unknown");
+    verify(bossCli, never()).qrStatus(eq("unknown"), any());
   }
 
   @Test
@@ -142,7 +150,7 @@ class BossAuthServiceImplTest {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("status", "logged_in");
     data.put("credential_json", "{\"cookies\":{\"wt2\":\"owner-a\"}}");
-    when(bossCli.qrStatus("qr-a")).thenReturn(envelope(data));
+    when(bossCli.qrStatus("qr-a", "token-qr-a")).thenReturn(envelope(data));
     BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
     Map<String, Object> done = JSON.toMap(service.loginStatus("chat-a", "qr-a"));
@@ -151,7 +159,7 @@ class BossAuthServiceImplTest {
     Map<String, Object> otherEntry =
         JSON.toMap(service.loginStatus("settings", "qr-from-other-entry"));
     assertTrue(Boolean.TRUE.equals(otherEntry.get("ok")));
-    verify(bossCli, times(1)).qrStatus("qr-a");
+    verify(bossCli, times(1)).qrStatus("qr-a", "token-qr-a");
     verify(repository)
         .save(
             eq("tenant-a"),
@@ -171,7 +179,7 @@ class BossAuthServiceImplTest {
     when(repository.findQrSession("qr-a")).thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("status", "logged_in");
-    when(bossCli.qrStatus("qr-a")).thenReturn(envelope(data));
+    when(bossCli.qrStatus("qr-a", "token-qr-a")).thenReturn(envelope(data));
     BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
     assertThrows(IllegalStateException.class, () -> service.loginStatus("chat-a", "qr-a"));
@@ -185,11 +193,43 @@ class BossAuthServiceImplTest {
             any(Map.class));
   }
 
+  @Test
+  void qrCancelMustDeleteSessionOnlyAfterToolCancellationSucceeds() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(repository.findQrSession("qr-a")).thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    when(bossCli.qrCancel("qr-a", "token-qr-a")).thenReturn(new BossCliCancelResult());
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
+
+    service.cancelLogin("chat-a", "qr-a");
+
+    verify(bossCli).qrCancel("qr-a", "token-qr-a");
+    verify(repository).deleteQrSession("tenant-a", "user-a", "qr-a");
+  }
+
+  @Test
+  void qrCancelFailureMustPreserveSessionForRetry() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(repository.findQrSession("qr-a")).thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    when(bossCli.qrCancel("qr-a", "token-qr-a"))
+        .thenThrow(new IllegalStateException("tool unavailable"));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
+
+    assertThrows(IllegalStateException.class, () -> service.cancelLogin("chat-a", "qr-a"));
+
+    verify(repository, never()).deleteQrSession(any(), any(), any());
+  }
+
   private Map<String, Object> qrOwner(String tenantId, String userId, String qrSessionId) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("tenantId", tenantId);
     row.put("userId", userId);
     row.put("qrSessionId", qrSessionId);
+    row.put("toolSessionToken", "token-" + qrSessionId);
+    row.put("toolSessionVersion", 1);
     row.put("expiresAt", Instant.now().plusSeconds(120));
     return row;
   }

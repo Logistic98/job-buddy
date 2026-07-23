@@ -1,6 +1,6 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class SlotExtractorConfig(BaseModel):
@@ -62,10 +62,23 @@ class CapabilityCard(BaseModel):
     clarification_question: Optional[str] = None
     answer_template: Optional[str] = None
     planner_needed: bool = False
+    tool_scope: Optional[Literal["none", "allowlist", "unrestricted"]] = None
     required_tools: List[str] = Field(default_factory=list)
     allowed_tools: List[str] = Field(default_factory=list)
     evidence_requirements: List[str] = Field(default_factory=list)
     eval_rubric: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_tool_scope(self) -> "CapabilityCard":
+        if self.tool_scope is None:
+            self.tool_scope = "allowlist" if self.required_tools or self.allowed_tools else "none"
+        if self.tool_scope == "none" and (self.required_tools or self.allowed_tools):
+            raise ValueError("tool_scope=none 时不能声明 required_tools 或 allowed_tools")
+        if self.tool_scope == "unrestricted" and (self.required_tools or self.allowed_tools):
+            raise ValueError("tool_scope=unrestricted 时不能声明工具白名单")
+        if self.tool_scope == "allowlist" and not (self.required_tools or self.allowed_tools):
+            raise ValueError("tool_scope=allowlist 必须声明 required_tools 或 allowed_tools")
+        return self
 
     def searchable_text(self) -> str:
         parts = [

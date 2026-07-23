@@ -404,6 +404,54 @@ def _grade_grounding_dimension(run: dict, expected: dict) -> list[dict]:
                 high_without_confidence[:3],
             )
         )
+        well_grounded_low_confidence = [
+            {
+                "id": m.get("id"),
+                "score_confidence": m.get("score_confidence"),
+                "grounded_evidence_count": _grounded_requirement_evidence_count(m),
+            }
+            for m in matches
+            if isinstance(m, dict)
+            and _grounded_requirement_evidence_count(m) >= 3
+            and str(m.get("score_confidence") or "").lower() == "low"
+        ]
+        checks.append(
+            _check(
+                "grounding",
+                "confidence_matches_evidence_coverage",
+                1.0 if not well_grounded_low_confidence else 0.0,
+                0.8,
+                ("置信度与证据覆盖度一致" if not well_grounded_low_confidence else "完整证据链被错误标记为低置信度"),
+                "high",
+                well_grounded_low_confidence[:3],
+            )
+        )
+        education_scores = [
+            _dict(_dict(m.get("dimensions")).get("education_fit")).get("score")
+            for m in matches
+            if isinstance(m, dict) and "education_fit" in _dict(m.get("dimensions"))
+        ]
+        if education_scores:
+            invalid_education_scores = [
+                score
+                for score in education_scores
+                if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 100
+            ]
+            checks.append(
+                _check(
+                    "grounding",
+                    "education_fit_has_numeric_score",
+                    1.0 if not invalid_education_scores else 0.0,
+                    0.8,
+                    (
+                        "学历与资质维度包含有效数值分"
+                        if not invalid_education_scores
+                        else "学历与资质维度存在空分或非法分数"
+                    ),
+                    "high",
+                    {"scores": education_scores},
+                )
+            )
     if expected.get("requires_evidence") and not resume_match:
         checks.append(
             _check(
@@ -783,6 +831,17 @@ def _actual_evidence_count(match: dict) -> int:
             elif isinstance(item, str) and item.strip():
                 count += 1
     return count
+
+
+def _grounded_requirement_evidence_count(match: dict) -> int:
+    """Count requirement-resume evidence pairs that can directly support confidence calibration."""
+    return sum(
+        1
+        for item in _list(match.get("evidence"))
+        if isinstance(item, dict)
+        and str(item.get("resume_evidence") or "").strip()
+        and str(item.get("job_requirement") or item.get("requirement") or "").strip()
+    )
 
 
 def _has_fake_source(value: Any) -> bool:

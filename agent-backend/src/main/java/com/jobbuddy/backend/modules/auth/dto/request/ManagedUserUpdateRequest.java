@@ -5,6 +5,7 @@ import lombok.Data;
 
 @Data
 public class ManagedUserUpdateRequest {
+  private String username;
   private String displayName;
   private Boolean enabled;
   private List<String> roleIds;

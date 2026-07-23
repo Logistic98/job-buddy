@@ -125,6 +125,7 @@ public class BossBrowserClient {
     if ("/status".equals(path)) return "status";
     if ("/login/qr/start".equals(path)) return "qr_start";
     if ("/login/qr/status".equals(path)) return "qr_status";
+    if ("/login/qr/cancel".equals(path)) return "qr_cancel";
     if ("/search".equals(path)) return "search";
     if ("/favorites".equals(path)) return "favorite_list";
     if ("/detail".equals(path)) return "detail";

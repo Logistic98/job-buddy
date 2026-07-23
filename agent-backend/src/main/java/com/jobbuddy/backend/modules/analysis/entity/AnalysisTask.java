@@ -158,6 +158,6 @@ public class AnalysisTask {
   }
 
   public boolean isTerminal() {
-    return "succeeded".equals(status) || "failed".equals(status);
+    return "succeeded".equals(status) || "failed".equals(status) || "cancelled".equals(status);
   }
 }

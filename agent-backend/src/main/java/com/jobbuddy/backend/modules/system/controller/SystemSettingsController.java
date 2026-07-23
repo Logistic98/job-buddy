@@ -28,7 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 /** 系统设置接口，提供平台设置和长期记忆管理能力。 */
 @Tag(name = "系统设置接口")
 @RestController
-@RequirePermission(PermissionCodes.TENANT_MANAGE)
+@RequirePermission(PermissionCodes.PLATFORM_MANAGE)
 @RequestMapping("/api/settings")
 public class SystemSettingsController {
   private final SystemSettingsService systemSettingsService;

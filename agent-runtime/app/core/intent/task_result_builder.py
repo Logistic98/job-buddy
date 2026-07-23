@@ -129,6 +129,7 @@ class TaskResultBuilder:
             metadata={
                 "capability_reason": reason,
                 "capability_contract": {
+                    "tool_scope": capability.tool_scope,
                     "required_tools": capability.required_tools,
                     "allowed_tools": capability.allowed_tools,
                     "evidence_requirements": capability.evidence_requirements,

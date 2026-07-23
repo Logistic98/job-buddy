@@ -47,14 +47,20 @@ public class TenantUserAdminController {
   @Operation(summary = "查询用户可绑定的角色")
   @GetMapping("/roles")
   public ApiResponse<List<RbacRoleResponse>> roles(HttpServletRequest request) {
-    return ApiResponse.success(rbacService.listRoles(AuthenticatedUserContext.tenantId(request)));
+    return ApiResponse.success(
+        rbacService.listAssignableRoles(
+            AuthenticatedUserContext.tenantId(request), AuthenticatedUserContext.user(request)));
   }
 
   @Operation(summary = "创建本租户用户")
   @PostMapping
   public ApiResponse<ManagedUserResponse> create(
       @RequestBody ManagedUserCreateRequest body, HttpServletRequest request) {
-    return ApiResponse.success(service.create(AuthenticatedUserContext.tenantId(request), body));
+    return ApiResponse.success(
+        service.create(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.user(request),
+            body));
   }
 
   @Operation(summary = "更新本租户用户")
@@ -64,7 +70,11 @@ public class TenantUserAdminController {
       @RequestBody ManagedUserUpdateRequest body,
       HttpServletRequest request) {
     return ApiResponse.success(
-        service.update(AuthenticatedUserContext.tenantId(request), userId, body));
+        service.update(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.user(request),
+            userId,
+            body));
   }
 
   @Operation(summary = "替换用户角色")
@@ -74,6 +84,7 @@ public class TenantUserAdminController {
     return ApiResponse.success(
         service.replaceRoles(
             AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.user(request),
             userId,
             body == null ? null : body.getRoleIds()));
   }
@@ -86,6 +97,7 @@ public class TenantUserAdminController {
       HttpServletRequest request) {
     service.resetPassword(
         AuthenticatedUserContext.tenantId(request),
+        AuthenticatedUserContext.user(request),
         userId,
         body == null ? null : body.getPassword());
     return ApiResponse.success(new BooleanResultResponse(true));

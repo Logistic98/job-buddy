@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import random
 import time
@@ -50,7 +51,11 @@ class _Window:
 
 class RateLimiter:
     def __init__(
-        self, config: RateLimitConfig, state_path: Optional[str] = None, redis_url: Optional[str] = None
+        self,
+        config: RateLimitConfig,
+        state_path: Optional[str] = None,
+        redis_url: Optional[str] = None,
+        namespace: str = "shared",
     ) -> None:
         self._config = config
         self._windows: dict[str, _Window] = {
@@ -64,7 +69,8 @@ class RateLimiter:
         self._last_action_at: float = 0.0
         # 风控冷却、连续失败和配额窗口必须跨进程保存，但不得写本地文件。
         # Redis 不可用时仅退化为进程内保护，并明确记录告警。
-        self._redis_key = "job-buddy:boss:rate-state"
+        namespace_digest = hashlib.sha256(namespace.encode("utf-8")).hexdigest()
+        self._redis_key = f"job-buddy:boss:rate-state:{namespace_digest}"
         self._redis: Redis | None = None
         if redis_url:
             try:

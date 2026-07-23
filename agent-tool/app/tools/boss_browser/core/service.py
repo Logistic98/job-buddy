@@ -15,9 +15,9 @@ from app.tools.boss_browser.core.boss_cli_engine import (
     BossCliEngine,
     BossCliUnavailable,
     BossCliUpstreamRateLimited,
-    get_engine,
 )
 from app.tools.boss_browser.core.extract import assemble_profile, extract_jobs, normalize_detail
+from app.tools.boss_browser.core.qr_session_codec import QrSessionCodec
 from app.tools.boss_browser.core.rate_limiter import (
     BackstopError,
     RateLimiter,
@@ -34,12 +34,20 @@ class RiskControlError(Exception):
 
 
 class BossService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        owner_key: str = "legacy",
+        qr_codec: QrSessionCodec | None = None,
+    ) -> None:
         self._settings = settings
-        self._session: BossCliEngine = get_engine(settings)
+        self._owner_key = owner_key
+        self._session = BossCliEngine(settings)
+        self._qr_codec = qr_codec or QrSessionCodec()
         self._limiter = RateLimiter(
             settings.rate_limit,
             redis_url=settings.rate_limit.redis_url,
+            namespace=owner_key,
         )
 
     @property
@@ -68,15 +76,52 @@ class BossService:
             self._limiter.reset_backstop()
         return result
 
-    async def qr_start(self) -> dict[str, Any]:
-        return await self._session.start_qr_login()
+    async def qr_start(self, session_id: str) -> dict[str, Any]:
+        if not session_id:
+            raise ValueError("Boss 二维码 session_id 不能为空")
+        result = await self._session.start_qr_login()
+        state = self._session.export_qr_state()
+        expires_at = float(state.get("expires_at") or 0)
+        result["session_id"] = session_id
+        result["session_token"] = self._qr_codec.encode(
+            owner_key=self._owner_key,
+            session_id=session_id,
+            state=state,
+            expires_at=expires_at,
+        )
+        result["expires_at"] = expires_at
+        return result
 
-    async def qr_status(self) -> dict[str, Any]:
+    async def qr_status(self, session_id: str, session_token: str) -> dict[str, Any]:
+        state = self._qr_codec.decode(
+            owner_key=self._owner_key,
+            session_id=session_id,
+            token=session_token,
+        )
+        self._session.import_qr_state(state)
         result = await self._session.poll_qr_login()
         if result.get("authenticated"):
             self._limiter.clear_cooldown()
             self._limiter.reset_backstop()
+        next_state = self._session.export_qr_state()
+        if next_state.get("qr_id") and result.get("status") not in {"logged_in", "auth_required", "qr_expired"}:
+            result["session_token"] = self._qr_codec.encode(
+                owner_key=self._owner_key,
+                session_id=session_id,
+                state=next_state,
+                expires_at=float(next_state.get("expires_at") or 0),
+            )
+        result["session_id"] = session_id
         return result
+
+    async def qr_cancel(self, session_id: str, session_token: str) -> dict[str, Any]:
+        self._qr_codec.decode(
+            owner_key=self._owner_key,
+            session_id=session_id,
+            token=session_token,
+        )
+        self._session.clear_qr_state()
+        return {"status": "cancelled", "session_id": session_id}
 
     async def _acquire(self, action: str) -> None:
         """获取限速许可；硬停时若实为未登录，则转为引导扫码登录而非死锁。
@@ -116,6 +161,9 @@ class BossService:
             raise AuthRequiredError(result.get("error_message") or "Boss 未登录或登录态失效，请扫码登录。")
         payload = result.get("payload")
         if payload is None:
+            if result.get("temporary_auth_refresh_failed"):
+                self._limiter.record_failure()
+                raise RuntimeError(result.get("error_message") or "Boss 临时安全令牌刷新失败，请稍后重试。")
             auth = await self._session.status()
             if not auth.get("authenticated"):
                 raise AuthRequiredError("Boss 未登录或登录态失效，请扫码登录。")
@@ -166,6 +214,9 @@ class BossService:
         payload = result.get("payload")
         jobs = extract_jobs(payload)
         if not jobs:
+            if result.get("temporary_auth_refresh_failed"):
+                self._limiter.record_failure()
+                raise RuntimeError(result.get("error_message") or "Boss 临时安全令牌刷新失败，请稍后重试。")
             # 无结果且未登录时，判定为需要登录（同样不计入硬停）。
             auth = await self._session.status()
             if not auth.get("authenticated"):
@@ -204,6 +255,9 @@ class BossService:
             raise AuthRequiredError(result.get("error_message") or "Boss 未登录或登录态失效，请扫码登录。")
         payload = result.get("payload")
         if payload is None:
+            if result.get("temporary_auth_refresh_failed"):
+                self._limiter.record_failure()
+                raise RuntimeError(result.get("error_message") or "Boss 临时安全令牌刷新失败，请稍后重试。")
             auth = await self._session.status()
             if not auth.get("authenticated"):
                 raise AuthRequiredError("Boss 未登录或登录态失效，请扫码登录。")
@@ -266,6 +320,6 @@ class BossService:
         return self._limiter.snapshot()
 
 
-@lru_cache(maxsize=1)
-def get_service() -> BossService:
-    return BossService(get_settings())
+@lru_cache(maxsize=256)
+def get_service(owner_key: str = "legacy") -> BossService:
+    return BossService(get_settings(), owner_key=owner_key)

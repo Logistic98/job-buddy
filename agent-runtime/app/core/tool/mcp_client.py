@@ -9,7 +9,12 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
-from app.core.common.settings import McpServerConfig
+from app.core.common.settings import McpConfig, McpServerConfig
+from app.core.tool.resource_budget import (
+    ResourceBudget,
+    ResourceBudgetExceeded,
+    enforce_resource_budget,
+)
 
 
 class McpProtocolError(RuntimeError):
@@ -19,9 +24,10 @@ class McpProtocolError(RuntimeError):
 class McpClient:
     """MCP streamable-http 客户端薄封装。"""
 
-    def __init__(self, server_id: str, config: McpServerConfig):
+    def __init__(self, server_id: str, config: McpServerConfig, limits: McpConfig):
         self.server_id = server_id
         self.config = config
+        self.limits = limits
 
     @asynccontextmanager
     async def _session(self):
@@ -45,7 +51,18 @@ class McpClient:
     async def list_tools(self) -> List[Dict[str, Any]]:
         async with self._session() as session:
             response = await session.list_tools()
-            return [self._dump_tool(item) for item in response.tools]
+            tools = response.tools or []
+            if len(tools) > self.limits.max_tools_per_server:
+                raise McpProtocolError(f"MCP 服务 {self.server_id} 工具数量超过 {self.limits.max_tools_per_server}")
+            dumped: List[Dict[str, Any]] = []
+            catalog_bytes = 0
+            for item in tools:
+                tool = self._dump_tool(item)
+                catalog_bytes += self._validate_tool_definition(tool)
+                if catalog_bytes > self.limits.max_catalog_bytes:
+                    raise McpProtocolError(f"MCP 服务 {self.server_id} 目录超过 {self.limits.max_catalog_bytes} 字节")
+                dumped.append(tool)
+            return dumped
 
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         async with self._session() as session:
@@ -59,35 +76,86 @@ class McpClient:
             "input_schema": getattr(tool, "inputSchema", None) or {"type": "object", "properties": {}},
         }
 
+    def _validate_tool_definition(self, tool: Dict[str, Any]) -> int:
+        name = str(tool.get("name") or "")
+        description = str(tool.get("description") or "")
+        if not name or len(name) > self.limits.max_tool_name_chars:
+            raise McpProtocolError(
+                f"MCP 服务 {self.server_id} 工具名称为空或超过 {self.limits.max_tool_name_chars} 字符"
+            )
+        if len(description) > self.limits.max_tool_description_chars:
+            raise McpProtocolError(f"MCP 工具 {name} 描述超过 {self.limits.max_tool_description_chars} 字符")
+        try:
+            schema_bytes = enforce_resource_budget(
+                tool.get("input_schema"),
+                ResourceBudget(
+                    max_bytes=self.limits.max_schema_bytes,
+                    max_nodes=self.limits.max_schema_nodes,
+                    max_depth=self.limits.max_schema_depth,
+                ),
+                f"MCP 工具 {name} Schema",
+            )
+        except ResourceBudgetExceeded as exc:
+            raise McpProtocolError(str(exc)) from exc
+        return len(name.encode("utf-8")) + len(description.encode("utf-8")) + schema_bytes
+
     def _dump_call_result(self, result: Any) -> Dict[str, Any]:
         """将 MCP CallToolResult 归一化为 dict。"""
 
         is_error = bool(getattr(result, "isError", False))
         structured = getattr(result, "structuredContent", None)
         if structured is not None:
+            self._validate_result_value(structured, "MCP structuredContent")
             return {"is_error": is_error, "structured": structured, "text": None}
 
         contents = getattr(result, "content", []) or []
+        if len(contents) > self.limits.max_result_items:
+            raise McpProtocolError(f"MCP 结果条目超过 {self.limits.max_result_items}")
         text_chunks: List[str] = []
         raw_items: List[Dict[str, Any]] = []
+        result_bytes = 0
         for item in contents:
             item_type = getattr(item, "type", None)
             if item_type == "text":
-                text_chunks.append(getattr(item, "text", "") or "")
+                chunk = getattr(item, "text", "") or ""
+                result_bytes += len(chunk.encode("utf-8"))
+                if result_bytes > self.limits.max_result_bytes:
+                    raise McpProtocolError(f"MCP 文本结果超过 {self.limits.max_result_bytes} 字节")
+                text_chunks.append(chunk)
             else:
                 try:
-                    raw_items.append(item.model_dump() if hasattr(item, "model_dump") else dict(item))
+                    raw = item.model_dump() if hasattr(item, "model_dump") else dict(item)
                 except Exception:
-                    raw_items.append({"type": item_type, "repr": str(item)})
+                    raw = {"type": item_type, "repr": str(item)}
+                result_bytes += self._validate_result_value(raw, "MCP 非文本结果")
+                if result_bytes > self.limits.max_result_bytes:
+                    raise McpProtocolError(f"MCP 结果超过 {self.limits.max_result_bytes} 字节")
+                raw_items.append(raw)
 
         text = "\n".join(chunk for chunk in text_chunks if chunk)
         parsed = self._try_parse_json(text) if text else None
+        if parsed is not None:
+            self._validate_result_value(parsed, "MCP JSON 结果")
         return {
             "is_error": is_error,
             "structured": parsed,
             "text": text or None,
             "raw": raw_items or None,
         }
+
+    def _validate_result_value(self, value: Any, label: str) -> int:
+        try:
+            return enforce_resource_budget(
+                value,
+                ResourceBudget(
+                    max_bytes=self.limits.max_result_bytes,
+                    max_nodes=self.limits.max_result_nodes,
+                    max_depth=self.limits.max_result_depth,
+                ),
+                label,
+            )
+        except ResourceBudgetExceeded as exc:
+            raise McpProtocolError(str(exc)) from exc
 
     @staticmethod
     def _try_parse_json(text: str) -> Optional[Any]:

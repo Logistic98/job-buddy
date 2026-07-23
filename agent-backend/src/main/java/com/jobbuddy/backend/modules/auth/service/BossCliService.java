@@ -19,9 +19,9 @@ public interface BossCliService {
 
   BossCliQrResult qrStart();
 
-  BossCliQrResult qrStatus(String sessionId);
+  BossCliQrResult qrStatus(String sessionId, String sessionToken);
 
-  BossCliCancelResult qrCancel(String sessionId);
+  BossCliCancelResult qrCancel(String sessionId, String sessionToken);
 
   BossCliCancelResult cancelLogin();
 

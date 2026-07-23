@@ -28,11 +28,12 @@ class BossBrowserTool(BaseTool):
         "properties": {
             "operation": {
                 "type": "string",
-                "description": "操作类型: status, qr_start, qr_status, search, favorite_list, detail, profile, rate",
+                "description": "操作类型: status, qr_start, qr_status, qr_cancel, search, favorite_list, detail, profile, rate",
                 "enum": [
                     "status",
                     "qr_start",
                     "qr_status",
+                    "qr_cancel",
                     "search",
                     "favorite_list",
                     "detail",
@@ -76,6 +77,7 @@ class BossBrowserTool(BaseTool):
             "status",
             "qr_start",
             "qr_status",
+            "qr_cancel",
             "search",
             "favorite_list",
             "detail",
@@ -89,6 +91,14 @@ class BossBrowserTool(BaseTool):
             payload = {}
         if not isinstance(payload, dict):
             return ValidationResult(result=False, message="payload 必须是对象", error_code=400)
+        tenant_id = str(context.metadata.get("tenant_id") or "").strip()
+        operator_id = str(context.metadata.get("operator_id") or context.metadata.get("user_id") or "").strip()
+        if not tenant_id or not operator_id:
+            return ValidationResult(
+                result=False,
+                message="Boss 工具必须由已认证的租户与操作人调用",
+                error_code=403,
+            )
         return ValidationResult(result=True)
 
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
@@ -100,10 +110,8 @@ class BossBrowserTool(BaseTool):
             "trace_id": context.trace_id,
         }
         headers = {
-            "X-Tenant-Id": str(context.metadata.get("tenant_id") or "default-tenant"),
-            "X-Operator-Id": str(
-                context.metadata.get("operator_id") or context.metadata.get("user_id") or "agent-runtime"
-            ),
+            "X-Tenant-Id": str(context.metadata["tenant_id"]).strip(),
+            "X-Operator-Id": str(context.metadata.get("operator_id") or context.metadata["user_id"]).strip(),
         }
         token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
         if token:
