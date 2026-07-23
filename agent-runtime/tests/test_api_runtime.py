@@ -5,8 +5,8 @@ try:
 except ImportError:
     TestClient = None
 
-from app.server import create_app
 from app.core.common.settings import settings
+from app.server import create_app
 from app.tools_builtin.boss_browser_tool import BossBrowserTool
 
 

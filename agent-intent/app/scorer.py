@@ -9,7 +9,6 @@ from typing import Optional
 
 from .models import IntentResult
 
-
 _INTENT_KEYWORDS: list[dict] = [
     {
         "domain": "job",

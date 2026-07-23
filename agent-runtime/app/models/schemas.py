@@ -1,10 +1,8 @@
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field, model_validator
 
-from pydantic import model_validator
-
-from app.core.common.constants import RuntimeStatus, StepStatus, ToolKind, ToolRiskLevel, PermissionMode
+from app.core.common.constants import PermissionMode, RuntimeStatus, StepStatus, ToolKind, ToolRiskLevel
 
 
 class ChatMessage(BaseModel):

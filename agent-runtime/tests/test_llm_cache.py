@@ -1,5 +1,5 @@
-import pytest
 import httpx
+import pytest
 
 from app.core.llm.openai_client import OpenAICompatibleClient
 from app.models.schemas import ChatMessage

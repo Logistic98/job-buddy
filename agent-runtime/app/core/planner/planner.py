@@ -10,7 +10,6 @@ from app.core.prompt.loader import PromptTemplateLoader
 from app.core.utils.time_utils import TimeUtils
 from app.models.schemas import AgentPlan, AgentPlanStep, ChatMessage, TaskUnderstandingResult, ToolCall, ToolDefinition
 
-
 DETERMINISTIC_TOOL_MATCH_MIN_SCORE = 4
 
 

@@ -84,16 +84,8 @@ run_python_module() {
     uv sync --frozen --quiet || fail "$module: uv sync --frozen failed"
   fi
 
-  local lint_targets=()
-  for candidate in app tests server.py main.py; do
-    if [[ -e "$candidate" ]]; then
-      lint_targets+=("$candidate")
-    fi
-  done
-  if [[ "${#lint_targets[@]}" -gt 0 ]]; then
-    uv run ruff check "${lint_targets[@]}" || fail "$module: ruff lint failed"
-    uv run ruff format --check "${lint_targets[@]}" || fail "$module: ruff format check failed"
-  fi
+  uv run ruff check . || fail "$module: ruff lint failed"
+  uv run ruff format --check . || fail "$module: ruff format check failed"
 
   if [[ -d tests ]]; then
     # Tests must be hermetic and must not inherit real deployment auth or production-mode flags.
