@@ -129,7 +129,10 @@ class JobRuntimeServiceImplTest {
     List<Map<String, Object>> source = new ArrayList<Map<String, Object>>();
     source.add(job("ok", "大模型应用开发工程师", "40-50K"));
     source.add(job("overlap", "大模型平台开发", "45-60K"));
+    source.add(job("single", "大模型应用开发", "40K"));
     source.add(job("low", "Java 开发", "17-18K"));
+    source.add(job("annualLow", "大模型应用开发", "21-35K·13薪"));
+    source.add(job("edgeOverlap", "Java 大模型应用开发", "30-41K"));
     source.add(job("rawYuanLow", "Java 开发", "8000-12000"));
     source.add(job("monthlyYuanLow", "Java 开发", "8000-12000元/月"));
     source.add(job("monthlyYuanOverlap", "大模型应用开发", "35000-50000元/月"));
@@ -173,15 +176,63 @@ class JobRuntimeServiceImplTest {
     assertEquals(5, result.size());
     assertTrue(keptIds.contains("ok"));
     assertTrue(keptIds.contains("overlap"));
+    assertTrue(keptIds.contains("single"));
     assertTrue(keptIds.contains("monthlyYuanOverlap"));
     assertTrue(keptIds.contains("structuredOverlap"));
-    assertTrue(keptIds.contains("negotiable"));
+    assertFalse(keptIds.contains("negotiable"));
     assertTrue(!keptIds.contains("low"));
+    assertFalse(keptIds.contains("annualLow"));
+    assertFalse(keptIds.contains("edgeOverlap"));
     assertTrue(!keptIds.contains("rawYuanLow"));
     assertTrue(!keptIds.contains("monthlyYuanLow"));
     assertTrue(!keptIds.contains("structuredLow"));
     assertTrue(!keptIds.contains("day"));
     assertTrue(!keptIds.contains("dayIntern"));
+  }
+
+  @Test
+  void recommendJobsFastShouldRejectUnsupportedSpecialtyFromProfileEvidence() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(
+            java.util.Arrays.asList(
+                job("fit", "Java RAG 大模型应用开发工程师", "40-50K"),
+                job("multimodal", "多模态大模型应用算法工程师", "40-50K")));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(10);
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "Java 大模型应用开发");
+    slots.put("include_keywords", java.util.Arrays.asList("Java", "RAG", "Agent", "Spring Cloud"));
+
+    List<Map<String, Object>> result =
+        service.recommendJobsFast(
+            new IntentResult(
+                "job",
+                "job.recommend",
+                0.99,
+                Collections.<String>emptyList(),
+                "low",
+                false,
+                "call_get_recommend_jobs",
+                slots),
+            "s1",
+            null);
+
+    assertEquals(1, result.size());
+    assertEquals("fit", result.get(0).get("securityId"));
   }
 
   @Test
@@ -350,6 +401,48 @@ class JobRuntimeServiceImplTest {
   }
 
   @Test
+  void prequalifyRecommendationsShouldRejectLowScoreLowConfidenceAndNegativeAdvice() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMinimumRecommendedMatchScore(70);
+    Map<String, Object> accepted = recommendationMatch("accepted", 82, "medium", "推荐");
+    Map<String, Object> lowScore = recommendationMatch("low-score", 55, "medium", "可尝试");
+    Map<String, Object> lowConfidence = recommendationMatch("low-confidence", 84, "low", "推荐");
+    Map<String, Object> negative = recommendationMatch("negative", 88, "high", "不建议");
+    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+        .thenReturn(runtimeMatch(accepted, lowScore, lowConfidence, negative));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendations(
+            parsedResume(),
+            java.util.Arrays.asList(
+                realJob("accepted"),
+                realJob("low-score"),
+                realJob("low-confidence"),
+                realJob("negative")),
+            "s1");
+
+    assertEquals(1, result.getQualifiedCount());
+    assertEquals("accepted", result.getJobs().get(0).get("securityId"));
+    assertEquals(82, result.getJobs().get(0).get("matchScore"));
+    assertEquals("medium", result.getJobs().get(0).get("matchConfidence"));
+    assertTrue(result.getRejectionReasons().containsKey("未达到最低匹配分"));
+    assertTrue(result.getRejectionReasons().containsKey("匹配置信度低"));
+    assertTrue(result.getRejectionReasons().containsKey("投递建议为不建议"));
+  }
+
+  @Test
   void matchResumeShouldRejectFixtureEvidenceBeforeCallingRuntimeTool() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
     BossAuthService bossAuthService = mock(BossAuthService.class);
@@ -403,6 +496,17 @@ class JobRuntimeServiceImplTest {
     row.put("id", id);
     row.put("score", score);
     row.put("evidence", Collections.singletonList("岗位要求与简历技术栈一致"));
+    return row;
+  }
+
+  private Map<String, Object> recommendationMatch(
+      String id, int score, String confidence, String recommendation) {
+    Map<String, Object> row = new LinkedHashMap<String, Object>();
+    row.put("id", id);
+    row.put("score", score);
+    row.put("score_confidence", confidence);
+    row.put("recommendation", recommendation);
+    row.put("hits", Collections.singletonList("Java、RAG 与 Agent 能力匹配岗位要求"));
     return row;
   }
 

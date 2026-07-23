@@ -11,6 +11,9 @@ steps:
   - id: business_execute
     name: Java BFF 执行业务搜索工具
     external_action: call_get_recommend_jobs
+  - id: recommendation_quality_gate
+    name: Java BFF 基于画像与简历执行严格推荐预筛
+    external_action: prequalify_job_recommendations
   - id: present
     name: 前端展示岗位卡片
     external_event: job_cards

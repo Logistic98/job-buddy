@@ -20,6 +20,9 @@ public interface JobRuntimeService {
 
   int bossCandidatePoolTimeoutSeconds();
 
+  JobRecommendationResult prequalifyRecommendations(
+      ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId);
+
   Map<String, Object> matchResume(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId);
 

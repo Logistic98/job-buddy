@@ -152,7 +152,7 @@ capabilities:
     risk: low
     next_action: call_get_recommend_jobs
     required_tools: ["boss_browser"]
-    evidence_requirements: ["真实 Boss 搜索结果", "岗位来源和岗位 ID", "用户槽位约束"]
+    evidence_requirements: ["真实 Boss 搜索结果", "岗位来源和岗位 ID", "用户槽位约束", "求职画像与当前简历严格预筛结果"]
     context_dependencies: ["profile"]
     secondary: ["needs_job_filters"]
     business_tags: ["job_search"]

@@ -63,6 +63,38 @@ def test_grade_run_rejects_fixture_and_false_completion():
     assert any(issue["code"] == "no_fixture_or_mock_claims" for issue in result["issues"])
 
 
+def test_grade_run_rejects_job_cards_that_bypass_strict_recommendation_gate():
+    run = {
+        "status": "success",
+        "answer": "已找到岗位。",
+        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.99},
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+        "job_cards": [
+            {
+                "securityId": "bad-1",
+                "matchScore": 45,
+                "matchConfidence": "medium",
+                "matchRecommendation": "不建议",
+            }
+        ],
+    }
+
+    result = grade_run(run, {"intent": "job.recommend", "domain": "job"})
+
+    assert result["passed"] is False
+    assert any(issue["code"] == "job_recommendations_pass_quality_gate" for issue in result["issues"])
+
+
 def test_grade_run_accepts_conversation_shortcut_router():
     run = {
         "status": "success",

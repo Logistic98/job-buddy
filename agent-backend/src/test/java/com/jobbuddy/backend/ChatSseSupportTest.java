@@ -158,9 +158,9 @@ class ChatSseSupportTest {
     top.put("score", 86);
     top.put("score_confidence", "high");
     top.put("recommendation", "推荐");
-    top.put("reasoning", "Java 与 Agent 工程化经历能够覆盖岗位核心要求。");
-    top.put("hits", Arrays.asList("具备 Java 后端经验", "具备 Agent 项目经验"));
-    top.put("gaps", Arrays.asList("行业经验需要补充"));
+    top.put("reasoning", "Java 与 Agent 工程化经历能够覆盖岗位核心要求。。");
+    top.put("hits", Arrays.asList("具备 Java 后端经验。", "具备 Agent 项目经验。"));
+    top.put("gaps", Arrays.asList("行业经验需要补充。"));
     Map<String, Object> match = new LinkedHashMap<String, Object>();
     match.put("matches", Arrays.asList(top));
     Map<String, Object> job = new LinkedHashMap<String, Object>();
@@ -172,8 +172,13 @@ class ChatSseSupportTest {
     assertTrue(summary.contains("6年经验求职简历.pdf"));
     assertTrue(summary.contains("上海示例科技 / 大模型应用开发岗"));
     assertTrue(summary.contains("重新评估上一轮岗位"));
-    assertTrue(summary.contains("86/100"));
-    assertTrue(summary.contains("具备 Agent 项目经验"));
+    assertTrue(summary.contains("## 匹配结论"));
+    assertTrue(summary.contains("## 核心判断"));
+    assertTrue(summary.contains("## 主要匹配"));
+    assertTrue(summary.contains("- **匹配评分：** **86/100**"));
+    assertTrue(summary.contains("- 具备 Agent 项目经验"));
+    assertFalse(summary.contains("。。"));
+    assertFalse(summary.contains("经验。\n"));
   }
 
   @Test

@@ -142,7 +142,13 @@ public class ChatSseServiceImpl implements ChatSseService {
     this.selectedJobAnalysisHandler =
         new SelectedJobAnalysisHandler(sender, selectedJobContextResolver, resumeFlowHandler);
     this.jobRecommendHandler =
-        new JobRecommendHandler(sender, persistence, jobRuntimeService, properties);
+        new JobRecommendHandler(
+            sender,
+            persistence,
+            jobRuntimeService,
+            personalContextBuilder,
+            resumeLoader,
+            properties);
     this.runtimeManagedTaskHandler =
         new RuntimeManagedTaskHandler(sender, integrationService, requestFactory);
   }
@@ -554,7 +560,7 @@ public class ChatSseServiceImpl implements ChatSseService {
     }
     if (matchesCapability(
         action, intent, "call_get_recommend_jobs", "run_job_recommend", "job.recommend")) {
-      jobRecommendHandler.handle(emitter, sessionId, state, intent);
+      jobRecommendHandler.handle(emitter, sessionId, state, intent, false, rawMessage);
       return;
     }
     if (matchesCapability(

@@ -410,6 +410,42 @@ def _grade_grounding_dimension(run: dict, expected: dict) -> list[dict]:
                 "grounding", "required_evidence_missing", 0.0, 1.0, "该用例要求证据型输出，但未找到证据结构", "critical"
             )
         )
+    job_cards = _list(run.get("job_cards") or run.get("jobCards"))
+    if job_cards:
+        minimum_score = _int(expected.get("minimum_recommended_match_score"), 70)
+        invalid_cards = []
+        for card in job_cards:
+            if not isinstance(card, dict):
+                invalid_cards.append(card)
+                continue
+            confidence = str(card.get("matchConfidence") or "").lower()
+            recommendation = str(card.get("matchRecommendation") or "")
+            if (
+                _int(card.get("matchScore"), 0) < minimum_score
+                or confidence == "low"
+                or any(marker in recommendation for marker in ("谨慎", "不建议", "证据不足"))
+            ):
+                invalid_cards.append(
+                    {
+                        "id": card.get("securityId") or card.get("id"),
+                        "score": card.get("matchScore"),
+                        "confidence": confidence,
+                        "recommendation": recommendation,
+                    }
+                )
+        checks.append(
+            _check(
+                "grounding",
+                "job_recommendations_pass_quality_gate",
+                1.0 if not invalid_cards else 0.0,
+                1.3,
+                "推荐岗位均通过匹配分、置信度和投递建议门槛"
+                if not invalid_cards
+                else "推荐列表包含低分、低置信度或不建议岗位",
+                "critical",
+                invalid_cards[:5],
+            )
+        )
     return checks
 
 

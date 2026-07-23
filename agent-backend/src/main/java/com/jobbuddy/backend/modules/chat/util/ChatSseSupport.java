@@ -265,36 +265,42 @@ public final class ChatSseSupport {
     String targetLabel = selectedJobLabel(targetJob);
     StringBuilder builder = new StringBuilder();
     builder
-        .append(reusedPreviousJob ? "已按当前简历「" : "已使用当前简历「")
+        .append("> ")
+        .append(reusedPreviousJob ? "已使用当前简历重新评估上一轮岗位。" : "已使用当前简历分析目标岗位。")
+        .append("\n\n")
+        .append("## 匹配结论\n\n")
+        .append("- **当前简历：** ")
         .append(effectiveResumeName)
-        .append(reusedPreviousJob ? "」重新评估上一轮岗位「" : "」分析目标岗位「")
+        .append('\n')
+        .append("- **目标岗位：** ")
         .append(targetLabel)
-        .append("」。\n\n");
+        .append('\n');
 
     Map<String, Object> row = firstMatch(match);
     if (row.isEmpty()) {
-      return builder.append("匹配任务已完成，但没有取得可展示的结构化结论。").toString();
+      return builder.append("- **分析状态：** 未取得可展示的结构化结论\n").toString().trim();
     }
     String score = stringValue(row.get("score"));
     String confidence = stringValue(firstPresent(row, "score_confidence", "confidence"));
     String recommendation = stringValue(row.get("recommendation"));
-    if (!score.isEmpty()) {
-      builder.append("**匹配评分：").append(score).append("/100**");
-      if (!confidence.isEmpty()) builder.append("（置信度：").append(confidence).append("）");
-      if (!recommendation.isEmpty()) builder.append("，结论：").append(recommendation);
-      builder.append("。\n\n");
-    } else {
-      builder.append("本次未展示精确评分");
-      if (!recommendation.isEmpty()) builder.append("，结论：").append(recommendation);
-      String limitation = firstListText(row.get("limitations"));
-      if (!limitation.isEmpty()) builder.append("。原因：").append(limitation);
-      builder.append("。\n\n");
+    builder
+        .append("- **匹配评分：** ")
+        .append(score.isEmpty() ? "暂不展示" : "**" + score + "/100**")
+        .append('\n');
+    if (!recommendation.isEmpty()) {
+      builder.append("- **投递建议：** ").append(normalizeProsePunctuation(recommendation)).append('\n');
+    }
+    if (!confidence.isEmpty()) {
+      builder.append("- **置信度：** ").append(confidence).append('\n');
     }
 
-    String reasoning = stringValue(row.get("reasoning"));
-    if (!reasoning.isEmpty()) builder.append(reasoning).append("\n\n");
+    String reasoning = normalizeProsePunctuation(stringValue(row.get("reasoning")));
+    if (!reasoning.isEmpty()) {
+      builder.append("\n## 核心判断\n\n").append(reasoning).append("\n");
+    }
     appendSummaryList(builder, "主要匹配", row.get("hits"));
     appendSummaryList(builder, "主要差距", row.get("gaps"));
+    appendSummaryList(builder, "分析限制", row.get("limitations"));
     return builder.toString().trim();
   }
 
@@ -334,17 +340,31 @@ public final class ChatSseSupport {
     List<?> rows = (List<?>) value;
     List<String> texts = new ArrayList<String>();
     for (Object item : rows) {
-      String text = stringValue(item).trim();
+      String text = stripTerminalPunctuation(normalizeProsePunctuation(stringValue(item)));
       if (!text.isEmpty()) texts.add(text);
       if (texts.size() >= 3) break;
     }
     if (texts.isEmpty()) return;
-    builder
-        .append("**")
-        .append(label)
-        .append("：** ")
-        .append(String.join("；", texts))
-        .append("。\n\n");
+    builder.append("\n## ").append(label).append("\n\n");
+    for (String text : texts) builder.append("- ").append(text).append('\n');
+  }
+
+  /** 仅归一普通说明文本的重复句末标点，不改写词内符号、版本号或 Markdown 结构。 */
+  private static String normalizeProsePunctuation(String value) {
+    String text = stringValue(value).trim();
+    if (text.isEmpty()) return "";
+    return text.replaceAll("。{2,}", "。")
+        .replaceAll("！{2,}", "！")
+        .replaceAll("？{2,}", "？")
+        .replaceAll("；{2,}", "；")
+        .replaceAll("，{2,}", "，")
+        .replaceAll("\\.+([。！？])", "$1")
+        .replaceAll("([。！？])\\.+", "$1");
+  }
+
+  /** 列表负责表达分隔关系，因此移除条目自带的句末符号，避免与模板再次拼接产生“。。”或“。；”。 */
+  private static String stripTerminalPunctuation(String value) {
+    return stringValue(value).trim().replaceFirst("[。！？；，、：,.!?;:]+$", "").trim();
   }
 
   public static String fallbackGeneralResumeMatchAnswer(ResumeRecord resume, String targetRole) {

@@ -6,6 +6,7 @@ import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
 import com.jobbuddy.backend.modules.auth.service.BossAuthService;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
+import com.jobbuddy.backend.modules.chat.service.JobRecommendationResult;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService.JobProgressConsumer;
 import com.jobbuddy.backend.modules.chat.service.RuntimeToolClient;
@@ -201,6 +202,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         rawJobs == null ? new ArrayList<Map<String, Object>>() : rawJobs;
     jobs = clientFilter(jobs, slots);
     jobs = settingsService.filterBlacklistedJobs(jobs);
+    jobs = filterByRoleCompatibility(jobs, slots);
     jobs = filterBySalary(jobs, slots);
     jobs = sortByUserRequirement(jobs, slots);
     return jobs;
@@ -553,12 +555,104 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return jobs;
   }
 
+  public JobRecommendationResult prequalifyRecommendations(
+      ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId) {
+    int candidateCount = jobs == null ? 0 : jobs.size();
+    if (resume == null || resume.getParsed() == null || resume.getParsed().isEmpty()) {
+      return new JobRecommendationResult(
+          Collections.<Map<String, Object>>emptyList(),
+          candidateCount,
+          Collections.singletonMap("缺少当前简历", candidateCount),
+          Collections.singletonList("请先选择并解析当前简历，再获取个性化岗位推荐。"));
+    }
+    if (jobs == null || jobs.isEmpty()) {
+      return new JobRecommendationResult(
+          Collections.<Map<String, Object>>emptyList(),
+          0,
+          Collections.<String, Integer>emptyMap(),
+          Collections.<String>emptyList());
+    }
+    List<String> sections =
+        Arrays.asList(
+            "score",
+            "score_confidence",
+            "recommendation",
+            "reasoning",
+            "evidence",
+            "hits",
+            "gaps",
+            "limitations");
+    Map<String, Object> normalized =
+        normalizeResumeMatchEvidence(invokeResumeMatch(resume, jobs, sessionId, sections), false);
+    Map<String, Map<String, Object>> matchesById = new LinkedHashMap<String, Map<String, Object>>();
+    Object matches = normalized.get("matches");
+    if (matches instanceof List) {
+      for (Object item : (List) matches) {
+        if (!(item instanceof Map)) continue;
+        Map<String, Object> row = new LinkedHashMap<String, Object>((Map<String, Object>) item);
+        matchesById.put(stringValue(row.get("id")), row);
+      }
+    }
+    List<Map<String, Object>> qualified = new ArrayList<Map<String, Object>>();
+    Map<String, Integer> rejected = new LinkedHashMap<String, Integer>();
+    for (int i = 0; i < jobs.size(); i++) {
+      Map<String, Object> job = jobs.get(i);
+      if (job == null) continue;
+      String id = jobId(job, i);
+      Map<String, Object> match = matchesById.get(id);
+      if (match == null) {
+        increment(rejected, "未达到最低匹配分");
+        continue;
+      }
+      int score = toScore(match.get("score"));
+      if (match.get("score") == null || score < properties.getMinimumRecommendedMatchScore()) {
+        increment(rejected, "未达到最低匹配分");
+        continue;
+      }
+      String confidence = stringValue(firstPresent(match, "score_confidence", "confidence"));
+      String recommendation = stringValue(match.get("recommendation"));
+      if ("low".equalsIgnoreCase(confidence)) {
+        increment(rejected, "匹配置信度低");
+        continue;
+      }
+      if (isRejectedRecommendation(recommendation)) {
+        increment(rejected, recommendation.isEmpty() ? "投递建议不明确" : "投递建议为" + recommendation);
+        continue;
+      }
+      Map<String, Object> accepted = new LinkedHashMap<String, Object>(job);
+      accepted.put("matchScore", score);
+      accepted.put("matchConfidence", confidence);
+      accepted.put("matchRecommendation", recommendation);
+      accepted.put(
+          "recommendationReasons", firstTexts(match.get("hits"), match.get("evidence"), 2));
+      accepted.put(
+          "recommendationWarnings", firstTexts(match.get("gaps"), match.get("limitations"), 2));
+      accepted.put(
+          "recommendationEvidenceLevel", hasJobDescription(job) ? "full_jd" : "list_metadata");
+      qualified.add(accepted);
+    }
+    qualified.sort(
+        (left, right) ->
+            Integer.compare(toScore(right.get("matchScore")), toScore(left.get("matchScore"))));
+    List<String> warnings = new ArrayList<String>();
+    if (qualified.isEmpty()) warnings.add("当前批次没有岗位同时达到匹配分、置信度和投递建议门槛。");
+    return new JobRecommendationResult(qualified, candidateCount, rejected, warnings);
+  }
+
   public Map<String, Object> matchResume(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId) {
     return matchResumeSections(resume, jobs, sessionId, Collections.<String>emptyList());
   }
 
   public Map<String, Object> matchResumeSections(
+      ResumeRecord resume,
+      List<Map<String, Object>> jobs,
+      String sessionId,
+      List<String> sections) {
+    return normalizeResumeMatchEvidence(invokeResumeMatch(resume, jobs, sessionId, sections), true);
+  }
+
+  private Map<String, Object> invokeResumeMatch(
       ResumeRecord resume,
       List<Map<String, Object>> jobs,
       String sessionId,
@@ -578,11 +672,9 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
           ChatValueSupport.errorMessage(result.get("error"), "Runtime 简历匹配执行失败，请稍后重试。"));
     }
     Object output = result.get("output");
-    Map<String, Object> match =
-        output instanceof Map
-            ? (Map<String, Object>) output
-            : Collections.<String, Object>emptyMap();
-    return normalizeResumeMatchEvidence(match);
+    return output instanceof Map
+        ? (Map<String, Object>) output
+        : Collections.<String, Object>emptyMap();
   }
 
   private void validateMatchEvidence(List<Map<String, Object>> jobs) {
@@ -598,7 +690,8 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
-  private Map<String, Object> normalizeResumeMatchEvidence(Map<String, Object> match) {
+  private Map<String, Object> normalizeResumeMatchEvidence(
+      Map<String, Object> match, boolean allowThresholdRelaxation) {
     Map<String, Object> normalized = new LinkedHashMap<String, Object>();
     if (match != null) normalized.putAll(match);
     Object matches = normalized.get("matches");
@@ -620,14 +713,16 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         }
         rows.add(next);
       }
-      applyRecommendationThreshold(normalized, rows);
+      applyRecommendationThreshold(normalized, rows, allowThresholdRelaxation);
     }
     normalized.put("evaluation_policy", "evidence_required_no_fixture_no_mock");
     return normalized;
   }
 
   private void applyRecommendationThreshold(
-      Map<String, Object> normalized, List<Map<String, Object>> rows) {
+      Map<String, Object> normalized,
+      List<Map<String, Object>> rows,
+      boolean allowThresholdRelaxation) {
     int threshold = Math.max(0, Math.min(100, properties.getMinimumRecommendedMatchScore()));
     normalized.put("minimum_recommended_match_score", threshold);
     boolean hasScore = false;
@@ -646,7 +741,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       return;
     }
     boolean relaxed = false;
-    if (recommended.isEmpty() && !rows.isEmpty()) {
+    if (allowThresholdRelaxation && recommended.isEmpty() && !rows.isEmpty()) {
       Map<String, Object> best = rows.get(0);
       for (Map<String, Object> row : rows) {
         if (toScore(row.get("score")) > toScore(best.get("score"))) best = row;
@@ -660,6 +755,50 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     normalized.put("recommended_count", recommended.size());
     normalized.put("recommendation_threshold_applied", true);
     normalized.put("recommendation_threshold_relaxed", relaxed);
+  }
+
+  private void increment(Map<String, Integer> counters, String key) {
+    counters.put(key, Integer.valueOf(counters.getOrDefault(key, Integer.valueOf(0)) + 1));
+  }
+
+  private boolean isRejectedRecommendation(String recommendation) {
+    String value = recommendation == null ? "" : recommendation.trim();
+    return value.isEmpty()
+        || value.contains("不建议")
+        || value.contains("证据不足")
+        || value.contains("谨慎");
+  }
+
+  private boolean hasJobDescription(Map<String, Object> job) {
+    return !stringValue(
+            firstPresent(job, "jobDescription", "description", "postDescription", "jobRequire"))
+        .trim()
+        .isEmpty();
+  }
+
+  private List<String> firstTexts(Object primary, Object fallback, int limit) {
+    Object source = primary instanceof List && !((List) primary).isEmpty() ? primary : fallback;
+    if (!(source instanceof List)) return Collections.emptyList();
+    List<String> result = new ArrayList<String>();
+    for (Object item : (List) source) {
+      String value;
+      if (item instanceof Map) {
+        value =
+            stringValue(
+                firstPresent(
+                    (Map<String, Object>) item,
+                    "assessment",
+                    "resume_evidence",
+                    "job_requirement",
+                    "summary"));
+      } else {
+        value = stringValue(item);
+      }
+      value = value.trim();
+      if (!value.isEmpty()) result.add(value);
+      if (result.size() >= limit) break;
+    }
+    return result;
   }
 
   private int evidenceCount(Map<String, Object> row) {
@@ -789,6 +928,69 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return filtered;
   }
 
+  /**
+   * 岗位族与专项能力硬过滤。大模型应用方向允许常规 Java/RAG/Agent 岗位，但岗位明确要求多模态、
+   * 视觉、语音等专项能力而画像/简历没有对应证据时直接剔除，避免只因标题含“大模型”就进入推荐。
+   */
+  private List<Map<String, Object>> filterByRoleCompatibility(
+      List<Map<String, Object>> jobs, Map<String, Object> slots) {
+    if (jobs == null || jobs.isEmpty())
+      return jobs == null ? new ArrayList<Map<String, Object>>() : jobs;
+    String role = stringValue(slots.get("role")).toLowerCase();
+    String capabilityText = (role + " " + stringValue(slots.get("include_keywords"))).toLowerCase();
+    Integer candidateYears = toInteger(slots.get("candidate_years_experience"));
+    List<Map<String, Object>> filtered = new ArrayList<Map<String, Object>>();
+    for (Map<String, Object> job : jobs) {
+      if (job == null) continue;
+      String title = stringValue(firstPresent(job, "jobName", "title", "name")).toLowerCase();
+      String text =
+          (title
+                  + " "
+                  + stringValue(firstPresent(job, "skills", "jobLabels"))
+                  + " "
+                  + stringValue(firstPresent(job, "brandIndustry", "industry")))
+              .toLowerCase();
+      if (containsAny(role, "大模型", "llm", "agent", "智能体", "rag")
+          && !containsAny(text, "大模型", "llm", "agent", "智能体", "rag", "ai")) continue;
+      if (requiresUnsupportedSpecialty(text, capabilityText)) continue;
+      if (candidateYears != null) {
+        Integer minimumYears = minimumRequiredYears(job);
+        if (minimumYears != null && minimumYears > candidateYears + 1) continue;
+      }
+      filtered.add(job);
+    }
+    return filtered;
+  }
+
+  private boolean requiresUnsupportedSpecialty(String jobText, String capabilityText) {
+    String[][] groups = {
+      {"多模态", "视觉", "图像", "语音", "音频", "视频", "cv", "clip", "blip", "stable diffusion"},
+      {"推荐算法", "搜索算法", "广告算法", "排序算法"},
+      {"嵌入式", "机器人", "自动驾驶", "slam", "控制算法"},
+      {"前端", "javascript", "vue", "react", "ios", "android", "客户端"}
+    };
+    for (String[] group : groups) {
+      if (containsAny(jobText, group) && !containsAny(capabilityText, group)) return true;
+    }
+    return false;
+  }
+
+  private Integer minimumRequiredYears(Map<String, Object> job) {
+    String text = stringValue(firstPresent(job, "jobExperience", "experience", "experienceName"));
+    if (text.isEmpty() || text.contains("不限") || text.contains("应届")) return null;
+    java.util.regex.Matcher matcher =
+        java.util.regex.Pattern.compile("(\\d+)\\s*(?:-|~|至|到|年以上|年)").matcher(text);
+    return matcher.find() ? Integer.valueOf(matcher.group(1)) : null;
+  }
+
+  private boolean containsAny(String text, String... values) {
+    String source = text == null ? "" : text.toLowerCase();
+    for (String value : values) {
+      if (value != null && !value.isEmpty() && source.contains(value.toLowerCase())) return true;
+    }
+    return false;
+  }
+
   private List<Map<String, Object>> sortByUserRequirement(
       List<Map<String, Object>> jobs, final Map<String, Object> slots) {
     if (jobs == null || jobs.isEmpty())
@@ -874,6 +1076,8 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     if (minSalary == null && maxSalary == null) return jobs;
     int expectedMin = minSalary == null ? 0 : minSalary.intValue();
     int expectedMax = maxSalary == null ? Integer.MAX_VALUE : maxSalary.intValue();
+    boolean strict =
+        minSalary != null || maxSalary != null || Boolean.TRUE.equals(slots.get("salary_strict"));
     List<Map<String, Object>> filtered = new ArrayList<Map<String, Object>>();
     for (Map<String, Object> job : jobs) {
       if (job == null) continue;
@@ -884,14 +1088,29 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       // 实习岗与正式月薪检索语义冲突，按标题或薪资文案识别后丢弃。
       if (title.contains("实习") || salary.contains("实习")) continue;
       int[] range = monthlySalaryRangeK(job);
-      // 面议或真正无法解析薪资的岗位信息缺失，保留交由排序决定其位置，避免误伤。
+      // 用户明确薪资时失败关闭：面议、缺失和无法解析的薪资不能作为合格推荐。
       if (range == null) {
-        filtered.add(job);
+        if (!strict) filtered.add(job);
         continue;
       }
-      if (range[1] >= expectedMin && range[0] <= expectedMax) filtered.add(job);
+      if (salaryRangeMatches(range, minSalary, maxSalary)) filtered.add(job);
     }
     return filtered;
+  }
+
+  private boolean salaryRangeMatches(int[] range, Integer minSalary, Integer maxSalary) {
+    if (range == null) return false;
+    if (minSalary != null && maxSalary != null) {
+      int expectedMin = Math.min(minSalary, maxSalary);
+      int expectedMax = Math.max(minSalary, maxSalary);
+      if (range[0] == range[1]) return range[0] >= expectedMin && range[0] <= expectedMax;
+      int overlap = Math.max(0, Math.min(range[1], expectedMax) - Math.max(range[0], expectedMin));
+      int targetWidth = expectedMax - expectedMin;
+      if (targetWidth <= 0) return range[0] <= expectedMin && range[1] >= expectedMin;
+      return overlap * 2 >= targetWidth;
+    }
+    if (minSalary != null) return range[1] >= minSalary;
+    return maxSalary == null || range[0] <= maxSalary;
   }
 
   private String salaryText(Map<String, Object> job) {

@@ -32,20 +32,48 @@
               </strong>
               <b>{{ panelStatusText(msg) }}</b>
             </summary>
-            <div v-if="isStreamingMsg(msg)" class="tool-thinking-step">
+            <div v-if="isStreamingMsg(msg) && activeRunningToolEvent" class="tool-thinking-step">
               <div class="loading-spinner"></div>
               <div class="loading-copy">
                 <strong>{{ loadingTitle }}</strong>
                 <span>{{ loadingSummary }}</span>
               </div>
-              <div class="loading-count">{{ completedToolCount }}/{{ visibleToolEvents.length || 1 }}</div>
+              <div class="loading-count">
+                <strong>{{ completedToolCount }}/{{ visibleToolEvents.length || 1 }}</strong>
+                <small>{{ activeRunningTimingText }}</small>
+              </div>
             </div>
             <div class="tool-step-list">
-              <div v-for="item in messageToolEvents(msg)" :key="item.id" class="tool-step-line">
-                <b :class="['tool-dot', item.status]"></b>
-                <strong>{{ item.name }}</strong>
-                <small v-if="item.detail">{{ item.detail }}</small>
-              </div>
+              <article v-for="item in processStepEvents(msg)" :key="item.id" class="tool-step-card">
+                <header>
+                  <b :class="['tool-dot', item.status]"></b>
+                  <strong>{{ item.name }}</strong>
+                  <div class="tool-step-meta">
+                    <time v-if="toolEventTimingText(item)">{{ toolEventTimingText(item) }}</time>
+                    <span :class="['tool-state', item.status]">{{ toolStateText(item.status) }}</span>
+                  </div>
+                </header>
+                <div v-if="item.detail || toolEventHighlights(item).length" class="tool-step-overview">
+                  <p v-if="item.detail" class="tool-step-summary">{{ item.detail }}</p>
+                  <span v-else></span>
+                  <button
+                    v-if="toolEventHighlights(item).length"
+                    type="button"
+                    class="tool-detail-toggle"
+                    :aria-expanded="isToolDetailOpen(msg, item)"
+                    @click="toggleToolDetail(msg, item)"
+                  >
+                    {{ isToolDetailOpen(msg, item) ? '收起详情' : '展开详情' }}
+                    <small>{{ toolEventHighlights(item).length }} 项</small>
+                  </button>
+                </div>
+                <dl v-if="isToolDetailOpen(msg, item)" class="tool-key-details">
+                  <div v-for="detail in toolEventHighlights(item)" :key="`${item.id}:${detail.label}`">
+                    <dt>{{ detail.label }}</dt>
+                    <dd>{{ detail.value }}</dd>
+                  </div>
+                </dl>
+              </article>
               <details
                 v-if="msg.reasoning && msg.reasoning.trim()"
                 class="tool-step reasoning-step"
@@ -59,14 +87,16 @@
                       isStreamingMsg(msg) && !String(msg.content || '').trim() ? 'running' : 'success',
                     ]"
                   ></b>
-                  <strong>模型推理</strong>
+                  <strong>模型思路摘要</strong>
                   <small>{{
                     isStreamingMsg(msg) && !String(msg.content || '').trim()
-                      ? '正在逐字思考…'
-                      : `${msg.reasoning.length} 字`
+                      ? '正在提取关键思路…'
+                      : `精选 ${reasoningHighlights(msg.reasoning).length} 条关键内容`
                   }}</small>
                 </summary>
-                <pre class="reasoning-text">{{ msg.reasoning }}</pre>
+                <ul class="reasoning-highlights">
+                  <li v-for="(line, index) in reasoningHighlights(msg.reasoning)" :key="index">{{ line }}</li>
+                </ul>
               </details>
             </div>
           </details>
@@ -84,7 +114,7 @@
                 <MarkdownRender
                   class="chat-markdown"
                   custom-id="job-chat"
-                  :content="normalizeMarkdownContent(msg.content || '')"
+                  :content="normalizeAssistantMarkdown(msg.content || '')"
                   :final="isMessageFinal(msg)"
                   html-policy="escape"
                   :max-live-nodes="0"
@@ -108,8 +138,16 @@
                     </div>
                     <p>{{ company(item) }} · {{ locationText(item) }} · {{ experienceText(item) }}</p>
                     <p v-if="chatJobSummary(item)" class="chat-job-summary">{{ chatJobSummary(item) }}</p>
+                    <p v-if="recommendationReasons(item)" class="chat-job-recommendation">
+                      <strong>推荐依据</strong>{{ recommendationReasons(item) }}
+                    </p>
+                    <p v-if="recommendationWarnings(item)" class="chat-job-warning">
+                      <strong>注意</strong>{{ recommendationWarnings(item) }}
+                    </p>
                     <div class="chat-job-meta">
-                      <span v-if="item.matchScore">{{ item.matchScore }} 分</span>
+                      <span v-if="item.matchScore">匹配 {{ item.matchScore }} 分</span>
+                      <span v-if="matchConfidence(item)">置信度 {{ matchConfidence(item) }}</span>
+                      <span v-if="item.matchRecommendation">{{ item.matchRecommendation }}</span>
                       <span v-for="tag in jobTags(item)" :key="tag">{{ tag }}</span>
                     </div>
                     <div class="chat-job-actions">
@@ -201,6 +239,7 @@ import { useChatStore } from '../stores/chat'
 import { useJobStore } from '../stores/job'
 import { fetchJobDetail } from '../api/jobs'
 import { firstJobDescriptionText, normalizeJobDescriptionText } from '../utils/jobText'
+import { normalizeAssistantMarkdown, selectReasoningHighlights, selectToolEventHighlights } from '../utils/chatHelpers'
 import { bossDetailUrl } from '../utils/zhipinUrl'
 defineEmits(['ask', 'select-resume'])
 const props = defineProps({ resumeId: { type: String, default: '' }, resumeName: { type: String, default: '' } })
@@ -259,11 +298,14 @@ const visibleMessages = computed(() =>
 const hiddenToolEventIds = new Set(['sse_connect', 'request_init'])
 const visibleToolEvents = computed(() => chat.toolEvents.filter((item) => item && !hiddenToolEventIds.has(item.id)))
 const latestToolEvent = computed(() => visibleToolEvents.value[visibleToolEvents.value.length - 1] || null)
-const currentToolEvent = computed(
-  () =>
-    [...visibleToolEvents.value].reverse().find((item) => item.status === 'running') || latestToolEvent.value || null,
+const activeRunningToolEvent = computed(
+  () => [...visibleToolEvents.value].reverse().find((item) => item.status === 'running') || null,
 )
-const completedToolCount = computed(() => visibleToolEvents.value.filter((item) => item.status === 'success').length)
+const currentToolEvent = computed(() => activeRunningToolEvent.value || latestToolEvent.value || null)
+const terminalToolStatuses = new Set(['success', 'error', 'down', 'cancelled'])
+const completedToolCount = computed(
+  () => visibleToolEvents.value.filter((item) => terminalToolStatuses.has(item.status)).length,
+)
 // 工具事件签名独立成 computed：答案逐 token 流式期间工具事件不变，签名命中缓存，
 // 避免滚动跟随的 watch 在每个 token 上对全部工具事件重复做 map+join 字符串拼接。
 const toolEventsSignature = computed(() =>
@@ -295,6 +337,11 @@ const loadingSummary = computed(() => {
   const detail = currentToolEvent.value?.detail || '请求已提交，正在初始化会话和服务链路，请稍候。'
   if (!chat.loading || !currentToolElapsedSeconds.value) return detail
   return `${detail}（已等待 ${currentToolElapsedSeconds.value} 秒）`
+})
+const activeRunningTimingText = computed(() => {
+  const clock = toolEventClockText(activeRunningToolEvent.value)
+  const elapsed = currentToolElapsedSeconds.value
+  return [clock, elapsed ? `已运行 ${elapsed} 秒` : '刚刚开始'].filter(Boolean).join(' · ')
 })
 const toolProcessText = computed(() => {
   const total = visibleToolEvents.value.length
@@ -359,6 +406,25 @@ function chatJobSummary(item) {
     item.companyStage || item.brandStageName,
   ].filter(Boolean)
   return parts.join(' · ')
+}
+function recommendationReasons(item) {
+  const rows = Array.isArray(item?.recommendationReasons) ? item.recommendationReasons : []
+  return rows
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('；')
+}
+function recommendationWarnings(item) {
+  const rows = Array.isArray(item?.recommendationWarnings) ? item.recommendationWarnings : []
+  return rows
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .slice(0, 1)
+    .join('；')
+}
+function matchConfidence(item) {
+  return { high: '高', medium: '中', low: '低' }[String(item?.matchConfidence || '').toLowerCase()] || ''
 }
 function jobId(item, idx) {
   return String(item.securityId || item.id || item.jobId || item.encryptJobId || `job_${idx}`)
@@ -451,6 +517,15 @@ function messageToolEvents(msg) {
   return events.filter((item) => item && !hiddenToolEventIds.has(item.id))
 }
 
+function processStepEvents(msg) {
+  const events = messageToolEvents(msg)
+  const active = activeRunningToolEvent.value
+  const visible =
+    isStreamingMsg(msg) && active ? events.filter((item) => item.id !== active.id || item.status !== 'running') : events
+  // 过程始终按时间倒序展示：当前运行步骤在顶部，完成后也保持最新步骤在最上方。
+  return [...visible].reverse()
+}
+
 function isStreamingMsg(msg) {
   return chat.loading && msg?.role === 'assistant' && msg.id === lastAssistantId.value
 }
@@ -483,24 +558,69 @@ function panelLatestEvent(msg) {
 function panelStatusText(msg) {
   if (isStreamingMsg(msg)) return toolProcessText.value
   const events = messageToolEvents(msg)
-  const done = events.filter((item) => item.status === 'success').length
+  const done = events.filter((item) => terminalToolStatuses.has(item.status)).length
+  const errors = events.filter((item) => ['error', 'down'].includes(item.status)).length
+  if (errors) return `已结束 ${done}/${events.length || done} 步 · ${errors} 项异常`
   return `已完成 ${done}/${events.length || done} 步`
 }
 
-function normalizeMarkdownContent(content) {
-  return linkifyBareUrls(String(content || ''))
+function toolStateText(status) {
+  return (
+    {
+      running: '进行中',
+      success: '已完成',
+      error: '异常',
+      down: '不可用',
+      cancelled: '已停止',
+    }[status] || '待处理'
+  )
 }
 
-function linkifyBareUrls(content) {
-  const urlPattern = /https?:\/\/[^\s<>"'，。；、！？（）()\[\]{}【】《》\u4e00-\u9fff]+/g
-  return String(content || '').replace(urlPattern, (raw, offset, source) => {
-    const before = source.slice(Math.max(0, offset - 3), offset)
-    if (before.endsWith('](') || before.endsWith(']（') || before.endsWith('<')) return raw
-    const trailing = raw.match(/[.,;:!?]+$/)?.[0] || ''
-    const url = trailing ? raw.slice(0, -trailing.length) : raw
-    if (!url) return raw
-    return `[${url}](${url})${trailing}`
-  })
+function toolEventClockText(item) {
+  const raw = item?.time || item?.updatedAt || item?.startedAt
+  if (!raw) return ''
+  const date = new Date(raw)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date)
+}
+
+function toolEventDurationText(item) {
+  const startedAt = Number(item?.startedAt || 0)
+  const updatedAt = Number(item?.updatedAt || 0)
+  if (!startedAt || !updatedAt || updatedAt <= startedAt) return ''
+  const durationMs = updatedAt - startedAt
+  if (durationMs < 1000) return `${durationMs} 毫秒`
+  return `${(durationMs / 1000).toFixed(durationMs < 10000 ? 1 : 0)} 秒`
+}
+
+function toolEventTimingText(item) {
+  return [toolEventClockText(item), toolEventDurationText(item)].filter(Boolean).join(' · ')
+}
+
+function toolEventHighlights(item) {
+  return selectToolEventHighlights(item)
+}
+
+function toolDetailStateKey(msg, item) {
+  return `tool-detail:${msg?.id || 'message'}:${item?.id || 'step'}`
+}
+
+function isToolDetailOpen(msg, item) {
+  return panelOpenState.value[toolDetailStateKey(msg, item)] === true
+}
+
+function toggleToolDetail(msg, item) {
+  const key = toolDetailStateKey(msg, item)
+  panelOpenState.value[key] = !isToolDetailOpen(msg, item)
+}
+
+function reasoningHighlights(reasoning) {
+  return selectReasoningHighlights(reasoning)
 }
 
 function requestMoreJobs(msg) {

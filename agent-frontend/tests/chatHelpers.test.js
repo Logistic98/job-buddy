@@ -8,6 +8,9 @@ import {
   normalizeToolEvent,
   isMemoryNoiseEvent,
   filterVisibleToolEvents,
+  normalizeAssistantMarkdown,
+  selectReasoningHighlights,
+  selectToolEventHighlights,
 } from '../src/utils/chatHelpers'
 
 describe('normalizeMessageText', () => {
@@ -67,6 +70,75 @@ describe('isBossAuthenticated', () => {
     expect(isBossAuthenticated({ data: { status: 'logged_in' } })).toBe(true)
     expect(isBossAuthenticated({ status: 'auth_required' })).toBe(false)
     expect(isBossAuthenticated(null)).toBe(false)
+  })
+})
+
+describe('assistant presentation helpers', () => {
+  it('normalizes repeated prose punctuation and linkifies bare URLs', () => {
+    const output = normalizeAssistantMarkdown('实践经验。。；主要差距，，。详情：https://example.com/jobs。')
+    expect(output).toBe('实践经验；主要差距。详情：[https://example.com/jobs](https://example.com/jobs)。')
+  })
+
+  it('keeps punctuation inside fenced code, inline code and markdown links unchanged', () => {
+    const input = '正文。。\n```text\n原样。。\n```\n`内联。。` [说明。。](https://example.com/a..b)'
+    const output = normalizeAssistantMarkdown(input)
+    expect(output).toContain('正文。')
+    expect(output).toContain('原样。。')
+    expect(output).toContain('`内联。。`')
+    expect(output).toContain('[说明。。](https://example.com/a..b)')
+  })
+
+  it('selects readable resume match details without exposing raw payload', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'resume_match',
+      payload: {
+        count: 1,
+        top: {
+          score: 86,
+          score_confidence: 'high',
+          recommendation: '推荐',
+          hits: ['具备 Java 与 Agent 工程经验'],
+          gaps: ['缺少证券行业背景'],
+          rawResponse: 'should-not-render',
+        },
+      },
+    })
+    expect(highlights).toEqual([
+      { label: '匹配评分', value: '86/100' },
+      { label: '投递建议', value: '推荐' },
+      { label: '置信度', value: '高' },
+      { label: '关键依据', value: '具备 Java 与 Agent 工程经验' },
+    ])
+    expect(JSON.stringify(highlights)).not.toContain('rawResponse')
+  })
+
+  it('summarizes the strict recommendation quality funnel', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'recommendation_quality_gate',
+      payload: {
+        candidateCount: 10,
+        qualifiedCount: 3,
+        minimumScore: 70,
+        rejectionReasons: { 未达到最低匹配分: 4, 匹配置信度低: 2, 投递建议为不建议: 1 },
+      },
+    })
+    expect(highlights).toEqual([
+      { label: '候选岗位', value: '10 个' },
+      { label: '通过门槛', value: '3 个' },
+      { label: '最低匹配分', value: '70 分' },
+      { label: '主要剔除原因', value: '未达到最低匹配分 4 个；匹配置信度低 2 个；投递建议为不建议 1 个' },
+    ])
+  })
+
+  it('selects high-signal reasoning sentences with a bounded count', () => {
+    const highlights = selectReasoningHighlights(
+      '先读取上下文。目标是判断当前简历与岗位的匹配度。。依据是 Java、RAG 和 Agent 项目经验。普通补充说明。主要风险是缺少证券行业背景。下一步建议补强金融场景案例。',
+      3,
+    )
+    expect(highlights).toHaveLength(3)
+    expect(highlights.join('')).not.toContain('。。')
+    expect(highlights.some((item) => item.includes('目标'))).toBe(true)
+    expect(highlights.some((item) => item.includes('风险'))).toBe(true)
   })
 })
 

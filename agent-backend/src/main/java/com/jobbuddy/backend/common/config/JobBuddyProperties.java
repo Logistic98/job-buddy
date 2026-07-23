@@ -15,7 +15,7 @@ public class JobBuddyProperties {
 
   private int recommendOverfetchFactor = 5;
   private int maxJobsPerScoring = 80;
-  private int minimumRecommendedMatchScore = 60;
+  private int minimumRecommendedMatchScore = 70;
 
   /** Boss live-search throttling and cache settings. */
   private int bossSearchMaxPages = 2;
