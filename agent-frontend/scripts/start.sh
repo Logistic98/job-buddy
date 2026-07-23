@@ -21,4 +21,4 @@ if [[ ! -d node_modules ]]; then
   npm install
 fi
 
-VITE_PROXY_TARGET="$BACKEND_URL" npm run dev -- --host "$HOST" --port "$PORT"
+VITE_PROXY_TARGET="$BACKEND_URL" npm run dev -- --host "$HOST" --port "$PORT" --strictPort

@@ -20,8 +20,6 @@ RUN_DOCTOR=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    all|agent-backend|agent-frontend|agent-runtime|agent-intent|agent-sandbox|agent-eval|agent-memory|agent-tool)
-      TARGET="$1"; shift ;;
     --quick)
       QUICK=1; shift ;;
     --full)
@@ -32,10 +30,17 @@ while [[ $# -gt 0 ]]; do
       RUN_DOCTOR=1; shift ;;
     -h|--help)
       sed -n '1,12p' "$0"; exit 0 ;;
-    *)
+    -*)
       echo "unknown argument: $1" >&2; exit 2 ;;
+    *)
+      TARGET="$1"; shift ;;
   esac
 done
+
+if [[ "$TARGET" != "all" ]] && ! ./.agent-harness/scripts/verify.sh --list | grep -Fxq "$TARGET"; then
+  echo "unknown target: $TARGET" >&2
+  exit 2
+fi
 
 RUN_ROOT="$REPO_ROOT/.agent-harness/runs"
 HARNESS_RUN_RETENTION_DAYS="${HARNESS_RUN_RETENTION_DAYS:-30}"

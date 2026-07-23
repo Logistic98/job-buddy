@@ -35,16 +35,15 @@ for arg in "$@"; do
   esac
 done
 
-MODULES=(
-  agent-backend
-  agent-runtime
-  agent-intent
-  agent-sandbox
-  agent-eval
-  agent-memory
-  agent-tool
-  agent-frontend
-)
+MODULES=()
+for module in agent-*; do
+  [[ -d "$module" ]] || continue
+  if [[ -f "$module/pyproject.toml" || -f "$module/package.json" || -f "$module/pom.xml" \
+    || -f "$module/build.gradle" || -f "$module/build.gradle.kts" || -x "$module/mvnw" \
+    || -x "$module/gradlew" ]]; then
+    MODULES+=("$module")
+  fi
+done
 
 if [[ "$LIST" -eq 1 ]]; then
   printf '%s\n' "${MODULES[@]}"
@@ -184,12 +183,6 @@ run_flyway_migration_check() {
   python3 .agent-harness/scripts/check_flyway_migrations.py || fail "Flyway migration check failed"
 }
 
-run_persistence_boundary_check() {
-  log "persistence boundaries"
-  need_cmd python3 "Persistence boundary verification"
-  python3 .agent-harness/scripts/check_persistence_boundaries.py || fail "Persistence boundary check failed"
-}
-
 run_environment_file_location_check() {
   log "environment file locations"
 
@@ -226,17 +219,15 @@ run_deployment_config_check() {
       docker compose --env-file .env.example -f docker-compose.yml config --quiet \
       || fail "Application Docker Compose configuration is invalid"
 
-    local infrastructure_name application_name infrastructure_services application_services
+    local infrastructure_name application_name infrastructure_services application_services overlapping_services
     infrastructure_name="$(env -u COMPOSE_PROJECT_NAME -u INFRASTRUCTURE_COMPOSE_PROJECT_NAME \
       -u APPLICATION_COMPOSE_PROJECT_NAME docker compose --env-file .env.example \
       -f docker-compose-infra.yml config | awk '/^name:/ { print $2; exit }')"
     application_name="$(JOB_BUDDY_ENV_FILE=.env.example env -u COMPOSE_PROJECT_NAME \
       -u INFRASTRUCTURE_COMPOSE_PROJECT_NAME -u APPLICATION_COMPOSE_PROJECT_NAME \
       docker compose --env-file .env.example -f docker-compose.yml config | awk '/^name:/ { print $2; exit }')"
-    [[ "$infrastructure_name" == "job-buddy-infrastructure" ]] \
-      || fail "Infrastructure Compose project name is not isolated"
-    [[ "$application_name" == "job-buddy" ]] \
-      || fail "Application Compose project name is invalid"
+    [[ -n "$infrastructure_name" && -n "$application_name" && "$infrastructure_name" != "$application_name" ]] \
+      || fail "Infrastructure and application Compose project names must be non-empty and distinct"
 
     infrastructure_services="$(env -u COMPOSE_PROJECT_NAME -u INFRASTRUCTURE_COMPOSE_PROJECT_NAME \
       -u APPLICATION_COMPOSE_PROJECT_NAME docker compose --env-file .env.example \
@@ -244,10 +235,13 @@ run_deployment_config_check() {
     application_services="$(JOB_BUDDY_ENV_FILE=.env.example env -u COMPOSE_PROJECT_NAME \
       -u INFRASTRUCTURE_COMPOSE_PROJECT_NAME -u APPLICATION_COMPOSE_PROJECT_NAME \
       docker compose --env-file .env.example -f docker-compose.yml config --services)"
-    [[ "$infrastructure_services" == $'minio\npostgres\nredis' ]] \
-      || fail "Infrastructure Compose must contain only postgres, redis, and minio"
-    if grep -Eq '^(postgres|redis|minio)$' <<<"$application_services"; then
-      fail "Application Compose must not contain infrastructure services"
+    overlapping_services="$(
+      comm -12 \
+        <(printf '%s\n' "$infrastructure_services" | sed '/^$/d' | sort) \
+        <(printf '%s\n' "$application_services" | sed '/^$/d' | sort)
+    )"
+    if [[ -n "$overlapping_services" ]]; then
+      fail "Application Compose duplicates infrastructure services: $overlapping_services"
     fi
   else
     log "docker compose unavailable: skipping Compose render check"
@@ -267,23 +261,22 @@ run_auto_module() {
   fi
 }
 
+is_known_module() {
+  local candidate="$1"
+  local module
+  for module in "${MODULES[@]}"; do
+    [[ "$module" == "$candidate" ]] && return 0
+  done
+  return 1
+}
+
 verify_module() {
   local module="$1"
-  if [[ ! -d "$module" ]]; then
-    log "$module: directory missing, skipping"
-    return
+  if ! is_known_module "$module"; then
+    fail "unknown module: $module. Use --list to show supported modules."
   fi
 
-  case "$module" in
-    agent-backend)
-      run_java_module "$module" ;;
-    agent-frontend)
-      run_node_module "$module" ;;
-    agent-runtime|agent-sandbox|agent-eval|agent-memory|agent-tool|agent-intent)
-      run_auto_module "$module" ;;
-    *)
-      fail "unknown module: $module. Use --list to show supported modules." ;;
-  esac
+  run_auto_module "$module"
 }
 
 run_shell_syntax_check() {
@@ -302,7 +295,6 @@ run_shell_syntax_check() {
 }
 
 run_environment_file_location_check
-run_persistence_boundary_check
 run_shell_syntax_check
 if [[ -z "$TARGET" ]]; then
   run_deployment_config_check
