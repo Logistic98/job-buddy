@@ -1,6 +1,8 @@
 <template>
   <div>
-    <p v-if="error" class="error settings-error">{{ error }}</p>
+    <p v-if="error" class="error settings-error form-error-alert" role="alert" aria-live="assertive">
+      {{ error }}
+    </p>
     <div v-if="loading" class="empty-state">
       <strong>正在加载设置</strong>
       <p>请稍候。</p>
@@ -45,19 +47,30 @@
             </div>
             <strong>{{ scopedItems(type.key).length }} {{ type.unit }}</strong>
           </div>
+          <span class="blacklist-input-label form-required">{{ type.inputLabel }}</span>
           <div class="blacklist-add-row">
             <input
               v-model.trim="forms[type.key]"
+              aria-required="true"
               :aria-label="type.inputLabel"
               maxlength="100"
               :placeholder="type.placeholder"
               @keyup.enter="addItem(type.key)"
             />
-            <button class="primary-btn" :disabled="!forms[type.key]" @click="addItem(type.key)">
+            <button class="primary-btn" @click="addItem(type.key)">
               {{ type.addLabel }}
             </button>
           </div>
-          <p v-if="feedback[type.key].text" :class="['blacklist-feedback', feedback[type.key].level]">
+          <p
+            v-if="feedback[type.key].text"
+            :class="[
+              'blacklist-feedback',
+              feedback[type.key].level,
+              { 'form-error-alert': feedback[type.key].level === 'error' },
+            ]"
+            :role="feedback[type.key].level === 'error' ? 'alert' : 'status'"
+            :aria-live="feedback[type.key].level === 'error' ? 'assertive' : 'polite'"
+          >
             {{ feedback[type.key].text }}
           </p>
           <div class="blacklist-toolbar">
@@ -198,7 +211,7 @@ function addItem(type) {
     validateLength(name, typeLabel(type), { min: type === 'company' ? 2 : 1, max: 100, required: true })
     if (/[\r\n\t]/.test(name)) throw new Error(`${typeLabel(type)}不能包含换行或制表符`)
   } catch (err) {
-    setFeedback(type, 'warning', err.message)
+    setFeedback(type, 'error', err.message)
     return
   }
   const duplicate = findBlacklistDuplicate(blacklist.value.items, type, name)

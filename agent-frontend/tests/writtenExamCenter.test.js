@@ -36,7 +36,7 @@ beforeEach(() => {
 })
 
 describe('WrittenExamCenter', () => {
-  it('opens the question modal through the complete practice-center create event chain', async () => {
+  it('opens a bank-specific create form through the complete practice-center event chain', async () => {
     const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
     await flushPromises()
 
@@ -48,6 +48,20 @@ describe('WrittenExamCenter', () => {
 
     expect(wrapper.find('[role="dialog"][aria-labelledby="question-maintain-title"]').exists()).toBe(true)
     expect(wrapper.find('#question-maintain-title').text()).toBe('新增题目')
+    expect(wrapper.text()).toContain('分步维护算法题，也可上传资料后由 AI 辅助生成。')
+    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题库')).toBe(false)
+    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题型')).toBe(false)
+
+    await wrapper.find('.question-maintain-modal .close').trigger('click')
+    const qaTab = wrapper.findAll('button').find((button) => button.text() === '问答题库')
+    await qaTab.trigger('click')
+    await flushPromises()
+    await createButton.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('分步维护问答题，也可上传资料后由 AI 辅助生成。')
+    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题库')).toBe(false)
+    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题型')).toBe(false)
 
     wrapper.unmount()
   })

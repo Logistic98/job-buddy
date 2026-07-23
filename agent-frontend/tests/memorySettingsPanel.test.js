@@ -23,11 +23,16 @@ vi.mock('../src/composables/useScopedSettings', () => ({
 }))
 
 describe('MemorySettingsPanel', () => {
-  it('does not preselect a type for a new memory', async () => {
+  it('shows required markers and a red error when a new memory is incomplete', async () => {
     const wrapper = mount(MemorySettingsPanel)
     await flushPromises()
 
     expect(wrapper.find('.memory-editor select').element.value).toBe('')
-    expect(wrapper.find('.memory-editor button').attributes()).toHaveProperty('disabled')
+    expect(wrapper.find('.memory-editor select').attributes('aria-required')).toBe('true')
+    expect(wrapper.find('.memory-editor input').attributes('aria-required')).toBe('true')
+    expect(wrapper.findAll('.memory-editor-field .form-required')).toHaveLength(2)
+    expect(wrapper.find('.memory-editor button').attributes()).not.toHaveProperty('disabled')
+    await wrapper.find('.memory-editor button').trigger('click')
+    expect(wrapper.find('.form-error-alert[role="alert"]').text()).toBe('请选择记忆类型')
   })
 })

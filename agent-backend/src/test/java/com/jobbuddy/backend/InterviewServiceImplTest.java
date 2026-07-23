@@ -112,6 +112,52 @@ class InterviewServiceImplTest {
   }
 
   @Test
+  void saveQuestionShouldAllowCodingQuestionWithEmptyTests() {
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("title", "无测试用例算法题");
+    payload.put("content", "描述解题目标");
+    payload.put("bankType", "leetcode");
+    Map<String, Object> codingMeta = new LinkedHashMap<String, Object>();
+    codingMeta.put("language", "python");
+    codingMeta.put("functionName", "solution");
+    codingMeta.put("parameterCount", Integer.valueOf(1));
+    codingMeta.put("template", "def solution(value):\n    return value");
+    codingMeta.put("tests", Collections.emptyList());
+    payload.put("codingMeta", codingMeta);
+    when(repository.findQuestion(anyString())).thenReturn(new LinkedHashMap<String, Object>());
+
+    service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null);
+
+    ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass((Class) Map.class);
+    verify(repository).saveQuestion(captor.capture());
+    Map<String, Object> savedMeta = (Map<String, Object>) captor.getValue().get("codingMeta");
+    assertTrue(((List<?>) savedMeta.get("tests")).isEmpty());
+  }
+
+  @Test
+  void saveQuestionShouldRejectNonArrayCodingTests() {
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("title", "测试用例类型错误");
+    payload.put("content", "描述解题目标");
+    payload.put("bankType", "leetcode");
+    Map<String, Object> codingMeta = new LinkedHashMap<String, Object>();
+    codingMeta.put("language", "python");
+    codingMeta.put("functionName", "solution");
+    codingMeta.put("parameterCount", Integer.valueOf(1));
+    codingMeta.put("template", "def solution(value):\n    return value");
+    codingMeta.put("tests", "invalid");
+    payload.put("codingMeta", codingMeta);
+
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null));
+
+    assertEquals("codingMeta.tests 必须是数组", error.getMessage());
+  }
+
+  @Test
   void saveQuestionShouldRejectCodingQuestionWithoutStructuredTests() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
     payload.put("title", "缺少用例的算法题");

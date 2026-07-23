@@ -3,6 +3,7 @@
 // isolation, while the component keeps only its reactive state and API orchestration. None of
 // these functions read or mutate component state; everything flows through explicit arguments.
 
+import { detectCodeLanguage } from './codeHighlight'
 import { validateInteger, validateLength, validateTags } from './formValidation'
 import {
   buildDefaultTemplate,
@@ -54,13 +55,7 @@ export function validateQuestionStep(form, step) {
       const validOptions = form.options.map((item) => String(item.text || '').trim()).filter(Boolean)
       if (validOptions.length < 2) throw new Error('选择题至少需要 2 个有效选项')
     }
-    if (form.bankType === 'leetcode') {
-      requireText(form.codingLanguage, '请选择默认语言')
-      requireText(form.codingTemplate, '请填写初始代码模板')
-      if (!extractFunctionName(form.codingTemplate, form.codingLanguage))
-        throw new Error('代码模板中需要包含可识别的函数或方法声明')
-      validateInteger(form.codingParameterCount, '参数个数', { min: 1, max: 10 })
-    }
+    if (form.bankType === 'leetcode') requireText(form.codingTemplate, '请填写初始代码模板')
     return
   }
   if (choice) {
@@ -133,7 +128,6 @@ export function buildCodingMetaFromForm(form) {
       throw new Error('测试用例 JSON 格式不正确')
     }
   }
-  if (!tests.length) throw new Error('请维护至少一个测试用例')
   for (const test of tests) {
     if (
       !test ||
@@ -144,9 +138,15 @@ export function buildCodingMetaFromForm(form) {
       throw new Error('每个测试用例必须包含 args 数组和 expected 字段')
     }
   }
-  const language = normalizeCodingLanguage(form.codingLanguage)
+  const language = normalizeCodingLanguage(
+    detectCodeLanguage(`${form.codingTemplate || ''}\n${form.content || ''}`, form.codingLanguage),
+  )
   const functionName = extractFunctionName(form.codingTemplate, language) || form.codingFunctionName || 'solution'
-  const parameterCount = Number(form.codingParameterCount || 0)
+  const inferredParameterCount = tests.find((test) => Array.isArray(test.args) && test.args.length)?.args.length || 0
+  const storedParameterCount = Number(form.codingParameterCount || 0)
+  const parameterCount =
+    inferredParameterCount ||
+    (Number.isInteger(storedParameterCount) && storedParameterCount >= 1 ? storedParameterCount : 1)
   return {
     language,
     functionName,

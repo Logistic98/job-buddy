@@ -180,15 +180,18 @@
           <h2>新建简历分组</h2>
           <p>分组用于对简历进行分类管理。</p>
           <label class="resume-tag-input">
-            <span>分组名称</span>
+            <span class="form-required">分组名称</span>
             <input
               v-model.trim="folderText"
+              aria-required="true"
               maxlength="64"
               placeholder="请输入分组名称"
               @keydown.enter.prevent="createFolder"
             />
           </label>
-          <p v-if="folderError" class="resume-tag-error">{{ folderError }}</p>
+          <p v-if="folderError" class="resume-tag-error form-error-alert" role="alert" aria-live="assertive">
+            {{ folderError }}
+          </p>
           <div class="modal-actions resume-tag-actions">
             <button class="secondary-btn" @click="closeFolderModal">取消</button>
             <button class="primary-btn" @click="createFolder">创建分组</button>

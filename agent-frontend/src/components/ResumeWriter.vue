@@ -28,15 +28,19 @@
 
     <div class="resume-clean-toolbar">
       <label class="resume-filename-field" title="导出 PDF、MD、HTML 时使用该文件名">
-        <span>文件名</span>
+        <span class="form-required">文件名</span>
         <input
           v-model="fileName"
+          aria-required="true"
           maxlength="120"
           aria-label="导出文件名"
           placeholder="请输入导出文件名，最多 120 字且不能包含路径非法字符"
           @input="saveFileName"
           @blur="normalizeFileName"
         />
+        <small v-if="fileNameError" class="form-error-alert" role="alert" aria-live="assertive">{{
+          fileNameError
+        }}</small>
       </label>
       <div class="resume-view-switch">
         <button :class="{ active: editorMode === 'source' }" @click="editorMode = 'source'">源码模式</button>
@@ -223,13 +227,15 @@
           <button @click="showSaveVersionDialog = false">×</button>
         </header>
         <label
-          ><span>版本说明</span
+          ><span class="form-required">版本说明</span
           ><input
             v-model.trim="versionTitle"
+            aria-required="true"
             maxlength="256"
             placeholder="例如：补充项目量化成果"
             @keydown.enter.prevent="saveManualVersion"
         /></label>
+        <p v-if="versionError" class="form-error-alert" role="alert" aria-live="assertive">{{ versionError }}</p>
         <div class="writer-dialog-actions">
           <button class="secondary-btn" @click="showSaveVersionDialog = false">取消</button
           ><button class="primary-btn" :disabled="savingVersion" @click="saveManualVersion">
@@ -350,6 +356,7 @@ const previewVersion = ref(null)
 const previewMarkdown = ref('')
 const versionsLoading = ref(false)
 const versionError = ref('')
+const fileNameError = ref('')
 const savingVersion = ref(false)
 const editorMode = ref('split')
 const themeIndex = ref(0)
@@ -866,6 +873,7 @@ async function maybeCreateAutoVersion() {
 }
 function openSaveVersionDialog() {
   versionTitle.value = ''
+  versionError.value = ''
   showSaveVersionDialog.value = true
 }
 async function saveManualVersion() {
@@ -891,7 +899,6 @@ async function saveManualVersion() {
     await refreshVersions()
   } catch (error) {
     versionError.value = error?.message || '版本保存失败'
-    alert(versionError.value)
   } finally {
     savingVersion.value = false
   }
@@ -1092,12 +1099,13 @@ function saveFileName() {
   saveDraft()
 }
 function normalizeFileName() {
+  fileNameError.value = ''
   try {
     validateLength(fileName.value, '导出文件名', { max: 120, required: true })
     if (/[\\/:*?"<>|]/.test(fileName.value)) throw new Error('导出文件名不能包含 \\ / : * ? " < > |')
     fileName.value = sanitizeResumeFileName(fileName.value)
   } catch (error) {
-    alert(error.message)
+    fileNameError.value = error.message
   }
   saveDraft()
 }

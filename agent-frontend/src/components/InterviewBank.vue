@@ -908,7 +908,7 @@ function handleGlobalKeydown(event) {
 }
 
 function openCreateModal() {
-  editModalRef.value?.openCreate()
+  editModalRef.value?.openCreate(filters.bankType)
 }
 function openEditModal(item) {
   editModalRef.value?.openEdit(item)

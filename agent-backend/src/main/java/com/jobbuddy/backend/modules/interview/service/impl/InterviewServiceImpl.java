@@ -480,11 +480,13 @@ public class InterviewServiceImpl implements InterviewService {
     if (parameterCount < 1 || parameterCount > 10)
       throw new IllegalArgumentException("codingMeta.parameterCount 需在 1-10 之间");
     Object testsValue = source.get("tests");
-    if (!(testsValue instanceof List) || ((List<Object>) testsValue).isEmpty()) {
-      throw new IllegalArgumentException("算法题必须维护至少一个 codingMeta.tests 测试用例");
+    if (testsValue != null && !(testsValue instanceof List)) {
+      throw new IllegalArgumentException("codingMeta.tests 必须是数组");
     }
+    List<Object> sourceTests =
+        testsValue instanceof List ? (List<Object>) testsValue : Collections.<Object>emptyList();
     List<Map<String, Object>> tests = new ArrayList<Map<String, Object>>();
-    for (Object item : (List<Object>) testsValue) {
+    for (Object item : sourceTests) {
       if (!(item instanceof Map)) throw new IllegalArgumentException("codingMeta.tests 每项必须是对象");
       Map<String, Object> test = new LinkedHashMap<String, Object>((Map<String, Object>) item);
       if (!(test.get("args") instanceof List) || !test.containsKey("expected")) {

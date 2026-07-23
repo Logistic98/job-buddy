@@ -1,6 +1,8 @@
 <template>
   <div>
-    <p v-if="error || restoreError" class="error settings-error">{{ error || restoreError }}</p>
+    <p v-if="error || restoreError" class="error settings-error form-error-alert" role="alert" aria-live="assertive">
+      {{ error || restoreError }}
+    </p>
     <div v-if="loading" class="empty-state">
       <strong>正在加载设置</strong>
       <p>请稍候。</p>
@@ -15,10 +17,11 @@
               <p>控制每次返回数量和参与评分的候选规模。</p>
             </div>
           </div>
-          <div class="form-grid compact-runtime-form">
+          <div class="form-grid compact-runtime-form all-fields-required">
             <label
               ><span>每批展示岗位数</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.maxJobsPerRecommend"
                 type="number"
                 min="1"
@@ -30,6 +33,7 @@
             <label
               ><span>候选池倍率</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.recommendOverfetchFactor"
                 type="number"
                 min="1"
@@ -41,6 +45,7 @@
             <label class="wide"
               ><span>最低推荐匹配度（分）</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.minimumRecommendedMatchScore"
                 type="number"
                 min="0"
@@ -60,10 +65,11 @@
               <p>平衡“换一批”的覆盖范围、响应速度和风控风险。</p>
             </div>
           </div>
-          <div class="form-grid compact-runtime-form">
+          <div class="form-grid compact-runtime-form all-fields-required">
             <label
               ><span>单次抓取页数</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.bossSearchMaxPages"
                 type="number"
                 min="1"
@@ -75,6 +81,7 @@
             <label
               ><span>最大检索页深</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.bossSearchMaxPageDepth"
                 type="number"
                 min="1"
@@ -86,6 +93,7 @@
             <label
               ><span>候选缓存（分钟）</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.bossSearchCacheTtlMinutes"
                 type="number"
                 min="1"
@@ -97,6 +105,7 @@
             <label
               ><span>风控冷却（分钟）</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.bossSearchCooldownMinutesOnRisk"
                 type="number"
                 min="1"
@@ -116,10 +125,11 @@
               <p>限制单次复杂任务的循环、工具调用和连续失败次数。</p>
             </div>
           </div>
-          <div class="form-grid compact-runtime-form">
+          <div class="form-grid compact-runtime-form all-fields-required">
             <label
               ><span>最大执行轮数</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.runtimeMaxTurns"
                 type="number"
                 min="1"
@@ -131,6 +141,7 @@
             <label
               ><span>最大工具调用数</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.runtimeMaxToolCalls"
                 type="number"
                 min="1"
@@ -142,6 +153,7 @@
             <label class="wide"
               ><span>最大连续失败数</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.runtimeMaxFailures"
                 type="number"
                 min="1"
@@ -161,10 +173,11 @@
               <p>控制简历上传体积和简历撰写历史保留规模。</p>
             </div>
           </div>
-          <div class="form-grid compact-runtime-form">
+          <div class="form-grid compact-runtime-form all-fields-required">
             <label
               ><span>上传大小上限（MB）</span
               ><input
+                aria-required="true"
                 :value="resumeSizeMb(workspace.maxResumeBytes)"
                 type="number"
                 min="1"
@@ -178,6 +191,7 @@
             <label
               ><span>版本历史保留数</span
               ><input
+                aria-required="true"
                 v-model.number="workspace.resumeWriterVersionLimit"
                 type="number"
                 min="5"

@@ -30,9 +30,10 @@
 
       <form class="login-form" autocomplete="off" @submit.prevent="submit">
         <label>
-          <span>用户名</span>
+          <span class="form-required">用户名</span>
           <input
             v-model.trim="username"
+            aria-required="true"
             autocomplete="off"
             minlength="3"
             maxlength="32"
@@ -40,9 +41,10 @@
           />
         </label>
         <label>
-          <span>密码</span>
+          <span class="form-required">密码</span>
           <input
             v-model="password"
+            aria-required="true"
             type="password"
             autocomplete="new-password"
             minlength="8"
@@ -50,18 +52,18 @@
             placeholder="请输入 8-64 位密码"
           />
         </label>
-        <button class="primary-btn login-submit" :disabled="auth.loading || !username || !password">
+        <button class="primary-btn login-submit" :disabled="auth.loading">
           {{ auth.loading ? '登录中' : '登录' }}
         </button>
       </form>
     </div>
 
     <div v-if="showError" class="modal-mask warning-modal-mask" @click.self="closeError">
-      <div class="modal-card warning-modal-card">
+      <div class="modal-card warning-modal-card" role="alert" aria-live="assertive">
         <button class="close" @click="closeError">×</button>
         <p class="eyebrow">登录失败</p>
         <h2>无法进入工作台</h2>
-        <p>{{ errorText }}</p>
+        <p class="form-error-alert login-error">{{ errorText }}</p>
         <div class="modal-actions">
           <button class="primary-btn" @click="closeError">我知道了</button>
         </div>

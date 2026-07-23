@@ -93,9 +93,30 @@ describe('validateQuestionForm', () => {
     expect(() => validateQuestionForm(form)).toThrow('选择题至少需要 2 个有效选项')
   })
 
-  it('requires a recognizable function for leetcode', () => {
-    const form = baseForm({ bankType: 'leetcode', codingTemplate: '# no function here', codingLanguage: 'python' })
-    expect(() => validateQuestionForm(form)).toThrow('代码模板中需要包含可识别的函数或方法声明')
+  it('accepts non-empty leetcode code even when no function declaration can be recognized', () => {
+    const form = baseForm({
+      bankType: 'leetcode',
+      questionType: '编程题',
+      codingTemplate: '# 可填写脚本、代码片段或伪代码\nresult = input_data',
+      codingLanguage: 'python',
+      codingTestsText: '[{"name":"示例","args":[1],"expected":1}]',
+    })
+    expect(() => validateQuestionForm(form)).not.toThrow()
+  })
+
+  it('allows leetcode questions without test cases', () => {
+    const form = baseForm({
+      bankType: 'leetcode',
+      questionType: '编程题',
+      codingTemplate: 'def solution(value):\n    return value',
+      codingTestsText: '',
+    })
+    expect(() => validateQuestionForm(form)).not.toThrow()
+  })
+
+  it('still requires a non-empty leetcode code template', () => {
+    const form = baseForm({ bankType: 'leetcode', questionType: '编程题', codingTemplate: '  ' })
+    expect(() => validateQuestionForm(form)).toThrow('请填写初始代码模板')
   })
 })
 
@@ -163,6 +184,14 @@ describe('assertManualPracticeMatches', () => {
 })
 
 describe('buildCodingMetaFromForm', () => {
+  it('allows empty test JSON and preserves compatible metadata defaults', () => {
+    const meta = buildCodingMetaFromForm(
+      baseForm({ bankType: 'leetcode', codingTemplate: 'def solution(value):\n    return value', codingTestsText: '' }),
+    )
+    expect(meta.tests).toEqual([])
+    expect(meta.parameterCount).toBe(1)
+  })
+
   it('throws on invalid test JSON', () => {
     const form = baseForm({ bankType: 'leetcode', codingTestsText: '{ not json' })
     expect(() => buildCodingMetaFromForm(form)).toThrow('测试用例 JSON 格式不正确')
@@ -173,7 +202,7 @@ describe('buildCodingMetaFromForm', () => {
       bankType: 'leetcode',
       codingLanguage: 'python',
       codingTemplate: 'def two_sum(nums, target):\n    pass\n',
-      codingParameterCount: 2,
+      codingParameterCount: 1,
       codingTestsText: '[{"name":"示例","args":[[2,7],9],"expected":[0,1],"sample":true}]',
     })
     const meta = buildCodingMetaFromForm(form)
@@ -181,6 +210,33 @@ describe('buildCodingMetaFromForm', () => {
     expect(meta.functionName).toBe('two_sum')
     expect(meta.parameterCount).toBe(2)
     expect(meta.tests).toHaveLength(1)
+  })
+
+  it('detects the language from code instead of trusting the hidden compatibility value', () => {
+    const meta = buildCodingMetaFromForm(
+      baseForm({
+        bankType: 'leetcode',
+        codingLanguage: 'python',
+        codingTemplate: 'const solve = (value) => value + 1',
+        codingTestsText: '[{"name":"示例","args":[1],"expected":2}]',
+      }),
+    )
+    expect(meta.language).toBe('javascript')
+    expect(meta.functionName).toBe('solution')
+    expect(meta.parameterCount).toBe(1)
+  })
+
+  it('falls back to the stored function name or solution for arbitrary code', () => {
+    const common = {
+      bankType: 'leetcode',
+      codingLanguage: 'python',
+      codingTemplate: 'result = input_data',
+      codingTestsText: '[{"name":"示例","args":[1],"expected":1}]',
+    }
+    expect(buildCodingMetaFromForm(baseForm({ ...common, codingFunctionName: 'run_custom' })).functionName).toBe(
+      'run_custom',
+    )
+    expect(buildCodingMetaFromForm(baseForm(common)).functionName).toBe('solution')
   })
 })
 

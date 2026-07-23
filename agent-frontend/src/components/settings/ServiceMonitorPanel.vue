@@ -1,6 +1,8 @@
 <template>
   <div>
-    <p v-if="error" class="error settings-error">{{ error }}</p>
+    <p v-if="error" class="error settings-error form-error-alert" role="alert" aria-live="assertive">
+      {{ error }}
+    </p>
     <div v-if="loading" class="empty-state">
       <strong>正在加载设置</strong>
       <p>请稍候。</p>
@@ -11,10 +13,11 @@
           <h3>服务地址</h3>
           <p>配置各后端服务的实际访问地址。保存后，健康检查会立即使用新地址。</p>
         </div>
-        <div class="form-grid">
+        <div class="form-grid all-fields-required">
           <label
             ><span>Intent URL</span
             ><input
+              aria-required="true"
               v-model.trim="services.intentUrl"
               type="url"
               maxlength="512"
@@ -23,6 +26,7 @@
           <label
             ><span>Runtime URL</span
             ><input
+              aria-required="true"
               v-model.trim="services.runtimeUrl"
               type="url"
               maxlength="512"
@@ -31,6 +35,7 @@
           <label
             ><span>Memory URL</span
             ><input
+              aria-required="true"
               v-model.trim="services.memoryUrl"
               type="url"
               maxlength="512"
@@ -38,15 +43,26 @@
           /></label>
           <label
             ><span>Tool URL</span
-            ><input v-model.trim="services.toolUrl" type="url" maxlength="512" placeholder="例如 http://localhost:8040"
+            ><input
+              aria-required="true"
+              v-model.trim="services.toolUrl"
+              type="url"
+              maxlength="512"
+              placeholder="例如 http://localhost:8040"
           /></label>
           <label
             ><span>Eval URL</span
-            ><input v-model.trim="services.evalUrl" type="url" maxlength="512" placeholder="例如 http://localhost:8050"
+            ><input
+              aria-required="true"
+              v-model.trim="services.evalUrl"
+              type="url"
+              maxlength="512"
+              placeholder="例如 http://localhost:8050"
           /></label>
           <label
             ><span>连接超时（秒）</span
             ><input
+              aria-required="true"
               :value="durationSeconds(services.connectTimeout)"
               type="number"
               min="1"
@@ -58,6 +74,7 @@
           <label
             ><span>读取超时（秒）</span
             ><input
+              aria-required="true"
               :value="durationSeconds(services.readTimeout)"
               type="number"
               min="1"

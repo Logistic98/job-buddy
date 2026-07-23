@@ -10,16 +10,17 @@
       <div class="practice-form">
         <div class="practice-section">
           <label class="practice-field">
-            <span class="practice-field-label">练习名称</span>
+            <span class="practice-field-label form-required">练习名称</span>
             <input
               v-model="examConfig.title"
+              aria-required="true"
               maxlength="120"
               placeholder="例如：上海大模型应用开发岗综合练习（最多 120 字）"
             />
             <small class="field-hint">建议写清方向和题型组合，便于练习记录复盘。</small>
           </label>
           <div class="practice-field">
-            <span class="practice-field-label">限时时长</span>
+            <span class="practice-field-label form-required">限时时长</span>
             <div class="practice-duration">
               <button
                 v-for="min in durationPresets"
@@ -34,6 +35,7 @@
                 <input
                   v-model.number="examConfig.durationMinutes"
                   type="number"
+                  aria-required="true"
                   min="1"
                   max="240"
                   step="1"
@@ -47,15 +49,15 @@
         </div>
 
         <div class="practice-section">
-          <span class="practice-field-label">练习模式</span>
+          <span class="practice-field-label form-required">练习模式</span>
           <div class="practice-mode-cards">
             <label :class="['practice-mode-card', { active: examConfig.answerMode === 'hidden' }]">
-              <input type="radio" value="hidden" v-model="examConfig.answerMode" />
+              <input type="radio" value="hidden" v-model="examConfig.answerMode" aria-required="true" />
               <b>考试模式</b>
               <small>先独立作答，提交后再看参考答案</small>
             </label>
             <label :class="['practice-mode-card', { active: examConfig.answerMode === 'visible' }]">
-              <input type="radio" value="visible" v-model="examConfig.answerMode" />
+              <input type="radio" value="visible" v-model="examConfig.answerMode" aria-required="true" />
               <b>学习模式</b>
               <small>练习中展示参考答案，适合快速巩固</small>
             </label>
@@ -64,15 +66,16 @@
 
         <div class="practice-section">
           <div class="practice-section-head">
-            <span class="practice-field-label">组卷规则</span>
+            <span class="practice-field-label form-required">组卷规则</span>
             <span class="practice-total-pill">共 {{ examRuleTotal }} 题</span>
           </div>
           <div class="practice-rule-table">
             <div class="practice-rule-head">
-              <span>题库</span><span>分类</span><span>难度</span><span>题型</span><span>题数</span><span></span>
+              <span class="form-required">题库</span><span>分类</span><span>难度</span
+              ><span class="form-required">题型</span><span class="form-required">题数</span><span></span>
             </div>
             <div v-for="(rule, index) in examConfig.rules" :key="rule.id" class="practice-rule-row">
-              <select v-model="rule.bankType">
+              <select v-model="rule.bankType" aria-required="true">
                 <option value="" disabled>请选择题库</option>
                 <option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
               </select>
@@ -84,7 +87,7 @@
                 <option value="" disabled>请选择难度</option>
                 <option v-for="item in difficulties" :key="item" :value="item">{{ item }}</option>
               </select>
-              <select v-model="rule.questionType">
+              <select v-model="rule.questionType" aria-required="true">
                 <option value="" disabled>请选择题型</option>
                 <option v-for="item in questionTypes" :key="item" :value="item">{{ item }}</option>
               </select>
@@ -92,6 +95,7 @@
                 v-model.number="rule.count"
                 type="number"
                 min="1"
+                aria-required="true"
                 max="50"
                 step="1"
                 placeholder="1-50"
@@ -113,10 +117,12 @@
         </div>
       </div>
 
-      <p v-if="practiceModalError" class="error settings-error">{{ practiceModalError }}</p>
+      <p v-if="practiceModalError" class="error settings-error form-error-alert" role="alert" aria-live="assertive">
+        {{ practiceModalError }}
+      </p>
       <div class="modal-actions practice-modal-actions">
         <button class="secondary-btn" @click="close">取消</button>
-        <button class="primary-btn" :disabled="examLoading || !examRuleTotal" @click="startExam">
+        <button class="primary-btn" :disabled="examLoading" @click="startExam">
           {{ examLoading ? '组卷中…' : `开始练习（${examRuleTotal} 题）` }}
         </button>
       </div>

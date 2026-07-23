@@ -3,7 +3,7 @@
     <div
       class="modal-card interview-modal-card practice-create-modal maintain-modal question-maintain-modal"
       :class="{
-        'question-maintain-modal--compact': currentStep === 0,
+        'question-maintain-modal--compact': currentStep === 0 || modalMode === 'ai',
         'question-maintain-modal--with-tabs': !isEditing,
       }"
       role="dialog"
@@ -13,13 +13,7 @@
       <button type="button" class="close" :disabled="busy" aria-label="关闭题目维护弹窗" @click="close">×</button>
       <header class="practice-modal-head">
         <h2 id="question-maintain-title">{{ modalTitle }}</h2>
-        <p>
-          {{
-            isEditing
-              ? '分步修改当前题目的内容、分类和答案。'
-              : '分步维护算法题和问答题，也可上传资料后由 AI 辅助生成。'
-          }}
-        </p>
+        <p>{{ modalDescription }}</p>
       </header>
       <div v-if="!isEditing" class="interview-modal-tabs" role="tablist" aria-label="题目录入方式">
         <button
@@ -63,49 +57,41 @@
       </nav>
 
       <div ref="scrollContainer" class="question-maintain-scroll">
-        <p v-if="modalError" class="error settings-error question-wizard-error" role="alert">{{ modalError }}</p>
+        <p
+          v-if="modalError"
+          class="error settings-error form-error-alert question-wizard-error"
+          role="alert"
+          aria-live="assertive"
+        >
+          {{ modalError }}
+        </p>
         <div v-if="modalMode === 'manual'" class="practice-form question-wizard-panel">
           <div v-if="currentStep === 0" class="practice-section">
             <span class="practice-field-label">基本信息</span>
             <div class="maintain-field-grid">
               <label class="practice-field wide"
-                ><span class="practice-field-label">标题</span
+                ><span class="practice-field-label form-required">标题</span
                 ><input
                   v-model="form.title"
                   maxlength="200"
-                  placeholder="例如：Agent 工具调用与失败恢复（最多 200 字）"
+                  aria-required="true"
+                  placeholder="例如：Agent 工具调用与失败恢复"
                 /><small class="field-hint">标题用于列表检索和练习展示，建议保持短句且明确知识点。</small></label
               >
               <label class="practice-field"
-                ><span class="practice-field-label">题库</span
-                ><select v-model="form.bankType" @change="syncFormBankType">
-                  <option value="" disabled>请选择题库</option>
-                  <option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </option>
-                </select></label
-              >
-              <label class="practice-field"
-                ><span class="practice-field-label">分类</span
-                ><input v-model="form.category" maxlength="64" placeholder="例如：Agent 工程（最多 64 字）"
+                ><span class="practice-field-label form-required">分类</span
+                ><input v-model="form.category" maxlength="64" aria-required="true" placeholder="例如：Agent 工程"
               /></label>
               <label class="practice-field"
-                ><span class="practice-field-label">难度</span
-                ><select v-model="form.difficulty">
+                ><span class="practice-field-label form-required">难度</span
+                ><select v-model="form.difficulty" aria-required="true">
                   <option value="" disabled>请选择难度</option>
                   <option>简单</option>
                   <option>中等</option>
                   <option>困难</option>
                 </select></label
               >
-              <label v-if="form.bankType !== 'leetcode'" class="practice-field"
-                ><span class="practice-field-label">题型</span
-                ><select v-model="form.questionType">
-                  <option value="" disabled>请选择题型</option>
-                  <option v-for="item in formQuestionTypes" :key="item" :value="item">{{ item }}</option>
-                </select></label
-              >
-              <div class="practice-field question-tag-field">
+              <div class="practice-field question-tag-field wide">
                 <span class="practice-field-label">标签</span>
                 <div v-if="formTags.length" class="question-tag-list" aria-label="当前题目标签">
                   <span v-for="tag in formTags" :key="tag"
@@ -130,11 +116,11 @@
           </div>
 
           <div v-else-if="currentStep === 1" class="practice-section">
-            <span class="practice-field-label">{{ isChoiceForm ? '题干与选项' : '题目内容' }}</span>
+            <span class="practice-field-label">{{ isChoiceForm ? '题干与选项' : '题目描述' }}</span>
             <div class="practice-field markdown-editor-field">
               <div class="markdown-editor-head">
-                <span class="practice-field-label">{{ isChoiceForm ? '题干' : '内容' }}</span>
-                <div class="markdown-editor-tabs" role="tablist" aria-label="题目内容编辑模式">
+                <span class="practice-field-label form-required">{{ isChoiceForm ? '题干' : '题目描述' }}</span>
+                <div class="markdown-editor-tabs" role="tablist" aria-label="题目描述编辑模式">
                   <button
                     type="button"
                     role="tab"
@@ -163,30 +149,36 @@
                 ><textarea
                   id="question-content-markdown"
                   v-model="form.content"
-                  class="question-content-textarea"
-                  :class="{ 'question-content-textarea--standalone': form.bankType !== 'leetcode' && !isChoiceForm }"
-                  :placeholder="isChoiceForm ? '请输入选择题题干，支持 Markdown' : '请输入笔试题内容，支持 Markdown'"
+                  class="question-content-textarea question-content-textarea--standalone"
+                  aria-required="true"
+                  :placeholder="
+                    isChoiceForm
+                      ? '请输入选择题题干，支持 Markdown'
+                      : form.bankType === 'leetcode'
+                        ? '请输入算法题描述，支持 Markdown'
+                        : '请输入问答题描述，支持 Markdown'
+                  "
                 />
               </label>
-              <section v-else class="markdown-editor-pane markdown-preview-pane" aria-label="题目内容 Markdown 预览">
+              <section v-else class="markdown-editor-pane markdown-preview-pane" aria-label="题目描述 Markdown 预览">
                 <span>渲染预览</span>
                 <div class="markdown-preview-content">
                   <PracticeMarkdown
                     :content="form.content"
                     custom-id="question-content-preview"
-                    empty-text="输入 Markdown 后可在这里查看题目效果"
+                    empty-text="输入 Markdown 后可在这里查看题目描述效果"
                   />
                 </div>
               </section>
             </div>
             <div v-if="isChoiceForm" class="choice-option-editor">
               <div class="choice-option-head">
-                <span>选项（支持 Markdown）</span
+                <span class="form-required">选项（支持 Markdown）</span
                 ><button type="button" class="secondary-btn" @click="addOption">新增选项</button>
               </div>
               <label v-for="(option, index) in form.options" :key="option.key" class="choice-option-row">
                 <b>{{ option.key }}</b>
-                <input v-model="option.text" :placeholder="`选项 ${option.key}`" />
+                <input v-model="option.text" :placeholder="`选项 ${option.key}`" aria-required="true" />
                 <button
                   type="button"
                   class="danger-text"
@@ -198,60 +190,47 @@
               </label>
             </div>
             <div v-else-if="form.bankType === 'leetcode'" class="coding-meta-editor">
-              <label class="practice-field"
-                ><span class="practice-field-label">默认语言</span
-                ><select v-model="form.codingLanguage">
-                  <option value="" disabled>请选择语言</option>
-                  <option v-for="item in codingLanguageOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </option>
-                </select></label
-              >
-              <label class="practice-field"
-                ><span class="practice-field-label">参数个数</span
-                ><input
-                  v-model.number="form.codingParameterCount"
-                  type="number"
-                  min="1"
-                  max="10"
-                  step="1"
-                  placeholder="请输入 1-10 的整数"
-                /><small class="field-hint">用于按 LeetCode 方式展示和传递测试参数。</small></label
-              >
               <label class="practice-field wide"
-                ><span class="practice-field-label">初始代码模板</span
-                ><textarea
+                ><span class="practice-field-label form-required">初始代码模板</span
+                ><CodeHighlightEditor
                   v-model="form.codingTemplate"
-                  class="question-code-template-textarea"
-                  :placeholder="buildDefaultTemplate('solution', form.codingLanguage)"
+                  :language="codingHighlightLanguage"
+                  :required="true"
+                  aria-label="初始代码模板"
+                  textarea-class="question-code-template-textarea"
+                  :placeholder="buildDefaultTemplate('solution', codingHighlightLanguage)"
                 />
+                <small class="field-hint"
+                  >支持完整类、函数、方法片段、脚本代码和伪代码；语言与参数个数将自动识别。</small
+                >
               </label>
             </div>
           </div>
 
           <div v-else class="practice-section">
             <label v-if="isChoiceForm" class="practice-field"
-              ><span class="practice-field-label">正确答案</span
-              ><input v-model="form.answer" :placeholder="form.questionType === '多选' ? '例如：A,C' : '例如：A'"
+              ><span class="practice-field-label form-required">正确答案</span
+              ><input
+                v-model="form.answer"
+                aria-required="true"
+                :placeholder="form.questionType === '多选' ? '例如：A,C' : '例如：A'"
             /></label>
             <div v-else>
               <div v-if="form.bankType === 'leetcode'" class="coding-meta-editor">
                 <label class="practice-field wide"
-                  ><span class="practice-field-label">测试用例 JSON</span
+                  ><span class="practice-field-label">测试用例 JSON（可选）</span
                   ><textarea
                     v-model="form.codingTestsText"
                     class="question-tests-textarea"
                     placeholder='[{"name":"示例","args":[[2,7],9],"expected":[0,1],"sample":true}]'
                   /><small class="field-hint"
-                    >每条用例需包含 name、args、expected；sample=true 会作为练习中的样例运行。</small
+                    >可留空；填写时每条用例需包含 args、expected，sample=true 会作为练习中的样例运行。</small
                   ></label
                 >
               </div>
               <div class="practice-field markdown-editor-field markdown-answer-editor">
                 <div class="markdown-editor-head">
-                  <span class="practice-field-label">{{
-                    form.bankType === 'leetcode' ? '参考答案 / 判分说明' : '参考答案 / 判分关键词'
-                  }}</span>
+                  <span class="practice-field-label">参考答案</span>
                   <div class="markdown-editor-tabs" role="tablist" aria-label="参考答案编辑模式">
                     <button
                       type="button"
@@ -285,7 +264,7 @@
                     :class="{ 'question-answer-textarea--standalone': form.bankType !== 'leetcode' }"
                     :placeholder="
                       form.bankType === 'leetcode'
-                        ? '支持 Markdown，以测试用例通过情况作为主要评分依据'
+                        ? '支持 Markdown，可填写解题思路、示例代码或复杂度分析'
                         : '支持 Markdown；练习提交时会用参考答案做简单自动判分'
                     "
                   />
@@ -311,44 +290,30 @@
             <div class="maintain-field-grid">
               <label class="practice-field wide"
                 ><span class="practice-field-label">方向 / 主题</span
+                ><input v-model="aiForm.topic" maxlength="200" :placeholder="aiTopicPlaceholder"
+              /></label>
+              <label class="practice-field"
+                ><span class="practice-field-label form-required">分类</span
                 ><input
-                  v-model="aiForm.topic"
-                  maxlength="200"
-                  placeholder="例如：Agent 工程、RAG 与模型评测（最多 200 字）"
+                  v-model="aiForm.category"
+                  maxlength="64"
+                  aria-required="true"
+                  :placeholder="aiCategoryPlaceholder"
               /></label>
               <label class="practice-field"
-                ><span class="practice-field-label">题库</span
-                ><select v-model="aiForm.bankType" @change="syncAiBankType">
-                  <option value="" disabled>请选择题库</option>
-                  <option v-for="item in bankTypeOptions" :key="item.value" :value="item.value">
-                    {{ item.label }}
-                  </option>
-                </select></label
-              >
-              <label class="practice-field"
-                ><span class="practice-field-label">分类</span
-                ><input v-model="aiForm.category" maxlength="64" placeholder="例如：Agent 工程（最多 64 字）"
-              /></label>
-              <label class="practice-field"
-                ><span class="practice-field-label">难度</span
-                ><select v-model="aiForm.difficulty">
+                ><span class="practice-field-label form-required">难度</span
+                ><select v-model="aiForm.difficulty" aria-required="true">
                   <option value="" disabled>请选择难度</option>
                   <option>简单</option>
                   <option>中等</option>
                   <option>困难</option>
                 </select></label
               >
-              <label v-if="aiForm.bankType !== 'leetcode'" class="practice-field"
-                ><span class="practice-field-label">题型</span
-                ><select v-model="aiForm.questionType">
-                  <option value="" disabled>请选择题型</option>
-                  <option v-for="item in aiQuestionTypes" :key="item" :value="item">{{ item }}</option>
-                </select></label
-              >
               <label class="practice-field"
-                ><span class="practice-field-label">数量</span
+                ><span class="practice-field-label form-required">数量</span
                 ><input
                   v-model.number="aiForm.count"
+                  aria-required="true"
                   type="number"
                   min="1"
                   max="20"
@@ -359,48 +324,40 @@
           </div>
 
           <div v-else class="practice-section">
-            <span class="practice-field-label">参考资料</span>
-            <div class="doc-upload-field">
-              <label class="doc-upload-box">
-                <input
-                  type="file"
-                  accept=".pdf,.doc,.docx,.txt,.md,.markdown,.json,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            <div class="practice-field">
+              <span class="practice-field-label">上传资料</span>
+              <div class="doc-upload-field">
+                <label class="doc-upload-box">
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt,.md,.markdown,.json,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    :disabled="busy"
+                    @change="handleAiDocumentChange"
+                  />
+                  <b>{{ documentReading ? '正在读取' : '选择文档' }}</b>
+                  <small>{{
+                    documentReading ? '正在提取算法题资料，请稍候' : aiForm.documentName || aiUploadHint
+                  }}</small>
+                </label>
+                <button
+                  v-if="aiForm.documentName"
+                  type="button"
+                  class="doc-clear-btn"
                   :disabled="busy"
-                  @change="handleAiDocumentChange"
-                />
-                <b>{{ documentReading ? '正在读取' : '选择文档' }}</b>
-                <small>{{
-                  documentReading
-                    ? '正在提取文档文本，请稍候'
-                    : aiForm.documentName || '支持 PDF / DOC / DOCX / TXT / MD / JSON / CSV，上传后自动填入下方资料区'
-                }}</small>
-              </label>
-              <button
-                v-if="aiForm.documentName"
-                type="button"
-                class="doc-clear-btn"
-                :disabled="busy"
-                @click="clearAiDocument"
-              >
-                清除文档
-              </button>
+                  @click="clearAiDocument"
+                >
+                  清除文档
+                </button>
+              </div>
+              <small v-if="documentNotice" class="field-hint">{{ documentNotice }}</small>
             </div>
-            <small v-if="documentNotice" class="field-hint">{{ documentNotice }}</small>
             <label class="practice-field"
-              ><span class="practice-field-label">文档内容 / 补充资料</span
-              ><textarea
-                v-model="aiForm.documentText"
-                class="question-document-textarea"
-                placeholder="可上传文档自动填入，也可以粘贴岗位 JD、技术文档、知识点材料"
-              />
-            </label>
-            <label class="practice-field"
-              ><span class="practice-field-label">补充要求</span
+              ><span class="practice-field-label">出题要求</span
               ><textarea
                 v-model="aiForm.requirements"
                 class="question-requirements-textarea"
                 maxlength="2000"
-                placeholder="例如：偏工程实践，包含性能优化、排障、系统设计（最多 2000 字）"
+                :placeholder="aiRequirementsPlaceholder"
               />
             </label>
           </div>
@@ -408,14 +365,25 @@
       </div>
       <div class="modal-actions practice-modal-actions question-wizard-actions">
         <div class="question-wizard-action-buttons">
-          <button type="button" class="secondary-btn" :disabled="busy" @click="close">取消</button>
-          <button v-if="currentStep > 0" type="button" class="secondary-btn" :disabled="busy" @click="previousStep">
+          <button
+            v-if="currentStep > 0"
+            type="button"
+            class="secondary-btn question-wizard-previous"
+            :disabled="busy"
+            @click="previousStep"
+          >
             上一步
           </button>
-          <button v-if="!isLastStep" type="button" class="primary-btn" :disabled="busy" @click="nextStep">
+          <button
+            v-if="!isLastStep"
+            type="button"
+            class="secondary-btn question-wizard-next"
+            :disabled="busy"
+            @click="nextStep"
+          >
             下一步
           </button>
-          <button v-else type="button" class="primary-btn" :disabled="busy" @click="submitModal">
+          <button type="button" class="primary-btn question-wizard-save" :disabled="busy" @click="submitModal">
             {{ documentReading ? '读取文档中' : saving ? '处理中' : modalSubmitText }}
           </button>
         </div>
@@ -430,12 +398,13 @@
 // saved row (or null after AI generation) so the parent can refresh the bank list.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { createQuestion, extractInterviewDocument, generateQuestions, updateQuestion } from '../../api/interview'
+import { detectCodeLanguage } from '../../utils/codeHighlight'
 import { validateFile } from '../../utils/formValidation'
 import {
   buildDefaultTemplate,
-  codingLanguageOptions,
   codingMeta,
   defaultOptions,
+  extractFunctionName,
   formatCodingTests,
   isChoiceType,
   normalizeCodingLanguage,
@@ -443,6 +412,7 @@ import {
   questionStem,
   tagLabels,
 } from '../../utils/interviewBank'
+import CodeHighlightEditor from './CodeHighlightEditor.vue'
 import PracticeMarkdown from './PracticeMarkdown.vue'
 import { buildQuestionPayload, validateAiForm, validateQuestionStep } from '../../utils/interviewForm'
 
@@ -476,11 +446,11 @@ const emptyQuestionForm = () => ({
   content: '',
   answer: '',
   options: defaultOptions(),
-  codingLanguage: '',
+  codingLanguage: 'python',
   codingFunctionName: '',
   codingSignature: '',
   codingTemplate: '',
-  codingParameterCount: '',
+  codingParameterCount: 1,
   codingTestsText: '',
 })
 const emptyAiForm = () => ({
@@ -500,22 +470,44 @@ const aiForm = reactive(emptyAiForm())
 const busy = computed(() => saving.value || documentReading.value)
 const isEditing = computed(() => Boolean(editingId.value))
 const modalTitle = computed(() => (isEditing.value ? '编辑题目' : '新增题目'))
+const activeBankType = computed(() => form.bankType || aiForm.bankType)
+const activeQuestionLabel = computed(() => (activeBankType.value === 'leetcode' ? '算法题' : '问答题'))
+const modalDescription = computed(() =>
+  isEditing.value
+    ? `分步修改当前${activeQuestionLabel.value}的内容、分类和答案。`
+    : `分步维护${activeQuestionLabel.value}，也可上传资料后由 AI 辅助生成。`,
+)
 const modalSubmitText = computed(() =>
   modalMode.value === 'manual' ? (isEditing.value ? '保存修改' : '保存题目') : '生成并入库',
 )
 const isChoiceForm = computed(() => isChoiceType(form.questionType))
+const codingHighlightLanguage = computed(() =>
+  detectCodeLanguage(`${form.codingTemplate}\n${form.content}`, form.codingLanguage),
+)
 const formTags = computed(() => tagLabels({ tags: form.tags }))
-const formQuestionTypes = computed(() => (form.bankType === 'leetcode' ? ['编程题'] : ['单选', '多选', '判断', '简答']))
-const aiQuestionTypes = computed(() => (aiForm.bankType === 'leetcode' ? ['编程题'] : ['单选', '多选', '判断', '简答']))
 const manualSteps = [
   { key: 'basic', label: '基本信息', description: '标题与分类' },
-  { key: 'content', label: '题目内容', description: '题干与作答条件' },
+  { key: 'content', label: '题目描述', description: '题干与作答条件' },
   { key: 'answer', label: '答案与判题', description: '答案与评分依据' },
 ]
 const aiSteps = [
   { key: 'settings', label: '生成设置', description: '主题与题目范围' },
-  { key: 'materials', label: '参考资料', description: '文档与补充要求' },
+  { key: 'requirements', label: '生成要求', description: '上传资料与出题要求' },
 ]
+const aiTopicPlaceholder = computed(() =>
+  aiForm.bankType === 'leetcode' ? '例如：动态规划、图论、二分查找' : '例如：Agent 工程、RAG 与模型评测',
+)
+const aiCategoryPlaceholder = computed(() => (aiForm.bankType === 'leetcode' ? '例如：动态规划' : '例如：Agent 工程'))
+const aiUploadHint = computed(() =>
+  aiForm.bankType === 'leetcode'
+    ? '支持 PDF / DOC / DOCX / TXT / MD / JSON / CSV，可上传算法题、题解或样例数据'
+    : '支持 PDF / DOC / DOCX / TXT / MD / JSON / CSV，可上传相关参考资料',
+)
+const aiRequirementsPlaceholder = computed(() =>
+  aiForm.bankType === 'leetcode'
+    ? '例如：生成 3 道动态规划算法题，覆盖状态定义、边界条件与时间复杂度分析（最多 2000 字）'
+    : '例如：明确考查范围、题目侧重点和答案深度（最多 2000 字）',
+)
 const wizardSteps = computed(() => (modalMode.value === 'manual' ? manualSteps : aiSteps))
 const isLastStep = computed(() => currentStep.value === wizardSteps.value.length - 1)
 
@@ -527,13 +519,17 @@ function handleKeydown(event) {
   if (visible.value && !busy.value) close()
 }
 
-function openCreate() {
+function openCreate(defaultBankType = 'qa') {
+  const bankType = defaultBankType === 'leetcode' ? 'leetcode' : 'qa'
   editingId.value = ''
   modalMode.value = 'manual'
   modalError.value = ''
   resetWizard()
   resetForm()
-  Object.assign(aiForm, emptyAiForm())
+  form.bankType = bankType
+  syncFormBankType()
+  Object.assign(aiForm, emptyAiForm(), { bankType })
+  syncAiBankType()
   resetTagEditor()
   visible.value = true
 }
@@ -544,25 +540,39 @@ function openEdit(item) {
   resetWizard()
   resetTagEditor()
   const meta = codingMeta(item)
+  const coding = normalizeEditingCodingMeta(item, meta)
   Object.assign(form, {
     title: item.title || '',
     bankType: item.bankType || '',
     category: item.category || '',
     difficulty: item.difficulty || '',
-    questionType: item.questionType || '',
+    questionType: item.questionType || (item.bankType === 'leetcode' ? '编程题' : '简答'),
     tags: tagLabels(item),
     tagsText: '',
     content: questionStem(item),
     answer: item.answer || '',
     options: optionItems(item).length ? optionItems(item) : defaultOptions(),
-    codingLanguage: meta.language ? normalizeCodingLanguage(meta.language) : '',
-    codingFunctionName: meta.functionName || '',
+    codingLanguage: coding.language,
+    codingFunctionName: coding.functionName,
     codingSignature: meta.signature || '',
-    codingTemplate: meta.template || '',
-    codingParameterCount: meta.parameterCount == null ? '' : Number(meta.parameterCount),
+    codingTemplate: coding.template,
+    codingParameterCount: coding.parameterCount,
     codingTestsText: formatCodingTests(meta.tests),
   })
   visible.value = true
+}
+function normalizeEditingCodingMeta(item, meta) {
+  if (item.bankType !== 'leetcode' && item.questionType !== '编程题') {
+    return { language: '', functionName: '', template: '', parameterCount: '' }
+  }
+  const language = normalizeCodingLanguage(meta.language)
+  const functionName = meta.functionName || extractFunctionName(meta.template, language) || 'solution'
+  const template = meta.template || buildDefaultTemplate(functionName, language)
+  const storedCount = Number(meta.parameterCount)
+  const sampleArgs = Array.isArray(meta.tests) ? meta.tests.find((test) => Array.isArray(test?.args))?.args : null
+  const inferredCount = Array.isArray(sampleArgs) ? sampleArgs.length : 0
+  const parameterCount = Number.isInteger(storedCount) && storedCount >= 1 ? storedCount : inferredCount || 1
+  return { language, functionName, template, parameterCount }
 }
 function close() {
   if (busy.value) return
@@ -630,6 +640,7 @@ function showSubmitError(err, mode) {
   scrollToStepTop()
 }
 async function submitModal() {
+  if (busy.value) return
   modalError.value = ''
   if (modalMode.value === 'manual') return saveQuestion()
   return submitAiGenerate()
@@ -683,12 +694,10 @@ function removeOption(index) {
   })
 }
 function syncFormBankType() {
-  if (form.bankType === 'leetcode') form.questionType = '编程题'
-  else if (form.questionType === '编程题') form.questionType = ''
+  form.questionType = form.bankType === 'leetcode' ? '编程题' : '简答'
 }
 function syncAiBankType() {
-  if (aiForm.bankType === 'leetcode') aiForm.questionType = '编程题'
-  else if (aiForm.questionType === '编程题') aiForm.questionType = ''
+  aiForm.questionType = aiForm.bankType === 'leetcode' ? '编程题' : '简答'
 }
 async function handleAiDocumentChange(event) {
   modalError.value = ''

@@ -89,17 +89,23 @@
               </div>
               <div class="rbac-form-grid">
                 <label class="rbac-field"
-                  ><span>菜单编码</span
+                  ><span class="form-required">菜单编码</span
                   ><input
                     v-model.trim="form.menuCode"
+                    aria-required="true"
                     maxlength="64"
                     placeholder="例如 reports，字母开头，仅限字母、数字、下划线或连字符" /></label
                 ><label class="rbac-field"
-                  ><span>菜单名称</span
-                  ><input v-model.trim="form.menuName" maxlength="64" placeholder="例如 数据报表，最多 64 字" /></label
+                  ><span class="form-required">菜单名称</span
+                  ><input
+                    v-model.trim="form.menuName"
+                    maxlength="64"
+                    aria-required="true"
+                    placeholder="例如 数据报表，最多 64 字"
+                /></label>
                 ><label class="rbac-field"
-                  ><span>菜单类型</span
-                  ><select v-model="form.menuType">
+                  ><span class="form-required">菜单类型</span
+                  ><select v-model="form.menuType" aria-required="true">
                     <option :value="null" disabled>请选择菜单类型</option>
                     <option value="directory">目录</option>
                     <option value="page">页面</option>
@@ -124,27 +130,35 @@
               </div>
               <div class="rbac-form-grid">
                 <label class="rbac-field"
-                  ><span>内部路由</span
+                  ><span :class="{ 'form-required': form.menuType === 'page' }">内部路由</span
                   ><input
                     v-model.trim="form.routePath"
+                    :aria-required="form.menuType === 'page'"
                     maxlength="256"
                     placeholder="例如 /resumes，必须以 / 开头" /></label
                 ><label class="rbac-field"
-                  ><span>页面组件键</span
-                  ><input v-model.trim="form.componentKey" maxlength="64" placeholder="例如 resumes，字母开头" /></label
+                  ><span :class="{ 'form-required': form.menuType === 'page' }">页面组件键</span
+                  ><input
+                    v-model.trim="form.componentKey"
+                    maxlength="64"
+                    :aria-required="form.menuType === 'page'"
+                    placeholder="例如 resumes，字母开头"
+                /></label>
                 ><label class="rbac-field wide"
-                  ><span>外部地址</span
+                  ><span :class="{ 'form-required': form.menuType === 'external' }">外部地址</span
                   ><input
                     v-model.trim="form.externalUrl"
+                    :aria-required="form.menuType === 'external'"
                     maxlength="512"
                     placeholder="例如 https://example.com，仅支持 HTTP/HTTPS" /></label
                 ><label class="rbac-field"
                   ><span>图标键</span
                   ><input v-model.trim="form.iconKey" maxlength="64" placeholder="例如 folder，最多 64 字" /></label
                 ><label class="rbac-field"
-                  ><span>排序值</span
+                  ><span class="form-required">排序值</span
                   ><input
                     v-model.number="form.displayOrder"
+                    aria-required="true"
                     type="number"
                     min="0"
                     max="100000"
@@ -168,8 +182,8 @@
                     </option>
                   </select></label
                 ><label class="rbac-field"
-                  ><span>前台显示</span
-                  ><select v-model="form.visible" :disabled="form.menuType === 'action'">
+                  ><span class="form-required">前台显示</span
+                  ><select v-model="form.visible" :disabled="form.menuType === 'action'" aria-required="true">
                     <option v-if="form.menuType === 'action'" :value="false">不参与导航</option>
                     <template v-else
                       ><option :value="null" disabled>请选择显示状态</option>
@@ -178,8 +192,8 @@
                     >
                   </select></label
                 ><label class="rbac-field"
-                  ><span>菜单状态</span
-                  ><select v-model="form.enabled">
+                  ><span class="form-required">菜单状态</span
+                  ><select v-model="form.enabled" aria-required="true">
                     <option :value="null" disabled>请选择菜单状态</option>
                     <option :value="true">启用</option>
                     <option :value="false">停用</option>
@@ -187,7 +201,9 @@
                 >
               </div>
             </section>
-            <p v-if="modalError" class="rbac-error">{{ modalError }}</p>
+            <p v-if="modalError" class="rbac-error form-error-alert" role="alert" aria-live="assertive">
+              {{ modalError }}
+            </p>
           </div>
           <footer class="rbac-modal-actions">
             <button class="rbac-secondary-btn" @click="close">取消</button

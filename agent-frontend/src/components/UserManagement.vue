@@ -87,9 +87,10 @@
                   <strong>安全设置</strong><small>{{ selected?.username }}</small>
                 </div>
                 <label class="rbac-field"
-                  ><span>新密码</span
+                  ><span class="form-required">新密码</span
                   ><input
                     v-model="form.password"
+                    aria-required="true"
                     type="password"
                     autocomplete="new-password"
                     minlength="8"
@@ -105,31 +106,34 @@
                 </div>
                 <div class="rbac-form-grid">
                   <label v-if="modal === 'create'" class="rbac-field"
-                    ><span>全局唯一用户名</span
+                    ><span class="form-required">全局唯一用户名</span
                     ><input
                       v-model.trim="form.username"
+                      aria-required="true"
                       autocomplete="off"
                       minlength="3"
                       maxlength="32"
                       placeholder="例如 zhangsan，3-32 位且以字母开头" /></label
                   ><label class="rbac-field"
-                    ><span>显示名称</span
+                    ><span class="form-required">显示名称</span
                     ><input
                       v-model.trim="form.displayName"
+                      aria-required="true"
                       maxlength="64"
                       placeholder="用于页面展示，最多 64 字" /></label
                   ><label v-if="modal === 'create'" class="rbac-field"
-                    ><span>初始密码</span
+                    ><span class="form-required">初始密码</span
                     ><input
                       v-model="form.password"
+                      aria-required="true"
                       type="password"
                       autocomplete="new-password"
                       minlength="8"
                       maxlength="16"
                       placeholder="请输入 8-16 位初始密码" /></label
                   ><label v-if="modal === 'edit'" class="rbac-field"
-                    ><span>账号状态</span
-                    ><select v-model="form.enabled">
+                    ><span class="form-required">账号状态</span
+                    ><select v-model="form.enabled" aria-required="true">
                       <option :value="true">启用</option>
                       <option :value="false">停用</option>
                     </select></label
@@ -152,7 +156,9 @@
                 </div>
               </section>
             </template>
-            <p v-if="modalError" class="rbac-error">{{ modalError }}</p>
+            <p v-if="modalError" class="rbac-error form-error-alert" role="alert" aria-live="assertive">
+              {{ modalError }}
+            </p>
           </div>
           <footer class="rbac-modal-actions">
             <button class="rbac-secondary-btn" @click="closeModal">取消</button

@@ -22,7 +22,7 @@ describe('LoginPage', () => {
     window.localStorage.clear()
   })
 
-  it('shows empty credential fields, disables autofill, and requires both values', async () => {
+  it('shows required markers and a red validation error for empty credentials', async () => {
     const wrapper = mountLogin()
     const form = wrapper.find('form.login-form')
     const usernameInput = wrapper.find('input[autocomplete="off"]')
@@ -34,10 +34,12 @@ describe('LoginPage', () => {
     expect(usernameInput.element.value).toBe('')
     expect(passwordInput.attributes('autocomplete')).toBe('new-password')
     expect(passwordInput.element.value).toBe('')
-    expect(wrapper.find('button.login-submit').attributes('disabled')).toBeDefined()
-    await usernameInput.setValue('admin')
-    await passwordInput.setValue('secret123')
+    expect(usernameInput.attributes('aria-required')).toBe('true')
+    expect(passwordInput.attributes('aria-required')).toBe('true')
+    expect(wrapper.findAll('.form-required')).toHaveLength(2)
     expect(wrapper.find('button.login-submit').attributes('disabled')).toBeUndefined()
+    await form.trigger('submit.prevent')
+    expect(wrapper.find('.warning-modal-card[role="alert"] .form-error-alert').text()).toBe('请填写用户名')
   })
 
   it('emits logged-in after a successful login', async () => {

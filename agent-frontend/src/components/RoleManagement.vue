@@ -67,14 +67,20 @@
               </div>
               <div class="rbac-form-grid">
                 <label class="rbac-field"
-                  ><span>角色编码</span
+                  ><span class="form-required">角色编码</span
                   ><input
                     v-model.trim="form.roleCode"
+                    aria-required="true"
                     maxlength="64"
                     placeholder="例如 developer，字母开头，仅限字母、数字、下划线或连字符" /></label
                 ><label class="rbac-field"
-                  ><span>角色名称</span
-                  ><input v-model.trim="form.roleName" maxlength="64" placeholder="例如研发人员，最多 64 字" /></label
+                  ><span class="form-required">角色名称</span
+                  ><input
+                    v-model.trim="form.roleName"
+                    maxlength="64"
+                    aria-required="true"
+                    placeholder="例如研发人员，最多 64 字"
+                /></label>
                 ><label class="rbac-field wide"
                   ><span>角色说明</span
                   ><input
@@ -82,8 +88,8 @@
                     maxlength="500"
                     placeholder="说明该角色的职责和适用范围，最多 500 字" /></label
                 ><label class="rbac-field"
-                  ><span>角色状态</span
-                  ><select v-model="form.enabled">
+                  ><span class="form-required">角色状态</span
+                  ><select v-model="form.enabled" aria-required="true">
                     <option :value="null" disabled>请选择角色状态</option>
                     <option :value="true">启用</option>
                     <option :value="false">停用</option>
@@ -110,7 +116,9 @@
                 </div>
               </div>
             </section>
-            <p v-if="modalError" class="rbac-error">{{ modalError }}</p>
+            <p v-if="modalError" class="rbac-error form-error-alert" role="alert" aria-live="assertive">
+              {{ modalError }}
+            </p>
           </div>
           <footer class="rbac-modal-actions">
             <button class="rbac-secondary-btn" @click="close">取消</button

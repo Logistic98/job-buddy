@@ -1,6 +1,8 @@
 <template>
   <div>
-    <p v-if="error" class="error settings-error">{{ error }}</p>
+    <p v-if="error" class="error settings-error form-error-alert" role="alert" aria-live="assertive">
+      {{ error }}
+    </p>
     <div v-if="loading" class="empty-state">
       <strong>正在加载设置</strong>
       <p>请稍候。</p>
@@ -34,9 +36,10 @@
             </select></label
           >
           <label
-            ><span>最大记忆条数</span
+            ><span class="form-required">最大记忆条数</span
             ><input
               v-model.number="memory.maxItems"
+              aria-required="true"
               type="number"
               min="20"
               max="1000"
@@ -54,21 +57,28 @@
           <button class="danger-btn" :disabled="!memories.length" @click="clearAll">清空记忆</button>
         </div>
         <div class="memory-editor">
-          <select v-model="form.type" aria-label="记忆类型">
-            <option value="" disabled>请选择记忆类型</option>
-            <option value="preference">偏好</option>
-            <option value="constraint">约束</option>
-            <option value="interview">面试复盘</option>
-            <option value="conversation">对话</option>
-          </select>
-          <input
-            v-model.trim="form.content"
-            maxlength="2000"
-            aria-label="记忆内容"
-            placeholder="例如：优先看上海 Java 大模型应用开发岗，薪资 40-50k，排除外包驻场（最多 2000 字）"
-            @keyup.enter="create"
-          />
-          <button class="primary-btn" :disabled="!form.type || !form.content" @click="create">新增记忆</button>
+          <label class="memory-editor-field">
+            <span class="form-required">记忆类型</span>
+            <select v-model="form.type" aria-label="记忆类型" aria-required="true">
+              <option value="" disabled>请选择记忆类型</option>
+              <option value="preference">偏好</option>
+              <option value="constraint">约束</option>
+              <option value="interview">面试复盘</option>
+              <option value="conversation">对话</option>
+            </select>
+          </label>
+          <label class="memory-editor-field">
+            <span class="form-required">记忆内容</span>
+            <input
+              v-model.trim="form.content"
+              maxlength="2000"
+              aria-label="记忆内容"
+              aria-required="true"
+              placeholder="例如：优先看上海 Java 大模型应用开发岗，薪资 40-50k，排除外包驻场（最多 2000 字）"
+              @keyup.enter="create"
+            />
+          </label>
+          <button class="primary-btn" @click="create">新增记忆</button>
         </div>
         <div class="source-list memory-list">
           <article v-for="item in memories" :key="item.id" class="source-item memory-item">

@@ -473,7 +473,14 @@
             </div>
           </template>
         </div>
-        <p v-if="modalMode !== 'view' && error" class="error settings-error">{{ error }}</p>
+        <p
+          v-if="modalMode !== 'view' && error"
+          class="error settings-error form-error-alert"
+          role="alert"
+          aria-live="assertive"
+        >
+          {{ error }}
+        </p>
         <div class="detail-actions modal-actions-right">
           <button class="secondary-btn" @click="closeModal">{{ modalMode === 'view' ? '关闭' : '取消' }}</button>
           <button v-if="modalMode === 'view'" class="primary-btn" @click="modalMode = 'edit'">编辑</button>

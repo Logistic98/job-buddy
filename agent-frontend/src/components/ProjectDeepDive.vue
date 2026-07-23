@@ -646,9 +646,10 @@
             class="form-grid compact-form modal-form-grid project-basic-form"
           >
             <label class="wide"
-              ><span>项目名称</span
+              ><span class="form-required">项目名称</span
               ><input
                 ref="projectNameInput"
+                aria-required="true"
                 v-model.trim="form.name"
                 maxlength="80"
                 placeholder="例如：企业知识库检索助手"
@@ -749,11 +750,13 @@
               /><small class="field-hint">{{ form.outcomes.length }} / 2000</small></label
             >
           </div>
-          <p v-if="modalError" class="error settings-error" role="alert">{{ modalError }}</p>
+          <p v-if="modalError" class="error settings-error form-error-alert" role="alert" aria-live="assertive">
+            {{ modalError }}
+          </p>
         </div>
         <div class="modal-actions project-editor-actions">
           <button class="secondary-btn" :disabled="saving" @click="closeCreate">取消</button
-          ><button class="primary-btn" :disabled="saving || !form.name.trim()" @click="saveProject">
+          ><button class="primary-btn" :disabled="saving" @click="saveProject">
             {{ saving ? '保存中' : projectModalMode === 'edit' ? '保存修改' : '创建' }}
           </button>
         </div>
@@ -802,9 +805,10 @@
           class="question-generate-form"
         >
           <label
-            ><span>生成数量</span
+            ><span class="form-required">生成数量</span
             ><input
               v-model.number="generateForm.count"
+              aria-required="true"
               type="number"
               min="4"
               max="40"
@@ -822,9 +826,10 @@
 
         <div v-else class="form-grid compact-form modal-form-grid question-manual-form">
           <label class="wide"
-            ><span>问题</span
+            ><span class="form-required">问题</span
             ><textarea
               ref="questionInput"
+              aria-required="true"
               v-model.trim="questionModal.question"
               maxlength="500"
               rows="2"
@@ -836,8 +841,8 @@
             ><input v-model.trim="questionModal.category" maxlength="40" placeholder="Agent 架构 / 模型评测"
           /></label>
           <label
-            ><span>难度</span
-            ><select v-model="questionModal.difficulty">
+            ><span class="form-required">难度</span
+            ><select v-model="questionModal.difficulty" aria-required="true">
               <option value="" disabled>请选择难度</option>
               <option value="常规">常规</option>
               <option value="深入">深入</option>
@@ -894,7 +899,9 @@
             </section>
           </div>
         </div>
-        <p v-if="questionModal.error" class="error settings-error" role="alert">{{ questionModal.error }}</p>
+        <p v-if="questionModal.error" class="error settings-error form-error-alert" role="alert" aria-live="assertive">
+          {{ questionModal.error }}
+        </p>
         <div class="modal-actions">
           <button class="secondary-btn" :disabled="saving || generating" @click="closeQuestionModal">取消</button
           ><button class="question-add-btn" :disabled="questionModalSubmitDisabled" @click="submitQuestionModal">
@@ -1119,10 +1126,8 @@ const evidenceMarkdown = computed(() =>
 )
 const questionModalSubmitDisabled = computed(() => {
   if (saving.value || generating.value) return true
-  if (questionModal.mode === 'edit' || questionModal.entryType === 'manual')
-    return !questionModal.question.trim() || !questionModal.difficulty
-  const count = Number(generateForm.count || 0)
-  return !canGenerate.value || !Number.isInteger(count) || count < 4 || count > 40
+  if (questionModal.mode === 'edit' || questionModal.entryType === 'manual') return false
+  return !canGenerate.value
 })
 const questionModalSubmitText = computed(() => {
   if (questionModal.mode === 'edit') return saving.value ? '保存中' : '保存修改'
