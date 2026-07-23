@@ -106,7 +106,7 @@ cp .env.example .env
 
 后端使用 Flyway 管理数据库结构变更，脚本统一放在 `agent-backend/src/main/resources/db/migration/`。V1.0.0 至 V1.0.7 是按身份权限、简历存储、聊天 Agent、岗位旅程、面试、项目、分析平台和默认授权数据拆分的规范基线，只允许在全新空数据库执行；`baseline-on-migrate` 关闭，非空且没有 Flyway 历史记录的数据库失败关闭。该基线属于不可变资产，数据库变更只能追加高于 V1.0.7 的脚本，禁止修改、删除、重命名或复用版本号。文件名遵循 `V<major>_<minor>_<patch>__<English_description>.sql`。
 
-Flyway 初始化共享租户、权限定义、角色、菜单、角色菜单目录，默认 `admin`、`user` 账号及其角色关联，并通过追加迁移维护平台级系统岗位黑名单；两个默认账号的初始密码均为 `12345678`，数据库只保存 BCrypt 哈希，管理员可在平台设置的用户管理中重置密码。项目经历、简历、岗位收藏、求职进展、聊天记录和认证状态等私有业务数据必须通过受鉴权 API 写入，禁止进入 Flyway 和 Git。除指定的默认身份种子迁移及门禁明确登记的 V1.0.8 `blacklist_item` 系统种子迁移外，新增迁移向私有业务表执行 `INSERT`、`UPDATE` 或 `DELETE` 会被质量门禁直接拒绝；系统黑名单同样禁止通过其他迁移插入、更新或删除。
+Flyway 初始化共享租户、权限定义、角色、菜单、角色菜单目录，默认 `admin`、`user` 账号及其角色关联，并通过追加迁移维护平台级系统岗位黑名单；两个默认账号的初始密码均为 `12345678`，数据库只保存 BCrypt 哈希，管理员可在平台设置的用户管理中重置密码。项目经历、简历、岗位收藏、求职进展、聊天记录和认证状态等私有业务数据必须通过受鉴权 API 写入，禁止进入 Flyway 和 Git。除指定的默认身份种子迁移、门禁登记的 V1.0.9 默认身份状态迁移及 V1.0.8 `blacklist_item` 系统种子迁移外，新增迁移向私有业务表执行 `INSERT`、`UPDATE` 或 `DELETE` 会被质量门禁直接拒绝；系统黑名单同样禁止通过其他迁移插入、更新或删除。
 
 数据库由 Flyway 在空 Schema 中初始化，禁止使用 repair、baseline 或手工覆盖绕过版本校验。公开部署后应立即修改默认密码。
 
@@ -172,7 +172,7 @@ docker compose --env-file .env -f docker-compose-infra.yml down
 ./scripts/status-all.sh
 ```
 
-访问地址由 `.env` 中的 `JOB_BUDDY_SERVER_HOST` 与端口变量决定；本地默认前端为 <http://127.0.0.1:5173>，后端健康检查为 <http://127.0.0.1:8080/api/health>。服务器监听接口由 `JOB_BUDDY_BIND_HOST` 控制，健康检查中的 `127.0.0.1` 保留为进程或容器内部回环地址。若健康端口已由 PID 目录之外的旧进程占用，`start-all.sh` 会立即失败并提示先停止该进程，避免旧 Backend 与启用新鉴权配置的 Runtime、Tool 混合运行。
+访问地址由 `.env` 中的 `JOB_BUDDY_SERVER_HOST` 与端口变量决定；本地默认前端为 <http://127.0.0.1:5173>，后端健康检查为 <http://127.0.0.1:8080/api/health>。服务器监听接口由 `JOB_BUDDY_BIND_HOST` 控制，健康检查中的 `127.0.0.1` 保留为进程或容器内部回环地址。`start-all.sh` 与 `stop-all.sh` 通过仓库级生命周期锁串行执行。每个服务启动前都会按配置端口再次检查监听者：属于当前仓库但未记录的进程会被停止并确认端口释放，其他仓库或系统服务则保持不变并阻止启动，避免误杀无关进程。健康端点返回成功后，脚本还会验证监听 PID 确实属于对应的受管进程树，不能用并发启动的旧服务伪造就绪状态。
 
 停止全部本地服务：
 
@@ -180,7 +180,7 @@ docker compose --env-file .env -f docker-compose-infra.yml down
 ./scripts/stop-all.sh
 ```
 
-启动脚本按依赖顺序等待每个健康端点，其中 Backend 必须先完成 Flyway 迁移，Memory 才能在同一数据库中创建 `agent_memory_*` 表；Backend 启动期间下游 Agent 服务尚未就绪是允许的，完整启动结束前脚本仍会逐项等待全部服务健康。服务提前退出或超过 `START_ALL_READY_TIMEOUT_SECONDS` 时会快速失败并打印日志尾部；默认等待 300 秒，以覆盖远程 PostgreSQL 首次执行全部 Flyway 迁移的耗时。日志默认写入 `.run/logs/YYYYMMDD/{service}.log`，PID 写入 `.run/pids/`。
+启动脚本按依赖顺序等待每个健康端点，其中 Backend 必须先完成 Flyway 迁移，Memory 才能在同一数据库中创建 `agent_memory_*` 表；Backend 启动期间下游 Agent 服务尚未就绪是允许的，完整启动结束前脚本仍会逐项等待全部服务健康。服务提前退出、就绪监听者不属于本轮 PID 树或超过 `START_ALL_READY_TIMEOUT_SECONDS` 时会快速失败并打印日志尾部，同时逆序回滚本轮已经启动的服务，避免留下半套运行环境；默认等待 300 秒，以覆盖远程 PostgreSQL 首次执行全部 Flyway 迁移的耗时。前端使用 Vite `strictPort`，5173 被外部进程占用时不会静默改用其他端口。日志默认写入 `.run/logs/YYYYMMDD/{service}.log`，PID 写入 `.run/pids/`。停止脚本默认等待进程树退出 10 秒，可通过 `STOP_ALL_TIMEOUT_SECONDS` 调整；它会校验 PID 与仓库模块的归属关系，并以配置端口已经释放作为成功条件，过期 PID 文件不会导致其他进程被终止。
 
 ### 单独启动后端
 
@@ -255,7 +255,7 @@ cd agent-sandbox  && uv sync --frozen --extra dev && uv run python server.py
 - `GET /api/project-deep-dive/projects`、`POST /api/project-deep-dive/projects/{projectId}/generate`
 - `GET /api/settings`、`POST /api/settings/workspace/restore-defaults`、`GET /api/settings/memories`
 
-恢复运行参数默认值需要具备 `tenant:manage` 权限，并使用登录接口取得的会话 Cookie：
+恢复运行参数默认值需要具备不可委派的 `platform:manage` 权限，并使用登录接口取得的会话 Cookie：
 
 ```bash
 curl -X POST -b cookie.txt http://127.0.0.1:8080/api/settings/workspace/restore-defaults
