@@ -252,14 +252,23 @@ describe('job store - favorites', () => {
     expect(store.detailError({ jobName: '无ID岗位' })).toContain('securityId')
   })
 
-  it('loadJobDetail merges detail into jobs and favorites', async () => {
+  it('loadJobDetail merges and persists detail for an imported favorite', async () => {
     const store = useJobStore()
     store.jobs = [{ securityId: 'sec-1', jobName: '岗位' }]
-    store.favorites = [{ securityId: 'sec-1', jobName: '岗位' }]
+    store.favorites = [{ favoriteKey: 'sec-1', securityId: 'sec-1', jobName: '岗位' }]
     fetchJobDetail.mockResolvedValue({ jobDescription: '职责描述' })
-    await store.loadJobDetail({ securityId: 'sec-1' })
+    saveFavoriteJob.mockImplementation(async (item) => [item])
+
+    await store.loadJobDetail({ favoriteKey: 'sec-1', securityId: 'sec-1', jobName: '岗位' })
+
     expect(store.jobs[0].jobDescription).toBe('职责描述')
     expect(store.favorites[0].jobDescription).toBe('职责描述')
+    expect(saveFavoriteJob).toHaveBeenCalledWith({
+      favoriteKey: 'sec-1',
+      securityId: 'sec-1',
+      jobName: '岗位',
+      jobDescription: '职责描述',
+    })
     expect(store.detailError({ securityId: 'sec-1' })).toBe('')
   })
 

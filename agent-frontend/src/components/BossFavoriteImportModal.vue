@@ -12,7 +12,7 @@
       <header class="boss-favorite-import-head">
         <div>
           <h2 id="boss-import-title">从 BOSS 直聘导入岗位</h2>
-          <p>已收藏岗位自动隐藏，选择当前需要导入的岗位。</p>
+          <p>导入仅保存岗位摘要，不会自动分析；职位描述将在你主动查看或分析时加载。</p>
         </div>
       </header>
 

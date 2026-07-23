@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
+import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
@@ -58,6 +59,7 @@ class ChatSseLifecycleTest {
         integrationService,
         intentService,
         mock(ResumeStorageService.class),
+        mock(BossCliService.class),
         mock(PersonalContextBuilder.class),
         mock(SystemSettingsService.class),
         new JobBuddyProperties(),

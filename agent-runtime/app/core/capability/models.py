@@ -19,8 +19,16 @@ class SlotExtractorConfig(BaseModel):
 class ConversationShortcut(BaseModel):
     id: str
     phrases: List[str] = Field(default_factory=list)
+    patterns: List[str] = Field(default_factory=list)
     capability_id: str
     slot_updates: Dict[str, Any] = Field(default_factory=dict)
+    required_previous_slots: List[str] = Field(default_factory=list)
+    reuse_previous_slots: bool = False
+    resolved_query: Optional[str] = None
+    retrieval_query: Optional[str] = None
+    planner_query: Optional[str] = None
+    context_type: List[str] = Field(default_factory=list)
+    secondary: List[str] = Field(default_factory=list)
     confidence: float = 0.9
     reason: str = "conversation shortcut"
 

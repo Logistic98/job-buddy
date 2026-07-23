@@ -1,4 +1,4 @@
-from scripts.run_engine_eval import _case_payload
+from scripts.run_engine_eval import _case_payload, _runtime_headers
 
 
 def test_case_payload_supports_recent_messages_and_previous_slots():
@@ -32,3 +32,13 @@ def test_case_payload_keeps_single_turn_cases_compatible():
 
     assert payload["messages"] == [{"role": "user", "content": "解释 Java volatile"}]
     assert payload["stream"] is True
+
+
+def test_runtime_headers_use_internal_service_token_without_exposing_other_env(monkeypatch):
+    monkeypatch.setenv("AGENT_INTERNAL_SERVICE_TOKEN", "  test-internal-token  ")
+    monkeypatch.setenv("UNRELATED_SECRET", "must-not-be-forwarded")
+
+    assert _runtime_headers() == {"X-Internal-Service-Token": "test-internal-token"}
+
+    monkeypatch.delenv("AGENT_INTERNAL_SERVICE_TOKEN")
+    assert _runtime_headers() == {}

@@ -71,23 +71,7 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
       return;
     }
 
-    Map<String, Object> job = ensureJobDescription(jsonCodec.toMap(command.snapshot()));
-    String key = jobKey(job);
-    Map<String, Object> payload = new LinkedHashMap<String, Object>(job);
-    payload.remove("analysis");
-    payload.remove("analyzedAt");
-    payload.put("favoriteKey", key);
-    if (!payload.containsKey("favoritedAt")
-        || String.valueOf(payload.get("favoritedAt")).trim().isEmpty()) {
-      payload.put("favoritedAt", Instant.now().toString());
-    }
-    payload.put("updatedAt", Instant.now().toString());
-
-    mapper.upsertFavorite(
-        "fav_" + UUID.randomUUID().toString().replace("-", ""),
-        userId,
-        key,
-        jsonCodec.toJson(payload));
+    persistFavoriteSnapshot(userId, ensureJobDescription(jsonCodec.toMap(command.snapshot())));
   }
 
   public BossFavoritePreviewResponse previewBossFavorites(
@@ -147,7 +131,7 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
       }
       try {
         job.put("favoriteKey", key);
-        saveFavorite(userId, JobFavoriteSaveCommand.from(jsonCodec.toTree(job)));
+        persistFavoriteSnapshot(userId, job);
         imported++;
         importedKeys.addAll(jobIdentityKeys(job));
         importedKeys.add(key);
@@ -206,7 +190,8 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
     if (row == null) {
       throw new IllegalArgumentException("收藏岗位不存在: " + jobKey);
     }
-    Map<String, Object> job = attachAnalysis(userId, toJob(row), resumeId);
+    Map<String, Object> job = ensurePersistedJobDescription(userId, toJob(row));
+    job = attachAnalysis(userId, job, resumeId);
     persistAnalysis(userId, jobKey.trim(), job);
     return jobResponse(job);
   }
@@ -223,7 +208,7 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
         (key == null || key.trim().isEmpty()) ? null : mapper.findFavorite(userId, key.trim());
     Map<String, Object> job;
     if (row != null) {
-      job = toJob(row);
+      job = ensurePersistedJobDescription(userId, toJob(row));
     } else {
       job = new LinkedHashMap<String, Object>(body);
       job.remove("resumeId");
@@ -246,7 +231,10 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
     String key = jobKey(body);
     Map<String, Object> row =
         key == null || key.trim().isEmpty() ? null : mapper.findFavorite(userId, key.trim());
-    Map<String, Object> job = row == null ? new LinkedHashMap<String, Object>(body) : toJob(row);
+    Map<String, Object> job =
+        row == null
+            ? new LinkedHashMap<String, Object>(body)
+            : ensurePersistedJobDescription(userId, toJob(row));
     job.remove("resumeId");
     requireJobDescription(job);
     ResumeRecord resume = resolveResumeForAnalysis(userId, resumeId);
@@ -347,6 +335,37 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
     mapper.updateAnalysis(userId, jobKey, jsonCodec.toJson(analysis), analyzedAt);
   }
 
+  private void persistFavoriteSnapshot(String userId, Map<String, Object> job) {
+    Map<String, Object> payload =
+        job == null ? new LinkedHashMap<String, Object>() : new LinkedHashMap<String, Object>(job);
+    String key = jobKey(payload);
+    payload.remove("analysis");
+    payload.remove("analyzedAt");
+    payload.put("favoriteKey", key);
+    if (!payload.containsKey("favoritedAt")
+        || String.valueOf(payload.get("favoritedAt")).trim().isEmpty()) {
+      payload.put("favoritedAt", Instant.now().toString());
+    }
+    payload.put("updatedAt", Instant.now().toString());
+
+    mapper.upsertFavorite(
+        "fav_" + UUID.randomUUID().toString().replace("-", ""),
+        userId,
+        key,
+        jsonCodec.toJson(payload));
+  }
+
+  private Map<String, Object> ensurePersistedJobDescription(
+      String userId, Map<String, Object> job) {
+    if (hasJobDescription(job)) {
+      putCanonicalJobDescription(job);
+      return job;
+    }
+    Map<String, Object> completed = ensureJobDescription(job);
+    persistFavoriteSnapshot(userId, completed);
+    return completed;
+  }
+
   private Map<String, Object> ensureJobDescription(Map<String, Object> snapshot) {
     Map<String, Object> job =
         snapshot == null
@@ -378,7 +397,7 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
 
   private void requireJobDescription(Map<String, Object> job) {
     if (!hasJobDescription(job)) {
-      throw new IllegalArgumentException("收藏岗位缺少职位描述，请移出后重新收藏以采集完整岗位信息");
+      throw new IllegalArgumentException("岗位缺少职位描述，请先查看职位描述或稍后重试");
     }
   }
 

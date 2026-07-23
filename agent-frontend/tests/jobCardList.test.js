@@ -87,6 +87,26 @@ describe('JobCardList favorites interactions', () => {
     expect(wrapper.get('.boss-favorite-import-modal').exists()).toBe(true)
   })
 
+  it('never renders stale workspace matching as a favorite analysis', async () => {
+    const wrapper = mountFavorites()
+    const job = useJobStore()
+    job.match = {
+      matches: [
+        {
+          id: 'another-job',
+          recommendation: '证据不足',
+          reasoning: '这是岗位工作台中其他岗位的旧分析结果',
+        },
+      ],
+    }
+    await flushPromises()
+
+    expect(wrapper.find('.match-box').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('证据不足')
+    expect(wrapper.text()).not.toContain('其他岗位的旧分析结果')
+    expect(wrapper.text()).toContain('分析岗位')
+  })
+
   it('uses a compact single-line search field without a standalone label', () => {
     const wrapper = mountFavorites()
     const search = wrapper.find('.job-search input[type="search"]')

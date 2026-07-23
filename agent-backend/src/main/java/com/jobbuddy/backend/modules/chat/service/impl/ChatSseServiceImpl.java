@@ -15,6 +15,7 @@ import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.security.AuthenticationScope;
 import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
+import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
@@ -103,6 +104,7 @@ public class ChatSseServiceImpl implements ChatSseService {
       AgentIntegrationService integrationService,
       IntentService intentService,
       ResumeStorageService resumeStorageService,
+      BossCliService bossCliService,
       PersonalContextBuilder personalContextBuilder,
       SystemSettingsService settingsService,
       JobBuddyProperties properties,
@@ -125,9 +127,8 @@ public class ChatSseServiceImpl implements ChatSseService {
     this.requestFactory =
         new RuntimeManagedRequestFactory(integrationService, personalContextBuilder, properties);
     CurrentResumeLoader resumeLoader = new CurrentResumeLoader(resumeStorageService);
-    this.selectedJobAnalysisHandler =
-        new SelectedJobAnalysisHandler(
-            sender, resumeLoader, resumeStorageService, integrationService, requestFactory);
+    SelectedJobContextResolver selectedJobContextResolver =
+        new SelectedJobContextResolver(bossCliService);
     this.resumeFlowHandler =
         new ResumeFlowHandler(
             sender,
@@ -136,7 +137,10 @@ public class ChatSseServiceImpl implements ChatSseService {
             jobRuntimeService,
             sessionStore,
             integrationService,
-            requestFactory);
+            requestFactory,
+            selectedJobContextResolver);
+    this.selectedJobAnalysisHandler =
+        new SelectedJobAnalysisHandler(sender, selectedJobContextResolver, resumeFlowHandler);
     this.jobRecommendHandler =
         new JobRecommendHandler(sender, persistence, jobRuntimeService, properties);
     this.runtimeManagedTaskHandler =
@@ -335,7 +339,39 @@ public class ChatSseServiceImpl implements ChatSseService {
       return;
     }
 
-    // 扫码登录后的续跑：复用上一轮检索条件，跳过任务理解直接继续岗位搜索，与登录提示合并为同一段连续过程。
+    // 换简历复评在按需加载 JD 时也可能触发登录引导。扫码后必须恢复原 resume.match，
+    // 不能落入岗位搜索续跑，否则会把已解析正确的省略追问改写成另一个业务动作。
+    if (resumeAfterAuth && shouldResumeSelectedJobMatchAfterAuth(request, state)) {
+      sender.sendToolStatus(
+          emitter,
+          sessionId,
+          state,
+          toolStatus(
+              "auth_resume",
+              "登录后继续复评",
+              "success",
+              "Boss 登录完成，继续使用当前简历复评上一轮选中岗位。",
+              state.lastSlots));
+      IntentResult resumedIntent =
+          new IntentResult(
+              "job",
+              "resume.match",
+              1.0,
+              Collections.<String>emptyList(),
+              "low",
+              false,
+              "run_resume_match",
+              new LinkedHashMap<String, Object>(state.lastSlots));
+      Map<String, Object> taskMetadata =
+          Collections.<String, Object>singletonMap("reuse_previous_slots", true);
+      Map<String, Object> task = Collections.<String, Object>singletonMap("metadata", taskMetadata);
+      Map<String, Object> resumedDirective = Collections.<String, Object>singletonMap("task", task);
+      resumeFlowHandler.handleResumeMatch(
+          emitter, sessionId, state, resumedIntent, request.getMessage(), resumedDirective);
+      return;
+    }
+
+    // 岗位搜索扫码登录后的续跑：复用上一轮检索条件，跳过任务理解直接继续搜索，与登录提示合并为同一段连续过程。
     if (resumeAfterAuth) {
       sender.sendToolStatus(
           emitter,
@@ -476,7 +512,8 @@ public class ChatSseServiceImpl implements ChatSseService {
                 state == null || state.lastSlots == null ? Collections.emptyMap() : state.lastSlots)
             .metadata(
                 "current_jobs_count", state == null || state.jobs == null ? 0 : state.jobs.size())
-            .metadata("personal_context", requestFactory.buildPersonalContext(message, null, state))
+            .metadata(
+                "personal_context", requestFactory.buildUnderstandingContext(message, null, state))
             .build();
     Map<String, Object> result = integrationService.runRuntime(request);
     Map<String, Object> directive = RuntimeRequestBuilder.extractDirective(result);
@@ -533,11 +570,21 @@ public class ChatSseServiceImpl implements ChatSseService {
     runtimeManagedTaskHandler.handle(emitter, sessionId, rawMessage, state, directive, intent);
   }
 
+  static boolean shouldResumeSelectedJobMatchAfterAuth(
+      ChatStreamRequest request, ChatSessionState state) {
+    if (request == null
+        || !Boolean.TRUE.equals(request.getResumeAfterAuth())
+        || state == null
+        || state.lastSlots == null
+        || !state.lastSlots.containsKey(SELECTED_JOB_CONTEXT_KEY)) return false;
+    return ResumeFlowHandler.isSelectedJobResumeFollowUp(request.getMessage())
+        || "resume_switch_rematch".equals(stringValue(state.lastSlots.get("follow_up")));
+  }
+
   private boolean isSelectedJobAnalysis(ChatStreamRequest request) {
     return request != null
         && request.getSelectedJob() != null
         && !request.getSelectedJob().isEmpty()
-        && !Boolean.TRUE.equals(request.getResumeAfterAuth())
         && !Boolean.TRUE.equals(request.getFlipJobs());
   }
 }

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import sys
 import time
@@ -68,6 +69,12 @@ def _case_payload(case: dict) -> dict:
     return payload
 
 
+def _runtime_headers() -> dict[str, str]:
+    """读取服务间共享令牌；只注入请求头，不进入报告、日志或用例载荷。"""
+    token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
+    return {"X-Internal-Service-Token": token} if token else {}
+
+
 def _stream_case(runtime_url: str, case: dict, timeout: float) -> dict:
     """发起一次流式请求，返回采集到的事件、时延指标与终态聚合。"""
     import httpx
@@ -83,7 +90,7 @@ def _stream_case(runtime_url: str, case: dict, timeout: float) -> dict:
     try:
         # trust_env=False：绕过 HTTP_PROXY 等代理环境变量，localhost 请求必须直连
         with httpx.Client(timeout=timeout, trust_env=False) as client:
-            with client.stream("POST", url, json=payload) as resp:
+            with client.stream("POST", url, json=payload, headers=_runtime_headers()) as resp:
                 resp.raise_for_status()
                 event_name = "message"
                 for raw in resp.iter_lines():

@@ -787,6 +787,7 @@ const researchByCompany = computed(() => {
   return map
 })
 function matchOf(item, idx) {
+  if (isFavoritesMode.value) return null
   const matches = job.match?.matches || []
   const id = jobId(item, idx)
   return (
@@ -804,6 +805,7 @@ function matchOf(item, idx) {
   )
 }
 function researchOf(item, idx) {
+  if (isFavoritesMode.value) return item.companyResearch || {}
   const id = jobId(item, idx)
   return researchByJobId.value.get(id) || researchByCompany.value.get(company(item)) || item.companyResearch || {}
 }

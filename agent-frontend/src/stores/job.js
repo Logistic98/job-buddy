@@ -294,9 +294,30 @@ export const useJobStore = defineStore('job', {
       try {
         const detail = await fetchJobDetail(securityId, url)
         if (revision !== this.lifecycleRevision) return null
+        const completed = { ...item, ...(detail || {}), favoriteKey: key }
+        const wasFavorite = this.isFavorite(item)
         this.applyJobDetail(item, detail)
-        if (!jobDescription({ ...item, ...(detail || {}) })) {
+        if (!jobDescription(completed)) {
           this.detailErrors = { ...this.detailErrors, [key]: '未获取到职位描述，请稍后重试或打开 Boss 原岗位查看。' }
+        } else if (wasFavorite) {
+          this.favoriteMutationVersion += 1
+          this.favoriteMutationPendingCount += 1
+          try {
+            const saved = await saveFavoriteJob(completed)
+            if (revision !== this.lifecycleRevision) return null
+            this.favorites = Array.isArray(saved) ? saved : this.favorites
+          } catch (persistError) {
+            if (revision !== this.lifecycleRevision) return null
+            this.detailErrors = {
+              ...this.detailErrors,
+              [key]: `职位描述已加载，但保存失败：${persistError?.message || '请稍后重试'}`,
+            }
+          } finally {
+            if (revision === this.lifecycleRevision) {
+              this.favoriteMutationPendingCount = Math.max(0, this.favoriteMutationPendingCount - 1)
+              this.favoriteMutationVersion += 1
+            }
+          }
         }
         return detail
       } catch (error) {

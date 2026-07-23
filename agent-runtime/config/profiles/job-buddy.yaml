@@ -12,6 +12,24 @@ preferences:
   agent_design: "Profile 只描述能力卡、槽位和风险，不在 Runtime Core 中硬编码 Boss/简历/岗位规则。"
 
 conversation_shortcuts:
+  - id: resume_switch_rematch
+    phrases: []
+    patterns:
+      - '^(?:现在(?:用)?|换(?:成)?|改用)?(?:这个|这份|当前)?\s*\d+\s*年(?:经验)?(?:的)?简历(?:呢|怎么样|如何|再看(?:一下)?)?[？?]?$'
+      - '^(?:现在(?:用)?|换(?:成)?|改用)(?:这个|这份|当前)?简历(?:呢|怎么样|如何|再看(?:一下)?)?[？?]?$'
+    capability_id: resume.match
+    required_previous_slots: ["_selected_job"]
+    reuse_previous_slots: true
+    confidence: 0.99
+    reason: "用户切换当前简历后，要求重新评估上一轮明确选中的岗位"
+    resolved_query: "使用当前选择的简历重新评估上一轮明确选中的岗位"
+    retrieval_query: "当前简历与上一轮选中岗位匹配分析"
+    planner_query: "读取当前简历，并复用上一轮选中岗位的完整 JD 执行匹配评估"
+    context_type: ["recent_dialogue", "resume", "current_jobs"]
+    secondary: ["resume_switched", "reuse_selected_job"]
+    slot_updates:
+      follow_up: resume_switch_rematch
+
   - id: next_batch
     phrases: ["换一批", "下一批", "再来一批", "更多", "继续找", "继续推荐", "下一个"]
     capability_id: job.recommend
