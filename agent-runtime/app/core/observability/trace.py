@@ -1,6 +1,7 @@
 import asyncio
 import contextvars
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -137,8 +138,11 @@ class TraceRecorder:
         if path is None:
             return
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as f:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            os.chmod(path.parent, 0o700)
+            descriptor = os.open(path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "a", encoding="utf-8") as f:
                 f.write(json.dumps(item.model_dump(), ensure_ascii=False) + "\n")
         except Exception as e:
             logger.warning(f"Trace 落盘失败：run_id={item.run_id}, error={e}")

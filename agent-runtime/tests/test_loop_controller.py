@@ -1,6 +1,7 @@
 from app.core.agent.loop_controller import LoopController
 from app.core.capability.models import CapabilityCard, ProfileDefinition
 from app.core.common.constants import StopReason
+from app.core.common.settings import settings
 from app.models.schemas import (
     ClarificationDecision,
     RiskFlags,
@@ -64,12 +65,25 @@ def test_budget_blocks_on_token_usage():
         controller.evaluate_budget({"budget": {"max_tokens": 1000}, "token_usage": {"total_tokens": 999}}).blocked
         is False
     )
-    # max_tokens 为 0 或缺省表示不限
+    # max_tokens 为 0 或缺省时回落到服务端有限预算，不能绕过 run 级上限。
     assert (
-        controller.evaluate_budget({"budget": {"max_tokens": 0}, "token_usage": {"total_tokens": 999999}}).blocked
+        controller.evaluate_budget(
+            {
+                "budget": {"max_tokens": 0},
+                "token_usage": {"total_tokens": settings.config.runtime.max_run_tokens},
+            }
+        ).stop_reason
+        == StopReason.TOKEN_BUDGET_EXCEEDED.value
+    )
+    assert (
+        controller.evaluate_budget(
+            {
+                "budget": {},
+                "token_usage": {"total_tokens": settings.config.runtime.max_run_tokens - 1},
+            }
+        ).blocked
         is False
     )
-    assert controller.evaluate_budget({"budget": {}, "token_usage": {"total_tokens": 999999}}).blocked is False
     # 无 token_usage 状态不阻断
     assert controller.evaluate_budget({"budget": {"max_tokens": 1000}}).blocked is False
 

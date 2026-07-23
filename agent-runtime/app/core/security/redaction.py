@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
 _REDACTED = "[REDACTED]"
 _SENSITIVE_TEXT_PATTERNS = (
     re.compile(r"(?i)(authorization\s*[:=]\s*(?:bearer\s+)?)[^\s,;]+"),
-    re.compile(r"(?i)((?:api[_-]?key|auth[_-]?token|password|secret|token)\s*[:=]\s*)[^\s,;]+"),
+    re.compile(
+        r"""(?i)(["']?(?:api[_-]?key|auth[_-]?token|access[_-]?token|password|secret|token)["']?\s*[:=]\s*)"""
+        r"""(?:"[^"]*"|'[^']*'|[^\s,;}]+)"""
+    ),
     re.compile(r"(?i)(postgres(?:ql)?://[^:\s/@]+:)[^@\s]+(@)"),
+)
+_PII_TEXT_PATTERNS = (
+    re.compile(r"(?i)(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+(?![\w.-])"),
+    re.compile(r"(?<!\d)(?:\+?86[-\s]?)?1[3-9]\d{9}(?!\d)"),
+    re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)"),
 )
 _SENSITIVE_KEYS = {
     "api_key",
@@ -19,7 +28,14 @@ _SENSITIVE_KEYS = {
     "credential_json",
     "database_url",
     "dsn",
+    "email",
+    "id_card",
+    "id_number",
+    "identity_number",
+    "mobile",
     "password",
+    "phone",
+    "phone_number",
     "secret",
     "token",
 }
@@ -48,6 +64,18 @@ def redact_sensitive(value: Any, *, max_depth: int = 12, _depth: int = 0) -> Any
     if isinstance(value, (list, tuple, set)):
         return [redact_sensitive(item, max_depth=max_depth, _depth=_depth + 1) for item in value]
     if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith(("{", "[")) and stripped.endswith(("}", "]")):
+            try:
+                decoded = json.loads(value)
+            except (TypeError, ValueError):
+                pass
+            else:
+                return json.dumps(
+                    redact_sensitive(decoded, max_depth=max_depth, _depth=_depth + 1),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
         redacted = value
         for pattern in _SENSITIVE_TEXT_PATTERNS:
             redacted = pattern.sub(
@@ -56,5 +84,7 @@ def redact_sensitive(value: Any, *, max_depth: int = 12, _depth: int = 0) -> Any
                 ),
                 redacted,
             )
+        for pattern in _PII_TEXT_PATTERNS:
+            redacted = pattern.sub(_REDACTED, redacted)
         return redacted
     return value

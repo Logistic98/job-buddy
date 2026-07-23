@@ -5,7 +5,6 @@ import ResumeLibrary from '../src/components/ResumeLibrary.vue'
 import { useResumeStore } from '../src/stores/resume'
 
 vi.mock('../src/api/resume', () => ({
-  analyzeResume: vi.fn(),
   deleteResume: vi.fn(),
   getJobProfile: vi.fn(),
   getResume: vi.fn(),

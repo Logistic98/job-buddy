@@ -41,12 +41,28 @@ run_agent_eval() {
   popd >/dev/null
 }
 
+run_runtime_contract() {
+  [[ -d agent-runtime ]] || fail "agent-runtime directory is missing"
+  need_cmd uv "agent-runtime"
+
+  log "agent-runtime: deterministic delivery contract"
+  pushd agent-runtime >/dev/null
+  uv sync --frozen --extra dev --quiet || fail "agent-runtime: dependency sync failed"
+  env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER \
+    AGENT_INTERNAL_SERVICE_TOKEN= \
+    JOB_BUDDY_ENVIRONMENT=development \
+    uv run python -m pytest -q tests/test_runtime_delivery_contract.py \
+    || fail "agent-runtime: delivery contract failed"
+  popd >/dev/null
+}
+
 is_known_target "$TARGET" || fail "unknown eval target: $TARGET"
 
 if [[ "$TARGET" == "agent-frontend" ]]; then
   log "agent-frontend behavior checks are part of its Vitest suite run by verify.sh"
 else
   run_agent_eval
+  run_runtime_contract
 fi
 
 log "all evals passed"

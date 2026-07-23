@@ -67,8 +67,8 @@ class RuntimeConfig(BaseModel):
     max_turns: int = 12
     max_tool_calls: int = 20
     max_failures: int = 3
-    # 单次 run 的 token 预算默认值，0 表示不限，可被请求 budget.max_tokens 覆盖。
-    max_run_tokens: int = 0
+    # 单次 run 的 token 预算默认值；请求传入 0 时也回落到该有限预算。
+    max_run_tokens: int = 32768
     # Loop 内观察列表的结构化压缩（Compaction）配置：条数或总字符任一达到阈值即触发，
     # 触发后保留最近 keep_recent 条原始观察，其余折叠为五要素快照。
     compaction_enabled: bool = True
@@ -106,6 +106,16 @@ class PermissionConfig(BaseModel):
     allow_tools: List[str] = Field(default_factory=list)
     deny_tools: List[str] = Field(default_factory=list)
     destructive_tools: List[str] = Field(default_factory=list)
+
+
+class TranscriptReviewConfig(BaseModel):
+    """高风险工具调用前的独立 transcript 复核服务。"""
+
+    enabled: bool = True
+    base_url: str = "http://localhost:8020"
+    timeout_seconds: float = 2.0
+    max_retries: int = 1
+    retry_backoff_seconds: float = 0.2
 
 
 class ToolRuntimeConfig(BaseModel):
@@ -195,6 +205,7 @@ class AppConfig(BaseModel):
     web_fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
     checkpoint: CheckpointConfig = Field(default_factory=CheckpointConfig)
     permission: PermissionConfig = Field(default_factory=PermissionConfig)
+    transcript_review: TranscriptReviewConfig = Field(default_factory=TranscriptReviewConfig)
     tool_runtime: ToolRuntimeConfig = Field(default_factory=ToolRuntimeConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)

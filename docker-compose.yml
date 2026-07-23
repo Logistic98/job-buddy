@@ -30,6 +30,9 @@ services:
       AGENT_INTERNAL_SERVICE_TOKEN: ${AGENT_INTERNAL_SERVICE_TOKEN:-}
       AGENT_SANDBOX_MAX_CONCURRENCY: ${AGENT_SANDBOX_MAX_CONCURRENCY:-4}
       AGENT_SANDBOX_MAX_OUTPUT_CHARS: ${AGENT_SANDBOX_MAX_OUTPUT_CHARS:-200000}
+      AGENT_SANDBOX_WORKSPACE_DIR: /workspace
+    volumes:
+      - runtime-workspace:/workspace:ro
     expose:
       - "8061"
 
@@ -73,6 +76,7 @@ services:
       AGENT_TOOL_URL: http://agent-tool:8040
       JOB_BUDDY_MEMORY_BASE_URL: http://agent-memory:8030
       JOB_BUDDY_SANDBOX_BASE_URL: http://agent-sandbox:8061
+      JOB_BUDDY_TRANSCRIPT_REVIEW_BASE_URL: http://agent-intent:8020
       JOB_BUDDY_RUNTIME_WORKSPACE_DIR: /workspace
     volumes:
       - runtime-workspace:/workspace

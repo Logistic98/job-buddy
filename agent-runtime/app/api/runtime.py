@@ -103,7 +103,13 @@ async def invoke_tool(
         workspace_dir=workspace_dir,
         metadata=metadata,
     )
-    result = await executor.tool_runtime.execute(tool_call, _default_permission_mode(), context)
+    gateway_result = await executor.tool_gateway.execute(
+        tool_call,
+        _default_permission_mode(),
+        context,
+        transcript_messages=[],
+    )
+    result = gateway_result.result
     if result.metadata.get("permission_denied"):
         raise HTTPException(status_code=403, detail=result.error or "工具权限被拒绝")
     return success(result.model_dump())

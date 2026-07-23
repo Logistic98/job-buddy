@@ -34,11 +34,13 @@ public final class RuntimeRequestBuilder {
     return new RuntimeRequestBuilder(sessionId, userMessage, entrypoint);
   }
 
-  public RuntimeRequestBuilder budget(int maxTurns, int maxToolCalls, int maxFailures) {
+  public RuntimeRequestBuilder budget(
+      int maxTurns, int maxToolCalls, int maxFailures, int maxTokens) {
     Map<String, Object> budget = new LinkedHashMap<String, Object>();
     budget.put("max_turns", maxTurns);
     budget.put("max_tool_calls", maxToolCalls);
     budget.put("max_failures", maxFailures);
+    budget.put("max_tokens", maxTokens);
     payload.put("budget", budget);
     return this;
   }

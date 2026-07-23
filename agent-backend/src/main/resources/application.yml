@@ -98,7 +98,9 @@ agent:
     circuit-open-duration: ${AGENT_SERVICE_CIRCUIT_OPEN_DURATION:15s}
 
 job-buddy:
+  environment: ${JOB_BUDDY_ENVIRONMENT:development}
   default-user-id: ${JOB_BUDDY_DEFAULT_USER_ID:default-user}
+  cors-allowed-origins: ${JOB_BUDDY_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   chat:
     redis-failure-cooldown: ${CHAT_REDIS_FAILURE_COOLDOWN:30s}
   max-jobs-per-recommend: ${JOB_BUDDY_MAX_JOBS_PER_RECOMMEND:15}
@@ -114,6 +116,7 @@ job-buddy:
   runtime-max-turns: ${JOB_BUDDY_RUNTIME_MAX_TURNS:4}
   runtime-max-tool-calls: ${JOB_BUDDY_RUNTIME_MAX_TOOL_CALLS:4}
   runtime-max-failures: ${JOB_BUDDY_RUNTIME_MAX_FAILURES:2}
+  runtime-max-tokens: ${JOB_BUDDY_RUNTIME_MAX_TOKENS:32768}
   max-resume-bytes: ${JOB_BUDDY_MAX_RESUME_BYTES:5242880}
   resume-runtime-workspace: ${JOB_BUDDY_RESUME_RUNTIME_WORKSPACE:}
   resume-writer-version-limit: ${JOB_BUDDY_RESUME_WRITER_VERSION_LIMIT:30}

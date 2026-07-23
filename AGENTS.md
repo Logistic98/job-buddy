@@ -71,7 +71,7 @@ job-buddy/
 
 ### 数据与中间件
 
-- MySQL / Redis / Elasticsearch / Kafka / MinIO / Milvus 等中间件按模块按需启用。
+- 当前正式数据栈为 PostgreSQL、Redis 与 MinIO；新增其他中间件必须先更新架构文档、配置、容器编排和 Harness。
 - 中间件连接信息、密钥、模型 API Key 等敏感配置必须通过环境变量或挂载的配置文件注入。
 - 任何对生产数据库的结构变更必须通过迁移脚本管理，不允许直接手工改库。
 - 后端 Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。V1.0.0 至 V1.0.7 构成面向空数据库的规范基线，属于不可变资产；数据库变更只能追加更高版本的新脚本，禁止修改、删除、重命名或复用版本号，也禁止 repair、baseline 或手工覆盖绕过版本校验。文件命名遵循 `V<major>_<minor>_<patch>__<English_description>.sql`，描述使用英文单词、数字和下划线。
@@ -353,7 +353,7 @@ uv run python -m pytest
 - 在线写入轻量，离线做梦（Dreams）负责去重、冲突解决、洞察提炼，新 Store 不覆盖原 Store。
 - 记忆系统必须支持更新、覆盖、过期、删除与回滚，不能只追加。
 - 写入比检索更关键，需主动判断"是否值得记"，低质量写入会长期污染系统。
-- 检索用 BM25 + Vector + Graph 混合并以 RRF 融合，单一向量召回不足以应对符号化代码场景。
+- 当前检索用 BM25 + 时间衰减 + 可选 Vector 信号并以 RRF 融合，不包含图数据库召回；扩展检索信号时必须保持失败降级和权限过滤。
 - 长期记忆是攻击面：写入、存储、召回、执行、共享、遗忘六个环节都要鉴权与审计。
 
 ### 意图识别与路由

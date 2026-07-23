@@ -66,7 +66,8 @@ public class AgentFlowServiceImpl implements AgentFlowService {
         .budget(
             properties.getRuntimeMaxTurns(),
             properties.getRuntimeMaxToolCalls(),
-            properties.getRuntimeMaxFailures())
+            properties.getRuntimeMaxFailures(),
+            properties.getRuntimeMaxTokens())
         .build();
   }
 

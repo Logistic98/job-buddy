@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 vi.mock('../src/api/resume', () => ({
-  analyzeResume: vi.fn(),
   startResumeAnalysisTask: vi.fn(),
   latestResumeAnalysisTask: vi.fn(async () => null),
   getAnalysisTask: vi.fn(async () => null),

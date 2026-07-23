@@ -16,7 +16,7 @@ cp .env.example .env
 unset COMPOSE_PROJECT_NAME
 ```
 
-至少必须替换 PostgreSQL、Redis、MinIO、LLM、内部服务令牌和 Boss 凭据加密密钥。`AGENT_INTERNAL_SERVICE_TOKEN` 应使用高熵随机值；`JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY` 必须是 Base64 编码的 32 字节 AES 密钥，可通过 `openssl rand -base64 32` 生成。Flyway 会创建 `admin` 管理员和 `user` 普通用户，初始密码均为 `12345678`，首次部署成功后必须立即通过平台设置的用户管理重置默认密码。`.env` 包含真实密钥且被 Git 忽略，不得提交、复制到文档或输出到日志；`.env.example` 只用于模板和配置渲染验证，不能作为容器运行配置。
+至少必须替换 PostgreSQL、Redis、MinIO、LLM、内部服务令牌和 Boss 凭据加密密钥。`AGENT_INTERNAL_SERVICE_TOKEN` 应使用高熵随机值；`JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY` 必须是 Base64 编码的 32 字节 AES 密钥，可通过 `openssl rand -base64 32` 生成。Flyway 会创建 `admin` 管理员和 `user` 普通用户，初始密码均为 `12345678`；应先在受控开发环境通过平台设置的用户管理重置两个密码，再将 `JOB_BUDDY_ENVIRONMENT` 切换为 `production`，否则 Backend 会拒绝启动。`.env` 包含真实密钥且被 Git 忽略，不得提交、复制到文档或输出到日志；`.env.example` 只用于模板和配置渲染验证，不能作为容器运行配置。
 
 本地默认将应用和基础设施端口绑定到 `127.0.0.1`。服务器部署应在 `.env` 中显式设置浏览器访问地址和绑定策略，例如：
 

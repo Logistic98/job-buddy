@@ -53,6 +53,7 @@ public class ServiceHealthMonitor {
     data.put("runtimeMaxTurns", jobProperties.getRuntimeMaxTurns());
     data.put("runtimeMaxToolCalls", jobProperties.getRuntimeMaxToolCalls());
     data.put("runtimeMaxFailures", jobProperties.getRuntimeMaxFailures());
+    data.put("runtimeMaxTokens", jobProperties.getRuntimeMaxTokens());
     data.put("maxResumeBytes", jobProperties.getMaxResumeBytes());
     data.put("resumeWriterVersionLimit", jobProperties.getResumeWriterVersionLimit());
     return data;

@@ -18,7 +18,8 @@
 - `POST /v1/eval/trace`：对 Runtime 事件流和 Backend 节点流执行核心链路评分。
 - `POST /v1/eval/run`：完整运行质量评估。
 - `POST /v1/eval/capabilities`：Profile 能力清单评估，检查稳定标识、执行意图、工具或 Planner 契约和证据要求。
-- `POST /v1/eval/judge`：LLM Judge 开放质量评审，与规则评分互补。通过环境变量 `AGENT_EVAL_JUDGE_BASE_URL`（OpenAI 兼容地址）、`AGENT_EVAL_JUDGE_MODEL`、`AGENT_EVAL_JUDGE_API_KEY`、`AGENT_EVAL_JUDGE_TIMEOUT_SECONDS` 配置；未配置或调用失败时返回 `code=1` 且 `data.enabled/ok` 标记不可用，调用方不得将其视为评审通过。
+- `POST /v1/eval/latency`：按 TTFB、TTFT 和总时延预算执行确定性评分。
+- `POST /v1/eval/judge`：LLM Judge 开放质量评审，与规则评分互补。通过环境变量 `AGENT_EVAL_JUDGE_BASE_URL`（OpenAI 兼容地址）、`AGENT_EVAL_JUDGE_MODEL`、`AGENT_EVAL_JUDGE_API_KEY`、`AGENT_EVAL_JUDGE_TIMEOUT_SECONDS` 配置；未配置或调用失败时返回 `code=503` 且 `data.enabled/ok` 标记不可用，调用方不得将其视为评审通过。
 
 `/v1/eval/run` 请求示例：
 
@@ -99,9 +100,10 @@
 uv sync --extra dev
 uv run python server.py
 uv run python -m pytest -q
+../.agent-harness/scripts/evaluate.sh agent-runtime
 ```
 
-`run_engine_eval.py` 直连 Runtime 执行真实流式评估。部署配置了 `AGENT_INTERNAL_SERVICE_TOKEN` 时，runner 会从环境变量读取该令牌并仅通过 `X-Internal-Service-Token` 请求头传递，不写入用例载荷、日志或报告。运行本地真实回归前应先加载仓库根目录环境变量；例如只验证切换简历后复评上一岗位的上下文捷径：
+Harness 默认运行评分器测试、Engine Eval 自检和无需外部模型的真实 Runtime 代码契约；`run_engine_eval.py` 则用于直连已启动 Runtime 执行真实流式效果与时延评估。部署配置了 `AGENT_INTERNAL_SERVICE_TOKEN` 时，runner 会从环境变量读取该令牌并仅通过 `X-Internal-Service-Token` 请求头传递，不写入用例载荷、日志或报告。运行本地真实回归前应先加载仓库根目录环境变量；例如只验证切换简历后复评上一岗位的上下文捷径：
 
 ```bash
 set -a

@@ -96,7 +96,7 @@ cp .env.example .env
 - `AGENT_RUNTIME_URL`、`AGENT_INTENT_URL`、`AGENT_MEMORY_URL`、`AGENT_TOOL_URL`、`AGENT_EVAL_URL`：后端调用 Python 辅助服务地址。
 - `JOB_BUDDY_LLM_*`：Runtime 的 OpenAI 兼容模型配置。
 - `JOB_BUDDY_MINIO_*`：简历附件和资源对象存储配置。
-- `AGENT_INTERNAL_SERVICE_TOKEN`：Backend 与 Runtime、Intent、Memory、Tool、Eval、Sandbox 之间共享的服务令牌；生产环境必填。
+- `AGENT_INTERNAL_SERVICE_TOKEN`：Backend 与 Runtime、Intent、Memory、Tool、Eval、Sandbox 之间共享的服务令牌；生产环境和 Sandbox 非回环监听（包括应用 Compose）必填。
 - `JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY`：Boss 凭据 AES-256-GCM 加密使用的 Base64 32 字节密钥，生产环境必须稳定保存。
 - `BOSS_CLI_*`：agent-tool 中 Boss 工具的 Cookie 来源、状态校验、请求和限速参数。
 
@@ -108,7 +108,7 @@ cp .env.example .env
 
 Flyway 初始化共享租户、权限定义、角色、菜单、角色菜单目录，默认 `admin`、`user` 账号及其角色关联，并通过追加迁移维护平台级系统岗位黑名单；两个默认账号的初始密码均为 `12345678`，数据库只保存 BCrypt 哈希，管理员可在平台设置的用户管理中重置密码。项目经历、简历、岗位收藏、求职进展、聊天记录和认证状态等私有业务数据必须通过受鉴权 API 写入，禁止进入 Flyway 和 Git。除指定的默认身份种子迁移、门禁登记的 V1.0.9 默认身份状态迁移及 V1.0.8 `blacklist_item` 系统种子迁移外，新增迁移向私有业务表执行 `INSERT`、`UPDATE` 或 `DELETE` 会被质量门禁直接拒绝；系统黑名单同样禁止通过其他迁移插入、更新或删除。
 
-数据库由 Flyway 在空 Schema 中初始化，禁止使用 repair、baseline 或手工覆盖绕过版本校验。公开部署后应立即修改默认密码。
+数据库由 Flyway 在空 Schema 中初始化，禁止使用 repair、baseline 或手工覆盖绕过版本校验。开发环境完成默认密码轮换后再设置 `JOB_BUDDY_ENVIRONMENT=production`；生产启动会拒绝仍使用默认密码的启用账号，并禁止关闭用户认证。
 
 提交涉及数据库结构的改动前，先运行 Flyway 迁移校验：
 

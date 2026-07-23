@@ -138,6 +138,7 @@ class AgentExecutor:
                 TraceEventName.RUN_END.value,
                 {"status": final_state.get("status"), "latency_ms": timer.get_latency_ms()},
                 run_id=run_id,
+                status=self._trace_status(final_state.get("status")),
             )
             logger.info(f"Agent 执行完成：status={final_state.get('status')}")
             return AgentRunResponse(
@@ -180,7 +181,14 @@ class AgentExecutor:
             state["error"] = str(e)
             await self.checkpoint_store.save(session_id, run_id, "runtime_error", state)
             await self._record_llm_usage(trace_id, run_id, llm_client)
-            await self.trace_recorder.record(trace_id, TraceEventName.RUN_END.value, {"error": str(e)}, run_id=run_id)
+            await self.trace_recorder.record(
+                trace_id,
+                TraceEventName.RUN_END.value,
+                {"error": str(e)},
+                run_id=run_id,
+                status="failed",
+                error=str(e),
+            )
             logger.exception("Agent 执行失败")
             return AgentRunResponse(
                 run_id=run_id,
@@ -400,7 +408,10 @@ class AgentExecutor:
                     "permission_records": response.permission_records,
                 }
             else:
-                async for piece in llm_client.stream_chat(messages):
+                async for piece in llm_client.stream_chat(
+                    messages,
+                    max_tokens=self._remaining_stream_tokens(request),
+                ):
                     text = piece.get("text") if isinstance(piece, dict) else piece
                     if not text:
                         continue
@@ -421,6 +432,7 @@ class AgentExecutor:
                 TraceEventName.RUN_END.value,
                 {"status": status, "latency_ms": timer.get_latency_ms(), "stream": True},
                 run_id=run_id,
+                status=self._trace_status(status),
             )
             logger.info(f"Agent 流式执行完成：chars={len(answer)}")
             yield {
@@ -450,7 +462,12 @@ class AgentExecutor:
             logger.exception("Agent 流式执行失败")
             await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(
-                trace_id, TraceEventName.RUN_END.value, {"error": str(e), "stream": True}, run_id=run_id
+                trace_id,
+                TraceEventName.RUN_END.value,
+                {"error": str(e), "stream": True},
+                run_id=run_id,
+                status="failed",
+                error=str(e),
             )
             yield {
                 "event": "error",
@@ -599,7 +616,7 @@ class AgentExecutor:
                     str(request.messages[-1].content) if request.messages else state.get("objective", "")
                 )
                 state["permission_mode"] = self._request_permission_mode(request).value
-                state["budget"] = request.budget.model_dump()
+                state["budget"] = self._effective_budget(request)
                 state["metadata"] = metadata
                 state["profile"] = str(metadata.get("profile") or state.get("profile") or "default")
                 state["status"] = RuntimeStatus.RUNNING.value
@@ -624,7 +641,7 @@ class AgentExecutor:
             "messages": request.messages,
             "objective": str(request.messages[-1].content) if request.messages else "",
             "permission_mode": self._request_permission_mode(request).value,
-            "budget": request.budget.model_dump(),
+            "budget": self._effective_budget(request),
             "metadata": metadata,
             "profile": str(metadata.get("profile") or metadata.get("agent_profile") or "default"),
             "status": RuntimeStatus.RUNNING.value,
@@ -662,6 +679,29 @@ class AgentExecutor:
         usage = current_usage()
         if usage is not None:
             state["token_usage"] = usage
+
+    def _effective_budget(self, request: AgentRunRequest) -> Dict:
+        budget = request.budget.model_dump()
+        if int(budget.get("max_tokens") or 0) <= 0:
+            budget["max_tokens"] = max(1, int(settings.config.runtime.max_run_tokens or 32768))
+        return budget
+
+    def _remaining_stream_tokens(self, request: AgentRunRequest) -> int:
+        run_limit = int(request.budget.max_tokens or settings.config.runtime.max_run_tokens or 32768)
+        usage = current_usage() or {}
+        remaining = max(1, run_limit - int(usage.get("total_tokens") or 0))
+        response_limit = max(1, int(settings.config.llm_service.max_tokens or remaining))
+        return min(response_limit, remaining)
+
+    def _trace_status(self, runtime_status) -> str:
+        value = str(runtime_status or "").lower()
+        if value in {RuntimeStatus.FAIL.value, "failed", "error"}:
+            return "failed"
+        if value in {RuntimeStatus.PAUSED.value, RuntimeStatus.NEED_CONFIRM.value}:
+            return value
+        if value == RuntimeStatus.RUNNING.value:
+            return "running"
+        return "success"
 
     def _hydrate_state(self, state):
         hydrated = dict(state)

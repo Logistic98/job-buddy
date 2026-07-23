@@ -254,7 +254,7 @@ def _evaluate_sample(case: dict, sample: dict) -> dict:
         and effect_score >= 1.0
         and process.get("passed", False)
         and speed.get("passed", True)
-        and not _has_critical(quality)
+        and quality.get("passed", False)
     )
     return {
         "passed": passed,
@@ -461,7 +461,7 @@ def _self_check() -> int:
     }
     result = _evaluate_sample(case, sample)
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    ok = result["passed"] and result["speed"]["passed"] and result["process"]["passed"]
+    ok = result["passed"] and result["speed"]["passed"] and result["process"]["passed"] and result["quality"]["passed"]
     print("[self-check]", "PASSED" if ok else "FAILED")
     return 0 if ok else 1
 

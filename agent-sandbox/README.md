@@ -96,10 +96,11 @@ config = workspace_only_config("/path/to/workspace", allow_write=False)
 python server.py
 ```
 
-默认监听 `0.0.0.0:8061`，可通过环境变量调整：
+默认仅监听 `127.0.0.1:8061`，可通过环境变量调整。监听任何非回环地址（包括
+Compose 容器内的 `0.0.0.0`）时必须配置 `AGENT_INTERNAL_SERVICE_TOKEN`，否则服务拒绝启动：
 
 ```bash
-HOST=0.0.0.0 PORT=8061 python server.py
+AGENT_INTERNAL_SERVICE_TOKEN=replace-with-a-random-token HOST=0.0.0.0 PORT=8061 python server.py
 ```
 
 底层 Runtime 将 stdout/stderr 写入临时文件并按上限读取，避免不可信代码通过大输出耗尽服务内存。默认每个输出流最多读取 1MB，可在 4KB 至 16MB 范围内配置：
@@ -128,7 +129,7 @@ docker build -t job-buddy-sandbox:latest .
 运行基础校验：
 
 ```bash
-docker run --rm -p 8061:8061 job-buddy-sandbox:latest
+docker run --rm -p 127.0.0.1:8061:8061 job-buddy-sandbox:latest
 ```
 
 进入容器执行测试：

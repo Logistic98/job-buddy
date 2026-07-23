@@ -1,5 +1,7 @@
 package com.jobbuddy.backend.common.config;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -8,7 +10,10 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "job-buddy")
 public class JobBuddyProperties {
 
+  private String environment = "development";
   private String defaultUserId = "default-user";
+  private List<String> corsAllowedOrigins =
+      new ArrayList<String>(List.of("http://localhost:5173", "http://127.0.0.1:5173"));
 
   /** Job recommendation and scoring safeguards. */
   private int maxJobsPerRecommend = 15;
@@ -38,6 +43,7 @@ public class JobBuddyProperties {
 
   private int runtimeMaxToolCalls = 4;
   private int runtimeMaxFailures = 2;
+  private int runtimeMaxTokens = 32768;
 
   /** Resume upload and object-storage configuration. */
   private int maxResumeBytes = 5 * 1024 * 1024;
@@ -50,6 +56,14 @@ public class JobBuddyProperties {
   private int resumeWriterSnapshotMaxBytes = 2 * 1024 * 1024;
   private Auth auth = new Auth();
   private Minio minio = new Minio();
+
+  public String getEnvironment() {
+    return environment;
+  }
+
+  public void setEnvironment(String environment) {
+    this.environment = environment;
+  }
 
   public String getDefaultUserId() {
     return defaultUserId;
@@ -73,6 +87,17 @@ public class JobBuddyProperties {
 
   public void setDefaultUserId(String defaultUserId) {
     this.defaultUserId = defaultUserId;
+  }
+
+  public List<String> getCorsAllowedOrigins() {
+    return corsAllowedOrigins;
+  }
+
+  public void setCorsAllowedOrigins(List<String> corsAllowedOrigins) {
+    this.corsAllowedOrigins =
+        corsAllowedOrigins == null
+            ? new ArrayList<String>()
+            : new ArrayList<String>(corsAllowedOrigins);
   }
 
   public int getMaxJobsPerRecommend() {
@@ -193,6 +218,14 @@ public class JobBuddyProperties {
 
   public void setRuntimeMaxFailures(int runtimeMaxFailures) {
     this.runtimeMaxFailures = runtimeMaxFailures;
+  }
+
+  public int getRuntimeMaxTokens() {
+    return runtimeMaxTokens;
+  }
+
+  public void setRuntimeMaxTokens(int runtimeMaxTokens) {
+    this.runtimeMaxTokens = runtimeMaxTokens;
   }
 
   public int getMaxResumeBytes() {

@@ -11,11 +11,14 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
 
 @Service
 public class FilePromptRegistryService implements PromptRegistryService {
+  private static final Logger log = LoggerFactory.getLogger(FilePromptRegistryService.class);
   private static final String DEFAULT_PROFILE = "default";
   private final File rootDir;
   private final Yaml yaml = new Yaml();
@@ -74,8 +77,9 @@ public class FilePromptRegistryService implements PromptRegistryService {
         return loaded instanceof Map
             ? (Map<String, Object>) loaded
             : Collections.<String, Object>emptyMap();
-      } catch (Exception ignored) {
-        return Collections.emptyMap();
+      } catch (Exception e) {
+        log.warn(
+            "Prompt YAML 加载失败，继续尝试后备路径: path={}, errorType={}", file, e.getClass().getSimpleName());
       }
     }
     try (InputStream input =
@@ -87,7 +91,11 @@ public class FilePromptRegistryService implements PromptRegistryService {
       return loaded instanceof Map
           ? (Map<String, Object>) loaded
           : Collections.<String, Object>emptyMap();
-    } catch (Exception ignored) {
+    } catch (Exception e) {
+      log.warn(
+          "Classpath Prompt YAML 加载失败: path={}, errorType={}",
+          relativePath,
+          e.getClass().getSimpleName());
       return Collections.emptyMap();
     }
   }

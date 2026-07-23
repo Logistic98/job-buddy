@@ -14,7 +14,14 @@ class _StubGateway:
     def __init__(self, results):
         self._results = list(results)
 
-    async def execute(self, call, mode, context, task_understanding=None):
+    async def execute(
+        self,
+        call,
+        mode,
+        context,
+        task_understanding=None,
+        transcript_messages=None,
+    ):
         return self._results.pop(0)
 
 

@@ -1,6 +1,5 @@
 import asyncio
 import os
-import shlex
 from pathlib import Path
 from typing import Any, Dict
 
@@ -65,7 +64,7 @@ class ShellTool(BaseTool):
         base_url = config.shell_sandbox_base_url.rstrip("/")
         timeout = float(config.shell_sandbox_timeout_seconds)
         payload = {
-            "command": f"cd {shlex.quote(str(cwd))} && {command}",
+            "command": command,
             "policy": {
                 "network": {"allowedDomains": []},
                 "filesystem": {
@@ -75,25 +74,48 @@ class ShellTool(BaseTool):
                     "denyWrite": [".env", "secrets/"],
                 },
             },
-            "options": {"timeout": float(self.timeout_seconds), "check": False},
+            "options": {
+                "cwd": str(cwd),
+                "timeout": float(self.timeout_seconds),
+                "check": False,
+            },
         }
         headers = {}
         token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
         if token:
             headers["X-Internal-Service-Token"] = token
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(f"{base_url}/v1/shell", json=payload, headers=headers)
-                response.raise_for_status()
-                body = response.json()
-        except httpx.TimeoutException as exc:
-            raise RuntimeError(f"agent-sandbox 执行超时（{base_url}，{timeout}s），命令未在宿主机回退执行") from exc
-        except (httpx.HTTPError, ValueError) as exc:
+        body = None
+        last_error = None
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            for attempt in range(2):
+                if attempt:
+                    await asyncio.sleep(0.2)
+                try:
+                    response = await client.post(f"{base_url}/v1/shell", json=payload, headers=headers)
+                    response.raise_for_status()
+                    body = response.json()
+                    break
+                except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as exc:
+                    last_error = exc
+                    if (
+                        isinstance(exc, httpx.HTTPStatusError)
+                        and exc.response.status_code < 500
+                        and exc.response.status_code != 429
+                    ):
+                        break
+                except ValueError as exc:
+                    last_error = exc
+                    break
+        if body is None and last_error is not None:
+            if isinstance(last_error, httpx.TimeoutException):
+                raise RuntimeError(
+                    f"agent-sandbox 执行超时（{base_url}，{timeout}s），命令未在宿主机回退执行"
+                ) from last_error
             raise RuntimeError(
-                f"agent-sandbox 不可用（{base_url}）：{exc}。"
+                f"agent-sandbox 不可用（{base_url}）：{last_error}。"
                 "请确认 agent-sandbox 服务已启动，或检查 JOB_BUDDY_SANDBOX_BASE_URL 配置；"
                 "沙箱不可用时命令不会在宿主机回退执行"
-            ) from exc
+            ) from last_error
         if not isinstance(body, dict):
             raise RuntimeError("agent-sandbox 返回结构非法，命令未在宿主机回退执行")
         return {

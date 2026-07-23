@@ -60,7 +60,7 @@ agent-backend/
 cp ../.env.example ../.env
 ```
 
-然后按需修改 PostgreSQL、Redis、MinIO、Runtime、Boss 浏览器按需工具等配置。Flyway 会初始化 `admin` 管理员和 `user` 普通用户，初始密码均为 `12345678`；公开部署后应立即在平台设置的用户管理中重置密码。需要使用 Boss 登录时，还必须通过 `openssl rand -base64 32` 生成并长期保存 `JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY`，缺少该密钥时 Boss 凭据持久化会安全关闭。
+然后按需修改 PostgreSQL、Redis、MinIO、Runtime、Boss 浏览器按需工具等配置。Flyway 会初始化 `admin` 管理员和 `user` 普通用户，初始密码均为 `12345678`；应先在受控开发环境通过平台设置的用户管理重置两个密码，再设置 `JOB_BUDDY_ENVIRONMENT=production`，否则 Backend 会拒绝启动。生产环境同时禁止将 `JOB_BUDDY_AUTH_ENABLED` 设为 `false`。需要使用 Boss 登录时，还必须通过 `openssl rand -base64 32` 生成并长期保存 `JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY`，缺少该密钥时 Boss 凭据持久化会安全关闭。
 
 单独启动：
 

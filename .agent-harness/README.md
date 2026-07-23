@@ -82,7 +82,7 @@ python3 .agent-harness/tests/test_check_flyway_migrations.py
 
 ## 评估与 Gate
 
-`verify.sh` 负责模块自身的测试、格式和构建。`evaluate.sh` 只运行 `agent-eval` 的评分器测试和 Engine Eval self-check，不再维护一套与模块测试重复的测试文件列表。前端行为测试属于 Vitest，由 `verify.sh agent-frontend` 执行。
+`verify.sh` 负责模块自身的测试、格式和构建。`evaluate.sh` 运行 `agent-eval` 的评分器测试与 Engine Eval self-check，并执行 `agent-runtime/tests/test_runtime_delivery_contract.py` 的真实 Runtime 代码契约，覆盖终态 Trace、token 预算、持久化脱敏和高风险工具复核。前端行为测试属于 Vitest，由 `verify.sh agent-frontend` 执行。
 
 `gate.sh` 先执行 Verify，再执行 Evaluate，并把日志和摘要写入：
 

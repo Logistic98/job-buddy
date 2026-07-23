@@ -1,17 +1,17 @@
 # job_buddy_runtime
 
-基于 LangGraph 的智能体运行时核心实现，面向二期 ToolOps 工具体系设计。项目结构参考 `job-buddy-engine` 的 Python 工程风格，并吸收 `claude-code-fork-main` 中工具自描述、权限前置、工具注册、Agent Loop、检查点和可观测的核心实现思想。
+基于 LangGraph 的智能体运行时核心实现，承载 job-buddy 的通用 Agent Core、ToolOps、检查点和可观测能力。
 
 ## 核心能力
 
 - Runtime 主链路：会话入口、目标理解、Planner、Tool Search、预算检查、工具执行、观察与结束判断。
 - 工具体系：工具定义、工具注册中心、别名索引、工具检索、权限检查、统一 Tool Runtime；Boss 浏览器能力在 Runtime 中仅保留 `boss_browser` 代理工具，具体实现位于 agent-tool。
-- LangGraph 编排：使用状态图组织目标理解、上下文收集、Tool Search、Planner、预算、执行、全量观察、反思和结束判断；流式与非流式路径共享状态图终态语义。
+- LangGraph 编排：声明必需工具的任务使用状态图组织目标理解、上下文收集、Tool Search、Planner、预算、执行、全量观察、反思和结束判断；无工具纯生成任务使用受同等预算、Trace 和安全约束的 direct synthesis 快路径。
 - Workflow 注册与路由：启动时加载并校验 `config/workflows/`，按 Profile 与 entry capability 将只读流程元数据加入任务理解、directive 和 Trace；外部业务动作仍由声明的 Backend/BFF 执行。
-- 检查点：每个关键阶段写入 JSON 检查点，支持中断恢复和审计追踪；启用但未配置 PostgreSQL DSN 时明确告警并仅在本地内存兜底。
+- 检查点：每个关键阶段写入 PostgreSQL 检查点，支持中断恢复和审计追踪；启用但未配置 PostgreSQL DSN 时明确告警并仅在本地内存兜底。持久化前删除原始消息、可重建的个人上下文及摘要副本，仅保留非个人上下文骨架并执行递归脱敏。
 - OpenAI 兼容模型：默认接入 DeepSeek v4 Pro，统一从 YAML 读取模型服务配置，支持完整 chat/completions URL、重试、超时和工具 Schema。
 - Prompt Cache：Planner 将稳定系统提示和稳定排序的候选工具目录放在动态上下文之前，适配 DeepSeek 服务端基于公共前缀的自动缓存。
-- 权限安全：支持 allow/deny、只读工具、破坏性工具、高风险工具、Shell allow/deny 规则。
+- 权限安全：支持 allow/deny、只读工具、破坏性工具、高风险工具、独立 transcript 复核和 Shell allow/deny 规则。
 - 可观测：记录 run_start、plan_created、permission_check、tool_execute_end、observe、reflect、finalize 等 Trace 事件；澄清、预算、权限和失败终态保留明确的 status 与 stop_reason。
 - FastAPI 服务：提供运行接口、工具列表接口、配置脱敏查看接口和 Trace 查询接口。
 
@@ -60,8 +60,8 @@ uvicorn server:app --host 0.0.0.0 --port 8010 --reload
 ## Docker 部署
 
 ```shell
-docker build -t job_buddy_runtime:latest .
-docker run --name job_buddy_runtime -p 8010:8010 -d job_buddy_runtime:latest
+docker build -t job_buddy_runtime:1.0.0 .
+docker run --name job_buddy_runtime -p 8010:8010 -d job_buddy_runtime:1.0.0
 ```
 
 模型服务统一通过 [config/config.yaml](config/config.yaml) 声明配置结构，连接地址、密钥等敏感值通过环境变量注入；如需在容器中挂载外部配置文件：
@@ -70,7 +70,7 @@ docker run --name job_buddy_runtime -p 8010:8010 -d job_buddy_runtime:latest
 docker run --name job_buddy_runtime \
   -p 8010:8010 \
   -v $(pwd)/config/config.yaml:/app/config/config.yaml \
-  -d job_buddy_runtime:latest
+  -d job_buddy_runtime:1.0.0
 ```
 
 ## API 示例
@@ -136,6 +136,7 @@ runtime:
   max_turns: 12
   max_tool_calls: 20
   max_failures: 3
+  max_run_tokens: 32768
 
 checkpoint:
   enabled: true
@@ -170,4 +171,4 @@ curl -X POST 'http://localhost:8010/v1/runtime/config/reload?config_path=/path/t
 - Claude Code `ToolDef` 思想：对应 `BaseTool.definition()`、`ToolDefinition`、`ToolRegistry`。
 - Claude Code 权限钩子思想：对应 `PermissionService` 和 `ToolRuntime.execute()`。
 - Claude Code `QueryEngine` 主循环思想：对应 `AgentGraphBuilder` 的 LangGraph 状态图。
-- 二期文档 Runtime 主流程：目标理解、Tool Search、Planner、预算、权限、执行、观察、检查点、Trace 已落到核心链路。
+- Runtime 主流程：目标理解、Tool Search、Planner、预算、权限、执行、观察、检查点和 Trace 已落到核心链路。

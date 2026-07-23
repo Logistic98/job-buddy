@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('../src/api/resume', () => ({
-  analyzeResume: vi.fn(),
   deleteResume: vi.fn(),
   generateJobProfileSummary: mocks.generateJobProfileSummary,
   getJobProfile: mocks.getJobProfile,
