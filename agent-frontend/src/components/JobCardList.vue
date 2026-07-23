@@ -210,7 +210,13 @@
           </div>
         </div>
 
-        <div class="favorite-analysis-modal-body">
+        <div
+          class="favorite-analysis-modal-body"
+          :class="{
+            'is-loading': analysisModalPending && !modalAnalysis,
+            'is-empty': !analysisModalPending && !modalAnalysis && !modalAnalysisError,
+          }"
+        >
           <div v-if="analysisModalPending" class="favorite-analysis-loading">
             <span class="favorite-analysis-loading-mark" aria-hidden="true"></span>
             <div>
@@ -278,7 +284,7 @@
                 <div class="favorite-analysis-section-head">
                   <div>
                     <span>匹配拆解</span>
-                    <h3>五维能力评估</h3>
+                    <h3>六维能力评估</h3>
                   </div>
                   <p>分数来自岗位要求与简历证据的逐项对照</p>
                 </div>
@@ -290,17 +296,21 @@
                   >
                     <div class="favorite-analysis-dimension-title">
                       <strong>{{ dimension.label }}</strong
-                      ><b>{{ dimension.score }}<small>/100</small></b>
+                      ><b
+                        >{{ dimension.score == null ? '待评估' : dimension.score
+                        }}<small v-if="dimension.score != null">/100</small></b
+                      >
                     </div>
                     <div
                       class="favorite-analysis-progress"
-                      role="progressbar"
+                      :class="{ 'is-pending': dimension.score == null }"
+                      :role="dimension.score == null ? undefined : 'progressbar'"
                       :aria-label="dimension.label"
                       aria-valuemin="0"
                       aria-valuemax="100"
                       :aria-valuenow="dimension.score"
                     >
-                      <span :style="{ width: `${dimension.score}%` }"></span>
+                      <span :style="{ width: `${dimension.score ?? 0}%` }"></span>
                     </div>
                     <p v-if="dimension.evidence">{{ dimension.evidence }}</p>
                     <small v-if="dimension.gap"><b>待补强</b>{{ dimension.gap }}</small>
@@ -428,12 +438,20 @@
           <div>
             <button class="secondary-btn" type="button" @click="closeAnalysisModal">关闭</button
             ><button
-              class="primary-btn"
+              :class="analysisModalPending ? 'secondary-btn analysis-cancel-btn' : 'primary-btn'"
               type="button"
-              :disabled="analysisModalPending || !modalJob"
-              @click="runFavoriteAnalysis(true)"
+              :disabled="analysisCancelPending || !modalJob"
+              @click="analysisModalPending ? cancelFavoriteAnalysis() : runFavoriteAnalysis(true)"
             >
-              {{ analysisModalPending ? '分析中' : modalAnalysis ? '重新分析' : '开始分析' }}
+              {{
+                analysisModalPending
+                  ? analysisCancelPending
+                    ? '取消中'
+                    : '取消分析'
+                  : modalAnalysis
+                    ? '重新分析'
+                    : '开始分析'
+              }}
             </button>
           </div>
         </footer>
@@ -472,8 +490,10 @@ function closeBossImport() {
 
 const analysisModalVisible = ref(false)
 const analysisModalRequestError = ref('')
+const analysisCancelPending = ref(false)
 const analysisReportTab = ref('overview')
 const modalJob = ref(null)
+const EDUCATION_FIT_FALLBACK_SCORE = 50
 const removeDialog = reactive({ visible: false, pending: false, item: null, error: '' })
 const sourceRows = computed(() =>
   (isFavoritesMode.value ? job.favorites : job.jobs).map((item, sourceIndex) => ({ item, sourceIndex })),
@@ -579,6 +599,7 @@ function analysisDimensions(value) {
   const labels = {
     technical_skill: '技术栈匹配',
     seniority: '经验与级别',
+    education_fit: '学历与资质',
     project_relevance: '项目相关性',
     domain_fit: '业务领域契合',
     constraints: '地点与约束',
@@ -590,7 +611,14 @@ function analysisDimensions(value) {
       const evidence = String(row.evidence || '').trim()
       const gap = String(row.gap || '').trim()
       if (row.score == null && !evidence && !gap) return null
-      return { key, label, score: normalizedScore(row.score), evidence, gap }
+      const rawScore = row.score
+      const score =
+        rawScore == null || String(rawScore).trim() === ''
+          ? key === 'education_fit'
+            ? EDUCATION_FIT_FALLBACK_SCORE
+            : null
+          : normalizedScore(rawScore)
+      return { key, label, score, evidence, gap }
     })
     .filter(Boolean)
 }
@@ -826,6 +854,7 @@ function analysisTime(item) {
 function closeAnalysisModal() {
   analysisModalVisible.value = false
   analysisModalRequestError.value = ''
+  analysisCancelPending.value = false
   modalJob.value = null
 }
 function latestFavorite(item) {
@@ -854,6 +883,18 @@ async function runFavoriteAnalysis(force = false) {
     } else {
       analysisModalRequestError.value = error?.message || '岗位分析失败'
     }
+  }
+}
+async function cancelFavoriteAnalysis() {
+  if (!modalJob.value || !analysisModalPending.value || analysisCancelPending.value) return
+  analysisCancelPending.value = true
+  analysisModalRequestError.value = ''
+  try {
+    await job.cancelFavoriteAnalysis(modalJob.value)
+  } catch (error) {
+    analysisModalRequestError.value = error?.message || '取消岗位分析失败'
+  } finally {
+    analysisCancelPending.value = false
   }
 }
 function riskText(level) {

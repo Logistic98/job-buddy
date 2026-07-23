@@ -5,6 +5,7 @@ import {
   isAbortError,
   formatSendError,
   isBossAuthenticated,
+  activeToolSummary,
   normalizeToolEvent,
   isMemoryNoiseEvent,
   filterVisibleToolEvents,
@@ -70,6 +71,15 @@ describe('isBossAuthenticated', () => {
     expect(isBossAuthenticated({ data: { status: 'logged_in' } })).toBe(true)
     expect(isBossAuthenticated({ status: 'auth_required' })).toBe(false)
     expect(isBossAuthenticated(null)).toBe(false)
+  })
+})
+
+describe('activeToolSummary', () => {
+  it('keeps the runtime detail free of duplicated elapsed time', () => {
+    expect(activeToolSummary({ detail: '已收到请求，正在理解你的问题并准备作答。' })).toBe(
+      '已收到请求，正在理解你的问题并准备作答。',
+    )
+    expect(activeToolSummary()).toBe('请求已提交，正在初始化会话和服务链路，请稍候。')
   })
 })
 

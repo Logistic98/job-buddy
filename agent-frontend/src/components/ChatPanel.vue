@@ -138,12 +138,6 @@
                     </div>
                     <p>{{ company(item) }} · {{ locationText(item) }} · {{ experienceText(item) }}</p>
                     <p v-if="chatJobSummary(item)" class="chat-job-summary">{{ chatJobSummary(item) }}</p>
-                    <p v-if="recommendationReasons(item)" class="chat-job-recommendation">
-                      <strong>推荐依据</strong>{{ recommendationReasons(item) }}
-                    </p>
-                    <p v-if="recommendationWarnings(item)" class="chat-job-warning">
-                      <strong>注意</strong>{{ recommendationWarnings(item) }}
-                    </p>
                     <div class="chat-job-meta">
                       <span v-if="item.matchScore">匹配 {{ item.matchScore }} 分</span>
                       <span v-if="matchConfidence(item)">置信度 {{ matchConfidence(item) }}</span>
@@ -168,6 +162,14 @@
                       >
                         {{ chatJdButtonText(item, idx) }}
                       </button>
+                      <button
+                        v-if="hasRecommendationEvidence(item)"
+                        type="button"
+                        :aria-expanded="isRecommendationEvidenceOpen(item, idx)"
+                        @click.stop="toggleRecommendationEvidence(item, idx)"
+                      >
+                        {{ isRecommendationEvidenceOpen(item, idx) ? '收起推荐依据' : '推荐依据' }}
+                      </button>
                       <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item)">
                         {{ chat.loading ? '分析中' : '分析此岗位' }}
                       </button>
@@ -182,6 +184,14 @@
                     <p v-if="chatJdError(item, idx)" class="chat-job-jd-error">{{ chatJdError(item, idx) }}</p>
                     <div v-if="isChatJdOpen(item, idx) && chatJobFullJd(item)" class="chat-job-jd-full">
                       {{ chatJobFullJd(item) }}
+                    </div>
+                    <div v-if="isRecommendationEvidenceOpen(item, idx)" class="chat-job-recommendation-details">
+                      <p v-if="recommendationReasons(item)" class="chat-job-recommendation">
+                        <strong>推荐依据</strong>{{ recommendationReasons(item) }}
+                      </p>
+                      <p v-if="recommendationWarnings(item)" class="chat-job-warning">
+                        <strong>注意</strong>{{ recommendationWarnings(item) }}
+                      </p>
                     </div>
                   </article>
                   <div class="chat-job-more">
@@ -239,7 +249,12 @@ import { useChatStore } from '../stores/chat'
 import { useJobStore } from '../stores/job'
 import { fetchJobDetail } from '../api/jobs'
 import { firstJobDescriptionText, normalizeJobDescriptionText } from '../utils/jobText'
-import { normalizeAssistantMarkdown, selectReasoningHighlights, selectToolEventHighlights } from '../utils/chatHelpers'
+import {
+  activeToolSummary,
+  normalizeAssistantMarkdown,
+  selectReasoningHighlights,
+  selectToolEventHighlights,
+} from '../utils/chatHelpers'
 import { bossDetailUrl } from '../utils/zhipinUrl'
 defineEmits(['ask', 'select-resume'])
 const props = defineProps({ resumeId: { type: String, default: '' }, resumeName: { type: String, default: '' } })
@@ -258,6 +273,8 @@ const panelOpenState = ref({})
 const jdLoadingKeys = ref(new Set())
 const jdErrorMap = ref({})
 const jdExpandedKeys = ref(new Set())
+// 推荐依据默认收起，按岗位记忆展开状态，避免大段证据挤占候选岗位浏览空间。
+const recommendationExpandedKeys = ref(new Set())
 // 本次会话中最近一条流式生成的助手消息 id，完成后其过程面板仍默认展开。
 const lastStreamedAssistantId = ref('')
 const defaultWorkbenchCopy = {
@@ -267,10 +284,7 @@ const defaultWorkbenchCopy = {
   quick_prompts: [
     '筛选上海大模型应用开发 40-50K 岗位',
     '分析当前简历与大模型应用开发岗位的匹配度',
-    '根据大模型应用开发岗位生成面试准备清单',
-    '制定 RAG 与 Agent 工程笔试计划',
-    '围绕我的大模型应用项目生成面试深挖问题',
-    '帮我记录这家 AI 公司进入一面阶段',
+    '帮我准备大模型应用开发岗位面试准备清单',
   ],
 }
 const workbenchCopy = defaultWorkbenchCopy
@@ -333,11 +347,7 @@ const currentToolElapsedSeconds = computed(() => {
   if (!startedAt) return 0
   return Math.max(0, Math.floor((nowTick.value - startedAt) / 1000))
 })
-const loadingSummary = computed(() => {
-  const detail = currentToolEvent.value?.detail || '请求已提交，正在初始化会话和服务链路，请稍候。'
-  if (!chat.loading || !currentToolElapsedSeconds.value) return detail
-  return `${detail}（已等待 ${currentToolElapsedSeconds.value} 秒）`
-})
+const loadingSummary = computed(() => activeToolSummary(currentToolEvent.value))
 const activeRunningTimingText = computed(() => {
   const clock = toolEventClockText(activeRunningToolEvent.value)
   const elapsed = currentToolElapsedSeconds.value
@@ -422,6 +432,18 @@ function recommendationWarnings(item) {
     .filter(Boolean)
     .slice(0, 1)
     .join('；')
+}
+function hasRecommendationEvidence(item) {
+  return !!(recommendationReasons(item) || recommendationWarnings(item))
+}
+function isRecommendationEvidenceOpen(item, idx) {
+  return recommendationExpandedKeys.value.has(jobId(item, idx))
+}
+function toggleRecommendationEvidence(item, idx) {
+  const key = jobId(item, idx)
+  if (recommendationExpandedKeys.value.has(key)) recommendationExpandedKeys.value.delete(key)
+  else recommendationExpandedKeys.value.add(key)
+  recommendationExpandedKeys.value = new Set(recommendationExpandedKeys.value)
 }
 function matchConfidence(item) {
   return { high: '高', medium: '中', low: '低' }[String(item?.matchConfidence || '').toLowerCase()] || ''

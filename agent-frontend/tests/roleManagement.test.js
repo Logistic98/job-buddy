@@ -30,4 +30,38 @@ describe('RoleManagement', () => {
 
     wrapper.unmount()
   })
+
+  it('separates action permissions from navigation menus', async () => {
+    mocks.listAssignableMenus.mockResolvedValue([
+      {
+        menuId: 'menu-chat',
+        parentId: '',
+        menuName: '智能引擎',
+        menuType: 'page',
+        routePath: '/chat',
+        displayOrder: 10,
+      },
+      {
+        menuId: 'menu-boss',
+        parentId: 'menu-chat',
+        menuName: 'Boss 直聘能力',
+        menuType: 'action',
+        permissionCode: 'boss:use',
+        displayOrder: 20,
+      },
+    ])
+    const wrapper = mount(RoleManagement, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.find('.primary-btn').trigger('click')
+
+    const sections = [...document.body.querySelectorAll('.rbac-form-section')]
+    const menuSection = sections.find((section) => section.querySelector('strong')?.textContent === '菜单授权')
+    const permissionSection = sections.find((section) => section.querySelector('strong')?.textContent === '功能权限')
+
+    expect(menuSection.textContent).toContain('智能引擎')
+    expect(menuSection.textContent).not.toContain('Boss 直聘能力')
+    expect(permissionSection.textContent).toContain('Boss 直聘能力')
+
+    wrapper.unmount()
+  })
 })

@@ -14,6 +14,15 @@ vi.mock('../src/api/jobs', () => ({
   importBossFavoriteJobs: vi.fn(async () => ({ favorites: [], items: [] })),
   saveFavoriteJob: vi.fn(async () => []),
   deleteFavoriteJob: vi.fn(async () => []),
+  cancelAnalysisTask: vi.fn(async () => ({
+    taskId: 'task-1',
+    resourceKey: 'favorite-1',
+    status: 'cancelled',
+    stage: 'cancelled',
+    message: '分析已取消',
+    result: {},
+    partialResult: {},
+  })),
   analyzeFavoriteJob: vi.fn(async () => ({})),
   startFavoriteAnalysisTask: vi.fn(async () => ({
     taskId: 'task-1',
@@ -36,7 +45,7 @@ vi.mock('../src/api/jobs', () => ({
 }))
 
 import JobCardList from '../src/components/JobCardList.vue'
-import { deleteFavoriteJob } from '../src/api/jobs'
+import { cancelAnalysisTask, deleteFavoriteJob } from '../src/api/jobs'
 import { useJobStore } from '../src/stores/job'
 
 function mountFavorites(overrides = {}) {
@@ -143,6 +152,7 @@ describe('JobCardList favorites interactions', () => {
           dimensions: {
             technical_skill: { score: 90, evidence: 'Java 与 Spring Boot 经验明确', gap: '补充性能调优证据' },
             seniority: { score: 85, evidence: '五年研发经验', gap: '' },
+            education_fit: { score: 88, evidence: '本科学历符合岗位要求', gap: '' },
             project_relevance: { score: 80, evidence: '有平台建设项目', gap: '补充业务结果' },
             domain_fit: { score: 75, evidence: '具备企业软件经验', gap: '行业经验较少' },
             constraints: { score: 95, evidence: '地点与经验要求匹配', gap: '' },
@@ -172,7 +182,9 @@ describe('JobCardList favorites interactions', () => {
     const report = wrapper.get('.favorite-analysis-report')
     expect(report.get('.favorite-analysis-score').text()).toContain('82')
     expect(report.get('.favorite-analysis-verdict').text()).toContain('建议优先投递')
-    expect(report.findAll('.favorite-analysis-dimension-row')).toHaveLength(5)
+    expect(report.findAll('.favorite-analysis-dimension-row')).toHaveLength(6)
+    expect(report.text()).toContain('六维能力评估')
+    expect(report.text()).toContain('学历与资质')
     expect(report.text()).toContain('Java 与 Spring Boot 经验明确')
     expect(report.text()).toContain('缺少业务结果量化')
     const modalHead = wrapper.get('.favorite-analysis-modal-head')
@@ -215,6 +227,34 @@ describe('JobCardList favorites interactions', () => {
     expect(groupedTabs[2].attributes('disabled')).toBeDefined()
   })
 
+  it('renders a conservative numeric education score for historical reports with an empty score', async () => {
+    const wrapper = mountFavorites({
+      analysis: {
+        match: {
+          score: 72,
+          recommendation: '可尝试',
+          dimensions: {
+            education_fit: {
+              score: null,
+              evidence: '简历包含信息与计算科学本科及计算机相关研究经历',
+              gap: '岗位专业要求需进一步确认',
+            },
+          },
+        },
+      },
+    })
+
+    const analysisButton = wrapper
+      .findAll('.job-card-actions .favorite-job-btn')
+      .find((button) => button.text() === '查看分析')
+    await analysisButton.trigger('click')
+
+    const educationDimension = wrapper.get('.favorite-analysis-dimension-row')
+    expect(educationDimension.text()).toContain('学历与资质')
+    expect(educationDimension.text()).toContain('50/100')
+    expect(educationDimension.text()).not.toContain('待评估')
+  })
+
   it('allows closing the analysis modal while the background task is running', async () => {
     const wrapper = mountFavorites()
     const analysisButton = wrapper
@@ -236,6 +276,34 @@ describe('JobCardList favorites interactions', () => {
     await runningButton.trigger('click')
     await flushPromises()
     expect(wrapper.find('.favorite-analysis-modal-card').exists()).toBe(true)
+  })
+
+  it('fills the report body while loading and allows cancelling from the right-aligned footer action', async () => {
+    const wrapper = mountFavorites()
+    const analysisButton = wrapper
+      .findAll('.job-card-actions .favorite-job-btn')
+      .find((button) => button.text() === '分析岗位')
+
+    await analysisButton.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.favorite-analysis-modal-body').classes()).toContain('is-loading')
+    const footerActions = wrapper.get('.favorite-analysis-modal-actions > div')
+    const cancelButton = footerActions.findAll('button').find((button) => button.text() === '取消分析')
+    expect(cancelButton).toBeDefined()
+    expect(cancelButton.attributes('disabled')).toBeUndefined()
+
+    await cancelButton.trigger('click')
+    await flushPromises()
+
+    expect(cancelAnalysisTask).toHaveBeenCalledWith('task-1')
+    const emptyBody = wrapper.get('.favorite-analysis-modal-body')
+    expect(emptyBody.classes()).not.toContain('is-loading')
+    expect(emptyBody.classes()).toContain('is-empty')
+    const emptyBox = emptyBody.get('.favorite-analysis-empty-box')
+    expect(emptyBox.get('strong').text()).toBe('暂无岗位分析结果')
+    expect(emptyBox.get('p').text()).toContain('系统将结合当前简历生成投递建议')
+    expect(wrapper.get('.favorite-analysis-modal-actions').text()).toContain('开始分析')
   })
 
   it('shows completed report sections while later sections are still running', async () => {

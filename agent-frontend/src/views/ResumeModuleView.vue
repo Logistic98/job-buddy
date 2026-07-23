@@ -35,7 +35,7 @@ function goList() {
 }
 </script>
 
-<style src="./resume-module-layout.css"></style>
+<style src="../styles/modules/resume-module-layout.css"></style>
 
 <style scoped>
 .resume-module-shell {

@@ -21,8 +21,8 @@
         ><em>{{ roles.length - enabledCount }} 个角色已停用</em>
       </article>
       <article class="rbac-metric">
-        <span>菜单授权</span><strong>{{ authorizationCount }}</strong
-        ><em>全部角色授权关系数</em>
+        <span>授权项</span><strong>{{ authorizationCount }}</strong
+        ><em>菜单与功能权限关系数</em>
       </article>
     </div>
 
@@ -38,7 +38,11 @@
         </header>
         <p>{{ role.description || '尚未填写角色说明。' }}</p>
         <div class="rbac-role-meta">
-          <span>已授权菜单</span><strong>{{ role.menuIds?.length || 0 }} / {{ menus.length }}</strong>
+          <span>菜单 / 功能权限</span
+          ><strong
+            >{{ selectedMenuCount(role) }} / {{ navigationMenus.length }} · {{ selectedActionCount(role) }} /
+            {{ actionPermissions.length }}</strong
+          >
         </div>
         <div class="rbac-row-actions">
           <button class="rbac-action-btn" @click="openEdit(role)">编辑与授权</button
@@ -56,7 +60,7 @@
           <header class="rbac-modal-head">
             <div>
               <h2>{{ modal === 'create' ? '创建角色' : '编辑角色' }}</h2>
-              <p>角色编码用于稳定识别，菜单授权决定最终功能权限。</p>
+              <p>角色编码用于稳定识别，导航菜单与功能权限共同决定最终能力。</p>
             </div>
             <button class="close" @click="close">×</button>
           </header>
@@ -81,7 +85,7 @@
                     aria-required="true"
                     placeholder="例如研发人员，最多 64 字"
                 /></label>
-                ><label class="rbac-field wide"
+                <label class="rbac-field wide"
                   ><span>角色说明</span
                   ><input
                     v-model.trim="form.description"
@@ -99,11 +103,12 @@
             </section>
             <section class="rbac-form-section">
               <div class="rbac-form-section-title">
-                <strong>菜单授权</strong><small>已选择 {{ form.menuIds.length }} / {{ menus.length }}</small>
+                <strong>菜单授权</strong
+                ><small>已选择 {{ selectedNavigationCount }} / {{ navigationMenus.length }}</small>
               </div>
               <div class="rbac-choice-list">
                 <label
-                  v-for="menu in orderedMenus"
+                  v-for="menu in navigationMenus"
                   :key="menu.menuId"
                   class="rbac-choice rbac-tree-guide"
                   :style="{ paddingLeft: `${14 + menuDepth(menu) * 22}px` }"
@@ -111,8 +116,24 @@
                     ><strong>{{ menu.menuName }}</strong></span
                   ><small>{{ menu.permissionCode || menu.routePath || menu.menuType }}</small></label
                 >
-                <div v-if="!menus.length" class="rbac-empty">
+                <div v-if="!navigationMenus.length" class="rbac-empty">
                   <strong>暂无菜单</strong><span>请先在菜单管理中创建菜单。</span>
+                </div>
+              </div>
+            </section>
+            <section class="rbac-form-section">
+              <div class="rbac-form-section-title">
+                <strong>功能权限</strong
+                ><small>已选择 {{ selectedActionPermissionCount }} / {{ actionPermissions.length }}</small>
+              </div>
+              <div class="rbac-choice-list">
+                <label v-for="permission in actionPermissions" :key="permission.menuId" class="rbac-choice"
+                  ><input v-model="form.menuIds" type="checkbox" :value="permission.menuId" /><span
+                    ><strong>{{ permission.menuName }}</strong></span
+                  ><small>{{ permission.permissionCode || permission.menuCode }}</small></label
+                >
+                <div v-if="!actionPermissions.length" class="rbac-empty">
+                  <strong>暂无功能权限</strong><span>请先在菜单管理中创建操作权限节点。</span>
                 </div>
               </div>
             </section>
@@ -158,6 +179,14 @@ const orderedMenus = computed(() => {
   visit('')
   return result
 })
+const navigationMenus = computed(() => orderedMenus.value.filter((menu) => menu.menuType !== 'action'))
+const actionPermissions = computed(() => orderedMenus.value.filter((menu) => menu.menuType === 'action'))
+const selectedNavigationCount = computed(
+  () => navigationMenus.value.filter((menu) => form.menuIds.includes(menu.menuId)).length,
+)
+const selectedActionPermissionCount = computed(
+  () => actionPermissions.value.filter((menu) => form.menuIds.includes(menu.menuId)).length,
+)
 
 onMounted(load)
 async function load() {
@@ -200,6 +229,14 @@ function menuDepth(menu) {
   }
   return depth
 }
+function selectedMenuCount(role) {
+  const selectedMenuIds = new Set(role.menuIds || [])
+  return navigationMenus.value.filter((menu) => selectedMenuIds.has(menu.menuId)).length
+}
+function selectedActionCount(role) {
+  const selectedMenuIds = new Set(role.menuIds || [])
+  return actionPermissions.value.filter((menu) => selectedMenuIds.has(menu.menuId)).length
+}
 async function save() {
   modalError.value = ''
   try {
@@ -235,4 +272,4 @@ async function remove(role) {
 }
 </script>
 
-<style src="./rbac/rbac-management.css"></style>
+<style src="../styles/modules/rbac-management.css"></style>

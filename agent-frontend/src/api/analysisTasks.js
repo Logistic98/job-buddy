@@ -12,6 +12,11 @@ export async function getAnalysisTask(taskId) {
   return parseApiResponse(response, '分析任务状态加载失败')
 }
 
+export async function cancelAnalysisTask(taskId) {
+  const response = await apiFetch(`/analysis-tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' })
+  return parseApiResponse(response, '取消分析任务失败')
+}
+
 const STREAM_RECONNECT = String(import.meta.env.VITE_STREAM_RECONNECT || 'false').toLowerCase() === 'true'
 
 export function streamAnalysisTask(taskId, handlers = {}, signal = undefined) {

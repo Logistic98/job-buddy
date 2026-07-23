@@ -69,7 +69,7 @@ describe('platform form accessibility contract', () => {
   })
 
   it('defines shared red required and error styles', () => {
-    const css = source('styles/main.css')
+    const css = source('styles/modules/shell-and-workbench.css')
     expect(css).toContain('.form-required::after')
     expect(css).toContain("content: '*'")
     expect(css).toContain('.form-error-alert')

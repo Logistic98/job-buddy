@@ -51,7 +51,7 @@ describe('settings RBAC headers', () => {
     setActivePinia(createPinia())
     const auth = useAuthStore()
     auth.user = {
-      permissions: ['users:manage', 'roles:manage', 'menus:manage', 'tenant:manage'],
+      permissions: ['users:manage', 'roles:manage', 'menus:manage', 'platform:manage'],
       menus: [],
     }
   })

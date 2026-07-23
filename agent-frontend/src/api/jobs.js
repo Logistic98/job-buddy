@@ -1,5 +1,5 @@
 import { apiFetch, parseApiResponse } from './http'
-import { getAnalysisTask, getLatestAnalysisTask, streamAnalysisTask } from './analysisTasks'
+import { cancelAnalysisTask, getAnalysisTask, getLatestAnalysisTask, streamAnalysisTask } from './analysisTasks'
 
 export async function listFavoriteJobs() {
   const response = await apiFetch('/jobs/favorites', { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } })
@@ -50,7 +50,7 @@ export function latestFavoriteAnalysisTask(jobKey) {
   return getLatestAnalysisTask('favorite_job', jobKey)
 }
 
-export { getAnalysisTask, streamAnalysisTask }
+export { cancelAnalysisTask, getAnalysisTask, streamAnalysisTask }
 
 /**
  * 分析会话推荐岗位与当前简历的匹配度。岗位卡片通常未收藏、没有持久化 jobKey，

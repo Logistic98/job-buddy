@@ -98,28 +98,28 @@ const menu = computed(() =>
       en: 'Menus',
       desc: '动态菜单树与权限码',
     },
-    auth.hasPermission('tenant:manage') && {
+    auth.hasPermission('platform:manage') && {
       key: 'workspace',
       letter: 'RP',
       label: '运行参数',
       en: 'Runtime Parameters',
       desc: '推荐、检索、执行与简历参数',
     },
-    auth.hasPermission('tenant:manage') && {
+    auth.hasPermission('platform:manage') && {
       key: 'blacklist',
       letter: 'CB',
       label: '公司屏蔽',
       en: 'Company Blocking',
       desc: '屏蔽外包、驻场和指定公司',
     },
-    auth.hasPermission('tenant:manage') && {
+    auth.hasPermission('platform:manage') && {
       key: 'memory',
       letter: 'MM',
       label: '记忆管理',
       en: 'Memory',
       desc: '长期记忆新增、删除、清空',
     },
-    auth.hasPermission('tenant:manage') && {
+    auth.hasPermission('platform:manage') && {
       key: 'services',
       letter: 'SM',
       label: '服务监控',

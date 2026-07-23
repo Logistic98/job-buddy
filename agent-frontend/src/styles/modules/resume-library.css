@@ -1,0 +1,1158 @@
+/* Extracted from main.css; import order preserves the original cascade. */
+/* 左侧主导航瘦身：移除数字统计后缩窄整体宽度 */
+.app-sidebar {
+  width: 220px;
+}
+.brand-row {
+  gap: 8px;
+}
+.workspace-name {
+  max-width: 108px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-item {
+  padding: 0 9px;
+}
+.nav-label {
+  white-space: nowrap;
+}
+.app-sidebar .nav-item b {
+  display: none;
+}
+/* 简历管理卡片放大与标签弹窗 */
+.resume-manager-page .resume-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(520px, 640px));
+  gap: 22px;
+}
+.resume-manager-page .resume-manage-card {
+  grid-template-columns: 190px minmax(0, 1fr);
+  min-height: 250px;
+  padding: 18px;
+  align-items: start;
+}
+.resume-manager-page .resume-thumb {
+  width: 190px;
+  height: 242px;
+}
+.resume-manager-page .resume-thumb img,
+.resume-manager-page .resume-thumb-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.resume-manager-page .resume-card-info {
+  min-width: 0;
+}
+.resume-manager-page .resume-card-title h2 {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resume-manager-page .resume-tags {
+  min-height: 34px;
+}
+.resume-tag-modal {
+  width: min(520px, 92vw);
+}
+.resume-tag-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+.resume-tag-input span {
+  color: #475467;
+  font-size: 13px;
+  font-weight: 900;
+}
+.resume-tag-input input {
+  height: 42px;
+  border: 1px solid #dfe6f2;
+  border-radius: 12px;
+  padding: 0 12px;
+  outline: 0;
+  color: #172033;
+}
+.resume-tag-input input:focus {
+  border-color: #3157ff;
+  box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.12);
+}
+.resume-tag-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+.resume-tag-preview strong {
+  font-size: 13px;
+  color: #475467;
+  margin-right: 2px;
+}
+.resume-tag-preview span {
+  border: 1px solid #dfe6ff;
+  background: #eef2ff;
+  color: #3157ff;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+@media (max-width: 1180px) {
+  .resume-manager-page .resume-card-grid {
+    grid-template-columns: 1fr;
+  }
+  .resume-manager-page .resume-manage-card {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+  .resume-manager-page .resume-thumb {
+    width: 160px;
+    height: 210px;
+  }
+}
+/* 简历标签弹窗精修 */
+.resume-tag-modal {
+  width: min(560px, 92vw);
+  padding: 28px !important;
+  border-radius: 26px !important;
+  border: 1px solid #e8eef7 !important;
+  box-shadow: 0 36px 120px rgba(15, 23, 42, 0.22) !important;
+}
+.resume-tag-modal .close {
+  right: 18px;
+  top: 14px;
+  color: #475467;
+}
+.resume-tag-modal-head {
+  padding-right: 34px;
+  margin-bottom: 18px;
+}
+.resume-tag-modal-head .eyebrow {
+  margin: 0 0 8px;
+}
+.resume-tag-modal-head h2 {
+  margin: 0 0 10px;
+  color: #101828;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+}
+.resume-tag-modal-head span {
+  display: block;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resume-tag-input {
+  padding: 14px;
+  border: 1px solid #edf1f7;
+  border-radius: 18px;
+  background: #fbfdff;
+}
+.resume-tag-input span {
+  font-size: 13px;
+  color: #344054;
+  font-weight: 900;
+}
+.resume-tag-input input {
+  height: 46px;
+  margin-top: 8px;
+  background: #fff;
+}
+.resume-tag-input small {
+  display: block;
+  margin-top: 8px;
+  color: #98a2b3;
+  line-height: 1.5;
+}
+.resume-tag-preview {
+  min-height: 42px;
+  padding: 12px 0 4px;
+}
+.resume-tag-preview strong,
+.resume-tag-suggestions strong {
+  flex: 0 0 72px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 900;
+}
+.resume-tag-preview em {
+  font-style: normal;
+  color: #98a2b3;
+  font-size: 13px;
+}
+.resume-tag-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px solid #edf1f7;
+}
+.resume-tag-suggestions button {
+  border: 1px solid #dfe6ff;
+  background: #fff;
+  color: #3157ff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.resume-tag-suggestions button:hover {
+  background: #eef2ff;
+  border-color: #b8c6ff;
+}
+.resume-tag-actions {
+  justify-content: flex-end;
+  margin: 18px 0 0 !important;
+}
+.resume-tag-actions button {
+  min-width: 96px;
+  height: 40px;
+}
+/* 简历管理卡片视觉重构：减少空白、当前标识横向化、操作区规整 */
+.resume-manager-page .resume-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(560px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.resume-manager-page .resume-manage-card {
+  position: relative;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 20px;
+  min-height: auto;
+  padding: 20px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, #fff 0%, #fbfdff 100%);
+  box-shadow: 0 16px 36px rgba(46, 64, 120, 0.06);
+  overflow: hidden;
+}
+.resume-manager-page .resume-manage-card.active {
+  border-color: #8ea2ff;
+  box-shadow: 0 20px 46px rgba(49, 87, 255, 0.12);
+}
+.resume-manager-page .resume-thumb {
+  width: 210px;
+  height: 272px;
+  border-radius: 14px;
+  background: #f8fafc;
+  box-shadow: inset 0 0 0 1px #e8eef7;
+  overflow: hidden;
+}
+.resume-manager-page .resume-card-info {
+  display: flex;
+  flex-direction: column;
+  min-height: 272px;
+  padding-right: 12px;
+}
+.resume-manager-page .resume-card-title {
+  display: block;
+  padding-right: 72px;
+}
+.resume-manager-page .resume-card-title h2 {
+  font-size: 18px;
+  line-height: 1.35;
+  margin: 2px 0 12px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.resume-manager-page .resume-card-title .state-badge.ok {
+  position: absolute;
+  right: 18px;
+  top: 18px;
+  height: auto;
+  writing-mode: horizontal-tb;
+  letter-spacing: 0;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #087443;
+  box-shadow: 0 8px 20px rgba(8, 116, 67, 0.1);
+}
+.resume-manager-page .resume-card-info > p {
+  margin: 0 0 14px;
+  color: #667085;
+}
+.resume-manager-page .resume-tags {
+  min-height: 36px;
+  margin: 0 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.resume-manager-page .resume-tags span {
+  background: #eef2ff;
+  color: #3157ff;
+  border: 1px solid #dfe6ff;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.resume-manager-page .resume-tags button {
+  height: 30px;
+  border-radius: 999px;
+  border: 1px dashed #b8c6ff;
+  background: #fff;
+  color: #3157ff;
+  padding: 0 11px;
+  font-weight: 800;
+}
+.resume-manager-page .resume-card-actions {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(110px, 1fr));
+  gap: 10px 12px;
+  align-items: center;
+}
+.resume-manager-page .resume-card-actions button,
+.resume-manager-page .resume-card-actions a {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  text-decoration: none;
+  font-weight: 900;
+}
+.resume-manager-page .resume-card-actions .danger-text {
+  color: #d92d20;
+}
+.resume-manager-page .resume-card-actions .danger-text:hover {
+  background: #fff1f3;
+}
+@media (max-width: 980px) {
+  .resume-manager-page .resume-card-grid {
+    grid-template-columns: 1fr;
+  }
+  .resume-manager-page .resume-manage-card {
+    grid-template-columns: 170px minmax(0, 1fr);
+  }
+  .resume-manager-page .resume-thumb {
+    width: 170px;
+    height: 220px;
+  }
+  .resume-manager-page .resume-card-info {
+    min-height: 220px;
+  }
+  .resume-manager-page .resume-card-actions {
+    grid-template-columns: 1fr;
+  }
+}
+/* 简历管理卡片紧凑版：缩小卡片尺寸，保留弹窗标签交互 */
+.resume-manager-page .resume-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(360px, 420px)) !important;
+  gap: 16px !important;
+  align-items: start !important;
+}
+.resume-manager-page .resume-manage-card {
+  grid-template-columns: 150px minmax(0, 1fr) !important;
+  gap: 16px !important;
+  min-height: 210px !important;
+  padding: 14px !important;
+  border-radius: 16px !important;
+  background: #fff !important;
+  box-shadow: 0 12px 28px rgba(46, 64, 120, 0.05) !important;
+  overflow: visible !important;
+}
+.resume-manager-page .resume-thumb {
+  width: 150px !important;
+  height: 190px !important;
+  border-radius: 12px !important;
+}
+.resume-manager-page .resume-card-info {
+  min-height: 190px !important;
+  padding-right: 0 !important;
+}
+.resume-manager-page .resume-card-title {
+  padding-right: 42px !important;
+}
+.resume-manager-page .resume-card-title h2 {
+  font-size: 16px !important;
+  margin: 2px 0 10px !important;
+}
+.resume-manager-page .resume-card-title .state-badge.ok {
+  right: 12px !important;
+  top: 12px !important;
+  padding: 6px 8px !important;
+  font-size: 12px !important;
+}
+.resume-manager-page .resume-card-info > p {
+  margin: 0 0 10px !important;
+}
+.resume-manager-page .resume-tags {
+  min-height: 28px !important;
+  margin: 0 0 10px !important;
+  gap: 6px !important;
+}
+.resume-manager-page .resume-tags span {
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+}
+.resume-manager-page .resume-tags button {
+  height: 28px !important;
+  padding: 0 9px !important;
+}
+.resume-manager-page .resume-card-actions {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(72px, 1fr)) !important;
+  gap: 8px !important;
+  margin-top: auto !important;
+}
+.resume-manager-page .resume-card-actions button,
+.resume-manager-page .resume-card-actions a {
+  height: 30px !important;
+  font-size: 13px !important;
+  border-radius: 10px !important;
+}
+@media (max-width: 980px) {
+  .resume-manager-page .resume-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .resume-manager-page .resume-manage-card {
+    grid-template-columns: 130px minmax(0, 1fr) !important;
+  }
+  .resume-manager-page .resume-thumb {
+    width: 130px !important;
+    height: 170px !important;
+  }
+  .resume-manager-page .resume-card-info {
+    min-height: 170px !important;
+  }
+}
+/* 简历标签数量控制与删除交互 */
+.resume-manager-page .resume-tags {
+  max-height: 66px;
+  overflow: hidden;
+}
+.resume-manager-page .resume-tags em {
+  font-style: normal;
+  border: 1px solid #e4e7ec;
+  background: #f8fafc;
+  color: #667085;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.resume-tag-preview .editable-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 10px;
+}
+.resume-tag-preview .editable-tag button {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(49, 87, 255, 0.12);
+  color: #3157ff;
+  font-weight: 900;
+  line-height: 18px;
+  padding: 0;
+  cursor: pointer;
+}
+.resume-tag-preview .editable-tag button:hover {
+  background: #fee2e2;
+  color: #d92d20;
+}
+.resume-tag-error {
+  margin: 8px 0 0;
+  color: #d92d20;
+  font-size: 13px;
+  font-weight: 800;
+}
+.resume-tag-input input:disabled {
+  background: #f8fafc;
+  color: #98a2b3;
+}
+/* 简历目录分组与版本维护 */
+.resume-manager-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.resume-folder-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0 18px;
+}
+.resume-folder-bar button {
+  height: 34px;
+  border: 1px solid #dfe6f2;
+  background: #fff;
+  color: #475467;
+  border-radius: 999px;
+  padding: 0 12px;
+  font-weight: 900;
+}
+.resume-folder-bar button.active {
+  background: #3157ff;
+  border-color: #3157ff;
+  color: #fff;
+  box-shadow: 0 10px 24px rgba(49, 87, 255, 0.18);
+}
+.resume-folder-bar button span {
+  margin-left: 6px;
+  opacity: 0.75;
+}
+.resume-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 10px;
+}
+.resume-meta-row span {
+  border: 1px solid #edf1f7;
+  background: #f8fafc;
+  color: #667085;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.resume-meta-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 12px 0;
+}
+.resume-meta-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.resume-meta-form span {
+  font-size: 13px;
+  color: #344054;
+  font-weight: 900;
+}
+.resume-meta-form input,
+.resume-meta-form select {
+  height: 42px;
+  border: 1px solid #dfe6f2;
+  border-radius: 12px;
+  background: #fff;
+  color: #172033;
+  padding: 0 11px;
+  outline: 0;
+}
+.resume-meta-form input:focus,
+.resume-meta-form select:focus {
+  border-color: #3157ff;
+  box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.12);
+}
+.resume-folder-modal {
+  width: min(480px, 92vw);
+  padding: 26px !important;
+  border-radius: 24px !important;
+}
+.resume-folder-modal h2 {
+  margin: 6px 0 8px;
+  color: #101828;
+}
+.resume-folder-modal p:not(.eyebrow) {
+  color: #667085;
+  line-height: 1.6;
+}
+@media (max-width: 720px) {
+  .resume-meta-form {
+    grid-template-columns: 1fr;
+  }
+  .resume-manager-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+/* 简历移动目录弹窗 */
+.resume-folder-select {
+  height: 42px;
+  border: 1px solid #dfe6f2;
+  border-radius: 12px;
+  background: #fff;
+  color: #172033;
+  padding: 0 11px;
+  outline: 0;
+}
+.resume-folder-select:focus {
+  border-color: #3157ff;
+  box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.12);
+}
+.resume-folder-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.resume-folder-quick button {
+  height: 30px;
+  border: 1px solid #dfe6f2;
+  background: #fff;
+  color: #475467;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-weight: 800;
+}
+.resume-folder-quick button.active,
+.resume-folder-quick button:hover {
+  border-color: #3157ff;
+  background: #eef2ff;
+  color: #3157ff;
+}
+/* 简历管理交互样式优化：目录筛选与卡片工具栏 */
+.resume-manager-page .page-header {
+  align-items: flex-start;
+}
+.resume-manager-actions .secondary-btn,
+.resume-manager-actions .primary-btn {
+  height: 38px;
+  border-radius: 13px;
+  padding: 0 16px;
+  font-weight: 900;
+}
+.resume-folder-bar {
+  padding: 4px;
+  border: 1px solid #edf1f7;
+  background: #f8fafc;
+  border-radius: 18px;
+  width: max-content;
+  max-width: 100%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+.resume-folder-bar button {
+  height: 34px;
+  border: 0;
+  background: transparent;
+  border-radius: 14px;
+  padding: 0 14px;
+  color: #667085;
+  box-shadow: none;
+}
+.resume-folder-bar button.active {
+  background: #3157ff;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(49, 87, 255, 0.22);
+}
+.resume-folder-bar button:not(.active):hover {
+  background: #fff;
+  color: #3157ff;
+}
+.resume-manager-page .resume-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(390px, 430px)) !important;
+  gap: 18px !important;
+}
+.resume-manager-page .resume-manage-card {
+  grid-template-columns: 142px minmax(0, 1fr) !important;
+  gap: 16px !important;
+  min-height: 236px !important;
+  padding: 16px !important;
+  border: 1px solid #e8eef7 !important;
+  border-radius: 18px !important;
+  box-shadow: 0 10px 26px rgba(16, 24, 40, 0.04) !important;
+}
+.resume-manager-page .resume-manage-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 34px rgba(16, 24, 40, 0.08) !important;
+}
+.resume-manager-page .resume-manage-card.active {
+  border-color: #8ea2ff !important;
+  background: linear-gradient(180deg, #fff, #fbfcff) !important;
+}
+.resume-manager-page .resume-thumb {
+  width: 142px !important;
+  height: 182px !important;
+  border-radius: 12px !important;
+}
+.resume-manager-page .resume-card-info {
+  min-height: 182px !important;
+}
+.resume-manager-page .resume-card-title h2 {
+  font-size: 15px !important;
+  line-height: 1.35 !important;
+  margin: 0 0 8px !important;
+}
+.resume-manager-page .resume-card-title .state-badge.ok {
+  right: 10px !important;
+  top: 10px !important;
+  padding: 5px 8px !important;
+  font-size: 11px !important;
+}
+.resume-manager-page .resume-meta-row {
+  gap: 6px !important;
+  margin-bottom: 8px !important;
+}
+.resume-manager-page .resume-meta-row span {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px !important;
+  background: #f6f8fb;
+  color: #667085;
+  border: 0 !important;
+}
+.resume-manager-page .resume-tags {
+  max-height: 58px !important;
+  min-height: 30px !important;
+  margin-bottom: 10px !important;
+}
+.resume-manager-page .resume-tags span {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px !important;
+}
+.resume-manager-page .resume-card-actions {
+  margin-top: auto !important;
+  padding-top: 10px !important;
+  border-top: 1px solid #f0f3f8 !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 7px !important;
+}
+.resume-manager-page .resume-card-actions button,
+.resume-manager-page .resume-card-actions a {
+  width: auto !important;
+  min-width: auto !important;
+  height: 28px !important;
+  padding: 0 8px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: #52627a !important;
+  font-size: 12px !important;
+  border-radius: 8px !important;
+  font-weight: 800 !important;
+}
+.resume-manager-page .resume-card-actions button:hover,
+.resume-manager-page .resume-card-actions a:hover {
+  background: #f2f5ff !important;
+  color: #3157ff !important;
+}
+.resume-manager-page .resume-card-actions .resume-action-primary {
+  background: #eef2ff !important;
+  color: #3157ff !important;
+}
+.resume-manager-page .resume-card-actions .danger-text {
+  margin-left: auto !important;
+  color: #d92d20 !important;
+}
+.resume-manager-page .resume-card-actions .danger-text:hover {
+  background: #fff1f3 !important;
+  color: #d92d20 !important;
+}
+@media (max-width: 760px) {
+  .resume-folder-bar {
+    width: 100%;
+  }
+  .resume-manager-page .resume-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .resume-manager-page .resume-manage-card {
+    grid-template-columns: 120px minmax(0, 1fr) !important;
+  }
+  .resume-manager-page .resume-thumb {
+    width: 120px !important;
+    height: 158px !important;
+  }
+  .resume-manager-page .resume-card-info {
+    min-height: 158px !important;
+  }
+}
+/* 简历管理卡片修正：加宽卡片，禁止操作按钮纵向拉伸 */
+.resume-manager-page .resume-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(620px, 680px)) !important;
+  gap: 18px !important;
+  align-items: start !important;
+}
+.resume-manager-page .resume-manage-card {
+  grid-template-columns: 180px minmax(0, 1fr) !important;
+  gap: 18px !important;
+  width: 100% !important;
+  min-height: 232px !important;
+  max-height: none !important;
+  padding: 16px !important;
+  align-items: start !important;
+  overflow: hidden !important;
+}
+.resume-manager-page .resume-thumb {
+  width: 180px !important;
+  height: 232px !important;
+  flex: 0 0 180px !important;
+}
+.resume-manager-page .resume-card-info {
+  min-height: 232px !important;
+  height: 232px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+}
+.resume-manager-page .resume-card-title h2 {
+  max-width: 100% !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+.resume-manager-page .resume-meta-row,
+.resume-manager-page .resume-tags {
+  flex-shrink: 0 !important;
+}
+.resume-manager-page .resume-tags {
+  max-height: 56px !important;
+  overflow: hidden !important;
+}
+.resume-manager-page .resume-card-actions {
+  margin-top: auto !important;
+  padding-top: 10px !important;
+  border-top: 1px solid #f0f3f8 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(76px, 1fr)) !important;
+  gap: 8px !important;
+  align-items: center !important;
+}
+.resume-manager-page .resume-card-actions button,
+.resume-manager-page .resume-card-actions a {
+  width: 100% !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  max-height: 30px !important;
+  padding: 0 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  margin: 0 !important;
+  border-radius: 9px !important;
+  background: #f8fafc !important;
+  color: #52627a !important;
+}
+.resume-manager-page .resume-card-actions .resume-action-primary {
+  background: #eef2ff !important;
+  color: #3157ff !important;
+}
+.resume-manager-page .resume-card-actions .danger-text {
+  margin-left: 0 !important;
+  background: #fff5f5 !important;
+  color: #d92d20 !important;
+}
+@media (max-width: 980px) {
+  .resume-manager-page .resume-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .resume-manager-page .resume-manage-card {
+    grid-template-columns: 160px minmax(0, 1fr) !important;
+  }
+  .resume-manager-page .resume-thumb {
+    width: 160px !important;
+    height: 210px !important;
+    flex-basis: 160px !important;
+  }
+  .resume-manager-page .resume-card-info {
+    height: 210px !important;
+    min-height: 210px !important;
+  }
+}
+/* 简历管理样式修正：顶部按钮、标签上限、操作区文案 */
+.resume-manager-page .page-header {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 18px !important;
+}
+.resume-manager-actions {
+  flex: 0 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  min-width: auto !important;
+}
+.resume-manager-actions .secondary-btn,
+.resume-manager-actions .primary-btn,
+.resume-manager-actions .upload-entry {
+  width: auto !important;
+  min-width: 92px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  padding: 0 16px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  border-radius: 13px !important;
+  box-sizing: border-box !important;
+}
+.resume-manager-actions .upload-entry {
+  min-width: 94px !important;
+  background: #3157ff !important;
+  color: #fff !important;
+}
+.resume-manager-page .resume-card-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+}
+.resume-manager-page .resume-manage-card {
+  grid-template-columns: 176px minmax(0, 1fr) !important;
+  min-height: 228px !important;
+  padding: 16px !important;
+}
+.resume-manager-page .resume-thumb {
+  width: 176px !important;
+  height: 226px !important;
+}
+.resume-manager-page .resume-card-info {
+  height: 226px !important;
+  min-height: 226px !important;
+}
+.resume-manager-page .resume-tags {
+  max-height: 30px !important;
+  min-height: 30px !important;
+  overflow: hidden !important;
+  flex-wrap: nowrap !important;
+  white-space: nowrap !important;
+}
+.resume-manager-page .resume-tags span,
+.resume-manager-page .resume-tags em {
+  flex: 0 0 auto !important;
+}
+.resume-manager-page .resume-card-actions {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(86px, 1fr)) !important;
+  gap: 8px !important;
+  padding-top: 10px !important;
+  border-top: 1px solid #eef2f7 !important;
+}
+.resume-manager-page .resume-card-actions button,
+.resume-manager-page .resume-card-actions a {
+  height: 32px !important;
+  border-radius: 10px !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  background: #f8fafc !important;
+  color: #52627a !important;
+  border: 1px solid transparent !important;
+}
+.resume-manager-page .resume-card-actions .resume-action-primary {
+  background: #eef2ff !important;
+  color: #3157ff !important;
+  border-color: #e0e7ff !important;
+}
+.resume-manager-page .resume-card-actions .danger-text {
+  background: #fff5f5 !important;
+  color: #d92d20 !important;
+  border-color: #ffe4e8 !important;
+}
+@media (max-width: 980px) {
+  .resume-manager-page .page-header {
+    flex-direction: column !important;
+  }
+  .resume-manager-actions {
+    width: 100% !important;
+    justify-content: flex-start !important;
+  }
+  .resume-manager-page .resume-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+/* 简历卡片按钮统一风格与顺序 */
+.resume-manager-page .resume-card-actions {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(96px, 1fr)) !important;
+  gap: 8px !important;
+}
+.resume-manager-page .resume-card-actions button,
+.resume-manager-page .resume-card-actions a {
+  height: 34px !important;
+  border-radius: 11px !important;
+  border: 1px solid #dfe6f2 !important;
+  background: #f8fafc !important;
+  color: #475467 !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  box-shadow: none !important;
+}
+.resume-manager-page .resume-card-actions button:hover,
+.resume-manager-page .resume-card-actions a:hover {
+  background: #eef2ff !important;
+  border-color: #c7d2fe !important;
+  color: #3157ff !important;
+}
+.resume-manager-page .resume-card-actions .resume-action-primary {
+  background: #f8fafc !important;
+  border-color: #dfe6f2 !important;
+  color: #475467 !important;
+}
+.resume-manager-page .resume-card-actions .resume-action-primary:hover {
+  background: #eef2ff !important;
+  border-color: #c7d2fe !important;
+  color: #3157ff !important;
+}
+.resume-manager-page .resume-card-actions .danger-text {
+  background: #fff7f7 !important;
+  border-color: #ffd6dc !important;
+  color: #d92d20 !important;
+}
+.resume-manager-page .resume-card-actions .danger-text:hover {
+  background: #fff1f3 !important;
+  border-color: #ffb8c2 !important;
+  color: #b42318 !important;
+}
+/* 简历管理最终交互微调：标签单行展示更多，按钮统一 */
+.resume-manager-page .resume-tags {
+  max-height: 34px !important;
+  min-height: 34px !important;
+  width: 100% !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 7px !important;
+  overflow: hidden !important;
+}
+.resume-manager-page .resume-tags span,
+.resume-manager-page .resume-tags em {
+  height: 26px !important;
+  max-width: 96px !important;
+  padding: 0 9px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  line-height: 1 !important;
+}
+.resume-manager-page .resume-card-actions button,
+.resume-manager-page .resume-card-actions a {
+  gap: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-family: inherit !important;
+}
+.resume-meta-form.single {
+  grid-template-columns: 1fr !important;
+}
+.resume-folder-modal h2,
+.resume-tag-modal h2 {
+  letter-spacing: -0.02em !important;
+}
+.resume-folder-modal .resume-tag-input span,
+.resume-tag-modal .resume-tag-input span {
+  color: #344054 !important;
+}
+/* 简历卡片操作按钮统一：六个入口共用尺寸、边框、底色与交互状态 */
+.resume-manager-page .resume-card-actions {
+  padding-top: 12px !important;
+  border-top: 1px solid #edf1f7 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(96px, 1fr)) !important;
+  gap: 8px !important;
+}
+.resume-manager-page .resume-card-actions .resume-card-action {
+  width: 100% !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  margin: 0 !important;
+  padding: 0 12px !important;
+  border: 1px solid #dfe6f2 !important;
+  border-radius: 10px !important;
+  background: #fff !important;
+  color: #475467 !important;
+  font-size: 13px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+  text-decoration: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.03) !important;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease !important;
+}
+.resume-manager-page .resume-card-actions .resume-card-action::before {
+  content: none !important;
+  display: none !important;
+}
+.resume-manager-page .resume-card-actions .resume-card-action:hover {
+  background: #f6f8ff !important;
+  border-color: #c7d2fe !important;
+  color: #3157ff !important;
+}
+.resume-manager-page .resume-card-actions .resume-card-action:focus-visible {
+  outline: 0 !important;
+  border-color: #3157ff !important;
+  box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.14) !important;
+}
+.resume-manager-page .resume-card-actions .resume-card-action.danger-text {
+  background: #fff !important;
+  border-color: #ffd6dc !important;
+  color: #d92d20 !important;
+}
+.resume-manager-page .resume-card-actions .resume-card-action.danger-text:hover {
+  background: #fff1f3 !important;
+  border-color: #ffb8c2 !important;
+  color: #b42318 !important;
+}
+/* 简历删除确认弹窗 */
+.resume-delete-modal {
+  width: min(460px, 92vw);
+  padding: 26px !important;
+  border-radius: 24px !important;
+  border: 1px solid #ffe1e6 !important;
+  box-shadow: 0 32px 90px rgba(16, 24, 40, 0.22) !important;
+}
+.resume-delete-modal h2 {
+  margin: 6px 0 10px;
+  color: #101828;
+  letter-spacing: -0.02em;
+}
+.resume-delete-modal p:not(.eyebrow) {
+  color: #667085;
+  line-height: 1.7;
+}
+.resume-delete-modal .danger-btn {
+  height: 40px;
+  border: 1px solid #f04438;
+  background: #d92d20;
+  color: #fff;
+  border-radius: 12px;
+  padding: 0 16px;
+  font-weight: 900;
+}
+.resume-delete-modal .danger-btn:hover {
+  background: #b42318;
+  border-color: #b42318;
+}
+.reasoning-process .reasoning-text {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #475467;
+  background: #f8fafc;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  max-height: 280px;
+  overflow: auto;
+}

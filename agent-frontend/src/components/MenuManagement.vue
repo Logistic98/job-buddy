@@ -5,7 +5,7 @@
         <span class="rbac-page-icon">MN</span>
         <div>
           <h2>菜单管理</h2>
-          <p>动态维护菜单树、导航目标、显示状态和权限码。</p>
+          <p>动态维护导航菜单与独立功能权限，配置导航目标、显示状态和权限码。</p>
         </div>
       </div>
       <button class="primary-btn" @click="openCreate">创建菜单</button>
@@ -13,7 +13,7 @@
 
     <div class="rbac-metrics">
       <article class="rbac-metric">
-        <span>菜单总数</span><strong>{{ menus.length }}</strong
+        <span>菜单总数</span><strong>{{ navigableMenus.length }}</strong
         ><em>{{ rootCount }} 个顶级菜单</em>
       </article>
       <article class="rbac-metric">
@@ -21,20 +21,21 @@
         ><em>{{ hiddenCount }} 个菜单已隐藏</em>
       </article>
       <article class="rbac-metric">
-        <span>权限节点</span><strong>{{ permissionCount }}</strong
-        ><em>已关联稳定权限码</em>
+        <span>功能权限</span><strong>{{ actionCount }}</strong
+        ><em>不参与前台导航</em>
       </article>
     </div>
 
     <p v-if="error" class="rbac-error">{{ error }}</p>
     <section class="rbac-panel">
       <div class="rbac-panel-toolbar">
-        <strong>菜单树</strong><span>按层级与排序展示，共 {{ menus.length }} 个节点</span>
+        <strong>菜单与功能权限</strong><span>按层级与排序展示，共 {{ menus.length }} 个节点</span>
       </div>
       <div class="rbac-table-scroll">
         <div class="rbac-data-grid menu-data-grid">
           <div class="rbac-data-row is-header">
-            <span>菜单</span><span>类型与导航目标</span><span>权限码</span><span>显示状态</span><span>操作</span>
+            <span>菜单或功能权限</span><span>类型与导航目标</span><span>权限码</span><span>显示状态</span
+            ><span>操作</span>
           </div>
           <div v-for="menu in sortedMenus" :key="menu.menuId" class="rbac-data-row">
             <div class="rbac-primary-cell rbac-tree-cell" :style="{ paddingLeft: `${depth(menu) * 22}px` }">
@@ -66,7 +67,7 @@
             >
           </div>
           <div v-if="!menus.length" class="rbac-empty">
-            <strong>暂无菜单</strong><span>创建菜单后可在角色管理中进行授权。</span>
+            <strong>暂无节点</strong><span>创建菜单或功能权限后可在角色管理中进行授权。</span>
           </div>
         </div>
       </div>
@@ -103,7 +104,7 @@
                     aria-required="true"
                     placeholder="例如 数据报表，最多 64 字"
                 /></label>
-                ><label class="rbac-field"
+                <label class="rbac-field"
                   ><span class="form-required">菜单类型</span
                   ><select v-model="form.menuType" aria-required="true">
                     <option :value="null" disabled>请选择菜单类型</option>
@@ -144,7 +145,7 @@
                     :aria-required="form.menuType === 'page'"
                     placeholder="例如 resumes，字母开头"
                 /></label>
-                ><label class="rbac-field wide"
+                <label class="rbac-field wide"
                   ><span :class="{ 'form-required': form.menuType === 'external' }">外部地址</span
                   ><input
                     v-model.trim="form.externalUrl"
@@ -257,11 +258,11 @@ const sortedMenus = computed(() => {
 const parentOptions = computed(() =>
   sortedMenus.value.filter((item) => item.menuId !== selected.value?.menuId && item.menuType !== 'action'),
 )
-const rootCount = computed(() => menus.value.filter((menu) => !menu.parentId).length)
 const navigableMenus = computed(() => menus.value.filter((menu) => menu.menuType !== 'action'))
+const rootCount = computed(() => navigableMenus.value.filter((menu) => !menu.parentId).length)
 const visibleCount = computed(() => navigableMenus.value.filter((menu) => menu.visible && menu.enabled).length)
 const hiddenCount = computed(() => navigableMenus.value.length - visibleCount.value)
-const permissionCount = computed(() => menus.value.filter((menu) => menu.permissionCode).length)
+const actionCount = computed(() => menus.value.filter((menu) => menu.menuType === 'action').length)
 
 watch(
   () => form.menuType,
@@ -382,7 +383,7 @@ async function remove(menu) {
 }
 </script>
 
-<style src="./rbac/rbac-management.css"></style>
+<style src="../styles/modules/rbac-management.css"></style>
 <style scoped>
 .menu-data-grid {
   min-width: 980px;

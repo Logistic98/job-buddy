@@ -1,0 +1,521 @@
+.resume-analysis-page .analysis-report-kicker {
+  margin: 2px 0 0;
+}
+.resume-analysis-page .resume-analysis-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+.resume-analysis-page .analysis-summary-metric {
+  --metric-accent: #3157ff;
+  --metric-surface: #f3f6ff;
+  --metric-border: #dce5ff;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 15px;
+  border: 1px solid var(--metric-border);
+  border-radius: 15px;
+  background: linear-gradient(145deg, #fff 0%, var(--metric-surface) 100%);
+  box-shadow: 0 8px 22px rgba(31, 45, 86, 0.045);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+.resume-analysis-page .analysis-summary-metric:hover {
+  border-color: var(--metric-accent);
+  box-shadow: 0 12px 28px rgba(31, 45, 86, 0.09);
+  transform: translateY(-1px);
+}
+.resume-analysis-page .analysis-summary-metric.is-advantage {
+  --metric-accent: #079455;
+  --metric-surface: #f0fdf6;
+  --metric-border: #c9f0d9;
+}
+.resume-analysis-page .analysis-summary-metric.is-disadvantage {
+  --metric-accent: #e04f5f;
+  --metric-surface: #fff5f6;
+  --metric-border: #ffd7dc;
+}
+.resume-analysis-page .analysis-summary-metric.is-deep-dive {
+  --metric-accent: #7a5af8;
+  --metric-surface: #f6f3ff;
+  --metric-border: #e2dcff;
+}
+.resume-analysis-page .analysis-summary-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  place-items: center;
+  margin: 0;
+  border-radius: 12px;
+  background: var(--metric-accent);
+  color: #fff;
+  box-shadow: 0 7px 16px color-mix(in srgb, var(--metric-accent) 24%, transparent);
+}
+.resume-analysis-page .analysis-summary-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.resume-analysis-page .analysis-summary-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+}
+.resume-analysis-page .analysis-summary-copy small {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.resume-analysis-page .analysis-summary-copy strong {
+  color: #172033;
+  font-size: 24px;
+  font-weight: 850;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+@media (max-width: 1360px) {
+  .resume-analysis-page .resume-analysis-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .resume-analysis-page .resume-analysis-summary {
+    grid-template-columns: 1fr;
+  }
+}
+.score-breakdown-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.score-breakdown-card > header > div {
+  min-width: 0;
+}
+.score-breakdown-card > header h3 {
+  margin: 0 0 3px;
+}
+.score-breakdown-card > header span {
+  color: #667085;
+  font-size: 12px;
+}
+.score-breakdown-toggle {
+  flex: 0 0 auto;
+  border: 1px solid #d8e0f0;
+  border-radius: 10px;
+  padding: 7px 11px;
+  background: #fff;
+  color: #3157ff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.score-breakdown-toggle:hover {
+  border-color: #3157ff;
+  background: #f5f7ff;
+}
+.score-breakdown-toggle:focus-visible {
+  outline: 3px solid rgba(49, 87, 255, 0.18);
+  outline-offset: 2px;
+}
+.score-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.score-breakdown-item {
+  --score-accent: #3157ff;
+  --score-soft: #f1f4ff;
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid color-mix(in srgb, var(--score-accent) 20%, #e4e9f5);
+  border-radius: 16px;
+  background: linear-gradient(145deg, #fff 0%, var(--score-soft) 100%);
+  box-shadow: 0 8px 22px rgba(31, 45, 86, 0.05);
+}
+.score-breakdown-item.is-excellent {
+  --score-accent: #7a5af8;
+  --score-soft: #f5f2ff;
+}
+.score-breakdown-item.is-strong {
+  --score-accent: #079455;
+  --score-soft: #effcf5;
+}
+.score-breakdown-item.is-good {
+  --score-accent: #3157ff;
+  --score-soft: #f1f4ff;
+}
+.score-breakdown-item.is-basic {
+  --score-accent: #d97706;
+  --score-soft: #fff8eb;
+}
+.score-breakdown-item.is-weak {
+  --score-accent: #e04f5f;
+  --score-soft: #fff3f5;
+}
+.score-dimension-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.score-dimension-head > div:first-child {
+  min-width: 0;
+}
+.score-dimension-head > div:first-child strong {
+  display: block;
+  color: #172033;
+  font-size: 14px;
+}
+.score-dimension-head > div:first-child span {
+  display: inline-block;
+  margin-top: 4px;
+  color: #667085;
+  font-size: 11px;
+}
+.score-dimension-value {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 6px;
+}
+.score-dimension-value b {
+  color: var(--score-accent);
+  font-size: 25px;
+  line-height: 1;
+}
+.score-dimension-value small {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: color-mix(in srgb, var(--score-accent) 12%, #fff);
+  color: var(--score-accent);
+  font-size: 10px;
+  font-weight: 800;
+}
+.score-dimension-track {
+  overflow: hidden;
+  height: 6px;
+  margin: 11px 0 12px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+}
+.score-dimension-track span {
+  display: block;
+  width: var(--score-progress);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--score-accent) 68%, #fff), var(--score-accent));
+}
+.score-breakdown-item p {
+  margin: 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.65;
+}
+.score-breakdown-item p strong {
+  display: block;
+  margin-bottom: 3px;
+  color: #475467;
+  font-size: 11px;
+}
+.score-breakdown-item p span {
+  color: #667085;
+}
+@media (max-width: 720px) {
+  .score-breakdown-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.resume-analysis-task-status {
+  display: flex;
+  min-height: 0;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+  border: 1px solid #dfe6ff;
+  border-radius: 11px;
+  background: #f7f9ff;
+  padding: 8px 12px;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.resume-analysis-task-status .favorite-analysis-loading-mark {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+}
+.resume-analysis-task-status strong {
+  flex: none;
+  color: #3157ff;
+  font-size: 12px;
+}
+.resume-analysis-task-status > span:not(.favorite-analysis-loading-mark) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resume-analysis-task-status small {
+  flex: none;
+  margin-left: auto;
+  color: #98a2b3;
+}
+.resume-analysis-page .analysis-report-list {
+  width: 100%;
+  align-items: stretch;
+}
+.resume-analysis-page .analysis-report-list > p {
+  width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+body > .analysis-resume-picker-mask {
+  padding: 20px !important;
+  overflow: hidden !important;
+}
+body > .analysis-resume-picker-mask .analysis-resume-picker-modal {
+  display: flex;
+  width: min(920px, calc(100vw - 40px));
+  height: min(720px, calc(100vh - 40px));
+  max-width: calc(100vw - 40px) !important;
+  max-height: calc(100vh - 40px) !important;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden !important;
+  border-radius: 22px;
+}
+.analysis-resume-picker-header {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  padding: 26px 64px 18px 28px;
+  border-bottom: 1px solid #e8edf6;
+  background: #fff;
+}
+.analysis-resume-picker-close {
+  top: 18px !important;
+  right: 16px !important;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border-radius: 10px;
+  color: #344054;
+  line-height: 1;
+  cursor: pointer;
+}
+.analysis-resume-picker-close:hover {
+  background: #f2f4f7;
+  color: #172033;
+}
+.analysis-resume-picker-header .resume-picker-head {
+  align-items: flex-start;
+  gap: 24px;
+  margin: 0;
+  padding: 0 !important;
+}
+.analysis-resume-picker-header .resume-picker-head > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.analysis-resume-picker-header .resume-picker-head h2 {
+  margin: 5px 0 6px;
+  color: #172033;
+  font-size: 23px;
+}
+.analysis-resume-picker-header .resume-picker-head p:last-child {
+  max-width: 650px;
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.analysis-resume-picker-header .resume-picker-head-actions {
+  padding-top: 2px;
+}
+.analysis-resume-picker-search {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 16px;
+}
+.analysis-resume-picker-search > span {
+  color: #475467;
+  font-size: 12px;
+  font-weight: 800;
+}
+.analysis-resume-picker-search input {
+  width: 100%;
+  height: 40px;
+  box-sizing: border-box;
+  border: 1px solid #d7dfec;
+  border-radius: 11px;
+  padding: 0 12px;
+  outline: none;
+  color: #172033;
+  background: #fff;
+}
+.analysis-resume-picker-search input:focus {
+  border-color: #3157ff;
+  box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.1);
+}
+.analysis-resume-picker-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding: 16px 18px 22px 28px;
+  background: #fbfcff;
+}
+.analysis-resume-picker-scroll > .empty-state {
+  margin: 0;
+}
+.analysis-resume-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.analysis-resume-picker-item {
+  display: grid !important;
+  grid-template-columns: 88px minmax(0, 1fr) 128px;
+  align-items: center !important;
+  gap: 14px;
+  min-width: 0;
+  margin: 0 !important;
+  padding: 12px !important;
+  border-color: #e2e8f2 !important;
+  border-radius: 15px !important;
+  background: #fff !important;
+  box-shadow: 0 5px 16px rgba(31, 45, 86, 0.035);
+}
+.analysis-resume-picker-item:hover {
+  border-color: #c7d2fe !important;
+  box-shadow: 0 9px 24px rgba(31, 45, 86, 0.075);
+}
+.analysis-resume-picker-item.active {
+  border-color: #6f8aff !important;
+  background: #f7f9ff !important;
+  box-shadow:
+    0 0 0 1px rgba(49, 87, 255, 0.06),
+    0 9px 24px rgba(49, 87, 255, 0.08);
+}
+.analysis-resume-picker-item .resume-picker-thumb {
+  width: 88px;
+  min-height: 0;
+  align-self: center;
+  aspect-ratio: 210 / 297;
+  border-radius: 9px;
+  box-shadow: 0 3px 10px rgba(31, 45, 86, 0.09);
+}
+.analysis-resume-picker-main {
+  min-width: 0;
+  align-self: center !important;
+}
+.analysis-resume-picker-main > strong {
+  display: block;
+  overflow: hidden;
+  color: #172033;
+  font-size: 14px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.analysis-resume-picker-main > p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 7px 0 9px;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.65;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.analysis-resume-picker-main > p.loading {
+  color: #98a2b3;
+}
+.analysis-resume-picker-main .skill-list {
+  display: flex;
+  overflow: hidden;
+  flex-wrap: nowrap;
+  gap: 5px;
+}
+.analysis-resume-picker-main .skill-list span {
+  overflow: hidden;
+  flex: 0 1 auto;
+  max-width: 110px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.analysis-resume-picker-actions {
+  display: flex !important;
+  width: 128px;
+  align-self: center !important;
+  align-items: stretch !important;
+  flex-direction: column !important;
+  gap: 8px;
+  margin: 0 !important;
+}
+.analysis-resume-picker-actions .state-badge {
+  align-self: flex-end;
+}
+.analysis-resume-picker-actions .primary-btn {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+}
+@media (max-width: 720px) {
+  body > .analysis-resume-picker-mask {
+    padding: 12px !important;
+  }
+  body > .analysis-resume-picker-mask .analysis-resume-picker-modal {
+    width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+    max-width: calc(100vw - 24px) !important;
+    max-height: calc(100vh - 24px) !important;
+  }
+  .analysis-resume-picker-header {
+    padding: 22px 52px 16px 20px;
+  }
+  .analysis-resume-picker-header .resume-picker-head {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .analysis-resume-picker-scroll {
+    padding: 12px 10px 18px 16px;
+  }
+  .analysis-resume-picker-item {
+    grid-template-columns: 70px minmax(0, 1fr);
+    gap: 11px;
+  }
+  .analysis-resume-picker-item .resume-picker-thumb {
+    width: 70px;
+  }
+  .analysis-resume-picker-actions {
+    grid-column: 2;
+    width: 100%;
+    align-items: center !important;
+    flex-direction: row !important;
+    justify-content: flex-end;
+  }
+  .analysis-resume-picker-actions .primary-btn {
+    width: auto;
+    min-width: 92px;
+  }
+}

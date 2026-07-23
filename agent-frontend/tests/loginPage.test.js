@@ -36,10 +36,27 @@ describe('LoginPage', () => {
     expect(passwordInput.element.value).toBe('')
     expect(usernameInput.attributes('aria-required')).toBe('true')
     expect(passwordInput.attributes('aria-required')).toBe('true')
+    expect(usernameInput.attributes('placeholder')).toBe('请输入用户名')
+    expect(passwordInput.attributes('placeholder')).toBe('请输入密码')
+    expect(usernameInput.attributes('minlength')).toBeUndefined()
+    expect(usernameInput.attributes('maxlength')).toBeUndefined()
+    expect(passwordInput.attributes('minlength')).toBeUndefined()
+    expect(passwordInput.attributes('maxlength')).toBeUndefined()
     expect(wrapper.findAll('.form-required')).toHaveLength(2)
     expect(wrapper.find('button.login-submit').attributes('disabled')).toBeUndefined()
     await form.trigger('submit.prevent')
     expect(wrapper.find('.warning-modal-card[role="alert"] .form-error-alert').text()).toBe('请填写用户名')
+  })
+
+  it('accepts credentials without frontend length restrictions', async () => {
+    login.mockResolvedValue({ user: { username: 'a' } })
+    const wrapper = mountLogin()
+    await wrapper.find('input[autocomplete="off"]').setValue('a')
+    await wrapper.find('input[type="password"]').setValue('1')
+    await wrapper.find('form').trigger('submit.prevent')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(login).toHaveBeenCalledWith('a', '1')
+    expect(wrapper.emitted('logged-in')).toBeTruthy()
   })
 
   it('emits logged-in after a successful login', async () => {

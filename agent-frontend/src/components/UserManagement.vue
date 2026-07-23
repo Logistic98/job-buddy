@@ -102,10 +102,10 @@
             <template v-else>
               <section class="rbac-form-section">
                 <div class="rbac-form-section-title">
-                  <strong>账号信息</strong><small>用户名用于登录，创建后不可修改</small>
+                  <strong>账号信息</strong><small>用户名用于登录，需保持全局唯一</small>
                 </div>
                 <div class="rbac-form-grid">
-                  <label v-if="modal === 'create'" class="rbac-field"
+                  <label class="rbac-field"
                     ><span class="form-required">全局唯一用户名</span
                     ><input
                       v-model.trim="form.username"
@@ -146,9 +146,16 @@
                 </div>
                 <div class="rbac-choice-list">
                   <label v-for="role in roles" :key="role.roleId" class="rbac-choice"
-                    ><input v-model="form.roleIds" type="checkbox" :value="role.roleId" /><span
+                    ><input
+                      v-model="form.roleIds"
+                      type="checkbox"
+                      :value="role.roleId"
+                      :disabled="role.assignable === false"
+                    /><span
                       ><strong>{{ role.roleName }}</strong></span
-                    ><small>{{ role.roleCode }}</small></label
+                    ><small>{{
+                      role.assignable === false ? `${role.roleCode} · 受保护角色` : role.roleCode
+                    }}</small></label
                   >
                   <div v-if="!roles.length" class="rbac-empty">
                     <strong>暂无角色</strong><span>请先在角色管理中创建角色。</span>
@@ -247,6 +254,7 @@ async function save() {
     } else if (modal.value === 'password') {
       validateLength(form.password, '新密码', { min: 8, max: 16, required: true })
     } else {
+      validateUsername(form.username)
       validateLength(form.displayName, '显示名称', { max: 64, required: true })
       if (typeof form.enabled !== 'boolean') throw new Error('请选择账号状态')
     }
@@ -266,6 +274,7 @@ async function save() {
     else if (modal.value === 'password') await resetUserPassword(selected.value.userId, form.password)
     else
       await updateUser(selected.value.userId, {
+        username: form.username,
         displayName: form.displayName,
         enabled: form.enabled,
         roleIds: form.roleIds,
@@ -280,7 +289,7 @@ async function save() {
 }
 </script>
 
-<style src="./rbac/rbac-management.css"></style>
+<style src="../styles/modules/rbac-management.css"></style>
 <style scoped>
 .user-data-grid .rbac-data-row {
   grid-template-columns: minmax(190px, 1.15fr) 80px minmax(180px, 1.2fr) minmax(220px, 1.7fr) 170px;

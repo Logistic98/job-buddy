@@ -5,6 +5,7 @@ vi.mock('../src/api/jobs', () => ({
   listFavoriteJobs: vi.fn(async () => []),
   saveFavoriteJob: vi.fn(async () => []),
   deleteFavoriteJob: vi.fn(async () => []),
+  cancelAnalysisTask: vi.fn(async () => null),
   analyzeFavoriteJob: vi.fn(async () => ({})),
   startFavoriteAnalysisTask: vi.fn(async () => ({})),
   latestFavoriteAnalysisTask: vi.fn(async () => null),
@@ -14,6 +15,7 @@ vi.mock('../src/api/jobs', () => ({
 }))
 
 import {
+  cancelAnalysisTask,
   deleteFavoriteJob,
   fetchJobDetail,
   listFavoriteJobs,
@@ -220,6 +222,42 @@ describe('job store - favorites', () => {
 
     expect(streamSignal.aborted).toBe(true)
     expect(store.favoriteAnalysisTasks).toEqual({})
+  })
+
+  it('cancels a running favorite analysis and closes its stream subscription', async () => {
+    let streamSignal
+    startFavoriteAnalysisTask.mockResolvedValue({
+      taskId: 'cancel-task',
+      resourceKey: 'sec-1',
+      status: 'running',
+      stage: 'analyzing',
+      result: {},
+      partialResult: {},
+    })
+    cancelAnalysisTask.mockResolvedValue({
+      taskId: 'cancel-task',
+      resourceKey: 'sec-1',
+      status: 'cancelled',
+      stage: 'cancelled',
+      message: '分析已取消',
+      result: {},
+      partialResult: {},
+    })
+    streamAnalysisTask.mockImplementation((_taskId, _handlers, signal) => {
+      streamSignal = signal
+      return new Promise(() => {})
+    })
+    const store = useJobStore()
+    store.favorites = [{ favoriteKey: 'sec-1', jobName: '待分析岗位' }]
+
+    await store.analyzeFavorite(store.favorites[0])
+    const task = await store.cancelFavoriteAnalysis(store.favorites[0])
+
+    expect(cancelAnalysisTask).toHaveBeenCalledWith('cancel-task')
+    expect(streamSignal.aborted).toBe(true)
+    expect(task.status).toBe('cancelled')
+    expect(store.favoriteAnalysisTask(store.favorites[0]).status).toBe('cancelled')
+    expect(store.isAnalyzingFavorite(store.favorites[0])).toBe(false)
   })
 
   it('renders a running task partial result before the final result exists', () => {

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import {
+  cancelAnalysisTask,
   deleteFavoriteJob,
   fetchJobDetail,
   getAnalysisTask,
@@ -40,6 +41,16 @@ function jobDescription(item) {
   ).trim()
 }
 
+function stopFavoriteTaskSubscription(taskId) {
+  const subscription = favoriteTaskSubscriptions.get(taskId)
+  if (!subscription) return
+  try {
+    subscription.controller?.abort()
+  } catch (_) {}
+  if (subscription.timer) window.clearTimeout(subscription.timer)
+  favoriteTaskSubscriptions.delete(taskId)
+}
+
 export const useJobStore = defineStore('job', {
   state: () => ({
     jobs: [],
@@ -61,13 +72,7 @@ export const useJobStore = defineStore('job', {
   actions: {
     disposeForAuthChange() {
       const nextRevision = this.lifecycleRevision + 1
-      for (const subscription of favoriteTaskSubscriptions.values()) {
-        try {
-          subscription.controller?.abort()
-        } catch (_) {}
-        if (subscription.timer) window.clearTimeout(subscription.timer)
-      }
-      favoriteTaskSubscriptions.clear()
+      for (const taskId of favoriteTaskSubscriptions.keys()) stopFavoriteTaskSubscription(taskId)
       this.$reset()
       this.lifecycleRevision = nextRevision
     },
@@ -217,6 +222,20 @@ export const useJobStore = defineStore('job', {
         throw error
       }
     },
+    async cancelFavoriteAnalysis(item) {
+      const task = this.favoriteAnalysisTask(item)
+      if (!isAnalysisTaskRunning(task)) return task
+      this.favoriteError = ''
+      try {
+        const cancelled = await cancelAnalysisTask(task.taskId)
+        stopFavoriteTaskSubscription(task.taskId)
+        this.applyFavoriteAnalysisTask(cancelled)
+        return cancelled
+      } catch (error) {
+        this.favoriteError = error?.message || '取消岗位分析失败'
+        throw error
+      }
+    },
     watchFavoriteAnalysisTask(taskId) {
       if (!taskId || favoriteTaskSubscriptions.has(taskId)) return
       const revision = this.lifecycleRevision
@@ -229,7 +248,7 @@ export const useJobStore = defineStore('job', {
       }
       streamAnalysisTask(
         taskId,
-        { snapshot: apply, progress: apply, partial_result: apply, result: apply, error: apply },
+        { snapshot: apply, progress: apply, partial_result: apply, result: apply, cancelled: apply, error: apply },
         subscription.controller.signal,
       )
         .catch(async (error) => {

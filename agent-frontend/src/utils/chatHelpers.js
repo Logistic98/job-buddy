@@ -70,6 +70,11 @@ export function isBossAuthenticated(status) {
   )
 }
 
+export function activeToolSummary(item = {}) {
+  const detail = String(item?.detail || '').trim()
+  return detail || '请求已提交，正在初始化会话和服务链路，请稍候。'
+}
+
 export function normalizeToolEvent(item = {}) {
   return {
     ...item,

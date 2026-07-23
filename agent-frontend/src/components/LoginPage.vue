@@ -31,14 +31,7 @@
       <form class="login-form" autocomplete="off" @submit.prevent="submit">
         <label>
           <span class="form-required">用户名</span>
-          <input
-            v-model.trim="username"
-            aria-required="true"
-            autocomplete="off"
-            minlength="3"
-            maxlength="32"
-            placeholder="请输入 3-32 位用户名，字母开头"
-          />
+          <input v-model.trim="username" aria-required="true" autocomplete="off" placeholder="请输入用户名" />
         </label>
         <label>
           <span class="form-required">密码</span>
@@ -47,9 +40,7 @@
             aria-required="true"
             type="password"
             autocomplete="new-password"
-            minlength="8"
-            maxlength="64"
-            placeholder="请输入 8-64 位密码"
+            placeholder="请输入密码"
           />
         </label>
         <button class="primary-btn login-submit" :disabled="auth.loading">
@@ -75,7 +66,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
-import { validateLength, validateUsername } from '../utils/formValidation'
+import { requireText } from '../utils/formValidation'
 import JobBuddyLogo from './JobBuddyLogo.vue'
 
 const emit = defineEmits(['logged-in'])
@@ -106,8 +97,8 @@ function closeError() {
 
 async function submit() {
   try {
-    validateUsername(username.value)
-    validateLength(password.value, '密码', { min: 8, max: 64, required: true })
+    requireText(username.value, '用户名')
+    requireText(password.value, '密码')
   } catch (err) {
     validationError.value = err.message
     showError.value = true
