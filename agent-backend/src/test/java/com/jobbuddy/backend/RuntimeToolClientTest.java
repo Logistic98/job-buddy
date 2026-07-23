@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.resilience.ServiceResilience;
 import com.jobbuddy.backend.modules.chat.service.RuntimeToolClient;
+import com.jobbuddy.backend.modules.chat.service.impl.RuntimeToolClientImpl;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -31,7 +32,7 @@ class RuntimeToolClientTest {
     AgentServiceProperties properties = properties();
     RestTemplate restTemplate = mock(RestTemplate.class);
     RuntimeToolClient client =
-        new RuntimeToolClient(restTemplate, properties, new ServiceResilience(properties));
+        new RuntimeToolClientImpl(restTemplate, properties, new ServiceResilience(properties));
 
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("status", "ok");
@@ -53,7 +54,7 @@ class RuntimeToolClientTest {
     properties.setCircuitFailureThreshold(1);
     RestTemplate restTemplate = mock(RestTemplate.class);
     ServiceResilience resilience = new ServiceResilience(properties);
-    RuntimeToolClient client = new RuntimeToolClient(restTemplate, properties, resilience);
+    RuntimeToolClient client = new RuntimeToolClientImpl(restTemplate, properties, resilience);
 
     when(restTemplate.postForObject(any(String.class), any(), eq(Map.class)))
         .thenThrow(new RuntimeException("runtime down"));
@@ -72,7 +73,7 @@ class RuntimeToolClientTest {
     ServiceResilience resilience = new ServiceResilience(properties);
     resilience.recordFailure("agent-runtime-tool");
 
-    RuntimeToolClient client = new RuntimeToolClient(restTemplate, properties, resilience);
+    RuntimeToolClient client = new RuntimeToolClientImpl(restTemplate, properties, resilience);
     RuntimeException error =
         assertThrows(
             RuntimeException.class,

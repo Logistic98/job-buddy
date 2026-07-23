@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
@@ -106,6 +108,27 @@ class SystemSettingsServiceSecurityTest {
 
     assertFalse(service.isBlacklistedJob(job("Java 开发", "示例科技", "需要长期驻场")));
     assertFalse(service.isBlacklistedJob(Collections.<String, Object>emptyMap()));
+  }
+
+  @Test
+  void batchBlacklistFilterLoadsSettingsOnlyOnce() {
+    SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
+    when(mapper.findSettingJson("global", "settings")).thenReturn(null);
+    when(mapper.listBlacklistItems())
+        .thenReturn(Arrays.asList(blacklistItem("company", "示例科技", true)));
+    SystemSettingsServiceImpl service =
+        new SystemSettingsServiceImpl(
+            new AgentServiceProperties(), new JobBuddyProperties(), mapper);
+
+    List<Map<String, Object>> result =
+        service.filterBlacklistedJobs(
+            Arrays.asList(
+                job("Java 开发", "示例科技", "负责平台研发"), job("大模型应用开发", "其他公司", "负责 RAG 与 Agent 开发")));
+
+    assertEquals(1, result.size());
+    assertEquals("其他公司", result.get(0).get("brandName"));
+    verify(mapper, times(1)).findSettingJson("global", "settings");
+    verify(mapper, times(1)).listBlacklistItems();
   }
 
   @Test

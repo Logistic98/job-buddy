@@ -12,7 +12,7 @@ import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.analysis.dto.AnalysisTaskResponse;
 import com.jobbuddy.backend.modules.analysis.entity.AnalysisTask;
 import com.jobbuddy.backend.modules.analysis.mapper.AnalysisTaskMapper;
-import com.jobbuddy.backend.modules.analysis.service.AnalysisTaskService;
+import com.jobbuddy.backend.modules.analysis.service.impl.AnalysisTaskServiceImpl;
 import com.jobbuddy.backend.modules.job.dto.command.JobFavoriteSaveCommand;
 import com.jobbuddy.backend.modules.job.service.JobFavoriteService;
 import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
@@ -22,7 +22,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class AnalysisTaskServiceTest {
-  private AnalysisTaskService service;
+  private AnalysisTaskServiceImpl service;
 
   @AfterEach
   void tearDown() {
@@ -37,7 +37,7 @@ class AnalysisTaskServiceTest {
         task("task-1", "tenant-a", "user-a", "favorite_job", longJobKey, "running");
     when(mapper.findActive("tenant-a", "user-a", "favorite_job", longJobKey)).thenReturn(active);
     service =
-        new AnalysisTaskService(
+        new AnalysisTaskServiceImpl(
             mapper,
             new JsonCodec(),
             mock(ResumeStorageService.class),
@@ -62,7 +62,7 @@ class AnalysisTaskServiceTest {
     AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
     when(mapper.findOwned("task-1", "tenant-b", "user-b")).thenReturn(null);
     service =
-        new AnalysisTaskService(
+        new AnalysisTaskServiceImpl(
             mapper,
             new JsonCodec(),
             mock(ResumeStorageService.class),
@@ -79,7 +79,7 @@ class AnalysisTaskServiceTest {
   void shouldRejectUnsupportedTaskTypeBeforeQueryingLatest() {
     AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
     service =
-        new AnalysisTaskService(
+        new AnalysisTaskServiceImpl(
             mapper,
             new JsonCodec(),
             mock(ResumeStorageService.class),
