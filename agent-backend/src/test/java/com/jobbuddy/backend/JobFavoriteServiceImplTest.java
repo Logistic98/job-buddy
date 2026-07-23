@@ -92,21 +92,31 @@ class JobFavoriteServiceImplTest {
   }
 
   @Test
-  void analyzeFavoriteShouldRejectIncompleteSnapshotWithoutDescription() {
+  void analyzeFavoriteShouldFetchAndPersistDescriptionOnlyAfterExplicitRequest() {
     Fixture fixture = new Fixture();
     when(fixture.mapper.findFavorite("user-1", "sec-1"))
         .thenReturn(row(fixture.jsonCodec, job("sec-1")));
+    when(fixture.bossCliService.jobDetail("sec-1", ""))
+        .thenReturn(
+            fixture.jsonCodec.toTree(Collections.singletonMap("description", "负责 Java 大模型应用研发")));
+    when(fixture.resumeStorageService.get("resume-1", "user-1")).thenReturn(resume());
+    when(fixture.jobRuntimeService.matchResume(any(), any(), any()))
+        .thenReturn(matchOutput(mapOf("score", 88, "recommendation", "推荐")));
 
-    IllegalArgumentException error =
-        assertThrows(
-            IllegalArgumentException.class,
-            () ->
-                fixture.service.analyzeFavorite(
-                    "user-1", JobFavoriteAnalysisCommand.of("sec-1", "resume-1")));
+    Map<String, Object> result =
+        fixture.jsonCodec.toMap(
+            fixture
+                .service
+                .analyzeFavorite("user-1", JobFavoriteAnalysisCommand.of("sec-1", "resume-1"))
+                .value());
 
-    assertTrue(error.getMessage().contains("重新收藏"));
-    verify(fixture.jobRuntimeService, never()).matchResume(any(), any(), any());
-    verify(fixture.mapper, never())
+    assertEquals(88, ((Map<?, ?>) ((Map<?, ?>) result.get("analysis")).get("match")).get("score"));
+    verify(fixture.bossCliService).jobDetail("sec-1", "");
+    ArgumentCaptor<String> jobJson = ArgumentCaptor.forClass(String.class);
+    verify(fixture.mapper).upsertFavorite(anyString(), anyString(), anyString(), jobJson.capture());
+    assertEquals(
+        "负责 Java 大模型应用研发", fixture.jsonCodec.toMap(jobJson.getValue()).get("jobDescription"));
+    verify(fixture.mapper)
         .updateAnalysis(anyString(), anyString(), anyString(), any(Instant.class));
   }
 
@@ -271,13 +281,10 @@ class JobFavoriteServiceImplTest {
   }
 
   @Test
-  void importBossFavoritesShouldKeepSuccessAndStopAfterFirstDetailFailure() {
+  void importBossFavoritesShouldPersistSummariesWithoutFetchingDetails() {
     Fixture fixture = new Fixture();
-    when(fixture.bossCliService.jobDetail("sec-1", ""))
-        .thenReturn(
-            fixture.jsonCodec.toTree(Collections.singletonMap("description", "负责 Java 大模型应用研发")));
-    when(fixture.bossCliService.jobDetail("sec-2", ""))
-        .thenThrow(new RuntimeException("Boss 请求过于频繁，已进入冷却"));
+    when(fixture.bossCliService.jobDetail(anyString(), anyString()))
+        .thenThrow(new AssertionError("导入摘要时不应请求 Boss 岗位详情"));
     BossFavoriteImportRequest request = new BossFavoriteImportRequest();
     request.setJobs(
         Arrays.asList(
@@ -287,14 +294,15 @@ class JobFavoriteServiceImplTest {
 
     BossFavoriteImportResponse result = fixture.service.importBossFavorites("user-1", request);
 
-    assertEquals(1, result.getImportedCount(), result.getStoppedReason());
-    assertEquals(1, result.getFailedCount());
-    assertEquals(1, result.getUnprocessedCount());
-    assertTrue(result.isStopped());
-    assertTrue(result.getStoppedReason().contains("冷却"));
-    verify(fixture.mapper, times(1))
+    assertEquals(3, result.getImportedCount());
+    assertEquals(0, result.getFailedCount());
+    assertEquals(0, result.getUnprocessedCount());
+    assertEquals(false, result.isStopped());
+    verify(fixture.mapper, times(3))
         .upsertFavorite(anyString(), anyString(), anyString(), anyString());
-    verify(fixture.bossCliService, never()).jobDetail("sec-3", "");
+    verify(fixture.bossCliService, never()).jobDetail(anyString(), anyString());
+    verify(fixture.jobRuntimeService, never()).matchResume(any(), any(), any());
+    verify(fixture.jobRuntimeService, never()).matchResumeSections(any(), any(), any(), any());
   }
 
   private static Map<String, Object> matchOutput(Map<String, Object> match) {

@@ -274,13 +274,14 @@ cases:
       domain: job
       intent: resume.match
       next_action: run_resume_match
+      router_in: [semantic_config_shortcut]
       forbidden_intent: job.recommend
       events: [intent, done]
     latency_budget:
-      ttft_ms_target: 2500
-      ttft_ms_max: 6000
-      done_ms_target: 7000
-      done_ms_max: 14000
+      ttfb_ms_target: 300
+      ttfb_ms_max: 1000
+      done_ms_target: 1500
+      done_ms_max: 4000
 
   # ---- 安全拦截补充：批量触达与代聊均需拒绝，且不触达 Boss ----
   - id: reject_batch_recruiter_outreach

@@ -370,7 +370,7 @@ class TaskUnderstandingService:
         capability = profile.capability_by_id(shortcut.capability_id) or self.result_builder.default_capability(profile)
         slots = self._apply_shortcut_slots(shortcut, previous_slots)
         candidates = [self.result_builder.candidate(capability, shortcut.confidence, shortcut.reason, [])]
-        return self.result_builder.build(
+        result = self.result_builder.build(
             profile=profile,
             message=message,
             trace_id=trace_id,
@@ -381,6 +381,28 @@ class TaskUnderstandingService:
             router="semantic_config_shortcut",
             reason=shortcut.reason,
         )
+        result.metadata["reuse_previous_slots"] = shortcut.reuse_previous_slots
+        if shortcut.resolved_query:
+            result.rewritten_query.resolved_query = shortcut.resolved_query
+        if shortcut.retrieval_query:
+            result.rewritten_query.retrieval_query = shortcut.retrieval_query
+        if shortcut.planner_query:
+            result.rewritten_query.planner_query = shortcut.planner_query
+        if shortcut.context_type:
+            result.context.dependency = "required"
+            result.context.context_type = list(shortcut.context_type)
+        if shortcut.secondary:
+            result.intent.secondary = list(dict.fromkeys([*result.intent.secondary, *shortcut.secondary]))
+        if shortcut.reuse_previous_slots:
+            result.context.resolved_references = [
+                ResolvedReference(
+                    text=message,
+                    resolved_to=result.rewritten_query.resolved_query,
+                    source="previous_slots",
+                    confidence=shortcut.confidence,
+                )
+            ]
+        return result
 
     def _match_shortcut(
         self, profile: ProfileDefinition, message: str, previous_slots: Dict[str, Any]
@@ -388,8 +410,20 @@ class TaskUnderstandingService:
         if not previous_slots:
             return None
         text = normalize_text(message)
+        raw_message = str(message or "").strip()
         for shortcut in profile.conversation_shortcuts:
-            if any(phrase_match(phrase, text) for phrase in shortcut.phrases):
+            if any(not self._has_slot_path(previous_slots, path) for path in shortcut.required_previous_slots):
+                continue
+            phrase_matched = any(phrase_match(phrase, text) for phrase in shortcut.phrases)
+            pattern_matched = False
+            for pattern in shortcut.patterns:
+                try:
+                    if re.search(pattern, raw_message, re.IGNORECASE):
+                        pattern_matched = True
+                        break
+                except re.error as exc:
+                    logger.warning(f"忽略无效会话捷径正则：shortcut={shortcut.id}, pattern={pattern}, error={exc}")
+            if phrase_matched or pattern_matched:
                 return shortcut
         return None
 
@@ -403,6 +437,14 @@ class TaskUnderstandingService:
             else:
                 slots[key] = spec
         return slots
+
+    def _has_slot_path(self, slots: Dict[str, Any], path: str) -> bool:
+        current: Any = slots
+        for segment in str(path or "").split("."):
+            if not segment or not isinstance(current, dict) or segment not in current:
+                return False
+            current = current[segment]
+        return current not in (None, "", [], {})
 
     def _capability_for_prompt(self, capability: CapabilityCard) -> Dict[str, Any]:
         return {

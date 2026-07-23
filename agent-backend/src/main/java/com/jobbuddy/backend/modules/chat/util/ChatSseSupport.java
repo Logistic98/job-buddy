@@ -231,27 +231,120 @@ public final class ChatSseSupport {
   }
 
   public static String resumeMatchSummary(Map<String, Object> match) {
-    Object matches = match == null ? null : match.get("matches");
-    if (matches instanceof List && !((List) matches).isEmpty()) {
-      Object first = ((List) matches).get(0);
-      if (first instanceof Map) {
-        Map row = (Map) first;
-        String score = stringValue(row.get("score"));
-        String confidence = stringValue(firstPresent(row, "score_confidence", "confidence"));
-        String recommendation = stringValue(row.get("recommendation"));
-        String suffix = recommendation.isEmpty() ? "" : "，结论：" + recommendation;
-        if (!score.isEmpty())
-          return "简历匹配已完成，评分："
-              + score
-              + (confidence.isEmpty() ? "" : "，置信度：" + confidence)
-              + suffix
-              + "。";
-        if ("证据不足".equals(recommendation) || "low".equalsIgnoreCase(confidence)) {
-          return "简历匹配已完成，但当前岗位缺少完整 JD，暂不展示精确评分" + suffix + "。匹配依据已同步到当前岗位卡片。";
-        }
+    Map<String, Object> row = firstMatch(match);
+    if (!row.isEmpty()) {
+      String score = stringValue(row.get("score"));
+      String confidence = stringValue(firstPresent(row, "score_confidence", "confidence"));
+      String recommendation = stringValue(row.get("recommendation"));
+      String suffix = recommendation.isEmpty() ? "" : "，结论：" + recommendation;
+      if (!score.isEmpty()) {
+        return "简历匹配已完成，评分："
+            + score
+            + (confidence.isEmpty() ? "" : "，置信度：" + confidence)
+            + suffix
+            + "。";
+      }
+      if ("证据不足".equals(recommendation) || "low".equalsIgnoreCase(confidence)) {
+        String limitation = firstListText(row.get("limitations"));
+        return "简历匹配已完成，但本次证据不足，暂不展示精确评分"
+            + suffix
+            + (limitation.isEmpty() ? "" : "。原因：" + limitation)
+            + "。";
       }
     }
     return "简历匹配已完成，匹配详情已同步到当前岗位卡片。";
+  }
+
+  /** 生成显式携带“当前简历 + 被引用岗位”的回答，避免正确路由后仍给用户造成丢失上下文的感知。 */
+  public static String resumeMatchSummary(
+      Map<String, Object> match,
+      String resumeName,
+      Map<String, Object> targetJob,
+      boolean reusedPreviousJob) {
+    String effectiveResumeName = stringValue(resumeName, "当前选择的简历");
+    String targetLabel = selectedJobLabel(targetJob);
+    StringBuilder builder = new StringBuilder();
+    builder
+        .append(reusedPreviousJob ? "已按当前简历「" : "已使用当前简历「")
+        .append(effectiveResumeName)
+        .append(reusedPreviousJob ? "」重新评估上一轮岗位「" : "」分析目标岗位「")
+        .append(targetLabel)
+        .append("」。\n\n");
+
+    Map<String, Object> row = firstMatch(match);
+    if (row.isEmpty()) {
+      return builder.append("匹配任务已完成，但没有取得可展示的结构化结论。").toString();
+    }
+    String score = stringValue(row.get("score"));
+    String confidence = stringValue(firstPresent(row, "score_confidence", "confidence"));
+    String recommendation = stringValue(row.get("recommendation"));
+    if (!score.isEmpty()) {
+      builder.append("**匹配评分：").append(score).append("/100**");
+      if (!confidence.isEmpty()) builder.append("（置信度：").append(confidence).append("）");
+      if (!recommendation.isEmpty()) builder.append("，结论：").append(recommendation);
+      builder.append("。\n\n");
+    } else {
+      builder.append("本次未展示精确评分");
+      if (!recommendation.isEmpty()) builder.append("，结论：").append(recommendation);
+      String limitation = firstListText(row.get("limitations"));
+      if (!limitation.isEmpty()) builder.append("。原因：").append(limitation);
+      builder.append("。\n\n");
+    }
+
+    String reasoning = stringValue(row.get("reasoning"));
+    if (!reasoning.isEmpty()) builder.append(reasoning).append("\n\n");
+    appendSummaryList(builder, "主要匹配", row.get("hits"));
+    appendSummaryList(builder, "主要差距", row.get("gaps"));
+    return builder.toString().trim();
+  }
+
+  public static String selectedJobLabel(Map<String, Object> job) {
+    if (job == null || job.isEmpty()) return "目标岗位";
+    String name = stringValue(firstPresent(job, "jobName", "job_name", "title", "name"));
+    String company = stringValue(firstPresent(job, "brandName", "companyName", "company"));
+    if (name.isEmpty() && company.isEmpty()) return "目标岗位";
+    if (company.isEmpty()) return name;
+    if (name.isEmpty()) return company;
+    return company + " / " + name;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> firstMatch(Map<String, Object> match) {
+    Object matches = match == null ? null : match.get("matches");
+    if (!(matches instanceof List) || ((List<?>) matches).isEmpty()) {
+      return Collections.emptyMap();
+    }
+    Object first = ((List<?>) matches).get(0);
+    return first instanceof Map
+        ? new LinkedHashMap<String, Object>((Map<String, Object>) first)
+        : Collections.<String, Object>emptyMap();
+  }
+
+  private static String firstListText(Object value) {
+    if (!(value instanceof List)) return "";
+    for (Object item : (List<?>) value) {
+      String text = stringValue(item).trim();
+      if (!text.isEmpty()) return text;
+    }
+    return "";
+  }
+
+  private static void appendSummaryList(StringBuilder builder, String label, Object value) {
+    if (!(value instanceof List)) return;
+    List<?> rows = (List<?>) value;
+    List<String> texts = new ArrayList<String>();
+    for (Object item : rows) {
+      String text = stringValue(item).trim();
+      if (!text.isEmpty()) texts.add(text);
+      if (texts.size() >= 3) break;
+    }
+    if (texts.isEmpty()) return;
+    builder
+        .append("**")
+        .append(label)
+        .append("：** ")
+        .append(String.join("；", texts))
+        .append("。\n\n");
   }
 
   public static String fallbackGeneralResumeMatchAnswer(ResumeRecord resume, String targetRole) {
@@ -261,8 +354,10 @@ public final class ChatSseSupport {
         + "”通用岗位画像的参考判断，不作为真实岗位精确评分。\n\n"
         + role
         + "通常重点考察：大模型或 Agent/RAG 项目经验、后端工程能力、Prompt/Tool Calling、工作流编排、模型接口接入、数据处理和系统落地能力。\n\n"
-        + "请重点检查简历中是否有 LLM 应用、RAG、Agent、工具调用、向量检索、Spring Boot/FastAPI、Python/Java 后端、异步任务和工程部署经历。相关项目需写清业务问题、个人职责、技术方案、异常处理、延迟优化和结果指标。\n\n"
-        + "面试准备建议聚焦 RAG 流程、Agent Loop、Function Calling/Tool Calling、Prompt 设计、模型接口、向量库、评测可观测和 Java/Python 后端工程化。提供目标岗位 JD 后，可继续按真实职责逐条对照。";
+        + "请重点检查简历中是否有 LLM 应用、RAG、Agent、工具调用、向量检索、Spring Boot/FastAPI、Python/Java"
+        + " 后端、异步任务和工程部署经历。相关项目需写清业务问题、个人职责、技术方案、异常处理、延迟优化和结果指标。\n\n"
+        + "面试准备建议聚焦 RAG 流程、Agent Loop、Function Calling/Tool Calling、Prompt 设计、模型接口、向量库、评测可观测和"
+        + " Java/Python 后端工程化。提供目标岗位 JD 后，可继续按真实职责逐条对照。";
   }
 
   public static String summarizeRuntimeResult(Map<String, Object> result) {

@@ -48,6 +48,106 @@ class RuntimeManagedRequestFactory {
     }
   }
 
+  /**
+   * 任务理解只需要判断“有哪些上下文以及当前引用对象是谁”，不需要读取完整项目、经历和 JD 正文。 完整个人上下文仍保留给后续执行/答案合成，理解阶段改用该高信号目录以降低噪声和 token
+   * 开销。
+   */
+  @SuppressWarnings("unchecked")
+  Map<String, Object> buildUnderstandingContext(
+      String message, IntentResult intent, ChatSessionState state) {
+    Map<String, Object> full = buildPersonalContext(message, intent, state);
+    if (full.isEmpty()) return Collections.emptyMap();
+
+    Map<String, Object> compact = new LinkedHashMap<String, Object>();
+    putText(compact, "task_type", full.get("task_type"), 80);
+    putText(compact, "summary", full.get("summary"), 500);
+    Object sources = full.get("sources");
+    if (sources instanceof List)
+      compact.put("sources", new java.util.ArrayList<Object>((List<?>) sources));
+
+    Object resumeValue = full.get("resume_summary");
+    if (resumeValue instanceof Map && !((Map<?, ?>) resumeValue).isEmpty()) {
+      Map<String, Object> resume = (Map<String, Object>) resumeValue;
+      Map<String, Object> reference = new LinkedHashMap<String, Object>();
+      reference.put("available", true);
+      for (String key :
+          new String[] {"name", "targetRole", "years_experience", "work_years", "current_title"}) {
+        putText(reference, key, resume.get(key), 180);
+      }
+      reference.put("skills_count", collectionSize(resume.get("skills")));
+      reference.put("projects_count", collectionSize(resume.get("projects")));
+      reference.put("experiences_count", collectionSize(resume.get("experiences")));
+      compact.put("resume_ref", reference);
+    }
+
+    Object jobsValue = full.get("current_jobs");
+    if (jobsValue instanceof List) {
+      List<Map<String, Object>> refs = new java.util.ArrayList<Map<String, Object>>();
+      for (Object item : (List<?>) jobsValue) {
+        if (!(item instanceof Map)) continue;
+        Map<String, Object> job = (Map<String, Object>) item;
+        Map<String, Object> ref = new LinkedHashMap<String, Object>();
+        copyFirstText(ref, "securityId", job, 220, "securityId", "id", "jobId", "encryptJobId");
+        copyFirstText(ref, "jobName", job, 180, "jobName", "job_name", "title", "name");
+        copyFirstText(ref, "company", job, 180, "brandName", "companyName", "company");
+        ref.put("has_job_description", hasJobDescription(job));
+        if (!ref.isEmpty()) refs.add(ref);
+        if (refs.size() >= 8) break;
+      }
+      compact.put("current_job_refs", refs);
+      compact.put("current_jobs_count", ((List<?>) jobsValue).size());
+    }
+    compact.put("favorite_jobs_count", collectionSize(full.get("favorite_jobs")));
+    compact.put("journey_records_count", collectionSize(full.get("journey_records")));
+    compact.put("long_term_memory_count", collectionSize(full.get("long_term_memory")));
+    return compact;
+  }
+
+  private void copyFirstText(
+      Map<String, Object> target,
+      String field,
+      Map<String, Object> source,
+      int maxChars,
+      String... keys) {
+    for (String key : keys) {
+      Object value = source.get(key);
+      if (value == null || String.valueOf(value).trim().isEmpty()) continue;
+      putText(target, field, value, maxChars);
+      return;
+    }
+  }
+
+  private void putText(Map<String, Object> target, String field, Object value, int maxChars) {
+    if (value == null) return;
+    String text = String.valueOf(value).trim().replace('\n', ' ').replace('\r', ' ');
+    if (text.isEmpty() || "null".equalsIgnoreCase(text)) return;
+    target.put(field, text.length() > maxChars ? text.substring(0, maxChars) : text);
+  }
+
+  private int collectionSize(Object value) {
+    if (value instanceof java.util.Collection) return ((java.util.Collection<?>) value).size();
+    if (value instanceof Map) return ((Map<?, ?>) value).size();
+    return value == null || String.valueOf(value).trim().isEmpty() ? 0 : 1;
+  }
+
+  private boolean hasJobDescription(Map<String, Object> job) {
+    for (String key :
+        new String[] {
+          "jobDescription",
+          "description",
+          "postDescription",
+          "jobDesc",
+          "jobSecText",
+          "detailText",
+          "jobRequire",
+          "jobContent"
+        }) {
+      Object value = job.get(key);
+      if (value != null && String.valueOf(value).trim().length() >= 30) return true;
+    }
+    return false;
+  }
+
   Map<String, Object> runRuntimeManagedAnswerWithProfile(
       String sessionId, String message, String profile, Map<String, Object> extraMetadata) {
     return integrationService.runRuntime(

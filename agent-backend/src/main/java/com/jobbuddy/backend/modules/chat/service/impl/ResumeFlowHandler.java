@@ -5,6 +5,7 @@ import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.compactMatch
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.fallbackGeneralResumeMatchAnswer;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.manualTargetJobs;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.resumeMatchSummary;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.selectedJobLabel;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.toolStatus;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.firstPresent;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValue;
@@ -36,6 +37,7 @@ class ResumeFlowHandler {
   private final ChatSessionStore sessionStore;
   private final AgentIntegrationService integrationService;
   private final RuntimeManagedRequestFactory requestFactory;
+  private final SelectedJobContextResolver contextResolver;
 
   ResumeFlowHandler(
       ChatSseEventSender sender,
@@ -44,7 +46,8 @@ class ResumeFlowHandler {
       JobRuntimeService jobRuntimeService,
       ChatSessionStore sessionStore,
       AgentIntegrationService integrationService,
-      RuntimeManagedRequestFactory requestFactory) {
+      RuntimeManagedRequestFactory requestFactory,
+      SelectedJobContextResolver contextResolver) {
     this.sender = sender;
     this.resumeLoader = resumeLoader;
     this.resumeStorageService = resumeStorageService;
@@ -52,6 +55,7 @@ class ResumeFlowHandler {
     this.sessionStore = sessionStore;
     this.integrationService = integrationService;
     this.requestFactory = requestFactory;
+    this.contextResolver = contextResolver;
   }
 
   void handleResumeMatch(
@@ -67,65 +71,151 @@ class ResumeFlowHandler {
       sender.sendAssistant(emitter, sessionId, state, "请先选择或上传 PDF 简历，再分析岗位匹配度。");
       return;
     }
+    Map<String, Object> slots =
+        intent == null || intent.getSlots() == null
+            ? Collections.<String, Object>emptyMap()
+            : intent.getSlots();
     String targetDescription =
-        stringValue(
-            firstPresent(intent.getSlots(), "target_job_description", "jd", "job_description"));
-    String explicitTargetRole = stringValue(firstPresent(intent.getSlots(), "role", "target_role"));
+        stringValue(firstPresent(slots, "target_job_description", "jd", "job_description"));
+    String explicitTargetRole = stringValue(firstPresent(slots, "role", "target_role"));
     String targetRole = stringValue(explicitTargetRole, rawMessage);
-    List<Map<String, Object>> jobs =
-        resolveTargetJobs(
-            state,
-            rawMessage,
-            explicitTargetRole,
-            targetRole,
-            targetDescription,
-            intent.getSlots(),
-            shouldReusePreviousSlots(directive));
+    boolean reusePreviousSlots = shouldReusePreviousSlots(directive);
+    Map<String, Object> selectedJob = selectedJobFromState(state);
+    boolean reuseSelectedJob =
+        shouldReuseSelectedJob(
+            selectedJob, rawMessage, explicitTargetRole, targetDescription, reusePreviousSlots);
+
+    List<Map<String, Object>> jobs;
+    Map<String, Object> selectedJobContext = Collections.emptyMap();
+    if (reuseSelectedJob) {
+      SelectedJobContextResolver.Resolution resolution =
+          contextResolver.resolve(selectedJob, state == null ? null : state.jobs);
+      selectedJobContext = resolution.getJob();
+      rememberSelectedJob(state, selectedJobContext);
+      if (!contextResolver.hasSufficientDescription(selectedJobContext)) {
+        sendSelectedJobEvidenceMissing(
+            emitter, sessionId, state, resume, selectedJobContext, resolution.getWarning(), true);
+        return;
+      }
+      jobs = Collections.singletonList(selectedJobContext);
+    } else {
+      jobs =
+          resolveTargetJobs(
+              state, rawMessage, explicitTargetRole, targetRole, targetDescription, slots, false);
+    }
+
     if (jobs.isEmpty()) {
-      Map<String, Object> detail = new LinkedHashMap<String, Object>();
-      detail.put("basis", "general_role_knowledge");
-      detail.put("targetRole", targetRole);
-      detail.put("slots", intent.getSlots());
-      sender.sendToolStatus(
-          emitter,
-          sessionId,
-          state,
-          toolStatus("resume_match", "通用岗位分析", "running", "缺少目标 JD 或岗位列表，将基于通用岗位要求做参考分析。", detail));
-      Map<String, Object> general =
-          streamGeneralResumeMatchAnswer(
-              emitter,
-              sessionId,
-              rawMessage,
-              resume,
-              targetRole,
-              targetDescription,
-              intent.getSlots());
-      String answer = stringValue(general.get("answer"));
-      if (answer.isEmpty()) answer = fallbackGeneralResumeMatchAnswer(resume, targetRole);
-      Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-      metadata.put("resumeMatch", general);
-      metadata.put("matchBasis", "general_role_knowledge");
-      Object assistantId = general.remove("assistantId");
-      if (assistantId != null) metadata.put("assistantId", assistantId);
-      Object reasoning = general.remove("reasoning");
-      if (reasoning != null && !stringValue(reasoning).isEmpty())
-        metadata.put("reasoning", reasoning);
-      sender.sendToolStatus(
-          emitter,
-          sessionId,
-          state,
-          toolStatus("resume_match", "通用岗位分析完成", "success", "参考分析已完成。", metadata));
-      sender.sendAssistant(emitter, sessionId, state, answer, metadata);
+      handleGeneralResumeMatch(
+          emitter, sessionId, state, rawMessage, resume, targetRole, targetDescription, slots);
       return;
+    }
+    executeEvidenceBasedMatch(
+        emitter,
+        sessionId,
+        state,
+        resume,
+        jobs,
+        targetDescription.isEmpty() ? targetRole : targetDescription,
+        selectedJobContext,
+        reuseSelectedJob);
+  }
+
+  void handleSelectedJobMatch(
+      SseEmitter emitter,
+      String sessionId,
+      ChatSessionState state,
+      String rawMessage,
+      Map<String, Object> selectedJobContext)
+      throws IOException {
+    ResumeRecord resume = resumeLoader.loadCurrentResume(state);
+    if (resume == null) {
+      sender.sendAssistant(
+          emitter,
+          sessionId,
+          state,
+          "请先选择或上传 PDF 简历，再分析此岗位与简历的匹配度。",
+          Collections.<String, Object>singletonMap("selectedJob", selectedJobContext));
+      return;
+    }
+    executeEvidenceBasedMatch(
+        emitter,
+        sessionId,
+        state,
+        resume,
+        Collections.singletonList(selectedJobContext),
+        selectedJobLabel(selectedJobContext),
+        selectedJobContext,
+        false);
+  }
+
+  private void handleGeneralResumeMatch(
+      SseEmitter emitter,
+      String sessionId,
+      ChatSessionState state,
+      String rawMessage,
+      ResumeRecord resume,
+      String targetRole,
+      String targetDescription,
+      Map<String, Object> slots)
+      throws IOException {
+    Map<String, Object> detail = new LinkedHashMap<String, Object>();
+    detail.put("basis", "general_role_knowledge");
+    detail.put("targetRole", targetRole);
+    detail.put("slots", slots);
+    sender.sendToolStatus(
+        emitter,
+        sessionId,
+        state,
+        toolStatus("resume_match", "通用岗位分析", "running", "缺少目标 JD 或岗位列表，将基于通用岗位要求做参考分析。", detail));
+    Map<String, Object> general =
+        streamGeneralResumeMatchAnswer(
+            emitter, sessionId, rawMessage, resume, targetRole, targetDescription, slots);
+    String answer = stringValue(general.get("answer"));
+    if (answer.isEmpty()) answer = fallbackGeneralResumeMatchAnswer(resume, targetRole);
+    Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+    metadata.put("resumeMatch", general);
+    metadata.put("matchBasis", "general_role_knowledge");
+    Object assistantId = general.remove("assistantId");
+    if (assistantId != null) metadata.put("assistantId", assistantId);
+    Object reasoning = general.remove("reasoning");
+    if (reasoning != null && !stringValue(reasoning).isEmpty())
+      metadata.put("reasoning", reasoning);
+    sender.sendToolStatus(
+        emitter,
+        sessionId,
+        state,
+        toolStatus("resume_match", "通用岗位分析完成", "success", "参考分析已完成。", metadata));
+    sender.sendAssistant(emitter, sessionId, state, answer, metadata);
+  }
+
+  private void executeEvidenceBasedMatch(
+      SseEmitter emitter,
+      String sessionId,
+      ChatSessionState state,
+      ResumeRecord resume,
+      List<Map<String, Object>> jobs,
+      String target,
+      Map<String, Object> selectedJobContext,
+      boolean reusedPreviousJob)
+      throws IOException {
+    Map<String, Object> runningDetail = new LinkedHashMap<String, Object>();
+    runningDetail.put("target", target);
+    runningDetail.put("resumeId", resume.getResumeId());
+    if (selectedJobContext != null && !selectedJobContext.isEmpty()) {
+      runningDetail.put("selectedJob", selectedJobContext);
+      runningDetail.put(
+          "contextSource", reusedPreviousJob ? "previous_selected_job" : "selected_job");
     }
     sender.sendToolStatus(
         emitter,
         sessionId,
         state,
         toolStatus(
-            "resume_match", "简历匹配分析", "running", "正在基于真实岗位或用户 JD 评估简历匹配。", intent.getSlots()));
-    // 聊天气泡与匹配面板只消费核心结论。避免为整批岗位生成 dimensions、面试题等未展示的大对象，
-    // 使模型可以在同步工具预算内稳定完成；需要完整报告的分析任务仍可通过分段分析入口生成其他字段。
+            "resume_match",
+            reusedPreviousJob ? "复评上一轮岗位" : "简历匹配分析",
+            "running",
+            reusedPreviousJob ? "已解析当前追问，正在使用当前简历重新评估上一轮选中岗位。" : "正在基于完整 JD 与当前简历执行证据型匹配。",
+            runningDetail));
     Map<String, Object> match =
         jobRuntimeService.matchResumeSections(
             resume,
@@ -140,22 +230,83 @@ class ResumeFlowHandler {
                 "hits",
                 "gaps",
                 "limitations"));
-    if (!match.containsKey("target"))
-      match.put("target", targetDescription.isEmpty() ? targetRole : targetDescription);
-    // 匹配结果写入内存状态，随本轮助手消息一并异步落库，避免单独的同步写阻塞 SSE。
+    if (!match.containsKey("target")) match.put("target", target);
     state.resumeMatch = match;
     sender.sendToolStatus(
         emitter,
         sessionId,
         state,
-        toolStatus("resume_match", "简历匹配完成", "success", "简历匹配已完成。", compactMatchDetail(match)));
+        toolStatus(
+            "resume_match",
+            "简历匹配完成",
+            "success",
+            reusedPreviousJob ? "已使用当前简历复评上一轮岗位。" : "简历匹配已完成。",
+            compactMatchDetail(match)));
     sender.send(emitter, "resume_match", match);
+
+    Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+    metadata.put("resumeMatch", match);
+    metadata.put("resumeId", resume.getResumeId());
+    metadata.put("resumeName", resume.getOriginalName());
+    if (selectedJobContext != null && !selectedJobContext.isEmpty()) {
+      metadata.put("selectedJob", selectedJobContext);
+      metadata.put("contextSource", reusedPreviousJob ? "previous_selected_job" : "selected_job");
+    }
     sender.sendAssistant(
         emitter,
         sessionId,
         state,
-        resumeMatchSummary(match),
-        Collections.<String, Object>singletonMap("resumeMatch", match));
+        resumeMatchSummary(match, resume.getOriginalName(), selectedJobContext, reusedPreviousJob),
+        metadata);
+  }
+
+  private void sendSelectedJobEvidenceMissing(
+      SseEmitter emitter,
+      String sessionId,
+      ChatSessionState state,
+      ResumeRecord resume,
+      Map<String, Object> selectedJob,
+      String warning,
+      boolean reusedPreviousJob)
+      throws IOException {
+    Map<String, Object> detail = new LinkedHashMap<String, Object>();
+    detail.put("selectedJob", selectedJob);
+    detail.put("resumeId", resume.getResumeId());
+    detail.put("contextSource", reusedPreviousJob ? "previous_selected_job" : "selected_job");
+    detail.put("warning", warning);
+    sender.sendToolStatus(
+        emitter,
+        sessionId,
+        state,
+        toolStatus("resume_match", "岗位证据不足", "error", "已正确复用上一轮岗位，但未取得完整 JD，因此未生成伪精确评分。", detail));
+    Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+    metadata.put("selectedJob", selectedJob);
+    metadata.put("resumeId", resume.getResumeId());
+    metadata.put("resumeName", resume.getOriginalName());
+    metadata.put("matchBasis", "previous_selected_job_without_jd");
+    metadata.put("contextResolution", detail);
+    String reason = warning == null || warning.trim().isEmpty() ? "岗位卡片缺少完整 JD" : warning.trim();
+    sender.sendAssistant(
+        emitter,
+        sessionId,
+        state,
+        "已理解你的意思：使用当前简历「"
+            + stringValue(resume.getOriginalName(), "当前选择的简历")
+            + "」重新评估上一轮岗位「"
+            + selectedJobLabel(selectedJob)
+            + "」。本轮没有给出精确分数，不是因为丢失了对话上下文，而是因为"
+            + reason
+            + "。已保留该岗位引用；补充或重新加载完整 JD 后，可直接继续复评。",
+        metadata);
+  }
+
+  private void rememberSelectedJob(ChatSessionState state, Map<String, Object> selectedJobContext) {
+    if (state == null) return;
+    state.lastSlots =
+        state.lastSlots == null
+            ? new LinkedHashMap<String, Object>()
+            : new LinkedHashMap<String, Object>(state.lastSlots);
+    state.lastSlots.put(SELECTED_JOB_CONTEXT_KEY, selectedJobContext);
   }
 
   /** 通用简历匹配分析：流式优先逐字下发，流式无产出时回退非流式托管调用，最终回退本地模板。 */
@@ -266,15 +417,25 @@ class ResumeFlowHandler {
       Map<String, Object> slots,
       boolean reusePreviousSlots) {
     Map<String, Object> selectedJob = selectedJobFromState(state);
-    boolean reuseSelectedJob =
-        !selectedJob.isEmpty()
-            && (reusePreviousSlots
-                || (stringValue(targetDescription).isEmpty()
-                    && (stringValue(explicitTargetRole).isEmpty()
-                        || isSelectedJobResumeFollowUp(rawMessage))));
-    if (reuseSelectedJob) return Collections.singletonList(selectedJob);
+    if (shouldReuseSelectedJob(
+        selectedJob, rawMessage, explicitTargetRole, targetDescription, reusePreviousSlots))
+      return Collections.singletonList(selectedJob);
     if (state != null && state.jobs != null && !state.jobs.isEmpty()) return state.jobs;
     return manualTargetJobs(targetRole, targetDescription, slots);
+  }
+
+  static boolean shouldReuseSelectedJob(
+      Map<String, Object> selectedJob,
+      String rawMessage,
+      String explicitTargetRole,
+      String targetDescription,
+      boolean reusePreviousSlots) {
+    return selectedJob != null
+        && !selectedJob.isEmpty()
+        && (reusePreviousSlots
+            || (stringValue(targetDescription).isEmpty()
+                && (stringValue(explicitTargetRole).isEmpty()
+                    || isSelectedJobResumeFollowUp(rawMessage))));
   }
 
   static boolean isSelectedJobResumeFollowUp(String rawMessage) {

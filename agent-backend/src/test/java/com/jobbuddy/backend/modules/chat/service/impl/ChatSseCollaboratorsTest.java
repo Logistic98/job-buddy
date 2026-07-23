@@ -1,6 +1,7 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -15,9 +16,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
+import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
+import com.jobbuddy.backend.modules.prompt.model.PersonalContext;
 import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import java.io.IOException;
@@ -37,6 +40,23 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** SSE 主链路协作类单元测试：覆盖事件下发的取消检查与"先推前端、再异步落库"顺序、 持久化协调器的顺序落库与降级回退、Runtime 托管请求组装以及记忆分层写入。 */
 class ChatSseCollaboratorsTest {
+
+  @Test
+  void authReplayShouldKeepResumeRematchIntent() {
+    ChatSessionState state = new ChatSessionState();
+    state.lastSlots = new LinkedHashMap<String, Object>();
+    state.lastSlots.put(
+        "_selected_job", Collections.<String, Object>singletonMap("jobName", "上一轮岗位"));
+    state.lastSlots.put("follow_up", "resume_switch_rematch");
+    ChatStreamRequest request = new ChatStreamRequest();
+    request.setResumeAfterAuth(true);
+    request.setMessage("现在这个6年的简历呢");
+
+    assertTrue(ChatSseServiceImpl.shouldResumeSelectedJobMatchAfterAuth(request, state));
+
+    request.setResumeAfterAuth(false);
+    assertFalse(ChatSseServiceImpl.shouldResumeSelectedJobMatchAfterAuth(request, state));
+  }
 
   // ---- ChatSseEventSender ----
 
@@ -210,6 +230,54 @@ class ChatSseCollaboratorsTest {
     state.userId = "user-a";
     Map<String, Object> context = factory.buildPersonalContext("消息", null, state);
     assertTrue(context.isEmpty());
+  }
+
+  @Test
+  void buildUnderstandingContextShouldKeepReferencesWithoutFullResumeOrJd() {
+    PersonalContextBuilder builder = mock(PersonalContextBuilder.class);
+    Map<String, Object> resume = new LinkedHashMap<String, Object>();
+    resume.put("name", "6年经验简历");
+    resume.put("skills", Arrays.asList("Java", "Python", "Agent"));
+    resume.put(
+        "experiences",
+        Arrays.asList(
+            Collections.<String, Object>singletonMap(
+                "description", "FULL_RESUME_BODY_SHOULD_NOT_ENTER_INTENT_PROMPT")));
+    Map<String, Object> job = new LinkedHashMap<String, Object>();
+    job.put("securityId", "job-1");
+    job.put("jobName", "大模型应用开发岗");
+    job.put("brandName", "上海示例科技");
+    job.put("jobDescription", "FULL_JOB_DESCRIPTION_SHOULD_NOT_ENTER_INTENT_PROMPT_这是完整岗位正文");
+    PersonalContext context =
+        new PersonalContext(
+            "general",
+            Collections.<String, Object>emptyMap(),
+            resume,
+            Arrays.asList(job),
+            Collections.<Map<String, Object>>emptyList(),
+            Collections.<Map<String, Object>>emptyList(),
+            Collections.<Map<String, Object>>emptyList(),
+            Collections.<Map<String, Object>>emptyList(),
+            "任务：general。已读取当前简历摘要。当前会话岗位 1 个。");
+    when(builder.build(anyString(), anyString(), anyString(), any(), any())).thenReturn(context);
+    RuntimeManagedRequestFactory factory =
+        new RuntimeManagedRequestFactory(
+            mock(AgentIntegrationService.class), builder, new JobBuddyProperties());
+    ChatSessionState state = new ChatSessionState();
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+
+    Map<String, Object> compact = factory.buildUnderstandingContext("现在这个6年的简历呢", null, state);
+
+    String serialized = String.valueOf(compact);
+    assertFalse(serialized.contains("FULL_RESUME_BODY"));
+    assertFalse(serialized.contains("FULL_JOB_DESCRIPTION"));
+    Map<?, ?> resumeRef = (Map<?, ?>) compact.get("resume_ref");
+    assertEquals("6年经验简历", resumeRef.get("name"));
+    assertEquals(3, resumeRef.get("skills_count"));
+    List<?> jobRefs = (List<?>) compact.get("current_job_refs");
+    assertEquals("job-1", ((Map<?, ?>) jobRefs.get(0)).get("securityId"));
+    assertEquals(Boolean.TRUE, ((Map<?, ?>) jobRefs.get(0)).get("has_job_description"));
   }
 
   @Test

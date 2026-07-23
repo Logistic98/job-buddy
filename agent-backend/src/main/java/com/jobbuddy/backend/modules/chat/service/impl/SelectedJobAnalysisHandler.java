@@ -1,231 +1,112 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.SELECTED_JOB_CONTEXT_KEY;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.selectedJobLabel;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.toolStatus;
-import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.firstPresent;
-import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValue;
 
-import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
-import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
-import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
-import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.UUID;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** 选中岗位分析：聊天岗位卡片上"分析此岗位"的确定性单岗位分析入口， 负责岗位信息压缩、提示词构造与 Runtime 流式匹配分析。 */
+/** 选中岗位分析入口：先把列表卡片补全为可复用岗位上下文，再委托简历匹配链路执行统一的证据型分析。 */
 class SelectedJobAnalysisHandler {
-  private static final JsonCodec JSON = new JsonCodec();
   private final ChatSseEventSender sender;
-  private final CurrentResumeLoader resumeLoader;
-  private final ResumeStorageService resumeStorageService;
-  private final AgentIntegrationService integrationService;
-  private final RuntimeManagedRequestFactory requestFactory;
+  private final SelectedJobContextResolver contextResolver;
+  private final ResumeFlowHandler resumeFlowHandler;
 
   SelectedJobAnalysisHandler(
       ChatSseEventSender sender,
-      CurrentResumeLoader resumeLoader,
-      ResumeStorageService resumeStorageService,
-      AgentIntegrationService integrationService,
-      RuntimeManagedRequestFactory requestFactory) {
+      SelectedJobContextResolver contextResolver,
+      ResumeFlowHandler resumeFlowHandler) {
     this.sender = sender;
-    this.resumeLoader = resumeLoader;
-    this.resumeStorageService = resumeStorageService;
-    this.integrationService = integrationService;
-    this.requestFactory = requestFactory;
+    this.contextResolver = contextResolver;
+    this.resumeFlowHandler = resumeFlowHandler;
   }
 
   void handle(
-      final SseEmitter emitter,
-      final String sessionId,
+      SseEmitter emitter,
+      String sessionId,
       ChatSessionState state,
       String rawMessage,
       Map<String, Object> selectedJob)
       throws IOException {
-    Map<String, Object> selectedJobContext = compactSelectedJob(selectedJob);
+    Map<String, Object> initialContext = contextResolver.compact(selectedJob);
     Map<String, Object> startDetail = new LinkedHashMap<String, Object>();
-    startDetail.put("job", selectedJobContext);
-    // 选中岗位属于后续“换一份简历再看”的会话上下文。复用已持久化的 lastSlots 承载保留键，
-    // 避免新增数据库字段，同时由主流程在下一轮任务理解覆盖 slots 时显式合并保留。
-    if (state != null) {
-      state.lastSlots =
-          state.lastSlots == null
-              ? new LinkedHashMap<String, Object>()
-              : new LinkedHashMap<String, Object>(state.lastSlots);
-      state.lastSlots.put(SELECTED_JOB_CONTEXT_KEY, selectedJobContext);
-    }
-    sender.sendToolStatus(
-        emitter,
-        sessionId,
-        state,
-        toolStatus("selected_job_analysis", "分析此岗位", "running", "正在读取当前简历并生成岗位匹配分析。", startDetail));
-
-    ResumeRecord resume = resumeLoader.loadCurrentResume(state);
-    if (resume == null) {
-      sender.sendAssistant(
-          emitter,
-          sessionId,
-          state,
-          "请先选择或上传 PDF 简历，再分析此岗位与简历的匹配度。",
-          Collections.<String, Object>singletonMap("selectedJob", selectedJobContext));
-      return;
-    }
-
-    Map<String, Object> resumeSummary = JSON.toMap(resumeStorageService.summarize(resume));
-    String prompt = buildSelectedJobAnalysisPrompt(rawMessage, selectedJob, resumeSummary);
-    Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-    metadata.put("job_buddy", true);
-    metadata.put("entrypoint", "chat.selected_job_analysis");
-    metadata.put("runtime_execute", true);
-    metadata.put("resume_id", state == null ? null : state.resumeId);
-    metadata.put("selected_job", selectedJobContext);
-    metadata.put("personal_context", requestFactory.buildPersonalContext(rawMessage, null, state));
-
-    final StringBuilder buffer = new StringBuilder();
-    final StringBuilder reasoningBuffer = new StringBuilder();
-    final String assistantId =
-        "assistant_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-    Map<String, Object> request =
-        requestFactory.buildRuntimeManagedRequest(sessionId, prompt, "job-buddy", metadata, true);
-    Map<String, Object> runtimeResult =
-        integrationService.runRuntimeStream(
-            request,
-            new java.util.function.Consumer<String>() {
-              @Override
-              public void accept(String piece) {
-                if (piece == null || piece.isEmpty()) return;
-                buffer.append(piece);
-                try {
-                  sender.sendMessageDelta(emitter, sessionId, assistantId, piece);
-                } catch (IOException e) {
-                  throw new RuntimeException(e);
-                }
-              }
-            },
-            new java.util.function.Consumer<String>() {
-              @Override
-              public void accept(String piece) {
-                if (piece == null || piece.isEmpty()) return;
-                reasoningBuffer.append(piece);
-                try {
-                  sender.sendReasoningDelta(emitter, sessionId, assistantId, piece);
-                } catch (IOException e) {
-                  throw new RuntimeException(e);
-                }
-              }
-            });
-
-    String streamError = stringValue(firstPresent(runtimeResult, "error", "errorMessage"));
-    boolean streamFailed = !streamError.isEmpty();
-    String reasoning = stringValue(runtimeResult.get("reasoning"));
-    if (reasoning.isEmpty()) reasoning = reasoningBuffer.toString().trim();
-    String answer = stringValue(firstPresent(runtimeResult, "answer", "final_answer"));
-    if (answer.isEmpty()) answer = buffer.toString().trim();
-    // 部分推理模型在该短路路径下只返回 reasoning 增量而 final answer 为空。
-    // 选中岗位分析的 reasoning 内容本身就是面向用户的结构化分析，因此兜底写回主气泡，避免最终助手消息空白。
-    if (answer.isEmpty() && !reasoning.isEmpty()) answer = reasoning;
-    if (answer.isEmpty()) {
-      answer = "岗位分析暂未生成有效内容，请稍后重试。";
-    }
-
-    Map<String, Object> resultDetail = new LinkedHashMap<String, Object>();
-    resultDetail.put("status", runtimeResult.get("status"));
-    resultDetail.put("runId", firstPresent(runtimeResult, "run_id", "runId"));
-    resultDetail.put("stopReason", firstPresent(runtimeResult, "stop_reason", "stopReason"));
-    if (streamFailed) resultDetail.put("error", streamError);
+    startDetail.put("job", initialContext);
+    startDetail.put("hasJobDescription", contextResolver.hasSufficientDescription(initialContext));
     sender.sendToolStatus(
         emitter,
         sessionId,
         state,
         toolStatus(
-            "selected_job_analysis",
-            streamFailed ? "岗位分析中断" : "岗位分析完成",
-            streamFailed ? "error" : "success",
-            streamFailed ? "Runtime 流式中断，已展示内容可能不完整。" : "已完成当前岗位与简历的匹配分析。",
-            resultDetail));
+            "selected_job_context", "读取选中岗位上下文", "running", "正在确认当前岗位并按需加载完整职位描述。", startDetail));
 
-    Map<String, Object> finalMeta = new LinkedHashMap<String, Object>();
-    finalMeta.put("assistantId", assistantId);
-    finalMeta.put("selectedJob", selectedJobContext);
-    if (!runtimeResult.isEmpty()) finalMeta.put("runtimeResult", resultDetail);
-    if (!reasoning.isEmpty()) finalMeta.put("reasoning", reasoning);
-    sender.sendAssistant(emitter, sessionId, state, answer, finalMeta);
-  }
+    SelectedJobContextResolver.Resolution resolution =
+        contextResolver.resolve(selectedJob, state == null ? null : state.jobs);
+    Map<String, Object> selectedJobContext = resolution.getJob();
+    rememberSelectedJob(state, selectedJobContext);
 
-  private Map<String, Object> compactSelectedJob(Map<String, Object> job) {
-    Map<String, Object> result = new LinkedHashMap<String, Object>();
-    if (job == null) return result;
-    putSelectedJobField(result, "securityId", job, "securityId", "id", "jobId", "encryptJobId");
-    putSelectedJobField(result, "jobName", job, "jobName", "job_name", "title", "name");
-    putSelectedJobField(result, "company", job, "brandName", "companyName", "company");
-    putSelectedJobField(result, "salary", job, "salaryDesc", "salary", "salaryText", "jobSalary");
-    putSelectedJobField(result, "city", job, "cityName", "city", "location", "areaDistrict");
-    putSelectedJobField(result, "experience", job, "jobExperience", "experience", "experienceName");
-    putSelectedJobField(result, "degree", job, "jobDegree", "education", "degree", "degreeName");
-    putSelectedJobField(
-        result,
-        "description",
-        job,
-        "jobDescription",
-        "description",
-        "postDescription",
-        "jobDesc",
-        "jobSecText",
-        "detailText",
-        "jobRequire");
-    return result;
-  }
-
-  private void putSelectedJobField(
-      Map<String, Object> target, String field, Map<String, Object> source, String... keys) {
-    for (String key : keys) {
-      Object value = source.get(key);
-      String text = normalizeSelectedJobText(value);
-      if (!text.isEmpty()) {
-        target.put(field, text.length() > 1200 ? text.substring(0, 1200) : text);
-        return;
-      }
+    if (!contextResolver.hasSufficientDescription(selectedJobContext)) {
+      Map<String, Object> detail = new LinkedHashMap<String, Object>();
+      detail.put("job", selectedJobContext);
+      detail.put("detailLoaded", resolution.isDetailLoaded());
+      detail.put("warning", resolution.getWarning());
+      sender.sendToolStatus(
+          emitter,
+          sessionId,
+          state,
+          toolStatus(
+              "selected_job_context",
+              "岗位证据不足",
+              "error",
+              "已识别选中岗位，但没有取得完整 JD，因此不会仅凭岗位名称生成精确评分。",
+              detail));
+      Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+      metadata.put("selectedJob", selectedJobContext);
+      metadata.put("matchBasis", "selected_job_without_jd");
+      metadata.put("contextResolution", detail);
+      sender.sendAssistant(
+          emitter,
+          sessionId,
+          state,
+          "已定位到选中岗位「"
+              + selectedJobLabel(selectedJobContext)
+              + "」，但当前岗位卡片没有完整 JD"
+              + warningSuffix(resolution.getWarning())
+              + "。为避免生成看似精确但没有证据的评分，本次不会仅凭岗位名称进行推测。请重新点击“分析此岗位”加载职位描述，或打开 Boss 原岗位确认详情后再试。",
+          metadata);
+      return;
     }
+
+    Map<String, Object> successDetail = new LinkedHashMap<String, Object>();
+    successDetail.put("job", selectedJobContext);
+    successDetail.put("detailLoaded", resolution.isDetailLoaded());
+    sender.sendToolStatus(
+        emitter,
+        sessionId,
+        state,
+        toolStatus(
+            "selected_job_context",
+            "岗位上下文已确认",
+            "success",
+            resolution.isDetailLoaded() ? "已加载完整 JD，并保存为后续追问上下文。" : "已保存选中岗位与完整 JD。",
+            successDetail));
+    resumeFlowHandler.handleSelectedJobMatch(
+        emitter, sessionId, state, rawMessage, selectedJobContext);
   }
 
-  private String normalizeSelectedJobText(Object value) {
-    if (value == null) return "";
-    String raw = String.valueOf(value).replace("\r\n", "\n").replace('\r', '\n');
-    StringBuilder builder = new StringBuilder();
-    for (String line : raw.split("\\n+")) {
-      String text = line == null ? "" : line.replace('\t', ' ').trim().replaceAll(" {2,}", " ");
-      if (text.isEmpty() || "null".equalsIgnoreCase(text)) continue;
-      if (builder.length() > 0) builder.append('\n');
-      builder.append(text);
-    }
-    return builder.toString();
+  private void rememberSelectedJob(ChatSessionState state, Map<String, Object> selectedJobContext) {
+    if (state == null) return;
+    state.lastSlots =
+        state.lastSlots == null
+            ? new LinkedHashMap<String, Object>()
+            : new LinkedHashMap<String, Object>(state.lastSlots);
+    state.lastSlots.put(SELECTED_JOB_CONTEXT_KEY, selectedJobContext);
   }
 
-  private String buildSelectedJobAnalysisPrompt(
-      String rawMessage, Map<String, Object> selectedJob, Map<String, Object> resumeSummary) {
-    Map<String, Object> job = compactSelectedJob(selectedJob);
-    StringBuilder builder = new StringBuilder();
-    builder.append("请对用户选中的单个岗位与当前简历做流式匹配分析。\n");
-    builder.append("要求：先给出 0-100 匹配评分和一句结论，再分段输出匹配优势、主要差距、面试准备建议和是否建议投递。\n");
-    builder.append("不要输出 JSON，不要等待全部分析完成后再集中输出，按自然语言逐步展开。\n");
-    builder.append("用户请求：").append(rawMessage == null ? "分析此岗位" : rawMessage).append("\n\n");
-    builder.append("岗位信息：\n");
-    for (Map.Entry<String, Object> entry : job.entrySet()) {
-      builder
-          .append("- ")
-          .append(entry.getKey())
-          .append(": ")
-          .append(entry.getValue())
-          .append('\n');
-    }
-    builder
-        .append("\n当前简历摘要：\n")
-        .append(resumeSummary == null ? "" : String.valueOf(resumeSummary))
-        .append('\n');
-    return builder.toString();
+  private String warningSuffix(String warning) {
+    return warning == null || warning.trim().isEmpty() ? "" : "（" + warning.trim() + "）";
   }
 }

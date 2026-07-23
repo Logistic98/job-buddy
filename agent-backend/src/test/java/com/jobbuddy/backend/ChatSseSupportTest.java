@@ -141,11 +141,39 @@ class ChatSseSupportTest {
     Map<String, Object> insufficient = new LinkedHashMap<String, Object>();
     insufficient.put("score_confidence", "low");
     insufficient.put("recommendation", "证据不足");
+    insufficient.put("limitations", Arrays.asList("简历项目证据不足，无法判断个人贡献"));
     match.put("matches", Arrays.asList(insufficient));
-    assertTrue(ChatSseSupport.resumeMatchSummary(match).contains("缺少完整 JD"));
+    String insufficientSummary = ChatSseSupport.resumeMatchSummary(match);
+    assertTrue(insufficientSummary.contains("证据不足"));
+    assertTrue(insufficientSummary.contains("简历项目证据不足"));
+    assertFalse(insufficientSummary.contains("缺少完整 JD"));
     assertEquals(
         "简历匹配已完成，匹配详情已同步到当前岗位卡片。",
         ChatSseSupport.resumeMatchSummary(new LinkedHashMap<String, Object>()));
+  }
+
+  @Test
+  void resumeMatchSummaryShouldExposeResolvedResumeAndSelectedJob() {
+    Map<String, Object> top = new LinkedHashMap<String, Object>();
+    top.put("score", 86);
+    top.put("score_confidence", "high");
+    top.put("recommendation", "推荐");
+    top.put("reasoning", "Java 与 Agent 工程化经历能够覆盖岗位核心要求。");
+    top.put("hits", Arrays.asList("具备 Java 后端经验", "具备 Agent 项目经验"));
+    top.put("gaps", Arrays.asList("行业经验需要补充"));
+    Map<String, Object> match = new LinkedHashMap<String, Object>();
+    match.put("matches", Arrays.asList(top));
+    Map<String, Object> job = new LinkedHashMap<String, Object>();
+    job.put("jobName", "大模型应用开发岗");
+    job.put("company", "上海示例科技");
+
+    String summary = ChatSseSupport.resumeMatchSummary(match, "6年经验求职简历.pdf", job, true);
+
+    assertTrue(summary.contains("6年经验求职简历.pdf"));
+    assertTrue(summary.contains("上海示例科技 / 大模型应用开发岗"));
+    assertTrue(summary.contains("重新评估上一轮岗位"));
+    assertTrue(summary.contains("86/100"));
+    assertTrue(summary.contains("具备 Agent 项目经验"));
   }
 
   @Test

@@ -130,45 +130,12 @@ async def test_task_understanding_uses_llm_result_before_semantic_fallback():
 
 
 @pytest.mark.asyncio
-async def test_task_understanding_rewrites_resume_switch_follow_up_with_recent_context():
-    llm = FakeIntentLLM(
-        {
-            "resolved_query": "使用当前6年经验简历重新评估上一轮选中的美团AI大模型应用工程师岗位",
-            "retrieval_query": "当前简历与上一轮美团岗位匹配分析",
-            "planner_query": "读取当前简历并复评上一轮选中的美团AI大模型应用工程师岗位",
-            "context_dependency": "required",
-            "context_type": ["recent_dialogue", "resume", "current_jobs"],
-            "resolved_references": [
-                {
-                    "text": "现在这个6年的简历",
-                    "resolved_to": "当前选中的6年经验简历",
-                    "source": "metadata",
-                    "confidence": 0.98,
-                },
-                {
-                    "text": "呢",
-                    "resolved_to": "重新评估上一轮选中的美团岗位",
-                    "source": "previous_slots",
-                    "confidence": 0.96,
-                },
-            ],
-            "reuse_previous_slots": True,
-            "selected_capability_id": "resume.match",
-            "confidence": 0.96,
-            "secondary": ["resume_switched", "reuse_selected_job"],
-            "slots": {},
-            "missing_required": [],
-            "needs_clarification": False,
-            "clarification_question": None,
-            "risk_level": "low",
-            "answer": None,
-            "reason": "当前追问要求用新简历复评上一轮岗位",
-        }
-    )
+async def test_task_understanding_routes_resume_switch_follow_up_without_llm():
+    llm = FakeIntentLLM({"selected_capability_id": "open_domain.general_qa", "confidence": 0.5})
     selected_job = {
         "jobName": "AI大模型应用工程师",
         "company": "美团",
-        "description": "负责大模型应用开发与工程化落地",
+        "description": "负责大模型应用开发、Agent 工程化与业务落地",
     }
     service = TaskUnderstandingService(llm_client=llm)
     request = AgentRunRequest(
@@ -185,23 +152,61 @@ async def test_task_understanding_rewrites_resume_switch_follow_up_with_recent_c
     )
 
     result = await service.understand(request, "s1", "r1", "t1")
+    directive = service.build_directive(service.get_profile("job-buddy"), result)
 
+    assert llm.calls == 0
+    assert result.router == "semantic_config_shortcut"
     assert result.intent.intent == "resume.match"
     assert result.next_action == "run_resume_match"
     assert result.clarification.needed is False
-    assert result.rewritten_query.planner_query.startswith("读取当前简历并复评上一轮")
+    assert result.rewritten_query.resolved_query == "使用当前选择的简历重新评估上一轮明确选中的岗位"
+    assert result.rewritten_query.planner_query.startswith("读取当前简历，并复用上一轮")
     assert result.context.dependency == "required"
     assert result.context.context_type == ["recent_dialogue", "resume", "current_jobs"]
-    assert result.context.resolved_references[0].resolved_to == "当前选中的6年经验简历"
-    assert result.intent.secondary == ["resume_switched", "reuse_selected_job"]
+    assert result.context.resolved_references[0].source == "previous_slots"
+    assert result.intent.secondary == ["needs_resume", "target_job_analysis", "resume_switched", "reuse_selected_job"]
     assert result.slots.filled["_selected_job"] == selected_job
+    assert result.slots.filled["follow_up"] == "resume_switch_rematch"
     assert result.metadata["reuse_previous_slots"] is True
+    assert directive["task"]["metadata"]["reuse_previous_slots"] is True
+    assert directive["slots"]["_selected_job"] == selected_job
 
-    import json
 
-    prompt_payload = json.loads(llm.last_messages[-1].content)
-    assert prompt_payload["recent_messages"][-1]["content"] == "现在这个6年的简历呢"
-    assert prompt_payload["previous_slots"]["_selected_job"]["company"] == "美团"
+@pytest.mark.asyncio
+async def test_resume_switch_shortcut_requires_selected_job_context():
+    llm = FakeIntentLLM(
+        {
+            "selected_capability_id": "open_domain.general_qa",
+            "confidence": 0.6,
+            "needs_clarification": True,
+            "reason": "缺少可解析的上一轮岗位",
+        }
+    )
+    service = TaskUnderstandingService(llm_client=llm)
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="现在这个6年的简历呢")],
+        metadata={"profile": "job-buddy", "previous_slots": {"role": "Java 后端"}},
+    )
+
+    result = await service.understand(request, "s1", "r1", "t1")
+
+    assert llm.calls == 1
+    assert result.router == "llm"
+    assert result.intent.intent != "resume.match"
+
+
+def test_resume_switch_shortcut_does_not_override_explicit_new_target():
+    service = TaskUnderstandingService(llm_client=None)
+    profile = service.get_profile("job-buddy")
+    selected_job = {"_selected_job": {"jobName": "上一轮岗位", "company": "上一家公司"}}
+
+    shortcut = service._match_shortcut(
+        profile,
+        "现在用这个6年的简历分析另一个上海 Java 大模型应用开发岗",
+        selected_job,
+    )
+
+    assert shortcut is None
 
 
 @pytest.mark.asyncio
