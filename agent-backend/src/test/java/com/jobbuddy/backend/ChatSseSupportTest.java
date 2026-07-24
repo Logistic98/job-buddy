@@ -73,11 +73,29 @@ class ChatSseSupportTest {
     directive.put("domain", "job");
     directive.put("intent", "job.recommend");
     directive.put("confidence", 0.8);
+    directive.put("router", "semantic_config_shortcut");
     IntentResult intent = ChatSseSupport.intentFromRuntime(directive);
     assertEquals("job", intent.getDomain());
     assertEquals("job.recommend", intent.getIntent());
     assertEquals(0.8, intent.getConfidence(), 1e-9);
+    assertEquals("semantic_config_shortcut", intent.getRouter());
     assertEquals("clarify", intent.getNextAction());
+  }
+
+  @Test
+  void intentHintShouldPreserveRouterForRuntimeObservability() {
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.8,
+            java.util.Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs");
+    intent.setRouter("llm");
+
+    assertEquals("llm", ChatSseSupport.intentHint(intent).get("router"));
   }
 
   @Test

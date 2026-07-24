@@ -43,7 +43,7 @@ class IntentClientTest {
                 "{\"code\":0,\"message\":\"success\",\"data\":{\"domain\":\"job\",\"intent\":\"job.recommend\","
                     + "\"confidence\":0.82,\"secondary\":[\"job.consult\"],\"risk\":\"low\","
                     + "\"needs_clarification\":false,\"next_action\":\"call_get_recommend_jobs\","
-                    + "\"slots\":{\"city\":\"上海\"}}}",
+                    + "\"router\":\"llm\",\"slots\":{\"city\":\"上海\"}}}",
                 MediaType.APPLICATION_JSON));
 
     IntentClient client =
@@ -57,6 +57,7 @@ class IntentClientTest {
     assertEquals(false, result.isNeedsClarification());
     assertEquals("call_get_recommend_jobs", result.getNextAction());
     assertEquals("job.consult", result.getSecondary().get(0));
+    assertEquals("llm", result.getRouter());
     assertEquals("上海", result.getSlots().get("city"));
     server.verify();
   }

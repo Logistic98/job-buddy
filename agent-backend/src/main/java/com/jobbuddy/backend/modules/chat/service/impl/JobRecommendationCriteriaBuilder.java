@@ -122,6 +122,7 @@ public final class JobRecommendationCriteriaBuilder {
             intent.getNextAction(),
             slots,
             intent.getTraceId());
+    enriched.setRouter(intent.getRouter());
     return enriched;
   }
 

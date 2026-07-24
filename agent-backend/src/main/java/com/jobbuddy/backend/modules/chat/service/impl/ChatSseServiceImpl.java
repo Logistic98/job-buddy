@@ -14,9 +14,12 @@ import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValu
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.security.AuthenticationScope;
+import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
@@ -56,6 +59,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Service
 public class ChatSseServiceImpl implements ChatSseService {
   private static final Logger log = LoggerFactory.getLogger(ChatSseServiceImpl.class);
+  private static final JsonCodec JSON = new JsonCodec();
   private final JobRuntimeService jobRuntimeService;
   private final ChatSessionStore sessionStore;
   private final AgentIntegrationService integrationService;
@@ -539,7 +543,7 @@ public class ChatSseServiceImpl implements ChatSseService {
       String sessionId, String message, ChatSessionState state, IntentResult preIntent) {
     // 任务理解只需意图/能力路由/directive，这里短路 Runtime 图，跳过上下文装配、Tool Search、Planner、合成，
     // 把一次多余的 LLM/工具往返从首字延迟链路上移除；真正的答案合成由后续流式托管调用完成。
-    Map<String, Object> request =
+    RuntimeRunRequest request =
         RuntimeRequestBuilder.forEntrypoint(sessionId, message, "chat.stream")
             .messages(taskContextBuilder.build(state, message))
             .budget(1, 0, 1, Math.min(properties.getRuntimeMaxTokens(), 4096))
@@ -554,7 +558,9 @@ public class ChatSseServiceImpl implements ChatSseService {
             .metadata(
                 "personal_context", requestFactory.buildUnderstandingContext(message, null, state))
             .build();
-    Map<String, Object> result = integrationService.runRuntime(request);
+    RuntimeRunResult runtimeResult = integrationService.runRuntime(request);
+    Map<String, Object> result =
+        runtimeResult == null ? Collections.<String, Object>emptyMap() : runtimeResult.toMap(JSON);
     Map<String, Object> directive = RuntimeRequestBuilder.extractDirective(result);
     if (directive == null || directive.isEmpty()) {
       // 区分两种失败：result 为空说明 Runtime 不可达或返回空响应；result 非空但缺 directive

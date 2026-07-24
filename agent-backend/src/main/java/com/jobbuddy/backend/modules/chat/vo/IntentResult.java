@@ -13,6 +13,7 @@ public class IntentResult {
   private String risk;
   private boolean needsClarification;
   private String nextAction;
+  private String router;
   private String traceId;
   private Map<String, Object> slots = new LinkedHashMap<String, Object>();
 
@@ -97,6 +98,14 @@ public class IntentResult {
 
   public String getNextAction() {
     return nextAction;
+  }
+
+  public String getRouter() {
+    return router;
+  }
+
+  public void setRouter(String router) {
+    this.router = router;
   }
 
   public String getTraceId() {

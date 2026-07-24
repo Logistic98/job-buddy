@@ -1,6 +1,9 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
+import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
@@ -16,6 +19,7 @@ import org.slf4j.LoggerFactory;
 /** Runtime 托管请求工厂：统一构造流式/非流式托管请求体与元数据，并装配个人上下文， 保证消息/预算/元数据在各调用入口保持一致。 */
 class RuntimeManagedRequestFactory {
   private static final Logger log = LoggerFactory.getLogger(RuntimeManagedRequestFactory.class);
+  private static final JsonCodec JSON = new JsonCodec();
   private final AgentIntegrationService integrationService;
   private final PersonalContextBuilder personalContextBuilder;
   private final JobBuddyProperties properties;
@@ -150,12 +154,14 @@ class RuntimeManagedRequestFactory {
 
   Map<String, Object> runRuntimeManagedAnswerWithProfile(
       String sessionId, String message, String profile, Map<String, Object> extraMetadata) {
-    return integrationService.runRuntime(
-        buildRuntimeManagedRequest(sessionId, message, profile, extraMetadata, false));
+    RuntimeRunResult result =
+        integrationService.runRuntime(
+            buildRuntimeManagedRequest(sessionId, message, profile, extraMetadata, false));
+    return result == null ? Collections.<String, Object>emptyMap() : result.toMap(JSON);
   }
 
   /** 构造 Runtime 托管请求体，供流式与非流式入口共用，保证消息/预算/元数据一致。 */
-  Map<String, Object> buildRuntimeManagedRequest(
+  RuntimeRunRequest buildRuntimeManagedRequest(
       String sessionId,
       String message,
       String profile,
@@ -180,7 +186,7 @@ class RuntimeManagedRequestFactory {
     metadata.put("profile", profile);
     if (extraMetadata != null) metadata.putAll(extraMetadata);
     request.put("metadata", metadata);
-    return request;
+    return RuntimeRunRequest.fromPayload(request, JSON);
   }
 
   Map<String, Object> runtimeManagedMetadata(

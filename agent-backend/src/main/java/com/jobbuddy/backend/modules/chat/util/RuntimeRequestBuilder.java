@@ -1,5 +1,7 @@
 package com.jobbuddy.backend.modules.chat.util;
 
+import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -11,6 +13,7 @@ import java.util.Map;
  * messages、budget、metadata 组装逻辑，保证 profile、job_buddy 等公共字段一致。
  */
 public final class RuntimeRequestBuilder {
+  private static final JsonCodec JSON = new JsonCodec();
 
   private final Map<String, Object> payload = new LinkedHashMap<String, Object>();
   private final Map<String, Object> metadata = new LinkedHashMap<String, Object>();
@@ -61,9 +64,9 @@ public final class RuntimeRequestBuilder {
     return this;
   }
 
-  public Map<String, Object> build() {
+  public RuntimeRunRequest build() {
     payload.put("metadata", metadata);
-    return payload;
+    return RuntimeRunRequest.fromPayload(payload, JSON);
   }
 
   /**

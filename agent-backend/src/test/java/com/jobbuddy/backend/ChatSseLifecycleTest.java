@@ -16,6 +16,8 @@ import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
@@ -30,7 +32,6 @@ import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collections;
-import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -295,8 +296,8 @@ class ChatSseLifecycleTest {
                 Collections.<String, Object>emptyMap()));
     AgentIntegrationService integrationService = mock(AgentIntegrationService.class);
     // Runtime 返回空结果触发任务理解失败的异常路径。
-    when(integrationService.runRuntime(any(Map.class)))
-        .thenReturn(Collections.<String, Object>emptyMap());
+    when(integrationService.runRuntime(any(RuntimeRunRequest.class)))
+        .thenReturn(RuntimeRunResult.empty());
     ChatSseServiceImpl service = newService(intentService, integrationService);
 
     ChatStreamRequest request = new ChatStreamRequest();

@@ -20,6 +20,8 @@ import com.jobbuddy.backend.common.security.AuthenticationScope;
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.auth.service.BossAuthService;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.RuntimeToolClient;
 import com.jobbuddy.backend.modules.chat.service.impl.JobRuntimeServiceImpl;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
@@ -35,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class JobRuntimeServiceImplTest {
+  private static final JsonCodec JSON = new JsonCodec();
 
   @BeforeEach
   void bindAuthenticationScope() {
@@ -509,7 +512,8 @@ class JobRuntimeServiceImplTest {
     SystemSettingsService settingsService = mock(SystemSettingsService.class);
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMinimumRecommendedMatchScore(70);
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenReturn(runtimeMatch(matchRow("high", 82), matchRow("low", 65)));
     JobRuntimeServiceImpl service =
         new JobRuntimeServiceImpl(
@@ -542,7 +546,8 @@ class JobRuntimeServiceImplTest {
     SystemSettingsService settingsService = mock(SystemSettingsService.class);
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMinimumRecommendedMatchScore(90);
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenReturn(runtimeMatch(matchRow("best", 80), matchRow("other", 70)));
     JobRuntimeServiceImpl service =
         new JobRuntimeServiceImpl(
@@ -578,7 +583,8 @@ class JobRuntimeServiceImplTest {
         "dimensions",
         Collections.singletonMap(
             "technical_skill", Collections.singletonMap("score", Integer.valueOf(85))));
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenReturn(runtimeMatch(partial));
     JobRuntimeServiceImpl service =
         new JobRuntimeServiceImpl(
@@ -614,7 +620,8 @@ class JobRuntimeServiceImplTest {
     Map<String, Object> lowScore = recommendationMatch("low-score", 55, "medium", "可尝试");
     Map<String, Object> lowConfidence = recommendationMatch("low-confidence", 84, "low", "推荐");
     Map<String, Object> negative = recommendationMatch("negative", 88, "high", "不建议");
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenReturn(runtimeMatch(accepted, lowScore, lowConfidence, negative));
     JobRuntimeServiceImpl service =
         new JobRuntimeServiceImpl(
@@ -645,7 +652,7 @@ class JobRuntimeServiceImplTest {
     verify(runtimeToolClient)
         .invoke(
             eq("resume_match"),
-            argThat(args -> "recommendation_list".equals(args.get("evaluation_mode"))),
+            argThat(args -> "recommendation_list".equals(args.get("evaluation_mode").asText())),
             eq("s1"),
             any());
   }
@@ -686,10 +693,12 @@ class JobRuntimeServiceImplTest {
     properties.setMaxJobsPerRecommend(30);
     properties.setMaxJobsPerScoring(23);
     List<Integer> scoredBatchSizes = new ArrayList<Integer>();
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenAnswer(
             invocation -> {
-              Map<String, Object> args = invocation.getArgument(1);
+              RuntimeToolArguments toolArguments = invocation.getArgument(1);
+              Map<String, Object> args = toolArguments.toMap(JSON);
               List<Map<String, Object>> jobs = (List<Map<String, Object>>) args.get("jobs");
               scoredBatchSizes.add(Integer.valueOf(jobs.size()));
               List<Map<String, Object>> matches = new ArrayList<Map<String, Object>>();
@@ -735,7 +744,7 @@ class JobRuntimeServiceImplTest {
     assertEquals(
         result.getCandidateCount(), result.getQualifiedCount() + result.getRejectedCount());
     verify(runtimeToolClient, times(2))
-        .invoke(any(String.class), any(Map.class), any(String.class), any());
+        .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
   @Test
@@ -749,10 +758,12 @@ class JobRuntimeServiceImplTest {
     properties.setMaxJobsPerRecommend(3);
     properties.setMaxJobsPerScoring(6);
     List<List<String>> scoredIds = new ArrayList<List<String>>();
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenAnswer(
             invocation -> {
-              Map<String, Object> args = invocation.getArgument(1);
+              RuntimeToolArguments toolArguments = invocation.getArgument(1);
+              Map<String, Object> args = toolArguments.toMap(JSON);
               List<Map<String, Object>> jobs = (List<Map<String, Object>>) args.get("jobs");
               List<String> batchIds = new ArrayList<String>();
               List<Map<String, Object>> matches = new ArrayList<Map<String, Object>>();
@@ -808,7 +819,8 @@ class JobRuntimeServiceImplTest {
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMaxJobsPerRecommend(5);
     properties.setMaxJobsPerScoring(5);
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenReturn(
             runtimeMatch(recommendationMatch("job-0", 82, "medium", "推荐")),
             runtimeMatch(
@@ -835,7 +847,7 @@ class JobRuntimeServiceImplTest {
     assertEquals(5, result.getQualifiedCount());
     assertFalse(result.getRejectionReasons().containsKey("未达到最低匹配分"));
     verify(runtimeToolClient, times(3))
-        .invoke(any(String.class), any(Map.class), any(String.class), any());
+        .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
   @Test
@@ -847,7 +859,8 @@ class JobRuntimeServiceImplTest {
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMaxJobsPerRecommend(2);
     properties.setMaxJobsPerScoring(2);
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenReturn(
             runtimeMatch(recommendationMatch("job-0", 82, "medium", "推荐")),
             runtimeMatch(recommendationMatch("job-0", 82, "medium", "推荐")));
@@ -871,7 +884,7 @@ class JobRuntimeServiceImplTest {
 
     assertTrue(error.getMessage().contains("拆分重试"));
     verify(runtimeToolClient, times(2))
-        .invoke(any(String.class), any(Map.class), any(String.class), any());
+        .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
   @Test
@@ -894,10 +907,12 @@ class JobRuntimeServiceImplTest {
         .thenReturn(jobsWithPrefix("p2-", 2));
     when(settingsService.filterBlacklistedJobs(any(List.class)))
         .thenAnswer(invocation -> invocation.getArgument(0));
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenAnswer(
             invocation -> {
-              Map<String, Object> args = invocation.getArgument(1);
+              RuntimeToolArguments toolArguments = invocation.getArgument(1);
+              Map<String, Object> args = toolArguments.toMap(JSON);
               List<Map<String, Object>> scoredJobs = (List<Map<String, Object>>) args.get("jobs");
               String id = String.valueOf(scoredJobs.get(0).get("securityId"));
               int score = "p2-0".equals(id) ? 65 : 55;
@@ -936,7 +951,7 @@ class JobRuntimeServiceImplTest {
     assertEquals("p2-0", result.getJobs().get(0).get("securityId"));
     verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), anyInt());
     verify(runtimeToolClient, times(3))
-        .invoke(any(String.class), any(Map.class), any(String.class), any());
+        .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
   @Test
@@ -958,7 +973,8 @@ class JobRuntimeServiceImplTest {
         .thenReturn(Collections.singletonList(job("p2-fit", "大模型应用开发", "40-50K")));
     when(settingsService.filterBlacklistedJobs(any(List.class)))
         .thenAnswer(invocation -> invocation.getArgument(0));
-    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenReturn(runtimeMatch(recommendationMatch("p2-fit", 82, "high", "推荐")));
     JobRuntimeServiceImpl service =
         new JobRuntimeServiceImpl(
@@ -994,7 +1010,8 @@ class JobRuntimeServiceImplTest {
     assertFalse(String.valueOf(result.getWarnings()).contains("当前批次没有岗位"));
     verify(bossCliService).searchJobsFirstPage(any(IntentResult.class));
     verify(bossCliService).searchJobsPage(any(IntentResult.class), eq(2));
-    verify(runtimeToolClient).invoke(any(String.class), any(Map.class), any(String.class), any());
+    verify(runtimeToolClient)
+        .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
   @Test
@@ -1043,7 +1060,7 @@ class JobRuntimeServiceImplTest {
     verify(bossCliService).searchJobsFirstPage(any(IntentResult.class));
     verify(bossCliService, never()).searchJobsPage(any(IntentResult.class), anyInt());
     verify(runtimeToolClient, never())
-        .invoke(any(String.class), any(Map.class), any(String.class), any());
+        .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
   @Test
@@ -1075,7 +1092,11 @@ class JobRuntimeServiceImplTest {
 
     assertTrue(error.getMessage().contains("来源无效"));
     verify(runtimeToolClient, never())
-        .invoke(any(String.class), any(Map.class), any(String.class), any(String.class));
+        .invoke(
+            any(String.class),
+            any(RuntimeToolArguments.class),
+            any(String.class),
+            any(String.class));
   }
 
   private ResumeRecord parsedResume() {
@@ -1114,14 +1135,14 @@ class JobRuntimeServiceImplTest {
     return row;
   }
 
-  private Map<String, Object> runtimeMatch(Map<String, Object>... matches) {
+  private RuntimeToolResult runtimeMatch(Map<String, Object>... matches) {
     Map<String, Object> output = new LinkedHashMap<String, Object>();
     output.put("matches", java.util.Arrays.asList(matches));
     output.put("scored_count", matches.length);
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("success", true);
     result.put("output", output);
-    return result;
+    return RuntimeToolResult.fromJson(JSON.toTree(result));
   }
 
   private List<Map<String, Object>> jobs(int count) {

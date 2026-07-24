@@ -5,6 +5,8 @@ import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.analysis.dto.AnalysisPartialResult;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.RuntimeToolClient;
 import com.jobbuddy.backend.modules.resume.dto.response.ResumeAssetUploadResponse;
 import com.jobbuddy.backend.modules.resume.dto.response.ResumeProfileSummaryResponse;
@@ -278,7 +280,7 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     args.put("profile", safeParsed);
     try {
       Map<String, Object> result =
-          toolClient.invoke("job_profile_summary", args, sessionId, workspaceForRuntime());
+          invokeRuntimeTool("job_profile_summary", args, sessionId, workspaceForRuntime());
       if (!Boolean.TRUE.equals(result.get("success"))) {
         throw new RuntimeException("Runtime 画像摘要生成失败: " + stringOf(result.get("error")));
       }
@@ -449,7 +451,7 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         Map<String, Object> parseArgs = new LinkedHashMap<String, Object>();
         parseArgs.put("file_path", tempFile.toString());
         toolResultApplier.applyParseResult(
-            record, toolClient.invoke("resume_parse", parseArgs, sessionId, workspaceDir));
+            record, invokeRuntimeTool("resume_parse", parseArgs, sessionId, workspaceDir));
       }
       Map<String, Object> parsed =
           record.getParsed() == null
@@ -469,7 +471,7 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
       String[] messages = {"总体判断、优势与风险已生成", "内容质量与经历价值已生成", "面试深挖与行动建议已生成"};
       for (int index = 0; index < groups.size(); index++) {
         Map<String, Object> result =
-            toolClient.invoke(
+            invokeRuntimeTool(
                 "resume_analyze",
                 toolResultApplier.analysisArgs(tempFile, record, groups.get(index)),
                 sessionId,
@@ -504,11 +506,11 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         Map<String, Object> parseArgs = new LinkedHashMap<String, Object>();
         parseArgs.put("file_path", tempFile.toString());
         toolResultApplier.applyParseResult(
-            record, toolClient.invoke("resume_parse", parseArgs, sessionId, workspaceDir));
+            record, invokeRuntimeTool("resume_parse", parseArgs, sessionId, workspaceDir));
       }
       toolResultApplier.applyAnalysisResult(
           record,
-          toolClient.invoke(
+          invokeRuntimeTool(
               "resume_analyze",
               toolResultApplier.analysisArgs(tempFile, record),
               sessionId,
@@ -549,11 +551,11 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
       tempFile = resumeObjectStorage.downloadToTempFile(record, workspaceDir);
       Map<String, Object> args = new LinkedHashMap<String, Object>();
       args.put("file_path", tempFile.toString());
-      Map<String, Object> result = toolClient.invoke("resume_parse", args, sessionId, workspaceDir);
+      Map<String, Object> result = invokeRuntimeTool("resume_parse", args, sessionId, workspaceDir);
       toolResultApplier.applyParseResult(record, result);
       toolResultApplier.applyAnalysisResult(
           record,
-          toolClient.invoke(
+          invokeRuntimeTool(
               "resume_analyze",
               toolResultApplier.analysisArgs(tempFile, record),
               sessionId,
@@ -644,6 +646,14 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
       throw new IllegalArgumentException(
           "简历文件超出大小限制: " + properties.getMaxResumeBytes() + " bytes");
     }
+  }
+
+  private Map<String, Object> invokeRuntimeTool(
+      String toolName, Map<String, Object> arguments, String sessionId, String workspaceDir) {
+    RuntimeToolResult result =
+        toolClient.invoke(
+            toolName, RuntimeToolArguments.fromMap(arguments, jsonCodec), sessionId, workspaceDir);
+    return result == null ? Collections.<String, Object>emptyMap() : result.toMap(jsonCodec);
   }
 
   private String workspaceForRuntime() {

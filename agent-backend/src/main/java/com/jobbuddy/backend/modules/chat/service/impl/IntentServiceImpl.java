@@ -34,20 +34,27 @@ public class IntentServiceImpl implements IntentService {
   private IntentResult classifyLocally(String message) {
     String text = message == null ? "" : message.trim();
     List<String> secondary = Collections.singletonList("intent_service_unavailable_local_fallback");
+    IntentResult result;
     if (text.isEmpty()) {
-      return new IntentResult("unknown", "unknown", 0.0, secondary, "low", true, "clarify");
+      result = new IntentResult("unknown", "unknown", 0.0, secondary, "low", true, "clarify");
+    } else {
+      String lower = text.toLowerCase(java.util.Locale.ROOT);
+      if (containsAny(lower, "删库", "rm -rf", "删除所有", "提权", "破解", "攻击")) {
+        result =
+            new IntentResult(
+                "security", "high_risk_request", 0.9, secondary, "high", true, "reject");
+      } else if (containsAny(
+          lower, "岗位", "职位", "找工作", "招聘", "简历", "面试", "投递", "薪资", "offer", "内推", "boss直聘")) {
+        result =
+            new IntentResult("job", "job.consult", 0.6, secondary, "low", false, "direct_answer");
+      } else {
+        result =
+            new IntentResult(
+                "open_domain", "general.chat", 0.5, secondary, "low", false, "direct_answer");
+      }
     }
-    String lower = text.toLowerCase(java.util.Locale.ROOT);
-    if (containsAny(lower, "删库", "rm -rf", "删除所有", "提权", "破解", "攻击")) {
-      return new IntentResult(
-          "security", "high_risk_request", 0.9, secondary, "high", true, "reject");
-    }
-    if (containsAny(
-        lower, "岗位", "职位", "找工作", "招聘", "简历", "面试", "投递", "薪资", "offer", "内推", "boss直聘")) {
-      return new IntentResult("job", "job.consult", 0.6, secondary, "low", false, "direct_answer");
-    }
-    return new IntentResult(
-        "open_domain", "general.chat", 0.5, secondary, "low", false, "direct_answer");
+    result.setRouter("backend_fallback");
+    return result;
   }
 
   private boolean containsAny(String text, String... keywords) {

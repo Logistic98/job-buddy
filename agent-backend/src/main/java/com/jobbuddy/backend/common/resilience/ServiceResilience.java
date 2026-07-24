@@ -3,6 +3,7 @@ package com.jobbuddy.backend.common.resilience;
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +32,19 @@ public class ServiceResilience {
    * writes/runs.
    */
   public <T> T call(String service, Supplier<T> action, T fallback, boolean retryable) {
+    return call(service, action, fallback, retryable, error -> true);
+  }
+
+  /**
+   * Execute with caller-provided transient-failure classification. A deterministic error proves the
+   * dependency is reachable, so it is neither retried nor counted toward the availability circuit.
+   */
+  public <T> T call(
+      String service,
+      Supplier<T> action,
+      T fallback,
+      boolean retryable,
+      Predicate<RuntimeException> transientFailure) {
     Circuit circuit = circuits.computeIfAbsent(service, k -> new Circuit());
     long now = System.currentTimeMillis();
     long openUntil = circuit.openUntil;
@@ -50,6 +64,11 @@ public class ServiceResilience {
         circuit.failures.set(0);
         return result;
       } catch (RuntimeException e) {
+        if (!transientFailure.test(e)) {
+          circuit.failures.set(0);
+          log.warn("{} 调用返回不可重试错误，跳过重试与熔断计数", service, e);
+          return fallback;
+        }
         int failures = circuit.failures.incrementAndGet();
         log.warn("{} 调用失败（第 {}/{} 次，累计失败 {}）", service, attempt, maxAttempts, failures, e);
         if (failures >= threshold) {

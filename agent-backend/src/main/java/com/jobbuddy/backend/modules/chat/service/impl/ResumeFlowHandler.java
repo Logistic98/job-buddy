@@ -12,6 +12,8 @@ import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValu
 
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.chat.dto.response.ChatMessageResponse;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
@@ -346,10 +348,10 @@ class ResumeFlowHandler {
     final StringBuilder buffer = new StringBuilder();
     final StringBuilder reasoningBuffer = new StringBuilder();
     try {
-      Map<String, Object> request =
+      RuntimeRunRequest request =
           requestFactory.buildRuntimeManagedRequest(
               sessionId, prompt, "default", extraMetadata, true);
-      Map<String, Object> runtimeResult =
+      RuntimeRunResult streamResult =
           integrationService.runRuntimeStream(
               request,
               new java.util.function.Consumer<String>() {
@@ -376,6 +378,8 @@ class ResumeFlowHandler {
                   }
                 }
               });
+      Map<String, Object> runtimeResult =
+          streamResult == null ? Collections.<String, Object>emptyMap() : streamResult.toMap(JSON);
       String answer = stringValue(firstPresent(runtimeResult, "answer", "final_answer"));
       if (answer.isEmpty()) answer = buffer.toString().trim();
       String reasoning = stringValue(runtimeResult.get("reasoning"));

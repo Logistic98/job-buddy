@@ -2,7 +2,7 @@ package com.jobbuddy.backend;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
-import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,6 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
@@ -78,8 +80,9 @@ class InterviewPracticeControllerTest {
                 + "{\"name\":\"空数组\",\"args\":[[]],\"expected\":0,\"sample\":false},"
                 + "{\"name\":\"单元素\",\"args\":[[5]],\"expected\":5,\"sample\":false}]}}]}}",
             Map.class);
-    when(agentIntegrationService.invokeRuntimeTool(eq("interview_question_generate"), anyMap()))
-        .thenReturn(toolResult);
+    when(agentIntegrationService.invokeRuntimeTool(
+            eq("interview_question_generate"), any(RuntimeToolArguments.class)))
+        .thenReturn(RuntimeToolResult.fromJson(objectMapper.valueToTree(toolResult)));
 
     mockMvc
         .perform(

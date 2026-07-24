@@ -148,6 +148,7 @@ public final class ChatSseSupport {
     hint.put("needs_clarification", preIntent.isNeedsClarification());
     hint.put("next_action", preIntent.getNextAction());
     hint.put("secondary", preIntent.getSecondary());
+    hint.put("router", preIntent.getRouter());
     return hint;
   }
 
@@ -172,6 +173,7 @@ public final class ChatSseSupport {
             stringValue(directive.get("next_action"), "clarify"),
             slotMap);
     intentResult.setTraceId(stringValue(directive.get("trace_id"), null));
+    intentResult.setRouter(stringValue(directive.get("router"), null));
     return intentResult;
   }
 

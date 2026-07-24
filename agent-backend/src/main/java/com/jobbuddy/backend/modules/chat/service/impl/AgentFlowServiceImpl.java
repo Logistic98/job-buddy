@@ -1,7 +1,10 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
+import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.service.AgentFlowService;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.util.RuntimeRequestBuilder;
@@ -19,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class AgentFlowServiceImpl implements AgentFlowService {
+  private static final JsonCodec JSON = new JsonCodec();
   private final AgentIntegrationService integrationService;
   private final JobBuddyProperties properties;
 
@@ -33,8 +37,10 @@ public class AgentFlowServiceImpl implements AgentFlowService {
         request.getSessionId() == null || request.getSessionId().trim().isEmpty()
             ? "sess_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12)
             : request.getSessionId();
-    Map<String, Object> runtimeResult =
+    RuntimeRunResult result =
         integrationService.runRuntime(buildRuntimeRequest(sessionId, request));
+    Map<String, Object> runtimeResult =
+        result == null ? Collections.<String, Object>emptyMap() : result.toMap(JSON);
     IntentResult intent = intentFromRuntime(runtimeResult);
     String answer = stringValue(firstPresent(runtimeResult, "answer", "final_answer"));
     if (answer.isEmpty()) answer = stringValue(firstDirective(runtimeResult).get("answer"));
@@ -61,7 +67,7 @@ public class AgentFlowServiceImpl implements AgentFlowService {
         Instant.now());
   }
 
-  private Map<String, Object> buildRuntimeRequest(String sessionId, ChatRequest request) {
+  private RuntimeRunRequest buildRuntimeRequest(String sessionId, ChatRequest request) {
     return RuntimeRequestBuilder.forEntrypoint(sessionId, request.getMessage(), "chat.ask")
         .budget(
             properties.getRuntimeMaxTurns(),
@@ -95,6 +101,7 @@ public class AgentFlowServiceImpl implements AgentFlowService {
             stringValue(firstPresent(directive, "next_action", "nextAction"), "run_runtime"),
             slotMap);
     intentResult.setTraceId(stringValue(firstPresent(directive, "trace_id", "traceId"), null));
+    intentResult.setRouter(stringValue(directive.get("router"), null));
     return intentResult;
   }
 

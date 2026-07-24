@@ -91,6 +91,7 @@ public class IntentClient {
     private Double confidence;
     private List<String> secondary;
     private String risk;
+    private String router;
 
     @JsonProperty("needs_clarification")
     @JsonAlias("needsClarification")
@@ -125,6 +126,10 @@ public class IntentClient {
       this.risk = risk;
     }
 
+    public void setRouter(String router) {
+      this.router = router;
+    }
+
     public void setNeedsClarification(Boolean needsClarification) {
       this.needsClarification = needsClarification;
     }
@@ -142,16 +147,19 @@ public class IntentClient {
     }
 
     private IntentResult toIntentResult() {
-      return new IntentResult(
-          text(domain, "unknown"),
-          text(intent, "unknown"),
-          confidence == null ? 0.0 : confidence.doubleValue(),
-          secondary == null ? Collections.emptyList() : secondary,
-          text(risk, "low"),
-          Boolean.TRUE.equals(needsClarification),
-          text(nextAction, "clarify"),
-          slots == null ? new LinkedHashMap<>() : new LinkedHashMap<>(slots),
-          text(traceId, null));
+      IntentResult result =
+          new IntentResult(
+              text(domain, "unknown"),
+              text(intent, "unknown"),
+              confidence == null ? 0.0 : confidence.doubleValue(),
+              secondary == null ? Collections.emptyList() : secondary,
+              text(risk, "low"),
+              Boolean.TRUE.equals(needsClarification),
+              text(nextAction, "clarify"),
+              slots == null ? new LinkedHashMap<>() : new LinkedHashMap<>(slots),
+              text(traceId, null));
+      result.setRouter(text(router, null));
+      return result;
     }
 
     private static String text(String value, String fallback) {

@@ -72,6 +72,27 @@ class ServiceResilienceTest {
   }
 
   @Test
+  void shouldSkipRetryAndCircuitForDeterministicFailure() {
+    ServiceResilience r = new ServiceResilience(props(3, 1, Duration.ofSeconds(30)));
+    AtomicInteger calls = new AtomicInteger(0);
+
+    String value =
+        r.call(
+            "svc",
+            () -> {
+              calls.incrementAndGet();
+              throw new IllegalArgumentException("deterministic");
+            },
+            "fallback",
+            false,
+            error -> false);
+
+    assertEquals("fallback", value);
+    assertEquals(1, calls.get());
+    assertTrue(!r.isOpen("svc"));
+  }
+
+  @Test
   void shouldOpenCircuitAfterThresholdAndShortCircuit() {
     ServiceResilience r = new ServiceResilience(props(1, 2, Duration.ofSeconds(30)));
     AtomicInteger calls = new AtomicInteger(0);

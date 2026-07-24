@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.RuntimeToolClient;
 import com.jobbuddy.backend.modules.resume.dto.response.ResumeProfileSummaryResponse;
 import com.jobbuddy.backend.modules.resume.repository.ResumeRecordRepository;
@@ -47,7 +48,7 @@ class ResumeStorageServiceImplTest {
     toolResult.put("summary", "job_profile_summary 执行成功");
     toolResult.put("output", output);
     when(toolClient.invoke(eq("job_profile_summary"), any(), any(), anyString()))
-        .thenReturn(toolResult);
+        .thenReturn(runtimeToolResult(toolResult));
 
     ResumeProfileSummaryResponse response =
         service.generateJobProfileSummary(profile("当前人工摘要"), "session-1");
@@ -65,7 +66,7 @@ class ResumeStorageServiceImplTest {
     toolResult.put("success", true);
     toolResult.put("summary", "job_profile_summary 执行成功");
     when(toolClient.invoke(eq("job_profile_summary"), any(), any(), anyString()))
-        .thenReturn(toolResult);
+        .thenReturn(runtimeToolResult(toolResult));
 
     ResumeProfileSummaryResponse response =
         service.generateJobProfileSummary(profile("当前人工摘要"), "session-1");
@@ -96,6 +97,10 @@ class ResumeStorageServiceImplTest {
             () -> sizeLimitedService.upload(file, "tenant-a", "user-a"));
 
     assertEquals("简历文件超出大小限制: 4 bytes", error.getMessage());
+  }
+
+  private RuntimeToolResult runtimeToolResult(Map<String, Object> value) {
+    return RuntimeToolResult.fromJson(jsonCodec.toTree(value));
   }
 
   private com.fasterxml.jackson.databind.JsonNode profile(String summary) {
