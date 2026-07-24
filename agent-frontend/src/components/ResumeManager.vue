@@ -121,7 +121,6 @@
             </div>
           </template>
           <div class="modal-actions resume-tag-actions">
-            <button class="secondary-btn" @click="closeTagModal">取消</button>
             <button class="primary-btn" @click="tagModal.mode === 'version' ? saveVersionOnly() : saveTagsOnly()">
               保存{{ tagModal.mode === 'version' ? '版本' : '标签' }}
             </button>
@@ -167,7 +166,6 @@
             </button>
           </div>
           <div class="modal-actions resume-tag-actions">
-            <button class="secondary-btn" @click="closeMoveModal">取消</button>
             <button class="primary-btn" @click="moveResumeToFolder">确认移动</button>
           </div>
         </div>
@@ -193,7 +191,6 @@
             {{ folderError }}
           </p>
           <div class="modal-actions resume-tag-actions">
-            <button class="secondary-btn" @click="closeFolderModal">取消</button>
             <button class="primary-btn" @click="createFolder">创建分组</button>
           </div>
         </div>

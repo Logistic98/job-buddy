@@ -75,7 +75,7 @@
             <div>
               <h2>{{ modalTitle }}</h2>
               <p>
-                {{ modal === 'password' ? '重置后其他登录会话将立即失效。' : '账号通过动态角色获得菜单与功能权限。' }}
+                {{ modal === 'password' ? '重置后其他登录会话将立即失效。' : '账号通过动态角色获得树形菜单权限。' }}
               </p>
             </div>
             <button class="close" @click="closeModal">×</button>
@@ -168,8 +168,7 @@
             </p>
           </div>
           <footer class="rbac-modal-actions">
-            <button class="rbac-secondary-btn" @click="closeModal">取消</button
-            ><button class="primary-btn" :disabled="saving" @click="save">{{ saving ? '保存中' : '确认保存' }}</button>
+            <button class="primary-btn" :disabled="saving" @click="save">{{ saving ? '保存中' : '确认保存' }}</button>
           </footer>
         </section>
       </div>

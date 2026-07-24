@@ -515,6 +515,17 @@
 .rbac-choice strong {
   font-size: 12px;
 }
+.rbac-choice span em {
+  display: block;
+  margin-top: 3px;
+  color: #98a2b3;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+}
+.rbac-choice.is-parent {
+  background: #f8faff;
+}
 .rbac-choice small {
   color: #98a2b3;
   font:
@@ -558,6 +569,9 @@
   bottom: 0;
   width: 1px;
   background: #dfe6f2;
+}
+.rbac-menu-tree .rbac-tree-guide:before {
+  left: calc(12px + var(--tree-depth) * 24px);
 }
 @media (max-width: 980px) {
   .rbac-metrics {

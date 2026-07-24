@@ -84,6 +84,19 @@ describe('activeToolSummary', () => {
 })
 
 describe('assistant presentation helpers', () => {
+  it('repairs historical job search events that used the qualified count as the display count', () => {
+    const event = normalizeToolEvent({
+      id: 'job_search',
+      title: '岗位搜索完成',
+      status: 'success',
+      summary: '找到 8 个符合画像和简历的岗位。',
+      detail: { count: 8, candidateCount: 23, qualifiedCount: 8 },
+    })
+
+    expect(event.detail).toBe('累计检索到 23 个候选岗位。')
+    expect(selectToolEventHighlights(event)).toContainEqual({ label: '候选岗位', value: '23 个' })
+  })
+
   it('normalizes repeated prose punctuation and linkifies bare URLs', () => {
     const output = normalizeAssistantMarkdown('实践经验。。；主要差距，，。详情：https://example.com/jobs。')
     expect(output).toBe('实践经验；主要差距。详情：[https://example.com/jobs](https://example.com/jobs)。')

@@ -85,6 +85,9 @@ export function useProjectDeepDivePage() {
   const libraryStats = computed(() => ({
     materials: projects.value.reduce((sum, item) => sum + materialCount(item), 0),
     questions: projects.value.reduce((sum, item) => sum + questionCount(item), 0),
+    averageReadiness: projects.value.length
+      ? Math.round(projects.value.reduce((sum, item) => sum + readiness(item).progress, 0) / projects.value.length)
+      : 0,
   }))
   const selectedSummary = computed(() => projects.value.find((item) => item.projectId === selectedId.value) || null)
   const selectedProject = computed(() => projectDetails[selectedId.value] || null)

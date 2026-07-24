@@ -5,7 +5,7 @@
         <span class="rbac-page-icon">RM</span>
         <div>
           <h2>角色管理</h2>
-          <p>创建动态角色，并通过菜单树配置业务与管理能力。</p>
+          <p>创建动态角色，并按当前页面结构配置树形菜单授权。</p>
         </div>
       </div>
       <button class="primary-btn" @click="openCreate">创建角色</button>
@@ -22,7 +22,7 @@
       </article>
       <article class="rbac-metric">
         <span>授权项</span><strong>{{ authorizationCount }}</strong
-        ><em>菜单与功能权限关系数</em>
+        ><em>角色与菜单关系数</em>
       </article>
     </div>
 
@@ -38,11 +38,7 @@
         </header>
         <p>{{ role.description || '尚未填写角色说明。' }}</p>
         <div class="rbac-role-meta">
-          <span>菜单 / 功能权限</span
-          ><strong
-            >{{ selectedMenuCount(role) }} / {{ navigationMenus.length }} · {{ selectedActionCount(role) }} /
-            {{ actionPermissions.length }}</strong
-          >
+          <span>菜单授权</span><strong>{{ selectedMenuCount(role) }} / {{ navigationMenus.length }}</strong>
         </div>
         <div class="rbac-row-actions">
           <button class="rbac-action-btn" @click="openEdit(role)">编辑与授权</button
@@ -60,7 +56,7 @@
           <header class="rbac-modal-head">
             <div>
               <h2>{{ modal === 'create' ? '创建角色' : '编辑角色' }}</h2>
-              <p>角色编码用于稳定识别，导航菜单与功能权限共同决定最终能力。</p>
+              <p>角色编码用于稳定识别，菜单树与当前页面结构保持一致。</p>
             </div>
             <button class="close" @click="close">×</button>
           </header>
@@ -106,34 +102,25 @@
                 <strong>菜单授权</strong
                 ><small>已选择 {{ selectedNavigationCount }} / {{ navigationMenus.length }}</small>
               </div>
-              <div class="rbac-choice-list">
+              <div class="rbac-choice-list rbac-menu-tree" role="tree" aria-label="菜单授权">
                 <label
                   v-for="menu in navigationMenus"
                   :key="menu.menuId"
-                  class="rbac-choice rbac-tree-guide"
-                  :style="{ paddingLeft: `${14 + menuDepth(menu) * 22}px` }"
-                  ><input v-model="form.menuIds" type="checkbox" :value="menu.menuId" /><span
-                    ><strong>{{ menu.menuName }}</strong></span
-                  ><small>{{ menu.permissionCode || menu.routePath || menu.menuType }}</small></label
+                  :class="['rbac-choice', 'rbac-tree-guide', { 'is-parent': hasChildren(menu) }]"
+                  :style="{ '--tree-depth': menuDepth(menu), paddingLeft: `${14 + menuDepth(menu) * 24}px` }"
+                  role="treeitem"
+                  ><input
+                    type="checkbox"
+                    :checked="form.menuIds.includes(menu.menuId)"
+                    :indeterminate="isIndeterminate(menu)"
+                    @change="toggleMenu(menu, $event.target.checked)"
+                  /><span
+                    ><strong>{{ menu.menuName }}</strong
+                    ><em v-if="hasChildren(menu)">{{ childMenus(menu.menuId).length }} 个子菜单</em></span
+                  ><small>{{ menu.routePath || menu.menuCode }}</small></label
                 >
                 <div v-if="!navigationMenus.length" class="rbac-empty">
                   <strong>暂无菜单</strong><span>请先在菜单管理中创建菜单。</span>
-                </div>
-              </div>
-            </section>
-            <section class="rbac-form-section">
-              <div class="rbac-form-section-title">
-                <strong>功能权限</strong
-                ><small>已选择 {{ selectedActionPermissionCount }} / {{ actionPermissions.length }}</small>
-              </div>
-              <div class="rbac-choice-list">
-                <label v-for="permission in actionPermissions" :key="permission.menuId" class="rbac-choice"
-                  ><input v-model="form.menuIds" type="checkbox" :value="permission.menuId" /><span
-                    ><strong>{{ permission.menuName }}</strong></span
-                  ><small>{{ permission.permissionCode || permission.menuCode }}</small></label
-                >
-                <div v-if="!actionPermissions.length" class="rbac-empty">
-                  <strong>暂无功能权限</strong><span>请先在菜单管理中创建操作权限节点。</span>
                 </div>
               </div>
             </section>
@@ -142,8 +129,7 @@
             </p>
           </div>
           <footer class="rbac-modal-actions">
-            <button class="rbac-secondary-btn" @click="close">取消</button
-            ><button class="primary-btn" :disabled="saving" @click="save">{{ saving ? '保存中' : '确认保存' }}</button>
+            <button class="primary-btn" :disabled="saving" @click="save">{{ saving ? '保存中' : '确认保存' }}</button>
           </footer>
         </section>
       </div>
@@ -180,12 +166,8 @@ const orderedMenus = computed(() => {
   return result
 })
 const navigationMenus = computed(() => orderedMenus.value.filter((menu) => menu.menuType !== 'action'))
-const actionPermissions = computed(() => orderedMenus.value.filter((menu) => menu.menuType === 'action'))
 const selectedNavigationCount = computed(
   () => navigationMenus.value.filter((menu) => form.menuIds.includes(menu.menuId)).length,
-)
-const selectedActionPermissionCount = computed(
-  () => actionPermissions.value.filter((menu) => form.menuIds.includes(menu.menuId)).length,
 )
 
 onMounted(load)
@@ -229,13 +211,52 @@ function menuDepth(menu) {
   }
   return depth
 }
+function childMenus(menuId) {
+  return navigationMenus.value.filter((menu) => menu.parentId === menuId)
+}
+function descendantMenus(menuId) {
+  const result = []
+  const visit = (parentId) => {
+    childMenus(parentId).forEach((child) => {
+      result.push(child)
+      visit(child.menuId)
+    })
+  }
+  visit(menuId)
+  return result
+}
+function hasChildren(menu) {
+  return childMenus(menu.menuId).length > 0
+}
+function isIndeterminate(menu) {
+  const descendants = descendantMenus(menu.menuId)
+  if (!descendants.length) return false
+  const selectedDescendants = descendants.filter((item) => form.menuIds.includes(item.menuId)).length
+  return selectedDescendants > 0 && selectedDescendants < descendants.length
+}
+function toggleMenu(menu, checked) {
+  const selectedIds = new Set(form.menuIds)
+  const subtree = [menu, ...descendantMenus(menu.menuId)]
+  subtree.forEach((item) => (checked ? selectedIds.add(item.menuId) : selectedIds.delete(item.menuId)))
+
+  let parentId = menu.parentId
+  const menuById = new Map(navigationMenus.value.map((item) => [item.menuId, item]))
+  while (parentId) {
+    const selectedChildExists = childMenus(parentId).some(
+      (child) =>
+        selectedIds.has(child.menuId) ||
+        descendantMenus(child.menuId).some((descendant) => selectedIds.has(descendant.menuId)),
+    )
+    if (selectedChildExists) selectedIds.add(parentId)
+    else selectedIds.delete(parentId)
+    parentId = menuById.get(parentId)?.parentId
+  }
+
+  form.menuIds = navigationMenus.value.filter((item) => selectedIds.has(item.menuId)).map((item) => item.menuId)
+}
 function selectedMenuCount(role) {
   const selectedMenuIds = new Set(role.menuIds || [])
   return navigationMenus.value.filter((menu) => selectedMenuIds.has(menu.menuId)).length
-}
-function selectedActionCount(role) {
-  const selectedMenuIds = new Set(role.menuIds || [])
-  return actionPermissions.value.filter((menu) => selectedMenuIds.has(menu.menuId)).length
 }
 async function save() {
   modalError.value = ''

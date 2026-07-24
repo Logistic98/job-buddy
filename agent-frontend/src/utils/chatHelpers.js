@@ -76,11 +76,20 @@ export function activeToolSummary(item = {}) {
 }
 
 export function normalizeToolEvent(item = {}) {
+  const payload = item.payload !== undefined ? item.payload : item.detail
+  const candidateCount =
+    item.id === 'job_search' && payload && typeof payload === 'object'
+      ? firstValue([payload], ['candidateCount', 'count', 'total', 'jobCount'])
+      : null
+  const summary =
+    item.id === 'job_search' && item.status === 'success' && candidateCount !== null
+      ? `累计检索到 ${candidateCount} 个候选岗位。`
+      : item.summary
   return {
     ...item,
     name: item.name || item.title || item.id,
-    detail: item.summary || (typeof item.detail === 'string' ? item.detail : ''),
-    payload: item.payload !== undefined ? item.payload : item.detail,
+    detail: summary || (typeof item.detail === 'string' ? item.detail : ''),
+    payload,
   }
 }
 
@@ -245,7 +254,7 @@ export function selectToolEventHighlights(item = {}) {
   }
 
   if (item.id === 'job_search' || item.id === 'job_flip') {
-    const count = firstValue(sources, ['count', 'total', 'jobCount'])
+    const count = firstValue(sources, ['candidateCount', 'count', 'total', 'jobCount'])
     add('候选岗位', count === null ? '' : `${count} 个`)
     add('目标方向', firstValue(sources, ['target_role', 'targetRole', 'keyword', 'query']))
     add('城市', firstValue(sources, ['city', 'location']))

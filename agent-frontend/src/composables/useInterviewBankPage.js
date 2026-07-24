@@ -67,7 +67,7 @@ export function useInterviewBankPage(props, emit) {
     upsertQuestionRow,
     removeQuestion,
     closeDeleteDialog,
-    confirmDelete,
+    confirmDelete: confirmQuestionDelete,
   } = useQuestionBank(props.mode === 'bank' ? 'leetcode' : '')
 
   const { loadQuestionMeta, bankTypeOptions, categories, difficulties, questionTypes, bankTypeLabel } =
@@ -127,6 +127,7 @@ export function useInterviewBankPage(props, emit) {
   }
   async function applyBatchChanges() {
     await applyBatchUpdate()
+    await refreshQuestionMetaAfterMutation()
     if (!batchForm.tags.length && !batchForm.tagsText) {
       batchTagDraft.value = ''
       batchTagError.value = ''
@@ -246,7 +247,18 @@ export function useInterviewBankPage(props, emit) {
   }
   async function handleQuestionSaved(saved) {
     if (saved) upsertQuestionRow(normalizeQuestionRow(saved))
-    await loadQuestions()
+    await Promise.all([loadQuestions(), refreshQuestionMetaAfterMutation()])
+  }
+  async function confirmDelete() {
+    await confirmQuestionDelete()
+    await refreshQuestionMetaAfterMutation()
+  }
+  async function refreshQuestionMetaAfterMutation() {
+    try {
+      await loadQuestionMeta(filters.bankType)
+    } catch (err) {
+      error.value = err?.message || '题库元数据刷新失败，请稍后重试'
+    }
   }
 
   function openPracticeModal() {

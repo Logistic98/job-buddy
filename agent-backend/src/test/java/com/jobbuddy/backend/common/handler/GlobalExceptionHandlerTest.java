@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -34,6 +35,19 @@ class GlobalExceptionHandlerTest {
 
     mockMvc
         .perform(post("/stream").accept(MediaType.TEXT_EVENT_STREAM))
+        .andExpect(status().isOk())
+        .andExpect(content().string(""));
+  }
+
+  @Test
+  void asyncRequestTimeoutShouldNotBeConvertedToJsonForEventStream() throws Exception {
+    MockMvc mockMvc =
+        MockMvcBuilders.standaloneSetup(new DisconnectingStreamController())
+            .setControllerAdvice(handler())
+            .build();
+
+    mockMvc
+        .perform(post("/stream-timeout").accept(MediaType.TEXT_EVENT_STREAM))
         .andExpect(status().isOk())
         .andExpect(content().string(""));
   }
@@ -91,6 +105,11 @@ class GlobalExceptionHandlerTest {
     SseEmitter stream() throws AsyncRequestNotUsableException {
       throw new AsyncRequestNotUsableException(
           "Servlet container error notification for disconnected client");
+    }
+
+    @PostMapping(value = "/stream-timeout", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    SseEmitter streamTimeout() throws AsyncRequestTimeoutException {
+      throw new AsyncRequestTimeoutException();
     }
 
     @PostMapping("/job-analysis")

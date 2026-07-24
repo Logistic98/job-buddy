@@ -1238,6 +1238,30 @@
   gap: 7px;
   margin-top: 8px;
 }
+.chat-job-evidence-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #dfe6ff;
+  border-radius: 9px;
+  background: #f7f9ff;
+}
+.chat-job-evidence-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fff;
+  color: #3157ff;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.chat-job-evidence-summary strong {
+  color: #667085;
+  font-weight: 700;
+}
 .chat-job-recommendation-details .chat-job-recommendation,
 .chat-job-recommendation-details .chat-job-warning {
   margin: 0;

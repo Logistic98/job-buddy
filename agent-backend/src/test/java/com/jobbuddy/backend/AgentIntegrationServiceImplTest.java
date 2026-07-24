@@ -12,6 +12,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -35,6 +36,17 @@ class AgentIntegrationServiceImplTest {
           byte[] body =
               ("event: done\n" + "data: {\"status\":\"ok\"}\n\n").getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+          exchange.sendResponseHeaders(200, body.length);
+          exchange.getResponseBody().write(body);
+          exchange.close();
+        });
+    server.createContext(
+        "/v1/runtime/tools/interview_question_generate/invoke",
+        exchange -> {
+          byte[] body =
+              "{\"code\":200,\"message\":\"success\",\"data\":{\"success\":true,\"data\":{\"count\":1}}}"
+                  .getBytes(StandardCharsets.UTF_8);
+          exchange.getResponseHeaders().set("Content-Type", "application/json");
           exchange.sendResponseHeaders(200, body.length);
           exchange.getResponseBody().write(body);
           exchange.close();
@@ -64,5 +76,22 @@ class AgentIntegrationServiceImplTest {
 
     assertEquals("secret-token", receivedToken.get());
     assertEquals("ok", result.get("status"));
+  }
+
+  @Test
+  void shouldInvokeNamedRuntimeTool() {
+    AgentServiceProperties properties = new AgentServiceProperties();
+    properties.setRuntimeUrl(baseUrl);
+    AgentIntegrationServiceImpl service =
+        new AgentIntegrationServiceImpl(
+            new RestTemplate(), properties, new JsonCodec(), new ServiceResilience(properties));
+    Map<String, Object> arguments = new LinkedHashMap<String, Object>();
+    arguments.put("topic", "动态规划");
+
+    Map<String, Object> result =
+        service.invokeRuntimeTool("interview_question_generate", arguments);
+
+    assertEquals(Boolean.TRUE, result.get("success"));
+    assertEquals(Integer.valueOf(1), ((Map) result.get("data")).get("count"));
   }
 }

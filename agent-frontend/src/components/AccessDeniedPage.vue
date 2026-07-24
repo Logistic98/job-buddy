@@ -2,7 +2,7 @@
   <main class="access-denied-page">
     <section class="access-denied-card" role="alert">
       <h1>当前账号暂无可用功能</h1>
-      <p>请联系管理员分配功能权限，或退出后使用其他账号登录。</p>
+      <p>请联系管理员分配对应菜单访问权限，或退出后使用其他账号登录。</p>
       <button type="button" @click="logout">退出登录</button>
     </section>
   </main>

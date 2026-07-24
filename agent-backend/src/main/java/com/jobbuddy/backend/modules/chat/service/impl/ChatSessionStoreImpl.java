@@ -84,6 +84,13 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
   }
 
   @Override
+  public boolean appendUserMessageOnce(String sessionId, String turnId, String content) {
+    Owner owner = owner(sessionId);
+    return chatSessionRepository.appendUserMessageOnce(
+        owner.tenantId, owner.userId, sessionId, turnId, content);
+  }
+
+  @Override
   public boolean replaceLatestAssistantJobMessage(
       String sessionId, List<Map<String, Object>> jobs, List<Map<String, Object>> toolEvents) {
     Owner owner = owner(sessionId);

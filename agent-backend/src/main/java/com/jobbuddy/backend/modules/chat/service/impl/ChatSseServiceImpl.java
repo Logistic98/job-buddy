@@ -172,9 +172,11 @@ public class ChatSseServiceImpl implements ChatSseService {
     final ChatStreamAdmissionController.Lease admissionLease =
         admissionController.acquire(
             request.getAuthenticatedTenantId(), request.getAuthenticatedUserId());
-    // SSE 连接超时与下游 Runtime 流式读超时对齐并预留 10s 余量，保证下游超时错误还来得及经 SSE 下发给前端。
+    // SSE 总生命周期与单次 Runtime 流式读取解耦；同时保留 10s 余量，保证单次读取超时错误来得及下发。
     final long emitterTimeoutMillis =
-        agentServiceProperties.getStreamReadTimeout().toMillis() + 10000L;
+        Math.max(
+            agentServiceProperties.getStreamSessionTimeout().toMillis(),
+            agentServiceProperties.getStreamReadTimeout().toMillis() + 10000L);
     final SseEmitter emitter = new SseEmitter(emitterTimeoutMillis);
     final AtomicBoolean cancelled = new AtomicBoolean(false);
     final AtomicReference<Future<?>> taskRef = new AtomicReference<Future<?>>();
@@ -236,6 +238,8 @@ public class ChatSseServiceImpl implements ChatSseService {
                     sender.completeQuietly(emitter);
                   } catch (BossAuthRequiredException e) {
                     try {
+                      // 登录续跑依赖处理器刚写入的槽位和工具状态；先排空持久化队列，再通知前端扫码。
+                      persistence.awaitPersistFlush();
                       sender.send(emitter, "auth_required", e.getAuthData());
                       sender.send(emitter, "done", Collections.singletonMap("ok", false));
                     } catch (Exception sendError) {
@@ -347,11 +351,17 @@ public class ChatSseServiceImpl implements ChatSseService {
     boolean hasLastSlots = state.lastSlots != null && !state.lastSlots.isEmpty();
     boolean resumeAfterAuth = resumeAfterAuthRequested && hasLastSlots;
     boolean flipJobs = flipJobsRequested && hasLastSlots;
-    // 普通用户消息在会话状态建立后立即进入顺序持久化队列，早于后续 SSE 发送、任务理解和外部调用。
-    // 这样浏览器快速切换会话并中断后台任务时，历史记录仍至少能恢复用户已发送的内容。
-    // 扫码续跑和换一批属于既有消息的重放/确定性动作，继续跳过写入，避免重复用户气泡。
+    // 普通用户消息在任务理解和外部调用前按 turnId 原子落库；重复 turn 直接结束，不再次执行 Runtime/Boss。
+    // 没有 turnId 的旧客户端保留顺序异步写入兼容。扫码续跑和换一批属于既有动作，继续跳过写入。
     if (!resumeAfterAuthRequested && !flipJobsRequested) {
-      persistence.appendMessageAsync(sessionId, "user", request.getMessage(), null);
+      String turnId = request.getTurnId() == null ? "" : request.getTurnId().trim();
+      if (!turnId.isEmpty()) {
+        boolean accepted =
+            sessionStore.appendUserMessageOnce(sessionId, turnId, request.getMessage());
+        if (!accepted) return;
+      } else {
+        persistence.appendMessageAsync(sessionId, "user", request.getMessage(), null);
+      }
     }
     // 每轮（含扫码续跑、换一批）都重置本轮过程事件与匹配结果，避免上一轮过程被二次累积重复展示。
     state.toolEvents = new java.util.ArrayList<Map<String, Object>>();

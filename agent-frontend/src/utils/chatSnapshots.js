@@ -6,17 +6,67 @@ import { filterVisibleToolEvents } from './chatHelpers'
 
 const clone = (value) => JSON.parse(JSON.stringify(value))
 
+function normalizeTurnId(row) {
+  const raw = row?.turnId ?? row?.turn_id ?? row?.metadata?.turnId ?? row?.metadata?.turn_id
+  return typeof raw === 'string' ? raw.trim() : ''
+}
+
+function normalizeSessionRow(sessionId, row, idx, turnId) {
+  return {
+    id: turnId ? (row.role === 'user' ? turnId : `${turnId}_${row.role || 'message'}`) : `${sessionId}_${idx}`,
+    ...(turnId ? { turnId } : {}),
+    role: row.role,
+    content: row.content,
+    reasoning: typeof row.reasoning === 'string' ? row.reasoning : '',
+    jobCards: Array.isArray(row.jobCards) ? row.jobCards : [],
+    toolEvents: filterVisibleToolEvents(Array.isArray(row.toolEvents) ? row.toolEvents : []),
+  }
+}
+
+function mergeDuplicateRow(target, incoming) {
+  if (!String(target.content || '').trim() && String(incoming.content || '').trim()) target.content = incoming.content
+  if (!String(target.reasoning || '').trim() && String(incoming.reasoning || '').trim())
+    target.reasoning = incoming.reasoning
+  if (!target.jobCards?.length && incoming.jobCards?.length) target.jobCards = incoming.jobCards
+  if (!target.toolEvents?.length && incoming.toolEvents?.length) target.toolEvents = incoming.toolEvents
+}
+
 export function normalizeSessionRows(sessionId, rows = []) {
-  return rows.length
-    ? rows.map((m, idx) => ({
-        id: `${sessionId}_${idx}`,
-        role: m.role,
-        content: m.content,
-        reasoning: typeof m.reasoning === 'string' ? m.reasoning : '',
-        jobCards: Array.isArray(m.jobCards) ? m.jobCards : [],
-        toolEvents: filterVisibleToolEvents(Array.isArray(m.toolEvents) ? m.toolEvents : []),
-      }))
-    : []
+  if (!rows.length) return []
+  const normalized = []
+  const turnRows = new Map()
+  let lastUnansweredUser = null
+  for (const [idx, row] of rows.entries()) {
+    const turnId = normalizeTurnId(row)
+    const item = normalizeSessionRow(sessionId, row, idx, turnId)
+    if (
+      item.role === 'user' &&
+      lastUnansweredUser &&
+      lastUnansweredUser.role === 'user' &&
+      !lastUnansweredUser.turnId &&
+      !item.turnId &&
+      String(lastUnansweredUser.content || '') === String(item.content || '')
+    ) {
+      // 仅兼容没有 turnId 的历史重复数据。非空 turnId 是用户动作的权威身份，即使文本相同且
+      // 连续出现也必须分别保留，避免把跨标签或用户主动重复提交误判为同一轮。
+      mergeDuplicateRow(lastUnansweredUser, item)
+      continue
+    }
+    if (turnId) {
+      // 同一 turn 的重复持久化行按角色合并；user 与 assistant 即使共享 turnId 也不能互相吞并。
+      const turnKey = `${item.role || ''}:${turnId}`
+      const existing = turnRows.get(turnKey)
+      if (existing) {
+        mergeDuplicateRow(existing, item)
+        continue
+      }
+      turnRows.set(turnKey, item)
+    }
+    normalized.push(item)
+    if (item.role === 'assistant') lastUnansweredUser = null
+    else if (item.role === 'user') lastUnansweredUser = item
+  }
+  return normalized
 }
 
 // 服务端行缺过程字段时（落库未完成或历史数据 metadata 为空），按同位置同角色用既有快照兜底，

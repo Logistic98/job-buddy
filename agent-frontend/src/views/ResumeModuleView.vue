@@ -47,7 +47,6 @@ function goList() {
 }
 .resume-module-tabs {
   position: relative;
-  z-index: 50;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -80,7 +79,6 @@ function goList() {
 }
 .resume-module-body {
   position: relative;
-  z-index: 1;
   flex: 1;
   min-height: 0;
   overflow: hidden;

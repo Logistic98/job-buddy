@@ -1913,6 +1913,16 @@
   padding: 20px 28px 24px;
   overscroll-behavior: contain;
 }
+.journey-analysis-body.is-loading {
+  display: flex;
+  overflow: hidden;
+}
+.journey-analysis-body.is-loading > .favorite-analysis-loading {
+  width: 100%;
+  min-height: 100%;
+  flex: 1;
+  align-self: stretch;
+}
 .journey-analysis-inside {
   margin: 0 !important;
   padding: 0 !important;

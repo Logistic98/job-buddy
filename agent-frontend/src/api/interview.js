@@ -69,6 +69,15 @@ export async function generateQuestions(payload) {
   return parseApiResponse(response, 'AI 生成题目失败')
 }
 
+export async function importQuestions(payload) {
+  const response = await apiFetch('/interview/questions/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+    body: JSON.stringify(payload),
+  })
+  return parseApiResponse(response, '候选题导入失败')
+}
+
 export async function updateQuestion(questionId, payload) {
   const response = await apiFetch(`/interview/questions/${encodeURIComponent(questionId)}`, {
     method: 'PUT',

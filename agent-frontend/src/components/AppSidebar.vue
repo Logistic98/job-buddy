@@ -122,7 +122,7 @@ const icons = {
 
 const navItems = computed(() =>
   auth.menus
-    .filter((menu) => ['page', 'external', 'directory'].includes(menu.menuType))
+    .filter((menu) => !menu.parentId && ['page', 'external', 'directory'].includes(menu.menuType))
     .slice()
     .sort((a, b) => (a.displayOrder || 0) - (b.displayOrder || 0))
     .map((menu) => ({

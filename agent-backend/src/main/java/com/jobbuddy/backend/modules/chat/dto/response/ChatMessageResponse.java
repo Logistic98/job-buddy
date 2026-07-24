@@ -7,6 +7,8 @@ import lombok.Data;
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ChatMessageResponse {
+  private Long id;
+  private String turnId;
   private String role;
   private String content;
   private JsonNode metadata;

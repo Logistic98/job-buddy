@@ -31,7 +31,7 @@ describe('RoleManagement', () => {
     wrapper.unmount()
   })
 
-  it('separates action permissions from navigation menus', async () => {
+  it('renders page authorization as a cascading menu tree without feature permissions', async () => {
     mocks.listAssignableMenus.mockResolvedValue([
       {
         menuId: 'menu-chat',
@@ -42,25 +42,51 @@ describe('RoleManagement', () => {
         displayOrder: 10,
       },
       {
-        menuId: 'menu-boss',
-        parentId: 'menu-chat',
-        menuName: 'Boss 直聘能力',
-        menuType: 'action',
-        permissionCode: 'boss:use',
-        displayOrder: 20,
+        menuId: 'menu-settings',
+        parentId: '',
+        menuName: '平台设置',
+        menuType: 'page',
+        routePath: '/settings',
+        displayOrder: 90,
+      },
+      {
+        menuId: 'menu-settings-users',
+        parentId: 'menu-settings',
+        menuName: '用户管理',
+        menuType: 'page',
+        routePath: '/settings?tab=users',
+        displayOrder: 91,
+      },
+      {
+        menuId: 'menu-settings-roles',
+        parentId: 'menu-settings',
+        menuName: '角色管理',
+        menuType: 'page',
+        routePath: '/settings?tab=roles',
+        displayOrder: 92,
       },
     ])
     const wrapper = mount(RoleManagement, { attachTo: document.body })
     await flushPromises()
     await wrapper.find('.primary-btn').trigger('click')
 
-    const sections = [...document.body.querySelectorAll('.rbac-form-section')]
-    const menuSection = sections.find((section) => section.querySelector('strong')?.textContent === '菜单授权')
-    const permissionSection = sections.find((section) => section.querySelector('strong')?.textContent === '功能权限')
+    const menuSection = [...document.body.querySelectorAll('.rbac-form-section')].find(
+      (section) => section.querySelector('strong')?.textContent === '菜单授权',
+    )
+    const settingsChoice = [...menuSection.querySelectorAll('.rbac-choice')].find((choice) =>
+      choice.textContent.includes('平台设置'),
+    )
+    const settingsChildren = [...menuSection.querySelectorAll('.rbac-choice')].filter(
+      (choice) => choice.textContent.includes('用户管理') || choice.textContent.includes('角色管理'),
+    )
 
     expect(menuSection.textContent).toContain('智能引擎')
-    expect(menuSection.textContent).not.toContain('Boss 直聘能力')
-    expect(permissionSection.textContent).toContain('Boss 直聘能力')
+    expect(settingsChildren).toHaveLength(2)
+    expect(document.body.textContent).not.toContain('功能权限')
+
+    settingsChoice.querySelector('input').click()
+    await wrapper.vm.$nextTick()
+    expect(settingsChildren.every((choice) => choice.querySelector('input').checked)).toBe(true)
 
     wrapper.unmount()
   })

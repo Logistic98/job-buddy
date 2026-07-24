@@ -94,7 +94,7 @@ function ensureDynamicMenuRoutes(auth) {
   for (const menu of auth.menus || []) {
     const path = menu.routePath
     const component = componentRegistry[menu.componentKey]
-    if (!path || !component || builtInPaths.has(path) || dynamicPaths.has(path)) continue
+    if (menu.parentId || !path || !component || builtInPaths.has(path) || dynamicPaths.has(path)) continue
     router.addRoute({
       path,
       name: `dynamic-menu-${menu.menuId || menu.menuCode}`,
@@ -108,6 +108,7 @@ function ensureDynamicMenuRoutes(auth) {
 export function firstAllowedPath(auth) {
   const menu = (auth.menus || []).find(
     (item) =>
+      !item.parentId &&
       item.routePath &&
       (!item.permissionCode || auth.hasPermission(item.permissionCode)) &&
       (item.componentKey !== 'settings' || auth.isAdmin),

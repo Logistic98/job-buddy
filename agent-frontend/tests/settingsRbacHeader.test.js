@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import SettingsCenter from '../src/components/SettingsCenter.vue'
 import UserManagement from '../src/components/UserManagement.vue'
+import { saveSettings } from '../src/api/settings'
 import { useAuthStore } from '../src/stores/auth'
 
 vi.mock('../src/api/boss', () => ({
@@ -48,11 +49,23 @@ describe('settings RBAC headers', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/settings?tab=users')
     window.sessionStorage.clear()
+    vi.mocked(saveSettings)
+      .mockReset()
+      .mockImplementation(async (payload) => payload)
     setActivePinia(createPinia())
     const auth = useAuthStore()
     auth.user = {
       permissions: ['users:manage', 'roles:manage', 'menus:manage', 'platform:manage'],
-      menus: [],
+      menus: [
+        { menuId: 'settings', menuCode: 'settings', menuName: '平台设置', menuType: 'page' },
+        { menuId: 'settings-users', parentId: 'settings', menuCode: 'settings-users', menuType: 'page' },
+        { menuId: 'settings-roles', parentId: 'settings', menuCode: 'settings-roles', menuType: 'page' },
+        { menuId: 'settings-menus', parentId: 'settings', menuCode: 'settings-menus', menuType: 'page' },
+        { menuId: 'settings-workspace', parentId: 'settings', menuCode: 'settings-workspace', menuType: 'page' },
+        { menuId: 'settings-blacklist', parentId: 'settings', menuCode: 'settings-blacklist', menuType: 'page' },
+        { menuId: 'settings-memory', parentId: 'settings', menuCode: 'settings-memory', menuType: 'page' },
+        { menuId: 'settings-services', parentId: 'settings', menuCode: 'settings-services', menuType: 'page' },
+      ],
     }
   })
 
@@ -89,5 +102,28 @@ describe('settings RBAC headers', () => {
 
     expect(wrapper.find('.rbac-panel-toolbar strong').text()).toBe('用户')
     expect(wrapper.text()).not.toContain('租户用户')
+  })
+
+  it('saves runtime parameters from the shared settings header', async () => {
+    window.history.replaceState({}, '', '/settings?tab=workspace')
+    const wrapper = mount(SettingsCenter, {
+      global: {
+        stubs: { BossLoginQrModal: true },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('input[type="number"]').setValue('14')
+    await wrapper
+      .findAll('.settings-actions button')
+      .find((button) => button.text() === '保存设置')
+      .trigger('click')
+    await flushPromises()
+
+    expect(saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: expect.objectContaining({ maxJobsPerRecommend: 14 }),
+      }),
+    )
   })
 })

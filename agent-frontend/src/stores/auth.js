@@ -16,7 +16,7 @@ export const useAuthStore = defineStore('auth', {
     isLoggedIn: (state) => !!state.user,
     displayName: (state) => state.user?.displayName || state.user?.username || '用户',
     isAdmin: (state) =>
-      ['users:manage', 'roles:manage', 'menus:manage', 'tenant:manage', 'platform:manage'].some((code) =>
+      ['users:manage', 'roles:manage', 'menus:manage', 'platform:manage'].some((code) =>
         state.user?.permissions?.includes(code),
       ),
     permissions: (state) => (Array.isArray(state.user?.permissions) ? state.user.permissions : []),

@@ -33,10 +33,12 @@ const menus = [
     parentId: 'menu-settings',
     menuCode: 'settings-users',
     menuName: '用户管理',
-    menuType: 'action',
+    menuType: 'page',
+    routePath: '/settings?tab=users',
+    componentKey: 'settings',
     permissionCode: 'users:manage',
     displayOrder: 20,
-    visible: false,
+    visible: true,
     enabled: true,
   },
 ]
@@ -47,20 +49,22 @@ describe('menu management semantics', () => {
     listPermissionDefinitions.mockResolvedValue([{ permissionCode: 'users:manage', permissionName: '管理用户' }])
   })
 
-  it('describes aggregate and action nodes without reporting false configuration problems', async () => {
+  it('describes the current page tree without a separate feature-permission model', async () => {
     const wrapper = mount(MenuManagement)
     await flushPromises()
 
     expect(wrapper.text()).toContain('由子菜单控制')
-    expect(wrapper.text()).toContain('不参与导航')
+    expect(wrapper.text()).toContain('/settings?tab=users')
+    expect(wrapper.text()).not.toContain('功能权限')
+    expect(wrapper.text()).not.toContain('操作权限')
     expect(wrapper.text()).not.toContain('无权限码')
 
     const visibleMetric = wrapper.findAll('.rbac-metric').find((item) => item.text().includes('前台显示'))
-    expect(visibleMetric.text()).toContain('1')
+    expect(visibleMetric.text()).toContain('2')
     expect(visibleMetric.text()).toContain('0 个菜单已隐藏')
   })
 
-  it('forces action nodes to stay outside frontend navigation', async () => {
+  it('only offers navigable menu types', async () => {
     const wrapper = mount(MenuManagement, { attachTo: document.body })
     await flushPromises()
     await wrapper.find('.primary-btn').trigger('click')
@@ -75,13 +79,12 @@ describe('menu management semantics', () => {
     expect(fieldByLabel('菜单状态').find('select').element.selectedOptions[0].text).toBe('请选择菜单状态')
 
     const typeField = fieldByLabel('菜单类型')
-    await typeField.find('select').setValue('action')
-
-    const visibilityField = new DOMWrapper(fields.find((field) => field.textContent.includes('前台显示')))
-    const visibilitySelect = visibilityField.find('select')
-    expect(visibilitySelect.element.disabled).toBe(true)
-    expect(visibilitySelect.element.value).toBe('false')
-    expect(visibilityField.text()).toContain('不参与导航')
+    expect(typeField.findAll('option').map((option) => option.text())).toEqual([
+      '请选择菜单类型',
+      '目录',
+      '页面',
+      '外链',
+    ])
 
     wrapper.unmount()
   })

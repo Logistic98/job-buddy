@@ -131,6 +131,18 @@ class DynamicRbacServiceTest {
   }
 
   @Test
+  void rejectsStandaloneActionPermissionNodes() {
+    DynamicRbacService service =
+        new DynamicRbacServiceImpl(
+            mock(RbacMapper.class), mock(UserLoginService.class), mock(RbacDelegationPolicy.class));
+    RbacMenuRequest request = request("");
+    request.setMenuType("action");
+
+    assertThrows(
+        IllegalArgumentException.class, () -> service.createMenu("tenant-a", actor(), request));
+  }
+
+  @Test
   void rejectsDeletingReferencedRole() {
     RbacMapper mapper = mock(RbacMapper.class);
     when(mapper.findRole("tenant-a", "role-a")).thenReturn(role("role-a"));

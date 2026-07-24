@@ -19,6 +19,8 @@ public interface ChatSessionStore {
 
   void appendMessage(String sessionId, String role, String content, Map<String, Object> metadata);
 
+  boolean appendUserMessageOnce(String sessionId, String turnId, String content);
+
   boolean replaceLatestAssistantJobMessage(
       String sessionId, List<Map<String, Object>> jobs, List<Map<String, Object>> toolEvents);
 

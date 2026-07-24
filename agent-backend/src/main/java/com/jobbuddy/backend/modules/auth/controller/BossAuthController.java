@@ -1,8 +1,6 @@
 package com.jobbuddy.backend.modules.auth.controller;
 
 import com.jobbuddy.backend.common.result.ApiResponse;
-import com.jobbuddy.backend.common.security.PermissionCodes;
-import com.jobbuddy.backend.common.security.RequirePermission;
 import com.jobbuddy.backend.modules.auth.dto.response.BossLoginCancelResponse;
 import com.jobbuddy.backend.modules.auth.dto.response.BossLoginQrResponse;
 import com.jobbuddy.backend.modules.auth.dto.response.BossLoginStatusResponse;
@@ -18,7 +16,6 @@ import org.springframework.web.bind.annotation.RestController;
 /** Boss 直聘认证接口，提供二维码登录、登录状态查询和取消登录能力。 */
 @Tag(name = "Boss 直聘认证接口")
 @RestController
-@RequirePermission(PermissionCodes.BOSS_USE)
 @RequestMapping("/api/boss")
 public class BossAuthController {
   private final BossAuthService bossAuthService;

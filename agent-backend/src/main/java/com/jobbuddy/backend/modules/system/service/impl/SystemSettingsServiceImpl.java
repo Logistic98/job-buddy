@@ -13,6 +13,7 @@ import com.jobbuddy.backend.modules.system.dto.response.SystemMemoryResponse;
 import com.jobbuddy.backend.modules.system.dto.response.SystemSettingsResponse;
 import com.jobbuddy.backend.modules.system.mapper.SystemSettingsMapper;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
+import jakarta.annotation.PostConstruct;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -23,11 +24,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 @Service
 public class SystemSettingsServiceImpl implements SystemSettingsService {
+  private static final Logger LOG = LoggerFactory.getLogger(SystemSettingsServiceImpl.class);
   private static final String SETTINGS_SCOPE = "global";
   private static final String SETTINGS_KEY = "settings";
   private static final String USER_MEMORY_KEY = "memory";
@@ -95,6 +99,18 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     this.blacklistPolicy = new JobBlacklistPolicy(systemSettingsMapper);
     this.objectMapper.findAndRegisterModules();
     this.objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+  }
+
+  /** 在接收业务请求前加载持久化运行参数，避免首个请求短暂使用部署默认值。 */
+  @PostConstruct
+  public synchronized void loadPersistedRuntimeSettings() {
+    try {
+      ensurePersistedRuntimeSettingsLoaded();
+    } catch (RuntimeException error) {
+      // 配置表暂不可用时保留部署默认值；persistedRuntimeSettingsLoaded 仍为 false，
+      // 后续健康轮询会继续加载，不能让旁路设置故障阻断整个 Backend 启动。
+      LOG.warn("启动时加载平台运行参数失败，将保留部署默认值并重试: {}", error.getMessage());
+    }
   }
 
   public synchronized SystemSettingsResponse getSettings() {

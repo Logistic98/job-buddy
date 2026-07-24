@@ -16,6 +16,9 @@ public interface AgentIntegrationService {
 
   Map<String, Object> runRuntime(Map<String, Object> request);
 
+  /** Directly invokes a named read-only Runtime tool and returns the normalized ToolResult data. */
+  Map<String, Object> invokeRuntimeTool(String toolName, Map<String, Object> arguments);
+
   /**
    * 以 Token 流式调用 Agent Runtime，逐字回调答案增量，返回 done 终态数据。
    *

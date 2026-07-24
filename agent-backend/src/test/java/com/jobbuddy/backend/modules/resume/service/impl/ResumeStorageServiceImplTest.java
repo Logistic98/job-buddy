@@ -2,6 +2,7 @@ package com.jobbuddy.backend.modules.resume.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -19,6 +20,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
 
 class ResumeStorageServiceImplTest {
 
@@ -71,6 +73,29 @@ class ResumeStorageServiceImplTest {
     assertEquals("当前人工摘要", response.getOldSummary());
     assertNotEquals("job_profile_summary 执行成功", response.getNewSummary());
     assertEquals("fallback", response.getProvider());
+  }
+
+  @Test
+  void uploadReadsCurrentResumeSizeLimit() {
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxResumeBytes(4);
+    ResumeStorageServiceImpl sizeLimitedService =
+        new ResumeStorageServiceImpl(
+            properties,
+            toolClient,
+            mock(ResumeRecordRepository.class),
+            mock(ResumeObjectStorage.class),
+            mock(BossCliService.class),
+            jsonCodec);
+    MockMultipartFile file =
+        new MockMultipartFile("file", "resume.pdf", "application/pdf", new byte[] {1, 2, 3, 4, 5});
+
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> sizeLimitedService.upload(file, "tenant-a", "user-a"));
+
+    assertEquals("简历文件超出大小限制: 4 bytes", error.getMessage());
   }
 
   private com.fasterxml.jackson.databind.JsonNode profile(String summary) {

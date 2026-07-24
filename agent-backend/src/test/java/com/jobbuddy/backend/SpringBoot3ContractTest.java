@@ -2,17 +2,28 @@ package com.jobbuddy.backend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.method.HandlerMethod;
+import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 @SpringBootTest(
     properties = {
@@ -34,6 +45,8 @@ class SpringBoot3ContractTest {
   @Autowired private MockMvc mockMvc;
 
   @Autowired private RedisConnectionFactory redisConnectionFactory;
+
+  @Autowired private RequestMappingHandlerMapping requestMappingHandlerMapping;
 
   @Test
   void shouldBindSpringBoot3RedisProperties() {
@@ -62,8 +75,52 @@ class SpringBoot3ContractTest {
     mockMvc
         .perform(get("/v3/api-docs"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.openapi").exists());
+        .andExpect(jsonPath("$.openapi").exists())
+        .andExpect(
+            jsonPath("$.info.description")
+                .value("Job Buddy 业务后端与 BFF 接口，统一响应结构包含 code、message 和 data。"))
+        .andExpect(
+            jsonPath("$.components.securitySchemes.Authorization.description")
+                .value("登录后获取的访问令牌，格式为 Bearer {token}"))
+        .andExpect(
+            jsonPath("$.paths['/api/workspace/state/{stateKey}'].get.summary").value("查询工作区状态"))
+        .andExpect(
+            jsonPath("$.paths['/api/workspace/state/{stateKey}'].put.summary").value("保存工作区状态"))
+        .andExpect(
+            jsonPath("$.paths['/api/workspace/state/{stateKey}'].delete.summary").value("删除工作区状态"))
+        .andExpect(jsonPath("$.paths['/api/admin/rbac/roles'].get.summary").value("查询角色列表"))
+        .andExpect(jsonPath("$.paths['/api/admin/rbac/menus'].post.summary").value("创建菜单"));
 
     mockMvc.perform(get("/doc.html")).andExpect(status().isOk());
+  }
+
+  @Test
+  void shouldDocumentEveryBackendControllerAndOperation() {
+    List<String> missingTags = new ArrayList<String>();
+    List<String> missingOperations = new ArrayList<String>();
+
+    for (Map.Entry<RequestMappingInfo, HandlerMethod> entry :
+        requestMappingHandlerMapping.getHandlerMethods().entrySet()) {
+      HandlerMethod handler = entry.getValue();
+      Class<?> controllerType = handler.getBeanType();
+      if (!controllerType.getPackageName().startsWith("com.jobbuddy.backend")
+          || !controllerType.getSimpleName().endsWith("Controller")) {
+        continue;
+      }
+
+      Tag tag = AnnotatedElementUtils.findMergedAnnotation(controllerType, Tag.class);
+      if (tag == null || tag.name().isBlank()) {
+        missingTags.add(controllerType.getSimpleName());
+      }
+
+      Method method = handler.getMethod();
+      Operation operation = AnnotatedElementUtils.findMergedAnnotation(method, Operation.class);
+      if (operation == null || operation.summary().isBlank()) {
+        missingOperations.add(controllerType.getSimpleName() + "#" + method.getName());
+      }
+    }
+
+    assertTrue(missingTags.isEmpty(), "缺少 @Tag 的 Controller: " + missingTags);
+    assertTrue(missingOperations.isEmpty(), "缺少 @Operation 的接口: " + missingOperations);
   }
 }

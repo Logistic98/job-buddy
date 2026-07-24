@@ -18,6 +18,7 @@ public class AgentServiceProperties {
   private Duration readTimeout = Duration.ofSeconds(135);
   private Duration streamConnectTimeout = Duration.ofSeconds(10);
   private Duration streamReadTimeout = Duration.ofSeconds(180);
+  private Duration streamSessionTimeout = Duration.ofMinutes(15);
   private Duration streamHeartbeatInterval = Duration.ofSeconds(10);
   private int streamCoreThreads = 4;
   private int streamMaxThreads = 64;
@@ -141,6 +142,14 @@ public class AgentServiceProperties {
 
   public void setStreamReadTimeout(Duration streamReadTimeout) {
     this.streamReadTimeout = streamReadTimeout;
+  }
+
+  public Duration getStreamSessionTimeout() {
+    return streamSessionTimeout;
+  }
+
+  public void setStreamSessionTimeout(Duration streamSessionTimeout) {
+    this.streamSessionTimeout = streamSessionTimeout;
   }
 
   public Duration getStreamHeartbeatInterval() {

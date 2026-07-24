@@ -21,6 +21,47 @@ describe('normalizeSessionRows', () => {
     expect(out[0].jobCards).toEqual([])
     expect(out[1].reasoning).toBe('r')
   })
+  it('uses server turn ids and merges duplicate rows from the same turn', () => {
+    const rows = [
+      { turnId: 'turn-1', role: 'user', content: '筛选岗位' },
+      { turnId: 'turn-1', role: 'user', content: '筛选岗位' },
+    ]
+
+    const out = normalizeSessionRows('s1', rows)
+
+    expect(out).toHaveLength(1)
+    expect(out[0].id).toBe('turn-1')
+    expect(out[0].turnId).toBe('turn-1')
+  })
+  it('folds only consecutive legacy duplicate user rows before an assistant reply', () => {
+    const rows = [
+      { role: 'user', content: '重复问题' },
+      { role: 'user', content: '重复问题' },
+      { role: 'assistant', content: '第一次回答' },
+      { role: 'user', content: '重复问题' },
+    ]
+
+    const out = normalizeSessionRows('s1', rows)
+
+    expect(out.map((item) => item.content)).toEqual(['重复问题', '第一次回答', '重复问题'])
+  })
+  it('keeps identical user text with different turn ids after an assistant reply', () => {
+    const out = normalizeSessionRows('s1', [
+      { turnId: 'turn-a', role: 'user', content: '再查一次' },
+      { turnId: 'turn-answer', role: 'assistant', content: '第一次结果' },
+      { turnId: 'turn-b', role: 'user', content: '再查一次' },
+    ])
+
+    expect(out).toHaveLength(3)
+  })
+  it('keeps consecutive identical user text when both rows have different turn ids', () => {
+    const out = normalizeSessionRows('s1', [
+      { turnId: 'turn-a', role: 'user', content: '再查一次' },
+      { turnId: 'turn-b', role: 'user', content: '再查一次' },
+    ])
+
+    expect(out.map((item) => item.turnId)).toEqual(['turn-a', 'turn-b'])
+  })
   it('returns empty array for empty input', () => {
     expect(normalizeSessionRows('s1', [])).toEqual([])
   })

@@ -561,8 +561,7 @@
           </p>
         </div>
         <div class="modal-actions project-editor-actions">
-          <button class="secondary-btn" :disabled="saving" @click="closeCreate">取消</button
-          ><button class="primary-btn" :disabled="saving" @click="saveProject">
+          <button class="primary-btn" :disabled="saving" @click="saveProject">
             {{ saving ? '保存中' : projectModalMode === 'edit' ? '保存修改' : '创建' }}
           </button>
         </div>
@@ -709,8 +708,7 @@
           {{ questionModal.error }}
         </p>
         <div class="modal-actions">
-          <button class="secondary-btn" :disabled="saving || generating" @click="closeQuestionModal">取消</button
-          ><button class="question-add-btn" :disabled="questionModalSubmitDisabled" @click="submitQuestionModal">
+          <button class="question-add-btn" :disabled="questionModalSubmitDisabled" @click="submitQuestionModal">
             {{ questionModalSubmitText }}
           </button>
         </div>

@@ -35,7 +35,7 @@ public class ApiAuthorizationInterceptor implements HandlerInterceptor {
       return false;
     }
     if (!user.hasPermission(permission.value())) {
-      writeForbidden(response, "当前账号未获得所需功能权限");
+      writeForbidden(response, "当前账号未获得所需访问权限");
       return false;
     }
     return true;

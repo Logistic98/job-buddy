@@ -5,7 +5,7 @@
         <span class="rbac-page-icon">MN</span>
         <div>
           <h2>菜单管理</h2>
-          <p>动态维护导航菜单与独立功能权限，配置导航目标、显示状态和权限码。</p>
+          <p>动态维护与当前页面一致的菜单树，配置父子层级、导航目标和后端权限映射。</p>
         </div>
       </div>
       <button class="primary-btn" @click="openCreate">创建菜单</button>
@@ -13,7 +13,7 @@
 
     <div class="rbac-metrics">
       <article class="rbac-metric">
-        <span>菜单总数</span><strong>{{ navigableMenus.length }}</strong
+        <span>菜单总数</span><strong>{{ menus.length }}</strong
         ><em>{{ rootCount }} 个顶级菜单</em>
       </article>
       <article class="rbac-metric">
@@ -21,21 +21,20 @@
         ><em>{{ hiddenCount }} 个菜单已隐藏</em>
       </article>
       <article class="rbac-metric">
-        <span>功能权限</span><strong>{{ actionCount }}</strong
-        ><em>不参与前台导航</em>
+        <span>二级菜单</span><strong>{{ childCount }}</strong
+        ><em>当前页面树中的子菜单</em>
       </article>
     </div>
 
     <p v-if="error" class="rbac-error">{{ error }}</p>
     <section class="rbac-panel">
       <div class="rbac-panel-toolbar">
-        <strong>菜单与功能权限</strong><span>按层级与排序展示，共 {{ menus.length }} 个节点</span>
+        <strong>菜单树</strong><span>按层级与排序展示，共 {{ menus.length }} 个页面节点</span>
       </div>
       <div class="rbac-table-scroll">
         <div class="rbac-data-grid menu-data-grid">
           <div class="rbac-data-row is-header">
-            <span>菜单或功能权限</span><span>类型与导航目标</span><span>权限码</span><span>显示状态</span
-            ><span>操作</span>
+            <span>菜单</span><span>类型与导航目标</span><span>后端权限映射</span><span>显示状态</span><span>操作</span>
           </div>
           <div v-for="menu in sortedMenus" :key="menu.menuId" class="rbac-data-row">
             <div class="rbac-primary-cell rbac-tree-cell" :style="{ paddingLeft: `${depth(menu) * 22}px` }">
@@ -56,8 +55,7 @@
               ><span :class="['rbac-badge', menu.enabled ? 'success' : 'danger']">{{
                 menu.enabled ? '启用' : '停用'
               }}</span
-              ><span v-if="menu.menuType === 'action'" class="rbac-badge neutral">不参与导航</span
-              ><span v-else :class="['rbac-badge', menu.visible ? 'primary' : 'neutral']">{{
+              ><span :class="['rbac-badge', menu.visible ? 'primary' : 'neutral']">{{
                 menu.visible ? '显示' : '隐藏'
               }}</span></span
             >
@@ -67,7 +65,7 @@
             >
           </div>
           <div v-if="!menus.length" class="rbac-empty">
-            <strong>暂无节点</strong><span>创建菜单或功能权限后可在角色管理中进行授权。</span>
+            <strong>暂无菜单</strong><span>创建页面菜单后可在角色管理中进行树形授权。</span>
           </div>
         </div>
       </div>
@@ -79,7 +77,7 @@
           <header class="rbac-modal-head">
             <div>
               <h2>{{ modal === 'create' ? '创建菜单' : '编辑菜单' }}</h2>
-              <p>菜单数据决定导航呈现，后端权限注解仍是最终安全边界。</p>
+              <p>菜单数据决定导航与角色授权结构，后端权限注解仍是最终安全边界。</p>
             </div>
             <button class="close" @click="close">×</button>
           </header>
@@ -111,7 +109,6 @@
                     <option value="directory">目录</option>
                     <option value="page">页面</option>
                     <option value="external">外链</option>
-                    <option value="action">操作权限</option>
                   </select></label
                 ><label class="rbac-field"
                   ><span>父菜单</span
@@ -184,13 +181,10 @@
                   </select></label
                 ><label class="rbac-field"
                   ><span class="form-required">前台显示</span
-                  ><select v-model="form.visible" :disabled="form.menuType === 'action'" aria-required="true">
-                    <option v-if="form.menuType === 'action'" :value="false">不参与导航</option>
-                    <template v-else
-                      ><option :value="null" disabled>请选择显示状态</option>
-                      <option :value="true">显示</option>
-                      <option :value="false">隐藏</option></template
-                    >
+                  ><select v-model="form.visible" aria-required="true">
+                    <option :value="null" disabled>请选择显示状态</option>
+                    <option :value="true">显示</option>
+                    <option :value="false">隐藏</option>
                   </select></label
                 ><label class="rbac-field"
                   ><span class="form-required">菜单状态</span
@@ -207,8 +201,7 @@
             </p>
           </div>
           <footer class="rbac-modal-actions">
-            <button class="rbac-secondary-btn" @click="close">取消</button
-            ><button class="primary-btn" :disabled="saving" @click="save">{{ saving ? '保存中' : '确认保存' }}</button>
+            <button class="primary-btn" :disabled="saving" @click="save">{{ saving ? '保存中' : '确认保存' }}</button>
           </footer>
         </section>
       </div>
@@ -217,7 +210,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { createMenu, deleteMenu, listMenus, listPermissionDefinitions, updateMenu } from '../api/users'
 import { validateCode, validateHttpUrl, validateInteger, validateLength } from '../utils/formValidation'
 
@@ -255,21 +248,11 @@ const sortedMenus = computed(() => {
   visit('')
   return result
 })
-const parentOptions = computed(() =>
-  sortedMenus.value.filter((item) => item.menuId !== selected.value?.menuId && item.menuType !== 'action'),
-)
-const navigableMenus = computed(() => menus.value.filter((menu) => menu.menuType !== 'action'))
-const rootCount = computed(() => navigableMenus.value.filter((menu) => !menu.parentId).length)
-const visibleCount = computed(() => navigableMenus.value.filter((menu) => menu.visible && menu.enabled).length)
-const hiddenCount = computed(() => navigableMenus.value.length - visibleCount.value)
-const actionCount = computed(() => menus.value.filter((menu) => menu.menuType === 'action').length)
-
-watch(
-  () => form.menuType,
-  (menuType) => {
-    if (menuType === 'action') form.visible = false
-  },
-)
+const parentOptions = computed(() => sortedMenus.value.filter((item) => item.menuId !== selected.value?.menuId))
+const rootCount = computed(() => menus.value.filter((menu) => !menu.parentId).length)
+const childCount = computed(() => menus.value.filter((menu) => !!menu.parentId).length)
+const visibleCount = computed(() => menus.value.filter((menu) => menu.visible && menu.enabled).length)
+const hiddenCount = computed(() => menus.value.length - visibleCount.value)
 
 onMounted(load)
 async function load() {
@@ -333,10 +316,10 @@ function depth(menu) {
   return value
 }
 function typeName(type) {
-  return { directory: '目录', page: '页面', external: '外链', action: '操作权限' }[type] || type
+  return { directory: '目录', page: '页面', external: '外链' }[type] || type
 }
 function typeBadge(type) {
-  return { directory: 'warning', page: 'primary', external: 'success', action: 'neutral' }[type] || 'neutral'
+  return { directory: 'warning', page: 'primary', external: 'success' }[type] || 'neutral'
 }
 function menuTarget(menu) {
   return menu.externalUrl || menu.routePath || menu.componentKey || '无导航目标'

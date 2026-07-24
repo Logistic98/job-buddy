@@ -42,6 +42,15 @@ describe('dynamic RBAC navigation', () => {
           iconKey: 'settings',
           displayOrder: 30,
         },
+        {
+          menuId: 'm-settings-users',
+          parentId: 'm-settings',
+          menuName: '用户管理',
+          menuType: 'page',
+          routePath: '/settings?tab=users',
+          componentKey: 'settings',
+          displayOrder: 31,
+        },
       ],
     }
     const appRouter = router()
@@ -55,6 +64,7 @@ describe('dynamic RBAC navigation', () => {
 
     expect(wrapper.text()).toContain('动态对话入口')
     expect(wrapper.text()).toContain('平台设置')
+    expect(wrapper.text()).not.toContain('用户管理')
     expect(wrapper.text()).not.toContain('账号管理')
   })
 

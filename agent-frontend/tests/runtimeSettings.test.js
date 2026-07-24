@@ -26,7 +26,9 @@ describe('normalizeRuntimeSettings', () => {
     expect(Object.keys(normalized)).toEqual(Object.keys(RUNTIME_SETTING_LIMITS))
     expect(normalized.maxJobsPerRecommend).toBe(15)
     expect(normalized.minimumRecommendedMatchScore).toBe(60)
-    expect(normalized.runtimeMaxTurns).toBe(4)
+    expect(normalized.runtimeMaxTurns).toBe(12)
+    expect(normalized.runtimeMaxToolCalls).toBe(20)
+    expect(normalized.runtimeMaxFailures).toBe(3)
     expect(normalized.resumeWriterVersionLimit).toBe(30)
   })
 
