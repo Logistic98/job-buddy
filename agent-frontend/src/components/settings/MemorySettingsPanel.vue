@@ -11,7 +11,7 @@
       <div class="setting-card">
         <div>
           <h3>记忆策略</h3>
-          <p>长期记忆会优先存入本地设置文件，即使 agent-memory 服务不可用，也能在工作台对话中生效。</p>
+          <p>长期记忆统一存入 agent-memory，并按当前租户和用户隔离；服务不可用时不会回退到本地副本。</p>
         </div>
         <div class="form-grid">
           <label

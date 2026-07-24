@@ -71,6 +71,18 @@ class HttpClientConfigTest {
   }
 
   @Test
+  void memoryClientShouldUseItsIndependentShortResponseTimeout() {
+    AgentServiceProperties properties = properties(Duration.ofSeconds(1), Duration.ofSeconds(2));
+    properties.setMemoryConnectTimeout(Duration.ofSeconds(1));
+    properties.setMemoryReadTimeout(Duration.ofMillis(100));
+    RestTemplate restTemplate = new HttpClientConfig().agentMemoryRestTemplate(properties);
+
+    assertThrows(
+        ResourceAccessException.class,
+        () -> restTemplate.getForObject(baseUrl + "/slow", String.class));
+  }
+
+  @Test
   void shouldSendInternalServiceTokenWhenConfigured() {
     AgentServiceProperties properties = properties(Duration.ofSeconds(1), Duration.ofSeconds(1));
     properties.setInternalServiceToken("  secret-token  ");

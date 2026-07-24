@@ -60,6 +60,15 @@
               placeholder="例如 http://localhost:8050"
           /></label>
           <label
+            ><span>Sandbox URL</span
+            ><input
+              aria-required="true"
+              v-model.trim="services.sandboxUrl"
+              type="url"
+              maxlength="512"
+              placeholder="例如 http://localhost:8061"
+          /></label>
+          <label
             ><span>连接超时（秒）</span
             ><input
               aria-required="true"
@@ -160,6 +169,7 @@ const normalizeServices = (value) => ({
   memoryUrl: value?.memoryUrl || '',
   toolUrl: value?.toolUrl || '',
   evalUrl: value?.evalUrl || '',
+  sandboxUrl: value?.sandboxUrl || '',
   connectTimeout: value?.connectTimeout || '2s',
   readTimeout: value?.readTimeout || '75s',
 })
@@ -200,6 +210,7 @@ async function save() {
       ['memoryUrl', 'Memory URL'],
       ['toolUrl', 'Tool URL'],
       ['evalUrl', 'Eval URL'],
+      ['sandboxUrl', 'Sandbox URL'],
     ]) {
       services.value[key] = validateHttpUrl(services.value[key], label, { required: true })
     }

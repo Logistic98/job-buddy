@@ -16,6 +16,8 @@ public class AgentServiceProperties {
   private String internalServiceToken;
   private Duration connectTimeout = Duration.ofSeconds(2);
   private Duration readTimeout = Duration.ofSeconds(135);
+  private Duration memoryConnectTimeout = Duration.ofSeconds(2);
+  private Duration memoryReadTimeout = Duration.ofSeconds(10);
   private Duration streamConnectTimeout = Duration.ofSeconds(10);
   private Duration streamReadTimeout = Duration.ofSeconds(180);
   private Duration streamSessionTimeout = Duration.ofMinutes(15);
@@ -99,6 +101,11 @@ public class AgentServiceProperties {
     return normalizeBaseUrl(sandboxUrl);
   }
 
+  /** Normalized agent-memory base URL ("" when unconfigured). */
+  public String resolvedMemoryUrl() {
+    return normalizeBaseUrl(memoryUrl);
+  }
+
   /** Trimmed cross-service token ("" when unconfigured). */
   public String resolvedInternalServiceToken() {
     return internalServiceToken == null ? "" : internalServiceToken.trim();
@@ -126,6 +133,22 @@ public class AgentServiceProperties {
 
   public void setReadTimeout(Duration readTimeout) {
     this.readTimeout = readTimeout;
+  }
+
+  public Duration getMemoryConnectTimeout() {
+    return memoryConnectTimeout;
+  }
+
+  public void setMemoryConnectTimeout(Duration memoryConnectTimeout) {
+    this.memoryConnectTimeout = memoryConnectTimeout;
+  }
+
+  public Duration getMemoryReadTimeout() {
+    return memoryReadTimeout;
+  }
+
+  public void setMemoryReadTimeout(Duration memoryReadTimeout) {
+    this.memoryReadTimeout = memoryReadTimeout;
   }
 
   public Duration getStreamConnectTimeout() {

@@ -35,6 +35,7 @@ public class ServiceHealthMonitor {
     data.put("memoryUrl", agentProperties.getMemoryUrl());
     data.put("toolUrl", agentProperties.getToolUrl());
     data.put("evalUrl", agentProperties.getEvalUrl());
+    data.put("sandboxUrl", agentProperties.getSandboxUrl());
     data.put("connectTimeout", agentProperties.getConnectTimeout().toString());
     data.put("readTimeout", agentProperties.getReadTimeout().toString());
     return data;
@@ -94,6 +95,7 @@ public class ServiceHealthMonitor {
     data.put("memory", status("memory", "Memory Service", agentProperties.getMemoryUrl()));
     data.put("tool", status("tool", "Tool Service", agentProperties.getToolUrl()));
     data.put("eval", status("eval", "Eval Service", agentProperties.getEvalUrl()));
+    data.put("sandbox", status("sandbox", "Sandbox Service", agentProperties.getSandboxUrl()));
     return data;
   }
 

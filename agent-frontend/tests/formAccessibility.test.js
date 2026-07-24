@@ -65,7 +65,7 @@ describe('platform form accessibility contract', () => {
     expect(runtime.match(/all-fields-required/g)).toHaveLength(4)
     expect(runtime.match(/aria-required="true"/g)).toHaveLength(12)
     expect(services).toContain('form-grid all-fields-required')
-    expect(services.match(/aria-required="true"/g)).toHaveLength(7)
+    expect(services.match(/aria-required="true"/g)).toHaveLength(8)
   })
 
   it('defines shared red required and error styles', () => {

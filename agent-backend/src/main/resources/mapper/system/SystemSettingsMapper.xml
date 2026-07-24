@@ -29,4 +29,10 @@
       setting_json = EXCLUDED.setting_json,
       updated_at = CURRENT_TIMESTAMP
   </insert>
+
+  <delete id="deleteSetting">
+    DELETE FROM platform_setting
+    WHERE scope_id = #{scopeId}
+      AND setting_key = #{settingKey}
+  </delete>
 </mapper>
