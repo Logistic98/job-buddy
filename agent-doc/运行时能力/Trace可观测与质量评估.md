@@ -20,7 +20,7 @@ agent-eval 提供 `/v1/eval/trace`、`/v1/eval/run`、`/v1/eval/capabilities`、
 graph LR
     RUN[Agent 运行] --> TRACE[结构化 Trace]
     RUN --> LOG[结构化日志]
-    TRACE --> JSONL[(JSONL / 查询窗口)]
+    TRACE --> JSONL[("JSONL / 查询窗口")]
     TRACE -.-> OTEL[OTLP Collector]
     JSONL --> EVAL[agent-eval]
     CASES[评估用例] --> EVAL

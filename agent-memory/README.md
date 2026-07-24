@@ -1,18 +1,20 @@
 # agent-memory
 
-`agent-memory` 是长程记忆与上下文管理服务。服务优先对接自部署的 TencentDB Agent Memory Hermes Gateway；当 Gateway 未配置或不可用时，本地持久化默认使用 PostgreSQL，不再使用 H2 或其他嵌入式数据库。未配置 PostgreSQL 连接时，仅保留内存兜底，适用于本地快速验证。
+`agent-memory` 是长程记忆与上下文管理服务。用户在平台设置中管理的长期记忆统一使用 `long_term` scope，并以本服务的 PostgreSQL 存储为唯一事实来源；Backend 只保存全局记忆策略，不保存第二份记忆条目。其他 scope 可以按部署配置接入 TencentDB Agent Memory Hermes Gateway。未配置 PostgreSQL 连接时仅保留进程内存实现，适用于本地快速验证，不属于正式持久化方案。
 
 ## 接口
 
 - `GET /health`
 - `POST /v1/memories`
+- `GET /v1/memories?scope=long_term&limit=1000`
 - `GET /v1/memories/search?q=trace&scope=session`
 - `PUT /v1/memories/{memory_id}`
 - `POST /v1/memories/{memory_id}/rollback`
 - `DELETE /v1/memories/{memory_id}`
+- `DELETE /v1/memories?scope=long_term`
 - `POST /v1/memories/purge-expired`
 
-写入与召回采用 BM25、时间衰减和可选向量信号的 RRF 融合排序（详见 `app/relevance.py`），不包含图数据库召回。每条记忆带 `kind`（step / task / long_term / semantic）、`operator_id` 与 `version` 字段；`PUT` 更新会在覆盖前留存历史版本，`POST .../rollback` 回滚到上一版本内容。
+写入与召回采用 BM25、时间衰减和可选向量信号的 RRF 融合排序（详见 `app/relevance.py`），不包含图数据库召回。每条记忆带 `kind`（step / task / long_term / semantic）、`category`、`source`、`enabled`、`operator_id` 与 `version` 字段；禁用条目不会进入搜索结果，`PUT` 更新会在覆盖前留存历史版本，`POST .../rollback` 回滚到上一版本内容。列表和批量清理同样按请求头中的租户、操作者及 scope 隔离。
 
 所有写类与召回接口只从受信的 `X-Tenant-Id`、`X-Operator-Id` 请求头解析所有权；为兼容旧客户端，请求模型中的 `operator_id` 字段暂时保留但不参与身份判定，缺少操作者请求头时进入匿名隔离分区。服务通过 Loguru `audit="memory"` 绑定字段输出审计日志，覆盖创建、检索、更新、回滚、删除与过期清理，便于按操作者还原记忆变更链路。
 
@@ -24,9 +26,9 @@ uv run python server.py
 uv run python -m pytest
 ```
 
-## PostgreSQL 本地持久化配置
+## PostgreSQL 持久化配置
 
-当未启用 TencentDB Agent Memory Gateway，或 Gateway 暂时不可用需要本地兜底时，PostgreSQL 连接统一读取仓库根目录 `.env`：
+PostgreSQL 连接统一读取仓库根目录 `.env`：
 
 ```bash
 SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:<port>/<database>
