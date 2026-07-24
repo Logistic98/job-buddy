@@ -215,7 +215,10 @@ class AgentGraphBuilder:
         await self.trace_recorder.record(
             state["trace_id"],
             TraceEventName.CONTEXT_COLLECTED.value,
-            {"context_summary": state["context_summary"], "metrics": assembled["metrics"]},
+            {
+                "context_sections": sorted(assembled["payload"].keys()),
+                "metrics": assembled["metrics"],
+            },
             run_id=state["run_id"],
             node_id="collect_context",
             status="success",
@@ -344,7 +347,13 @@ class AgentGraphBuilder:
 
         async def _timed_execute(call):
             started = time.perf_counter()
-            gateway_result = await self.tool_gateway.execute(call, mode, context, state.get("task_understanding"))
+            gateway_result = await self.tool_gateway.execute(
+                call,
+                mode,
+                context,
+                state.get("task_understanding"),
+                state.get("messages") or [],
+            )
             return gateway_result, int((time.perf_counter() - started) * 1000)
 
         step_by_id = {step.id: step for step in (state.get("plan").steps if state.get("plan") else [])}

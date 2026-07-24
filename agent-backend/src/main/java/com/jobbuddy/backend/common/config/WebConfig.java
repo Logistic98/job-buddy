@@ -11,21 +11,25 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
   private final ApiAuthenticationInterceptor apiAuthenticationInterceptor;
   private final ApiAuthorizationInterceptor apiAuthorizationInterceptor;
+  private final JobBuddyProperties properties;
 
   public WebConfig(
       ApiAuthenticationInterceptor apiAuthenticationInterceptor,
-      ApiAuthorizationInterceptor apiAuthorizationInterceptor) {
+      ApiAuthorizationInterceptor apiAuthorizationInterceptor,
+      JobBuddyProperties properties) {
     this.apiAuthenticationInterceptor = apiAuthenticationInterceptor;
     this.apiAuthorizationInterceptor = apiAuthorizationInterceptor;
+    this.properties = properties;
   }
 
   @Override
   public void addCorsMappings(CorsRegistry registry) {
     registry
         .addMapping("/api/**")
-        .allowedOriginPatterns("*")
+        .allowedOrigins(properties.getCorsAllowedOrigins().toArray(new String[0]))
         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-        .allowedHeaders("*");
+        .allowedHeaders("*")
+        .allowCredentials(true);
   }
 
   @Override

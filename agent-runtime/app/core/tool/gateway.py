@@ -5,8 +5,9 @@ from typing import Any, Dict, List, Optional
 from loguru import logger
 from pydantic import BaseModel
 
-from app.core.common.constants import PermissionMode
+from app.core.common.constants import PermissionMode, ToolRiskLevel
 from app.core.common.settings import settings
+from app.core.security.transcript_review import APPROVE, REQUIRE_CONFIRMATION, TranscriptReviewClient
 from app.core.tool.base import ToolExecutionContext
 from app.core.tool.injection_probe import probe_payload
 from app.core.tool.permission import PermissionService
@@ -33,11 +34,13 @@ class ToolGateway:
         search_service: ToolSearchService | None = None,
         runtime: ToolRuntime | None = None,
         permission_service: PermissionService | None = None,
+        transcript_reviewer: TranscriptReviewClient | None = None,
     ):
         self.registry = registry
         self.search_service = search_service or ToolSearchService(registry)
         self.runtime = runtime or ToolRuntime(registry, permission_service=permission_service)
         self.permission_service = permission_service or self.runtime.permission_service
+        self.transcript_reviewer = transcript_reviewer or TranscriptReviewClient()
 
     async def search(self, query: str, task: TaskUnderstandingResult | None, limit: int) -> List[ToolDefinition]:
         candidates = await self.search_service.search(query or "", limit=limit)
@@ -51,6 +54,7 @@ class ToolGateway:
         permission_mode: PermissionMode,
         context: ToolExecutionContext,
         task: TaskUnderstandingResult | None = None,
+        transcript_messages: list[Any] | None = None,
     ) -> ToolGatewayResult:
         if task and not self._call_allowed_by_task(call.name, task):
             result = ToolResult(
@@ -70,9 +74,63 @@ class ToolGateway:
             )
             return ToolGatewayResult(result=result, permission_record=record)
 
+        tool = self.registry.get(call.name)
+        if tool is None:
+            result = await self.runtime.execute(call, permission_mode, context)
+            return ToolGatewayResult(result=self._normalize_result(result))
+
+        decision = await self.permission_service.check(tool.definition(), call, permission_mode)
+        needs_transcript_review = (
+            settings.config.transcript_review.enabled
+            and decision.allowed
+            and (
+                tool.definition().risk_level == ToolRiskLevel.HIGH
+                or tool.is_destructive(call.arguments)
+                or tool.name in settings.config.permission.destructive_tools
+            )
+        )
+        if needs_transcript_review:
+            review_error = None
+            try:
+                review = await self.transcript_reviewer.review(transcript_messages or [], call)
+                approved = review.decision == APPROVE
+                requires_confirmation = review.decision == REQUIRE_CONFIRMATION
+                reason = (
+                    "高风险工具已通过独立 transcript 复核"
+                    if approved
+                    else ("高风险工具需要人工确认" if requires_confirmation else "高风险工具缺少可验证的用户授权")
+                )
+            except RuntimeError as exc:
+                approved = False
+                requires_confirmation = False
+                reason = "高风险 transcript 复核不可用，已失败关闭"
+                review_error = str(exc)
+            if not approved:
+                result = ToolResult(
+                    tool_call_id=call.id,
+                    tool_name=tool.name,
+                    success=False,
+                    error=reason,
+                    metadata={
+                        "permission_denied": True,
+                        "requires_confirmation": requires_confirmation,
+                        "policy": "transcript_review",
+                        "review_error": review_error,
+                    },
+                )
+                record = PermissionRecord(
+                    tool_call_id=call.id,
+                    tool_name=tool.name,
+                    allowed=False,
+                    reason=reason,
+                    requires_confirmation=requires_confirmation,
+                    mode=permission_mode.value,
+                )
+                return ToolGatewayResult(result=self._normalize_result(result), permission_record=record)
+
         # 每次调用使用独立 ToolRuntime，隔离并发 permission record。
         runtime = ToolRuntime(self.registry, permission_service=self.permission_service)
-        result = await runtime.execute(call, permission_mode, context)
+        result = await runtime.execute(call, permission_mode, context, permission_decision=decision)
         result = self._normalize_result(result)
         result = self._probe_injection(result)
         return ToolGatewayResult(result=result, permission_record=runtime.last_permission_record)

@@ -53,12 +53,13 @@ class CheckpointStore:
     async def save(self, session_id: str, run_id: str, stage: str, state: Dict[str, Any]):
         if not settings.config.checkpoint.enabled:
             return
+        persisted_state = self._persistence_snapshot(state)
         payload = {
             "session_id": session_id,
             "run_id": run_id,
             "stage": stage,
             "saved_at": TimeUtils.get_formatted_time(),
-            "state": self._json_safe(redact_sensitive(state)),
+            "state": self._json_safe(redact_sensitive(persisted_state)),
         }
         sequence = time.time_ns()
         pool = await self._get_pool()
@@ -179,3 +180,37 @@ class CheckpointStore:
         if isinstance(obj, list):
             return [self._json_safe(item) for item in obj]
         return obj
+
+    def _persistence_snapshot(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Drop reconstructable personal-context copies before durable persistence.
+
+        The active in-memory state remains unchanged. Raw messages and personal context are
+        reconstructed from the resume request; only the non-personal context skeleton,
+        observations, plan, and tool state remain durable.
+        """
+
+        snapshot = dict(state)
+        metadata = dict(snapshot.get("metadata") or {})
+        metadata.pop("personal_context", None)
+        snapshot["metadata"] = metadata
+        snapshot.pop("messages", None)
+        snapshot.pop("context_payload", None)
+        context_summary = snapshot.get("context_summary")
+        if isinstance(context_summary, str):
+            try:
+                resumable_context = json.loads(context_summary)
+            except (TypeError, ValueError):
+                snapshot.pop("context_summary", None)
+            else:
+                if isinstance(resumable_context, dict):
+                    resumable_context.pop("personal_context", None)
+                    resumable_context.pop("recent_messages", None)
+                    snapshot["context_summary"] = json.dumps(
+                        resumable_context,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                else:
+                    snapshot.pop("context_summary", None)
+        return snapshot

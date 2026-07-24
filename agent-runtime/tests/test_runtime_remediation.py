@@ -49,9 +49,11 @@ class _TaskUnderstanding:
 class _StreamingLLM:
     def __init__(self):
         self.stream_calls = 0
+        self.max_tokens = None
 
-    async def stream_chat(self, messages):
+    async def stream_chat(self, messages, max_tokens=None):
         self.stream_calls += 1
+        self.max_tokens = max_tokens
         yield {"type": "text", "text": "已合成"}
 
     def get_cache_metrics(self):

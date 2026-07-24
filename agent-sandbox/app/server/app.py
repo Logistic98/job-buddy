@@ -201,7 +201,10 @@ def _effective_config(policy, workspace: str | Path) -> SandboxRuntimeConfig:
             denyRead=_dedupe([*base.filesystem.denyRead, *requested.filesystem.denyRead]),
             allowRead=_narrow_allowed_paths(base.filesystem.allowRead, requested.filesystem.allowRead, workspace_path),
             allowWrite=_narrow_allowed_paths(
-                base.filesystem.allowWrite, requested.filesystem.allowWrite, workspace_path
+                base.filesystem.allowWrite,
+                requested.filesystem.allowWrite,
+                workspace_path,
+                empty_means_none=True,
             ),
             denyWrite=_dedupe([*base.filesystem.denyWrite, *requested.filesystem.denyWrite]),
         ),
@@ -257,6 +260,9 @@ def _safe_cwd(raw_cwd) -> tuple[Path, Callable[[], None]]:
 
 def _is_allowed_cwd(path: Path) -> bool:
     roots = [Path(tempfile.gettempdir()), Path("/tmp"), Path("/private/tmp"), Path("/var/tmp")]
+    configured_workspace = os.getenv("AGENT_SANDBOX_WORKSPACE_DIR", "").strip()
+    if configured_workspace:
+        roots.append(Path(configured_workspace))
     for root in roots:
         try:
             path.relative_to(root.expanduser().resolve())
@@ -273,9 +279,15 @@ def _narrow_allowed_domains(base_values: list[str], requested_values: list[str])
     return [value for value in base_values if value in requested]
 
 
-def _narrow_allowed_paths(base_values: list[str], requested_values: list[str], workspace: Path) -> list[str]:
+def _narrow_allowed_paths(
+    base_values: list[str],
+    requested_values: list[str],
+    workspace: Path,
+    *,
+    empty_means_none: bool = False,
+) -> list[str]:
     if not requested_values:
-        return list(base_values)
+        return [] if empty_means_none else list(base_values)
 
     narrowed: list[str] = []
     for base_value in base_values:

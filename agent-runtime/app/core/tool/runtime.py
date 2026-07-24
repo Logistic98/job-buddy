@@ -6,7 +6,7 @@ from loguru import logger
 from app.core.common.constants import PermissionMode
 from app.core.common.settings import settings
 from app.core.tool.base import ToolExecutionContext
-from app.core.tool.permission import PermissionService
+from app.core.tool.permission import PermissionDecision, PermissionService
 from app.core.tool.registry import ToolRegistry
 from app.models.schemas import PermissionRecord, ToolCall, ToolResult
 
@@ -24,6 +24,7 @@ class ToolRuntime:
         call: ToolCall,
         permission_mode: PermissionMode,
         context: ToolExecutionContext,
+        permission_decision: PermissionDecision | None = None,
     ) -> ToolResult:
         self.last_permission_record = None
         if not settings.config.tool_runtime.enabled:
@@ -35,7 +36,7 @@ class ToolRuntime:
                 tool_call_id=call.id, tool_name=call.name, success=False, error=f"工具不存在: {call.name}"
             )
 
-        decision = await self.permission_service.check(tool.definition(), call, permission_mode)
+        decision = permission_decision or await self.permission_service.check(tool.definition(), call, permission_mode)
         self.last_permission_record = PermissionRecord(
             tool_call_id=call.id,
             tool_name=tool.name,

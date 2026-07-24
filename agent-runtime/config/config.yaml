@@ -57,6 +57,9 @@ runtime:
   # 连续失败阈值。达到后 Runtime 会停止继续执行并输出失败摘要。
   max_failures: "${JOB_BUDDY_RUNTIME_MAX_FAILURES:3}"
 
+  # 单次 run 的累计 token 上限。请求省略或传 0 时回落到该有限预算。
+  max_run_tokens: "${JOB_BUDDY_RUNTIME_MAX_TOKENS:32768}"
+
   # 单个工具默认超时时间，单位秒。工具自身配置优先级高于该全局值。
   tool_timeout_seconds: "${JOB_BUDDY_RUNTIME_TOOL_TIMEOUT_SECONDS:30}"
 
@@ -139,6 +142,15 @@ permission:
     - "file_write"
     - "file_edit"
     - "shell_exec"
+
+transcript_review:
+  # 高风险或破坏性工具在权限策略允许后，仍需由 agent-intent 独立复核用户消息与拟执行工具调用。
+  # 复核服务不可用时高风险调用失败关闭；低风险工具不调用该服务。
+  enabled: "${JOB_BUDDY_TRANSCRIPT_REVIEW_ENABLED:true}"
+  base_url: "${JOB_BUDDY_TRANSCRIPT_REVIEW_BASE_URL:http://localhost:8020}"
+  timeout_seconds: "${JOB_BUDDY_TRANSCRIPT_REVIEW_TIMEOUT_SECONDS:2}"
+  max_retries: "${JOB_BUDDY_TRANSCRIPT_REVIEW_MAX_RETRIES:1}"
+  retry_backoff_seconds: "${JOB_BUDDY_TRANSCRIPT_REVIEW_RETRY_BACKOFF_SECONDS:0.2}"
 
 tool_runtime:
   # 工具执行全局开关。

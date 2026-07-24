@@ -29,7 +29,6 @@ export default defineConfig(({ mode }) => {
             if (id.includes('/@vue/devtools-api/')) return 'vendor-vue'
             if (id.includes('/vue') || id.includes('/pinia') || id.includes('/vue-router')) return 'vendor-vue'
             if (id.includes('/markstream-vue')) return 'vendor-markdown'
-            if (id.includes('/html2pdf.js')) return 'vendor-html2pdf'
             if (id.includes('/jspdf')) return 'vendor-jspdf'
             if (id.includes('/html2canvas')) return 'vendor-html2canvas'
             return `vendor-${packageNameFromId(id)}`

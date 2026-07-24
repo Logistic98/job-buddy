@@ -27,9 +27,9 @@ public class JsonCodec {
       return objectMapper.writeValueAsString(value);
     } catch (Exception e) {
       log.warn(
-          "JsonCodec toJson failed, falling back to empty object. type={}, error={}",
+          "JsonCodec toJson failed, falling back to empty object. type={}, errorType={}",
           value == null ? "null" : value.getClass().getName(),
-          e.getMessage());
+          e.getClass().getSimpleName());
       return "{}";
     }
   }
@@ -39,6 +39,10 @@ public class JsonCodec {
       if (json == null || json.isEmpty()) return Collections.emptyMap();
       return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
     } catch (Exception e) {
+      log.warn(
+          "JsonCodec toMap failed. inputLength={}, errorType={}",
+          json == null ? 0 : json.length(),
+          e.getClass().getSimpleName());
       return Collections.emptyMap();
     }
   }
@@ -48,6 +52,10 @@ public class JsonCodec {
       if (value == null) return Collections.emptyMap();
       return objectMapper.convertValue(value, new TypeReference<Map<String, Object>>() {});
     } catch (Exception e) {
+      log.warn(
+          "JsonCodec object conversion failed. type={}, errorType={}",
+          value == null ? "null" : value.getClass().getName(),
+          e.getClass().getSimpleName());
       return Collections.emptyMap();
     }
   }
@@ -57,6 +65,10 @@ public class JsonCodec {
       if (json == null || json.isEmpty()) return Collections.emptyList();
       return objectMapper.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
     } catch (Exception e) {
+      log.warn(
+          "JsonCodec toMapList failed. inputLength={}, errorType={}",
+          json == null ? 0 : json.length(),
+          e.getClass().getSimpleName());
       return Collections.emptyList();
     }
   }
@@ -70,6 +82,10 @@ public class JsonCodec {
       if (json == null || json.trim().isEmpty()) return objectMapper.createObjectNode();
       return objectMapper.readTree(json);
     } catch (Exception e) {
+      log.warn(
+          "JsonCodec readTree failed. inputLength={}, errorType={}",
+          json == null ? 0 : json.length(),
+          e.getClass().getSimpleName());
       return objectMapper.createObjectNode();
     }
   }

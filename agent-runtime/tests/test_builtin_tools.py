@@ -176,8 +176,8 @@ async def test_shell_allow_prefix_runs_in_sandbox(fresh_registry, tool_context, 
     assert result.output["sandboxed"] is True
     payload = _FakeSandboxClient.last_payload
     assert payload["url"].endswith("/v1/shell")
-    assert payload["json"]["command"].startswith("cd ")
-    assert payload["json"]["command"].endswith("&& pwd")
+    assert payload["json"]["command"] == "pwd"
+    assert payload["json"]["options"]["cwd"] == str(tool_context.workspace_dir)
     assert payload["json"]["policy"]["filesystem"]["allowWrite"] == []
     assert payload["json"]["policy"]["network"]["allowedDomains"] == []
 

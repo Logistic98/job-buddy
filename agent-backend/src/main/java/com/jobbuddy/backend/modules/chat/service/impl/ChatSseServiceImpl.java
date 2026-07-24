@@ -532,7 +532,7 @@ public class ChatSseServiceImpl implements ChatSseService {
     Map<String, Object> request =
         RuntimeRequestBuilder.forEntrypoint(sessionId, message, "chat.stream")
             .messages(taskContextBuilder.build(state, message))
-            .budget(1, 0, 1)
+            .budget(1, 0, 1, Math.min(properties.getRuntimeMaxTokens(), 4096))
             .metadata("understanding_only", true)
             .metadata("intent_hint", intentHint(preIntent))
             .metadata("resume_id", state == null ? null : state.resumeId)

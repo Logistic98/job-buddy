@@ -236,8 +236,8 @@ class BudgetConfig(BaseModel):
     max_turns: int = 12
     max_tool_calls: int = 20
     max_failures: int = 3
-    # 单次 run 的 token 预算，0 表示不限；累计口径为真实模型调用的 total_tokens。
-    max_tokens: int = 0
+    # 单次 run 的 token 预算；显式传 0 时由 Runtime 回落到服务端有限默认值。
+    max_tokens: int = 32768
 
 
 class AgentRunRequest(BaseModel):

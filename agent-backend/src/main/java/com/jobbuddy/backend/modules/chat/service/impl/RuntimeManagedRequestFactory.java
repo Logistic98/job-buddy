@@ -174,6 +174,7 @@ class RuntimeManagedRequestFactory {
     budget.put("max_turns", properties.getRuntimeMaxTurns());
     budget.put("max_tool_calls", properties.getRuntimeMaxToolCalls());
     budget.put("max_failures", properties.getRuntimeMaxFailures());
+    budget.put("max_tokens", properties.getRuntimeMaxTokens());
     request.put("budget", budget);
     Map<String, Object> metadata = new LinkedHashMap<String, Object>();
     metadata.put("profile", profile);
@@ -197,7 +198,17 @@ class RuntimeManagedRequestFactory {
         state == null || state.lastSlots == null ? Collections.emptyMap() : state.lastSlots);
     metadata.put("current_jobs_count", state == null || state.jobs == null ? 0 : state.jobs.size());
     metadata.put("personal_context", buildPersonalContext(message, intent, state));
-    metadata.put("upstream_directive", directive == null ? Collections.emptyMap() : directive);
+    Map<String, Object> upstreamDirective =
+        directive == null
+            ? new LinkedHashMap<String, Object>()
+            : new LinkedHashMap<String, Object>(directive);
+    Object upstreamResult = upstreamDirective.remove("runtime_result");
+    if (upstreamResult instanceof Map) {
+      Map<?, ?> result = (Map<?, ?>) upstreamResult;
+      metadata.put("upstream_run_id", result.get("run_id"));
+      metadata.put("upstream_trace_id", result.get("trace_id"));
+    }
+    metadata.put("upstream_directive", upstreamDirective);
     return metadata;
   }
 }

@@ -8,26 +8,30 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src tests",
-    "format": "prettier --write src tests eslint.config.js vite.config.js",
-    "format:check": "prettier --check src tests eslint.config.js vite.config.js",
+    "format": "prettier --write src tests eslint.config.js vite.config.js vitest.config.js",
+    "format:check": "prettier --check src tests eslint.config.js vite.config.js vitest.config.js",
     "test": "vitest run"
   },
   "dependencies": {
-    "@vitejs/plugin-vue": "6.0.1",
-    "dompurify": "^3.4.7",
-    "html2pdf.js": "^0.10.3",
+    "dompurify": "3.4.12",
+    "html2canvas": "1.4.1",
+    "jspdf": "4.2.1",
     "markstream-vue": "^1.0.1-beta.1",
     "pinia": "2.3.1",
-    "vite": "7.2.2",
     "vue": "3.5.24",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.1",
     "@vue/test-utils": "^2.4.11",
     "eslint": "^9.39.0",
     "eslint-plugin-vue": "^10.6.2",
-    "happy-dom": "^20.0.11",
+    "jsdom": "29.1.1",
     "prettier": "3.9.6",
-    "vitest": "^3.2.4"
+    "vite": "7.3.6",
+    "vitest": "3.2.7"
+  },
+  "overrides": {
+    "linkify-it": "5.0.2"
   }
 }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.server.app import _bounded_output, _effective_config, create_app
+from app.server.app import _bounded_output, _effective_config, _safe_cwd, create_app
 from app.server.schemas import SandboxPolicySchema
 
 
@@ -64,6 +64,31 @@ def test_http_policy_cannot_weaken_workspace_or_network(tmp_path) -> None:
     assert config.ignoreViolations == {}
     assert config.enableWeakerNestedSandbox is False
     assert config.enableWeakerNetworkIsolation is False
+
+
+def test_explicit_empty_write_policy_remains_read_only(tmp_path) -> None:
+    policy = SandboxPolicySchema(
+        filesystem={
+            "allowRead": [str(tmp_path)],
+            "allowWrite": [],
+        }
+    )
+
+    config = _effective_config(policy, tmp_path)
+
+    assert config.filesystem.allowRead == [str(tmp_path.resolve())]
+    assert config.filesystem.allowWrite == []
+
+
+def test_configured_workspace_is_an_allowed_cwd(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    monkeypatch.setenv("AGENT_SANDBOX_WORKSPACE_DIR", str(workspace))
+
+    resolved, cleanup = _safe_cwd(workspace)
+    try:
+        assert resolved == workspace.resolve()
+    finally:
+        cleanup()
 
 
 def test_request_cannot_inject_process_environment(fake_srt) -> None:
