@@ -11,7 +11,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-_LIST_KEYS = ("jobList", "job_list", "jobs", "items", "list", "results")
+_LIST_KEYS = ("jobList", "job_list", "cardList", "card_list", "jobs", "items", "list", "results")
 _CONTAINER_KEYS = ("zpData", "data", "result")
 
 # Boss 前端字段会随页面版本漂移。列表项有时是扁平结构，有时把岗位、公司、Boss 信息
@@ -49,9 +49,17 @@ _JOB_FIELD_CANDIDATES: dict[str, tuple[str, ...]] = {
     "brandStageName": ("brandStageName", "brand_stage_name", "companyStage", "financeStage", "stageName"),
     "bossName": ("bossName", "boss_name", "boss", "recruiterName", "recruiter_name"),
     "bossTitle": ("bossTitle", "boss_title", "bossPosition", "positionTitle", "recruiterTitle"),
-    "skills": ("skills", "skillList", "skill_list", "skillLabels", "jobLabels", "labels"),
+    "skills": ("skills", "skillList", "skill_list", "skillLabels"),
     "jobLabels": ("jobLabels", "job_labels", "labels", "tagList", "tag_list"),
     "welfareList": ("welfareList", "welfare_list", "welfare", "benefits"),
+    "jobDescription": (
+        "jobDescription",
+        "postDescription",
+        "jobDesc",
+        "jobSecText",
+        "jobContent",
+        "positionDescription",
+    ),
     "jobUrl": ("jobUrl", "job_url", "url", "href", "link", "detailUrl", "jobDetailUrl"),
 }
 

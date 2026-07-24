@@ -70,7 +70,7 @@ describe('BossFavoriteImportModal', () => {
 
     expect(mocks.listBossFavoriteJobs).toHaveBeenCalledTimes(1)
     expect(mocks.listBossFavoriteJobs).toHaveBeenCalledWith(1, false)
-    expect(wrapper.text()).toContain('导入仅保存岗位摘要，不会自动分析')
+    expect(wrapper.text()).toContain('导入会按选择顺序补全职位描述并保存，不会自动分析')
     const selectable = wrapper.findAll('input[type="checkbox"]:not(:disabled)')
     expect(selectable).toHaveLength(6)
 

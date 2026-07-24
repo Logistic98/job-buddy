@@ -80,7 +80,7 @@ def run_boss_browser(arguments: Dict[str, Any], trace_id: str | None = None) -> 
             message=f"不支持的 Boss 操作: {operation}",
             retryable=False,
             suggested_action=(
-                "operation 必须是 status、refresh_auth、qr_start、qr_status、search、favorite_list、detail、profile 或 rate。"
+                "operation 必须是 status、refresh_auth、qr_start、qr_status、qr_cancel、search、favorite_list、detail、profile 或 rate。"
             ),
         )
     if not isinstance(payload, dict):

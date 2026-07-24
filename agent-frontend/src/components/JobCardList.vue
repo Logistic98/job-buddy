@@ -68,9 +68,6 @@
           {{ fullDescription(row.item) }}
         </div>
         <p v-if="job.detailError(row.item)" class="job-jd-error">{{ job.detailError(row.item) }}</p>
-        <div v-if="welfare(row.item).length" class="job-welfare">
-          <span v-for="item in welfare(row.item)" :key="item">{{ item }}</span>
-        </div>
         <div v-if="researchOf(row.item, row.sourceIndex).links?.length" class="job-actions">
           <a
             v-for="link in researchOf(row.item, row.sourceIndex).links || []"
@@ -639,6 +636,7 @@ function analysisEvidence(value) {
     .filter(Boolean)
 }
 function tags(item) {
+  const seen = new Set()
   return [
     ...asArray(item.skills),
     ...asArray(item.skillList),
@@ -648,6 +646,12 @@ function tags(item) {
   ]
     .map((x) => String(x || '').trim())
     .filter((x) => x && !/^\d{4,}$/.test(x))
+    .filter((x) => {
+      const key = x.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
     .slice(0, 10)
 }
 function originalUrl(item) {
@@ -662,7 +666,10 @@ function experienceText(item) {
   return item.jobExperience || item.experience || '经验不限'
 }
 function industryText(item) {
-  return item.companyIndustry || item.brandIndustry || item.industry || item.industryName || ''
+  const values = [item.companyIndustry, item.brandIndustry, item.industry, item.industryName]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+  return values.find((value) => !/^\d{4,}$/.test(value)) || values[0] || ''
 }
 function scaleText(item) {
   return item.companyScale || item.brandScaleName || item.scaleName || item.brandScale || ''

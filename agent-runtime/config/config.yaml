@@ -249,4 +249,4 @@ memory:
   top_k: "${JOB_BUDDY_MEMORY_TOP_K:5}"
 
   # 默认检索范围。
-  default_scope: "${JOB_BUDDY_MEMORY_DEFAULT_SCOPE:session}"
+  default_scope: "${JOB_BUDDY_MEMORY_DEFAULT_SCOPE:long_term}"

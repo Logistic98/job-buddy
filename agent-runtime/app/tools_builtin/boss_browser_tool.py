@@ -21,16 +21,18 @@ class BossBrowserTool(BaseTool):
     search_hint = "Boss 直聘 招聘 求职 岗位 JD 在线简历 boss-cli Cookie 登录"
     description = (
         "Boss 直聘 boss-cli 工具代理。具体实现位于 agent-tool；本工具仅负责代理调用。"
-        "底层复用本机浏览器 Cookie 或 boss-cli 二维码登录，不启动 Chrome CDP。"
+        "凭据通常由 Backend 的 PostgreSQL auth_state 注入，二维码登录为默认兜底；"
+        "refresh_auth 仅在显式启用浏览器 Cookie 导入时使用，不启动或连接 Chrome CDP。"
     )
     input_schema = {
         "type": "object",
         "properties": {
             "operation": {
                 "type": "string",
-                "description": "操作类型: status, qr_start, qr_status, qr_cancel, search, favorite_list, detail, profile, rate",
+                "description": "操作类型: status, refresh_auth, qr_start, qr_status, qr_cancel, search, favorite_list, detail, profile, rate",
                 "enum": [
                     "status",
+                    "refresh_auth",
                     "qr_start",
                     "qr_status",
                     "qr_cancel",
@@ -75,6 +77,7 @@ class BossBrowserTool(BaseTool):
         operation = str(arguments.get("operation") or "").strip()
         allowed = {
             "status",
+            "refresh_auth",
             "qr_start",
             "qr_status",
             "qr_cancel",

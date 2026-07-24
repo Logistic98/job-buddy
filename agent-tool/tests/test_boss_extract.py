@@ -19,6 +19,29 @@ def test_extract_jobs_from_zpdata():
     assert jobs[0]["lid"] == "abc123"
 
 
+def test_extract_jobs_from_real_favorite_card_list_without_duplicating_labels_as_skills():
+    payload = {
+        "zpData": {
+            "lid": "favorite-page-lid",
+            "cardList": [
+                {
+                    "securityId": "favorite-1",
+                    "jobName": "AI 算法工程师",
+                    "jobLabels": ["上海", "1-3年", "本科"],
+                    "postDescription": "负责大模型算法研发与落地",
+                }
+            ],
+        }
+    }
+
+    jobs = extract_jobs(payload)
+
+    assert jobs[0]["lid"] == "favorite-page-lid"
+    assert jobs[0]["jobLabels"] == ["上海", "1-3年", "本科"]
+    assert "skills" not in jobs[0]
+    assert jobs[0]["jobDescription"] == "负责大模型算法研发与落地"
+
+
 def test_extract_jobs_normalizes_nested_salary_fields():
     payload = {
         "zpData": {

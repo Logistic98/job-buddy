@@ -96,4 +96,11 @@ class QrSessionCodec:
         text = str(value or "").strip()
         if not text:
             raise ValueError("empty token")
-        return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+        raw = base64.b64decode(
+            text + "=" * (-len(text) % 4),
+            altchars=b"-_",
+            validate=True,
+        )
+        if QrSessionCodec._b64(raw) != text:
+            raise ValueError("non-canonical token encoding")
+        return raw

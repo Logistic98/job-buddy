@@ -139,6 +139,23 @@ describe('JobCardList favorites interactions', () => {
     expect(action.text()).toBe('收起描述')
   })
 
+  it('renders duplicate labels only once for legacy imported snapshots', () => {
+    const wrapper = mountFavorites({
+      skills: ['Java', 'Agent', '上海'],
+      skillList: ['java', 'RAG'],
+      jobLabels: ['Agent', '上海'],
+      companyIndustry: '100020',
+      brandIndustry: '互联网',
+      industry: '互联网',
+      welfareList: ['免费班车', '餐补'],
+    })
+
+    expect(wrapper.findAll('.tags span').map((tag) => tag.text())).toEqual(['Java', 'Agent', '上海', 'RAG', '互联网'])
+    expect(wrapper.get('.job-info-grid').text()).toContain('行业：互联网')
+    expect(wrapper.find('.job-welfare').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('免费班车')
+  })
+
   it('renders a decision-oriented report with dimensions, evidence and actions', async () => {
     const wrapper = mountFavorites({
       analyzedAt: '2026-07-21T04:49:00Z',

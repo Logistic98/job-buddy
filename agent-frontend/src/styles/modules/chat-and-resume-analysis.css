@@ -1347,21 +1347,6 @@ select option[value=''] {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.job-welfare {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 8px 0;
-}
-.job-welfare span {
-  border: 1px solid #d1fadf;
-  background: #ecfdf3;
-  color: #067647;
-  border-radius: 999px;
-  padding: 4px 7px;
-  font-size: 12px;
-  font-weight: 700;
-}
 .chat-job-summary {
   margin-top: -2px !important;
   color: #667085 !important;
