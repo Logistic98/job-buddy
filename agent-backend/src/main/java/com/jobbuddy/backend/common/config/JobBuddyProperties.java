@@ -16,20 +16,21 @@ public class JobBuddyProperties {
       new ArrayList<String>(List.of("http://localhost:5173", "http://127.0.0.1:5173"));
 
   /** Job recommendation and scoring safeguards. */
-  private int maxJobsPerRecommend = 15;
+  // 平台设置会在进程运行期间更新这些字段；volatile 保证 SSE 和候选池工作线程立即可见。
+  private volatile int maxJobsPerRecommend = 15;
 
-  private int recommendOverfetchFactor = 5;
-  private int maxJobsPerScoring = 80;
-  private int minimumRecommendedMatchScore = 70;
+  private volatile int recommendOverfetchFactor = 5;
+  private volatile int maxJobsPerScoring = 80;
+  private volatile int minimumRecommendedMatchScore = 60;
 
   /** Boss live-search throttling and cache settings. */
-  private int bossSearchMaxPages = 2;
+  private volatile int bossSearchMaxPages = 2;
 
-  private int bossSearchTargetCandidates = 45;
-  private int bossSearchMaxPageDepth = 5;
-  private int bossSearchPageDelayMillis = 5000;
-  private int bossSearchCacheTtlMinutes = 30;
-  private int bossSearchCooldownMinutesOnRisk = 30;
+  private volatile int bossSearchTargetCandidates = 45;
+  private volatile int bossSearchMaxPageDepth = 5;
+  private volatile int bossSearchPageDelayMillis = 5000;
+  private volatile int bossSearchCacheTtlMinutes = 30;
+  private volatile int bossSearchCooldownMinutesOnRisk = 30;
   private String bossWebBaseUrl = "https://www.zhipin.com";
 
   /**
@@ -39,19 +40,19 @@ public class JobBuddyProperties {
   private boolean intentSafetyGateEnabled = false;
 
   /** Runtime budget limits used when delegating Agent execution. */
-  private int runtimeMaxTurns = 4;
+  private volatile int runtimeMaxTurns = 12;
 
-  private int runtimeMaxToolCalls = 4;
-  private int runtimeMaxFailures = 2;
+  private volatile int runtimeMaxToolCalls = 20;
+  private volatile int runtimeMaxFailures = 3;
   private int runtimeMaxTokens = 32768;
 
   /** Resume upload and object-storage configuration. */
-  private int maxResumeBytes = 5 * 1024 * 1024;
+  private volatile int maxResumeBytes = 5 * 1024 * 1024;
 
   private String resumeRuntimeWorkspace = "";
 
   /** 简历撰写版本历史:每个用户保留的最大版本数与单版本快照大小上限。 */
-  private int resumeWriterVersionLimit = 30;
+  private volatile int resumeWriterVersionLimit = 30;
 
   private int resumeWriterSnapshotMaxBytes = 2 * 1024 * 1024;
   private Auth auth = new Auth();

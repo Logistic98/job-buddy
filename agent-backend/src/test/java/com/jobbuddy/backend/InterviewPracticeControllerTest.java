@@ -2,6 +2,9 @@ package com.jobbuddy.backend;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -10,12 +13,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
@@ -37,6 +43,8 @@ class InterviewPracticeControllerTest {
 
   @Autowired private ObjectMapper objectMapper;
 
+  @MockBean private AgentIntegrationService agentIntegrationService;
+
   @Test
   void shouldExtractInterviewReferenceDocument() throws Exception {
     MockMultipartFile file =
@@ -53,6 +61,44 @@ class InterviewPracticeControllerTest {
         .andExpect(jsonPath("$.data.fileName").value("reference.txt"))
         .andExpect(jsonPath("$.data.text").value("上海 Java 大模型应用开发岗，月薪40-50k"))
         .andExpect(jsonPath("$.data.truncated").value(false));
+  }
+
+  @Test
+  void shouldGenerateReviewCandidatesWithoutSavingThem() throws Exception {
+    Map<String, Object> toolResult =
+        objectMapper.readValue(
+            "{\"success\":true,\"data\":{\"items\":[{\"title\":\"动态规划候选题\","
+                + "\"bankType\":\"leetcode\",\"category\":\"动态规划\",\"difficulty\":\"中等\","
+                + "\"questionType\":\"编程题\",\"content\":\"给定数组，返回满足约束的最优值。\","
+                + "\"answer\":\"使用动态规划并说明复杂度。\",\"tags\":[\"动态规划\"],"
+                + "\"codingMeta\":{\"language\":\"java\",\"functionName\":\"solve\","
+                + "\"parameterCount\":1,\"signature\":\"solve(int[])\","
+                + "\"template\":\"class Solution { int solve(int[] values) { return 0; } }\","
+                + "\"tests\":[{\"name\":\"样例\",\"args\":[[1,2]],\"expected\":3,\"sample\":true},"
+                + "{\"name\":\"空数组\",\"args\":[[]],\"expected\":0,\"sample\":false},"
+                + "{\"name\":\"单元素\",\"args\":[[5]],\"expected\":5,\"sample\":false}]}}]}}",
+            Map.class);
+    when(agentIntegrationService.invokeRuntimeTool(eq("interview_question_generate"), anyMap()))
+        .thenReturn(toolResult);
+
+    mockMvc
+        .perform(
+            post("/api/interview/questions/generate")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"topic\":\"动态规划\",\"category\":\"动态规划\",\"difficulty\":\"中等\","
+                        + "\"questionType\":\"编程题\",\"bankType\":\"leetcode\",\"language\":\"java\","
+                        + "\"requirements\":\"覆盖状态定义和边界条件\",\"count\":1}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.code").value(200))
+        .andExpect(jsonPath("$.data.count").value(1))
+        .andExpect(jsonPath("$.data.items[0].bankType").value("leetcode"))
+        .andExpect(jsonPath("$.data.items[0].questionType").value("编程题"))
+        .andExpect(jsonPath("$.data.items[0].questionId").doesNotExist())
+        .andExpect(jsonPath("$.data.items[0].codingMeta.language").value("java"))
+        .andExpect(jsonPath("$.data.items[0].codingMeta.functionName").isNotEmpty())
+        .andExpect(jsonPath("$.data.items[0].codingMeta.template").isNotEmpty())
+        .andExpect(jsonPath("$.data.items[0].codingMeta.tests.length()", greaterThanOrEqualTo(3)));
   }
 
   @Test

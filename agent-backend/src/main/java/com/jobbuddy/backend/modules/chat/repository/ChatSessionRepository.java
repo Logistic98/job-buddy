@@ -68,6 +68,32 @@ public class ChatSessionRepository {
         tenantId, userId, sessionId, role, content, jsonCodec.toJson(metadata), Instant.now());
   }
 
+  /** 用稳定 turnId 原子写入用户消息。相同 turnId 的同一请求视为幂等重放；若载荷不同则拒绝，避免错误复用动作身份。 */
+  public boolean appendUserMessageOnce(
+      String tenantId, String userId, String sessionId, String turnId, String content) {
+    String normalizedTurnId = turnId == null ? "" : turnId.trim();
+    if (normalizedTurnId.isEmpty()) {
+      appendMessage(tenantId, userId, sessionId, "user", content);
+      return true;
+    }
+    int inserted =
+        mapper.appendUserMessageOnce(
+            tenantId,
+            userId,
+            sessionId,
+            normalizedTurnId,
+            content,
+            jsonCodec.toJson(null),
+            Instant.now());
+    if (inserted > 0) return true;
+    String existing =
+        mapper.findUserMessageContentByTurnId(tenantId, userId, sessionId, normalizedTurnId);
+    if (!java.util.Objects.equals(existing, content)) {
+      throw new IllegalArgumentException("同一 turnId 不能用于不同的用户消息");
+    }
+    return false;
+  }
+
   public boolean replaceLatestAssistantJobMessage(
       String tenantId,
       String userId,
@@ -105,6 +131,8 @@ public class ChatSessionRepository {
     List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
     for (Map<String, Object> row : mapper.listMessages(tenantId, userId, sessionId)) {
       Map<String, Object> item = new LinkedHashMap<String, Object>();
+      item.put("id", row.get("id"));
+      item.put("turnId", row.get("turnId"));
       item.put("role", row.get("role"));
       item.put("content", row.get("content"));
       Map<String, Object> metadata = jsonCodec.toMap(string(row.get("metadataJson")));

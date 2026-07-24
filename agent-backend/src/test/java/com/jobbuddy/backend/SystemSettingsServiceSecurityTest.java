@@ -164,9 +164,51 @@ class SystemSettingsServiceSecurityTest {
   }
 
   @Test
+  void startupLoadAppliesPersistedRuntimeSettingsBeforeSettingsPageIsOpened() {
+    Map<String, Object> workspace = new LinkedHashMap<String, Object>();
+    workspace.put("bossSearchCacheTtlMinutes", 45);
+    workspace.put("runtimeMaxTurns", 9);
+    workspace.put("runtimeMaxToolCalls", 14);
+    workspace.put("runtimeMaxFailures", 4);
+    Map<String, Object> persisted = new LinkedHashMap<String, Object>();
+    persisted.put("workspace", workspace);
+
+    SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
+    when(mapper.findSettingJson("global", "settings")).thenReturn(JSON.toJson(persisted));
+    when(mapper.listBlacklistItems()).thenReturn(Collections.<Map<String, Object>>emptyList());
+    JobBuddyProperties properties = new JobBuddyProperties();
+    SystemSettingsServiceImpl service =
+        new SystemSettingsServiceImpl(new AgentServiceProperties(), properties, mapper);
+
+    service.loadPersistedRuntimeSettings();
+
+    assertEquals(45, properties.getBossSearchCacheTtlMinutes());
+    assertEquals(9, properties.getRuntimeMaxTurns());
+    assertEquals(14, properties.getRuntimeMaxToolCalls());
+    assertEquals(4, properties.getRuntimeMaxFailures());
+  }
+
+  @Test
+  void startupLoadKeepsDeploymentDefaultsWhenSettingsTableIsUnavailable() {
+    SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
+    when(mapper.findSettingJson("global", "settings"))
+        .thenThrow(new RuntimeException("platform_setting unavailable"));
+    JobBuddyProperties properties = new JobBuddyProperties();
+    SystemSettingsServiceImpl service =
+        new SystemSettingsServiceImpl(new AgentServiceProperties(), properties, mapper);
+
+    assertDoesNotThrow(service::loadPersistedRuntimeSettings);
+    assertEquals(12, properties.getRuntimeMaxTurns());
+    assertEquals(20, properties.getRuntimeMaxToolCalls());
+    assertEquals(3, properties.getRuntimeMaxFailures());
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void saveSettingsNormalizesBusinessRuntimeParametersAndDropsUnsupportedFields() {
-    SystemSettingsServiceImpl service = newService();
+    JobBuddyProperties properties = new JobBuddyProperties();
+    SystemSettingsServiceImpl service =
+        newService(Collections.<Map<String, Object>>emptyList(), properties);
     Map<String, Object> workspace = new LinkedHashMap<String, Object>();
     workspace.put("name", "unsupported-name");
     workspace.put("defaultUserId", "unsupported-user");
@@ -207,6 +249,20 @@ class SystemSettingsServiceSecurityTest {
     assertFalse(normalized.containsKey("name"));
     assertFalse(normalized.containsKey("defaultUserId"));
     assertFalse(normalized.containsKey("resumeRuntimeWorkspace"));
+
+    assertEquals(30, properties.getMaxJobsPerRecommend());
+    assertEquals(1, properties.getRecommendOverfetchFactor());
+    assertEquals(200, properties.getMaxJobsPerScoring());
+    assertEquals(100, properties.getMinimumRecommendedMatchScore());
+    assertEquals(1, properties.getBossSearchMaxPages());
+    assertEquals(10, properties.getBossSearchMaxPageDepth());
+    assertEquals(1, properties.getBossSearchCacheTtlMinutes());
+    assertEquals(1440, properties.getBossSearchCooldownMinutesOnRisk());
+    assertEquals(1, properties.getRuntimeMaxTurns());
+    assertEquals(30, properties.getRuntimeMaxToolCalls());
+    assertEquals(1, properties.getRuntimeMaxFailures());
+    assertEquals(1024 * 1024, properties.getMaxResumeBytes());
+    assertEquals(100, properties.getResumeWriterVersionLimit());
   }
 
   private SystemSettingsServiceImpl newService() {
@@ -214,6 +270,11 @@ class SystemSettingsServiceSecurityTest {
   }
 
   private SystemSettingsServiceImpl newService(List<Map<String, Object>> blacklistItems) {
+    return newService(blacklistItems, new JobBuddyProperties());
+  }
+
+  private SystemSettingsServiceImpl newService(
+      List<Map<String, Object>> blacklistItems, JobBuddyProperties properties) {
     AtomicReference<String> savedJson = new AtomicReference<String>();
     SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
     when(mapper.listBlacklistItems()).thenReturn(blacklistItems);
@@ -226,7 +287,7 @@ class SystemSettingsServiceSecurityTest {
             });
     AgentServiceProperties agentProperties = new AgentServiceProperties();
     agentProperties.setRuntimeUrl("http://127.0.0.1:8010");
-    return new SystemSettingsServiceImpl(agentProperties, new JobBuddyProperties(), mapper);
+    return new SystemSettingsServiceImpl(agentProperties, properties, mapper);
   }
 
   private Map<String, Object> blacklistItem(String type, String name, boolean enabled) {

@@ -26,7 +26,7 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
   private static final Set<String> MENU_TYPES = new LinkedHashSet<String>();
 
   static {
-    Collections.addAll(MENU_TYPES, "directory", "page", "external", "action");
+    Collections.addAll(MENU_TYPES, "directory", "page", "external");
   }
 
   private final RbacMapper mapper;

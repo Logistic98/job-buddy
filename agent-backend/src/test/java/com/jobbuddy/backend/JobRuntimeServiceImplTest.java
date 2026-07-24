@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -52,6 +54,7 @@ class JobRuntimeServiceImplTest {
     SystemSettingsService settingsService = mock(SystemSettingsService.class);
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMaxJobsPerRecommend(2);
+    properties.setRecommendOverfetchFactor(1);
     properties.setMaxJobsPerScoring(80);
     properties.setBossSearchMaxPages(2);
     properties.setBossSearchPageDelayMillis(0);
@@ -123,6 +126,7 @@ class JobRuntimeServiceImplTest {
     SystemSettingsService settingsService = mock(SystemSettingsService.class);
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMaxJobsPerRecommend(4);
+    properties.setRecommendOverfetchFactor(1);
     properties.setMaxJobsPerScoring(80);
     properties.setBossSearchMaxPages(2);
     properties.setBossSearchMaxPageDepth(3);
@@ -173,6 +177,7 @@ class JobRuntimeServiceImplTest {
     SystemSettingsService settingsService = mock(SystemSettingsService.class);
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMaxJobsPerRecommend(4);
+    properties.setRecommendOverfetchFactor(1);
     properties.setMaxJobsPerScoring(80);
     properties.setBossSearchMaxPages(2);
     properties.setBossSearchMaxPageDepth(3);
@@ -373,6 +378,65 @@ class JobRuntimeServiceImplTest {
 
     assertEquals(2, result.size());
     verify(bossCliService).searchJobsFirstPage(any(IntentResult.class));
+  }
+
+  @Test
+  void recommendJobsFastShouldOverfetchCandidatesAndNeverWrapConsumedRows() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(2);
+    properties.setRecommendOverfetchFactor(3);
+    properties.setMaxJobsPerScoring(10);
+    properties.setBossSearchMaxPages(1);
+    properties.setBossSearchPageDelayMillis(0);
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(jobsWithPrefix("p1-", 6));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "大模型应用开发");
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            slots);
+
+    List<Map<String, Object>> first = service.recommendJobsFast(intent, "s1", null);
+    Map<String, Object> consumedSlots = new LinkedHashMap<String, Object>(slots);
+    consumedSlots.put("boss_page", 2);
+    consumedSlots.put("candidate_offset", 6);
+    IntentResult consumedIntent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            1.0,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            consumedSlots);
+    List<Map<String, Object>> exhausted = service.recommendJobsFast(consumedIntent, "s1", null);
+
+    assertEquals(6, first.size());
+    assertTrue(exhausted.isEmpty());
+    verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), anyInt());
   }
 
   @Test
@@ -578,6 +642,408 @@ class JobRuntimeServiceImplTest {
     assertTrue(result.getRejectionReasons().containsKey("未达到最低匹配分"));
     assertTrue(result.getRejectionReasons().containsKey("匹配置信度低"));
     assertTrue(result.getRejectionReasons().containsKey("投递建议为不建议"));
+    verify(runtimeToolClient)
+        .invoke(
+            eq("resume_match"),
+            argThat(args -> "recommendation_list".equals(args.get("evaluation_mode"))),
+            eq("s1"),
+            any());
+  }
+
+  @Test
+  void jobRecommendationResultShouldRejectUnaccountedOrNegativeRejections() {
+    IllegalArgumentException unaccounted =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new com.jobbuddy.backend.modules.chat.service.JobRecommendationResult(
+                    Collections.singletonList(realJob("accepted")),
+                    2,
+                    Collections.<String, Integer>emptyMap(),
+                    Collections.<String>emptyList()));
+    assertTrue(unaccounted.getMessage().contains("漏斗计数不守恒"));
+
+    IllegalArgumentException negative =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                new com.jobbuddy.backend.modules.chat.service.JobRecommendationResult(
+                    Collections.<Map<String, Object>>emptyList(),
+                    0,
+                    Collections.singletonMap("未达到最低匹配分", Integer.valueOf(-1)),
+                    Collections.<String>emptyList()));
+    assertTrue(negative.getMessage().contains("拒绝原因计数"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void prequalifyRecommendationsShouldScoreAllTwentyThreeCandidatesAndConserveFunnel() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(30);
+    properties.setMaxJobsPerScoring(23);
+    List<Integer> scoredBatchSizes = new ArrayList<Integer>();
+    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+        .thenAnswer(
+            invocation -> {
+              Map<String, Object> args = invocation.getArgument(1);
+              List<Map<String, Object>> jobs = (List<Map<String, Object>>) args.get("jobs");
+              scoredBatchSizes.add(Integer.valueOf(jobs.size()));
+              List<Map<String, Object>> matches = new ArrayList<Map<String, Object>>();
+              for (Map<String, Object> job : jobs) {
+                String id = String.valueOf(job.get("securityId"));
+                int index = Integer.parseInt(id.substring("job-".length()));
+                if (index == 3 || index == 19) {
+                  matches.add(recommendationMatch(id, 82, "high", "推荐"));
+                } else if (index % 3 == 0) {
+                  matches.add(recommendationMatch(id, 50, "medium", "可尝试"));
+                } else if (index % 3 == 1) {
+                  matches.add(recommendationMatch(id, 82, "low", "推荐"));
+                } else {
+                  matches.add(recommendationMatch(id, 82, "high", "不建议"));
+                }
+              }
+              return runtimeMatch(matches.toArray(new Map[0]));
+            });
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    List<Map<String, Object>> candidates = new ArrayList<Map<String, Object>>();
+    for (int i = 0; i < 23; i++) candidates.add(realJob("job-" + i));
+
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendations(parsedResume(), candidates, "s1");
+
+    assertEquals(java.util.Arrays.asList(15, 8), scoredBatchSizes);
+    assertEquals(23, result.getCandidateCount());
+    assertEquals(2, result.getQualifiedCount());
+    assertEquals(21, result.getRejectedCount());
+    assertEquals(
+        java.util.Arrays.asList("job-3", "job-19"),
+        result.getJobs().stream().map(row -> String.valueOf(row.get("securityId"))).toList());
+    assertTrue(result.getRejectionReasons().containsKey("未达到最低匹配分"));
+    assertTrue(result.getRejectionReasons().containsKey("匹配置信度低"));
+    assertTrue(result.getRejectionReasons().containsKey("投递建议为不建议"));
+    assertEquals(
+        result.getCandidateCount(), result.getQualifiedCount() + result.getRejectedCount());
+    verify(runtimeToolClient, times(2))
+        .invoke(any(String.class), any(Map.class), any(String.class), any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void prequalifyRecommendationsShouldNotConsumeQualifiedJobsPastFinalDisplaySlot() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(3);
+    properties.setMaxJobsPerScoring(6);
+    List<List<String>> scoredIds = new ArrayList<List<String>>();
+    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+        .thenAnswer(
+            invocation -> {
+              Map<String, Object> args = invocation.getArgument(1);
+              List<Map<String, Object>> jobs = (List<Map<String, Object>>) args.get("jobs");
+              List<String> batchIds = new ArrayList<String>();
+              List<Map<String, Object>> matches = new ArrayList<Map<String, Object>>();
+              for (Map<String, Object> job : jobs) {
+                String id = String.valueOf(job.get("securityId"));
+                batchIds.add(id);
+                boolean accepted =
+                    "job-0".equals(id)
+                        || "job-3".equals(id)
+                        || "job-4".equals(id)
+                        || "job-5".equals(id);
+                matches.add(
+                    recommendationMatch(id, accepted ? 82 : 50, "medium", accepted ? "推荐" : "可尝试"));
+              }
+              scoredIds.add(batchIds);
+              return runtimeMatch(matches.toArray(new Map[0]));
+            });
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    List<Map<String, Object>> candidates = new ArrayList<Map<String, Object>>();
+    for (int i = 0; i < 6; i++) candidates.add(realJob("job-" + i));
+
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendations(parsedResume(), candidates, "s1");
+
+    assertEquals(
+        java.util.Arrays.asList(
+            java.util.Arrays.asList("job-0", "job-1", "job-2"),
+            java.util.Arrays.asList("job-3", "job-4")),
+        scoredIds);
+    assertEquals(5, result.getCandidateCount());
+    assertEquals(3, result.getQualifiedCount());
+    assertEquals(2, result.getRejectedCount());
+    assertEquals(
+        java.util.Arrays.asList("job-0", "job-3", "job-4"),
+        result.getJobs().stream().map(row -> String.valueOf(row.get("securityId"))).toList());
+    assertEquals(
+        result.getCandidateCount(), result.getQualifiedCount() + result.getRejectedCount());
+  }
+
+  @Test
+  void prequalifyRecommendationsShouldRetryIncompleteBatchWithoutCountingMissingRowsAsLowScore() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(5);
+    properties.setMaxJobsPerScoring(5);
+    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+        .thenReturn(
+            runtimeMatch(recommendationMatch("job-0", 82, "medium", "推荐")),
+            runtimeMatch(
+                recommendationMatch("job-0", 82, "medium", "推荐"),
+                recommendationMatch("job-1", 78, "medium", "可尝试"),
+                recommendationMatch("job-2", 76, "medium", "可尝试"),
+                recommendationMatch("job-3", 74, "medium", "可尝试")),
+            runtimeMatch(recommendationMatch("job-4", 72, "medium", "可尝试")));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    List<Map<String, Object>> candidates = new ArrayList<Map<String, Object>>();
+    for (int i = 0; i < 5; i++) candidates.add(realJob("job-" + i));
+
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendations(parsedResume(), candidates, "s1");
+
+    assertEquals(5, result.getCandidateCount());
+    assertEquals(5, result.getQualifiedCount());
+    assertFalse(result.getRejectionReasons().containsKey("未达到最低匹配分"));
+    verify(runtimeToolClient, times(3))
+        .invoke(any(String.class), any(Map.class), any(String.class), any());
+  }
+
+  @Test
+  void prequalifyRecommendationsShouldFailWhenSplitRetryIsStillIncomplete() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(2);
+    properties.setMaxJobsPerScoring(2);
+    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+        .thenReturn(
+            runtimeMatch(recommendationMatch("job-0", 82, "medium", "推荐")),
+            runtimeMatch(recommendationMatch("job-0", 82, "medium", "推荐")));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+
+    RuntimeException error =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                service.prequalifyRecommendations(
+                    parsedResume(),
+                    java.util.Arrays.asList(realJob("job-0"), realJob("job-1")),
+                    "s1"));
+
+    assertTrue(error.getMessage().contains("拆分重试"));
+    verify(runtimeToolClient, times(2))
+        .invoke(any(String.class), any(Map.class), any(String.class), any());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void prequalifyRecommendationsShouldContinueBossSearchWhenInitialCandidatesAreRejected() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(1);
+    properties.setRecommendOverfetchFactor(2);
+    properties.setMaxJobsPerScoring(4);
+    properties.setBossSearchMaxPages(1);
+    properties.setBossSearchMaxPageDepth(2);
+    properties.setBossSearchPageDelayMillis(0);
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(jobsWithPrefix("p1-", 2));
+    when(bossCliService.searchJobsPage(any(IntentResult.class), anyInt()))
+        .thenReturn(jobsWithPrefix("p2-", 2));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+        .thenAnswer(
+            invocation -> {
+              Map<String, Object> args = invocation.getArgument(1);
+              List<Map<String, Object>> scoredJobs = (List<Map<String, Object>>) args.get("jobs");
+              String id = String.valueOf(scoredJobs.get(0).get("securityId"));
+              int score = "p2-0".equals(id) ? 65 : 55;
+              return runtimeMatch(
+                  recommendationMatch(id, score, "medium", score >= 60 ? "推荐" : "可尝试"));
+            });
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "大模型应用开发");
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            slots);
+
+    List<Map<String, Object>> initial = service.recommendJobsFast(intent, "s1", null);
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendationsWithContinuation(parsedResume(), intent, initial, "s1");
+
+    assertEquals(60, properties.getMinimumRecommendedMatchScore());
+    assertEquals(3, result.getCandidateCount());
+    assertEquals(1, result.getQualifiedCount());
+    assertEquals(2, result.getRejectedCount());
+    assertEquals("p2-0", result.getJobs().get(0).get("securityId"));
+    verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), anyInt());
+    verify(runtimeToolClient, times(3))
+        .invoke(any(String.class), any(Map.class), any(String.class), any());
+  }
+
+  @Test
+  void prequalifyRecommendationsShouldContinueFromEmptyInitialBatchWithinBossPageDepth() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(1);
+    properties.setRecommendOverfetchFactor(1);
+    properties.setMaxJobsPerScoring(3);
+    properties.setBossSearchMaxPages(1);
+    properties.setBossSearchMaxPageDepth(2);
+    properties.setBossSearchPageDelayMillis(0);
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(Collections.singletonList(job("p1-low", "大模型应用开发", "10-20K")));
+    when(bossCliService.searchJobsPage(any(IntentResult.class), eq(2)))
+        .thenReturn(Collections.singletonList(job("p2-fit", "大模型应用开发", "40-50K")));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    when(runtimeToolClient.invoke(any(String.class), any(Map.class), any(String.class), any()))
+        .thenReturn(runtimeMatch(recommendationMatch("p2-fit", 82, "high", "推荐")));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "大模型应用开发");
+    slots.put("salary_min_k", 40);
+    slots.put("salary_max_k", 50);
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            slots);
+
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendationsWithContinuation(
+            parsedResume(), intent, Collections.<Map<String, Object>>emptyList(), "s1");
+
+    assertEquals(1, result.getCandidateCount());
+    assertEquals(1, result.getQualifiedCount());
+    assertEquals(0, result.getRejectedCount());
+    assertEquals("p2-fit", result.getJobs().get(0).get("securityId"));
+    assertFalse(String.valueOf(result.getWarnings()).contains("当前批次没有岗位"));
+    verify(bossCliService).searchJobsFirstPage(any(IntentResult.class));
+    verify(bossCliService).searchJobsPage(any(IntentResult.class), eq(2));
+    verify(runtimeToolClient).invoke(any(String.class), any(Map.class), any(String.class), any());
+  }
+
+  @Test
+  void prequalifyRecommendationsShouldStopEmptyContinuationAndReturnNoQualifiedWarning() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(1);
+    properties.setMaxJobsPerScoring(3);
+    properties.setBossSearchMaxPages(1);
+    properties.setBossSearchMaxPageDepth(2);
+    properties.setBossSearchPageDelayMillis(0);
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(Collections.<Map<String, Object>>emptyList());
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            Collections.singletonMap("role", "大模型应用开发"));
+
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendationsWithContinuation(
+            parsedResume(), intent, Collections.<Map<String, Object>>emptyList(), "s1");
+
+    assertEquals(0, result.getCandidateCount());
+    assertEquals(0, result.getQualifiedCount());
+    assertEquals(0, result.getRejectedCount());
+    assertTrue(String.valueOf(result.getWarnings()).contains("当前批次没有岗位"));
+    verify(bossCliService).searchJobsFirstPage(any(IntentResult.class));
+    verify(bossCliService, never()).searchJobsPage(any(IntentResult.class), anyInt());
+    verify(runtimeToolClient, never())
+        .invoke(any(String.class), any(Map.class), any(String.class), any());
   }
 
   @Test

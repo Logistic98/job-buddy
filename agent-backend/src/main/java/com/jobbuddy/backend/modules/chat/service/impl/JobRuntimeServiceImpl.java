@@ -25,6 +25,13 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class JobRuntimeServiceImpl implements JobRuntimeService {
+  private static final int RESUME_MATCH_BATCH_SIZE = 15;
+  private static final int RESUME_MATCH_RETRY_BATCH_SIZE = 4;
+  private static final String RECOMMENDATION_LIST_MODE = "recommendation_list";
+  private static final String FULL_JD_ANALYSIS_MODE = "full_jd_analysis";
+  private static final String CANDIDATE_OFFSET_SLOT = "candidate_offset";
+  private static final String NO_QUALIFIED_BATCH_WARNING = "当前批次没有岗位同时达到匹配分、置信度和投递建议门槛。";
+
   private final Map<String, CacheEntry> fastSearchCache =
       new ConcurrentHashMap<String, CacheEntry>();
   private final Map<String, Long> bossSearchCooldownUntil = new ConcurrentHashMap<String, Long>();
@@ -90,8 +97,11 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     final Map<String, Object> slots =
         intent.getSlots() == null ? Collections.<String, Object>emptyMap() : intent.getSlots();
     final int limit = Math.max(1, properties.getMaxJobsPerRecommend());
+    final int candidateBatchSize = recommendationCandidateBatchSize(limit);
     final int page = intSlot(slots.get("boss_page"), 1);
-    final String cacheKey = fastSearchCacheKey(slots, limit);
+    final int candidateOffset = candidateOffset(slots, page, candidateBatchSize);
+    final int needed = candidateOffset + candidateBatchSize;
+    final String cacheKey = fastSearchCacheKey(slots, candidateBatchSize);
     assertBossSearchNotCoolingDown();
 
     CacheEntry cached = fastSearchCache.get(cacheKey);
@@ -99,61 +109,49 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       fastSearchCache.remove(cacheKey, cached);
       cached = null;
     }
-    // 首次搜索构建跨页候选池；换一批命中缓存后按需追抓扩充，二者都保证候选池覆盖当前页。
-    // 命中池内即为零 Boss 请求的即时刷新，只有池被翻完且上游仍有更多岗位时才追抓。
+    // 首次搜索按候选池倍率预取；换一批从显式消费游标之后继续，只有缓存不足且上游仍有结果时才追抓。
     cached =
         cached == null
-            ? buildInitialPool(intent, slots, limit, page, cacheKey)
-            : ensurePoolCoversPage(intent, slots, limit, page, cacheKey, cached);
+            ? buildInitialPool(intent, slots, needed, cacheKey)
+            : ensurePoolCoversOffset(intent, slots, needed, cacheKey, cached);
 
-    List<Map<String, Object>> slice = pageSlice(cached.jobs, page, limit);
+    List<Map<String, Object>> slice = pageSlice(cached.jobs, candidateOffset, candidateBatchSize);
     if (consumer != null && !slice.isEmpty()) consumer.accept(slice, slice, "candidate_pool", page);
     return slice;
   }
 
-  /** 首次搜索：先抓 1 页；确定性过滤后不足单批推荐上限时按配置补抓有限页数，为严格质量门保留候选余量。 */
+  /** 首次搜索：先抓最小页数，再按配置补抓有限页数，使过滤后的候选尽量覆盖质量门评估批次。 */
   private CacheEntry buildInitialPool(
-      IntentResult intent, Map<String, Object> slots, int limit, int page, String cacheKey) {
-    // 首屏按最小页数抓取；只有过滤后不足单批上限才补页，兼顾严格筛选余量、首屏延迟和风控边界。
+      IntentResult intent, Map<String, Object> slots, int needed, String cacheKey) {
     int firstPaintPages = envInt("BOSS_SEARCH_FIRST_PAINT_PAGES", 1, 1, 3);
     PoolFetch fetch = fetchPoolBatchWithSideEffects(intent, 1, firstPaintPages);
     List<Map<String, Object>> pool = applyFilterPipeline(fetch.rows, slots);
     CacheEntry entry =
         new CacheEntry(pool, collectIds(fetch.rows), fetch.nextPage, fetch.exhausted);
     putFastSearchCache(cacheKey, entry);
-    if (page <= 1) {
-      int maxDepth =
-          envInt("BOSS_SEARCH_MAX_PAGE_DEPTH", properties.getBossSearchMaxPageDepth(), 1, 10);
-      int reservePageBudget =
-          envInt("BOSS_SEARCH_MAX_PAGES", properties.getBossSearchMaxPages(), 1, 5);
-      // 严格质量门会继续剔除低分或低置信岗位，过滤后不足 limit 时按页补池；达到 limit 立即停止。
-      // 页内全是重复或不合格岗位时可继续尝试下一页，但最多消耗 reservePageBudget，避免无界抓取。
-      CacheEntry warmed = entry;
-      int fetchedPages = 0;
-      while (warmed.jobs.size() < limit
-          && !warmed.exhausted
-          && warmed.nextPage <= maxDepth
-          && fetchedPages < reservePageBudget) {
-        warmed = appendPoolBatch(intent, slots, cacheKey, warmed, 1);
-        fetchedPages++;
-      }
-      return warmed;
+    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
+    int reservePageBudget = bounded(properties.getBossSearchMaxPages(), 1, 5);
+    CacheEntry warmed = entry;
+    int fetchedPages = 0;
+    while (warmed.jobs.size() < needed
+        && !warmed.exhausted
+        && warmed.nextPage <= maxDepth
+        && fetchedPages < reservePageBudget) {
+      warmed = appendPoolBatch(intent, slots, cacheKey, warmed, 1);
+      fetchedPages++;
     }
-    return ensurePoolCoversPage(intent, slots, limit, page, cacheKey, entry);
+    return warmed;
   }
 
-  /** 换一批：候选池不足以覆盖当前页且上游未枯竭、未超深度时，追抓一批新页并就地去重过滤后追加到池尾。 */
-  private CacheEntry ensurePoolCoversPage(
+  /** 换一批：候选池不足以覆盖消费游标时，只追抓尚未访问的后续页并追加到池尾。 */
+  private CacheEntry ensurePoolCoversOffset(
       IntentResult intent,
       Map<String, Object> slots,
-      int limit,
-      int page,
+      int needed,
       String cacheKey,
       CacheEntry entry) {
-    int maxDepth =
-        envInt("BOSS_SEARCH_MAX_PAGE_DEPTH", properties.getBossSearchMaxPageDepth(), 1, 10);
-    int batchPages = envInt("BOSS_SEARCH_MAX_PAGES", properties.getBossSearchMaxPages(), 1, 5);
-    int needed = Math.max(1, page) * limit;
+    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
+    int batchPages = bounded(properties.getBossSearchMaxPages(), 1, 5);
     if (entry.jobs.size() >= needed || entry.exhausted || entry.nextPage > maxDepth) {
       return entry;
     }
@@ -221,12 +219,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return candidateFilter.apply(rawJobs, slots);
   }
 
-  /** 按候选池分页切片返回当前页；超出池范围时在已有池内循环切片，保证换一批始终有内容且不报错。 */
-  private List<Map<String, Object>> pageSlice(List<Map<String, Object>> pool, int page, int limit) {
+  /** 从显式候选游标切片；候选耗尽时返回空列表，禁止回绕旧岗位。 */
+  private List<Map<String, Object>> pageSlice(
+      List<Map<String, Object>> pool, int offset, int limit) {
     if (pool == null || pool.isEmpty()) return new ArrayList<Map<String, Object>>();
-    int totalPages = Math.max(1, (pool.size() + limit - 1) / limit);
-    int effectivePage = (Math.max(1, page) - 1) % totalPages;
-    int from = effectivePage * limit;
+    int from = Math.max(0, offset);
+    if (from >= pool.size()) return new ArrayList<Map<String, Object>>();
     int to = Math.min(from + limit, pool.size());
     return copyJobs(pool.subList(from, to));
   }
@@ -259,12 +257,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   }
 
   private void startBossSearchCooldown(String reason) {
-    int minutes =
-        envInt(
-            "BOSS_SEARCH_COOLDOWN_MINUTES_ON_RISK",
-            properties.getBossSearchCooldownMinutesOnRisk(),
-            1,
-            24 * 60);
+    int minutes = bounded(properties.getBossSearchCooldownMinutesOnRisk(), 1, 24 * 60);
     long until = System.currentTimeMillis() + minutes * 60L * 1000L;
     bossSearchCooldownUntil.put(currentScopeKey(), until);
   }
@@ -287,9 +280,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   }
 
   private long fastSearchCacheTtlMillis() {
-    int minutes =
-        envInt(
-            "BOSS_SEARCH_CACHE_TTL_MINUTES", properties.getBossSearchCacheTtlMinutes(), 1, 24 * 60);
+    int minutes = bounded(properties.getBossSearchCacheTtlMinutes(), 1, 24 * 60);
     return minutes * 60L * 1000L;
   }
 
@@ -299,6 +290,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     Map<String, Object> keyed = new java.util.TreeMap<String, Object>();
     if (slots != null) keyed.putAll(slots);
     keyed.remove("boss_page");
+    keyed.remove(CANDIDATE_OFFSET_SLOT);
     return currentScopeKey() + ":" + limit + ":" + keyed;
   }
 
@@ -337,6 +329,68 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     } catch (Exception e) {
       return fallback;
     }
+  }
+
+  private int nonNegativeIntSlot(Object value, int fallback) {
+    if (value instanceof Number) return Math.max(0, ((Number) value).intValue());
+    try {
+      return Math.max(0, Integer.parseInt(String.valueOf(value)));
+    } catch (Exception e) {
+      return fallback;
+    }
+  }
+
+  private int candidateOffset(Map<String, Object> slots, int page, int candidateBatchSize) {
+    return slots.containsKey(CANDIDATE_OFFSET_SLOT)
+        ? nonNegativeIntSlot(slots.get(CANDIDATE_OFFSET_SLOT), 0)
+        : Math.max(0, page - 1) * candidateBatchSize;
+  }
+
+  private IntentResult withCandidateOffset(IntentResult source, int offset) {
+    Map<String, Object> slots =
+        source == null || source.getSlots() == null
+            ? new LinkedHashMap<String, Object>()
+            : new LinkedHashMap<String, Object>(source.getSlots());
+    slots.put(CANDIDATE_OFFSET_SLOT, Math.max(0, offset));
+    if (source == null) {
+      return new IntentResult(
+          "job",
+          "job.recommend",
+          1.0,
+          Collections.<String>emptyList(),
+          "low",
+          false,
+          "call_get_recommend_jobs",
+          slots);
+    }
+    return new IntentResult(
+        source.getDomain(),
+        source.getIntent(),
+        source.getConfidence(),
+        source.getSecondary() == null
+            ? Collections.<String>emptyList()
+            : new ArrayList<String>(source.getSecondary()),
+        source.getRisk(),
+        source.isNeedsClarification(),
+        source.getNextAction(),
+        slots,
+        source.getTraceId());
+  }
+
+  private void mergeCounters(Map<String, Integer> target, Map<String, Integer> source) {
+    for (Map.Entry<String, Integer> entry : source.entrySet()) {
+      int value = entry.getValue() == null ? 0 : Math.max(0, entry.getValue().intValue());
+      target.put(entry.getKey(), target.getOrDefault(entry.getKey(), Integer.valueOf(0)) + value);
+    }
+  }
+
+  private int recommendationCandidateBatchSize(int limit) {
+    long expanded =
+        (long) Math.max(1, limit) * Math.max(1, properties.getRecommendOverfetchFactor());
+    return (int)
+        Math.min(
+            Math.max(1, properties.getMaxJobsPerScoring()),
+            Math.max((long) Math.max(1, limit), expanded));
   }
 
   private List<Map<String, Object>> copyJobs(List<Map<String, Object>> jobs) {
@@ -509,6 +563,10 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return Math.max(min, Math.min(max, configured));
   }
 
+  private int bounded(int value, int min, int max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
   private boolean isDetailEnrichmentEnabled() {
     String value = System.getenv("BOSS_RECOMMEND_ENRICH_DETAILS");
     return value != null
@@ -571,6 +629,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
 
   public JobRecommendationResult prequalifyRecommendations(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId) {
+    return prequalifyRecommendations(
+        resume, jobs, sessionId, Math.max(1, properties.getMaxJobsPerRecommend()));
+  }
+
+  private JobRecommendationResult prequalifyRecommendations(
+      ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId, int desired) {
     int candidateCount = jobs == null ? 0 : jobs.size();
     if (resume == null || resume.getParsed() == null || resume.getParsed().isEmpty()) {
       return new JobRecommendationResult(
@@ -596,61 +660,144 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
             "hits",
             "gaps",
             "limitations");
-    Map<String, Object> normalized =
-        normalizeResumeMatchEvidence(invokeResumeMatch(resume, jobs, sessionId, sections), false);
-    Map<String, Map<String, Object>> matchesById = new LinkedHashMap<String, Map<String, Object>>();
-    Object matches = normalized.get("matches");
-    if (matches instanceof List) {
-      for (Object item : (List) matches) {
-        if (!(item instanceof Map)) continue;
-        Map<String, Object> row = new LinkedHashMap<String, Object>((Map<String, Object>) item);
-        matchesById.put(stringValue(row.get("id")), row);
-      }
-    }
     List<Map<String, Object>> qualified = new ArrayList<Map<String, Object>>();
     Map<String, Integer> rejected = new LinkedHashMap<String, Integer>();
-    for (int i = 0; i < jobs.size(); i++) {
-      Map<String, Object> job = jobs.get(i);
-      if (job == null) continue;
-      String id = jobId(job, i);
-      Map<String, Object> match = matchesById.get(id);
-      if (match == null) {
-        increment(rejected, "未达到最低匹配分");
-        continue;
+    desired = Math.max(1, desired);
+    int scoringLimit = Math.min(candidateCount, Math.max(1, properties.getMaxJobsPerScoring()));
+    int evaluated = 0;
+    for (int from = 0; from < scoringLimit && qualified.size() < desired; ) {
+      int remainingDisplaySlots = desired - qualified.size();
+      int batchSize = Math.min(RESUME_MATCH_BATCH_SIZE, remainingDisplaySlots);
+      int to = Math.min(scoringLimit, from + batchSize);
+      List<Map<String, Object>> batch = new ArrayList<Map<String, Object>>(jobs.subList(from, to));
+      Map<String, Object> normalized =
+          scoreCompleteRecommendationBatch(resume, batch, sessionId, sections);
+      Map<String, Map<String, Object>> matchesById =
+          new LinkedHashMap<String, Map<String, Object>>();
+      Object matches = normalized.get("matches");
+      if (matches instanceof List) {
+        for (Object item : (List) matches) {
+          if (!(item instanceof Map)) continue;
+          Map<String, Object> row = new LinkedHashMap<String, Object>((Map<String, Object>) item);
+          matchesById.put(stringValue(row.get("id")), row);
+        }
       }
-      int score = toScore(match.get("score"));
-      if (match.get("score") == null || score < properties.getMinimumRecommendedMatchScore()) {
-        increment(rejected, "未达到最低匹配分");
-        continue;
+      for (int i = 0; i < batch.size(); i++) {
+        Map<String, Object> job = batch.get(i);
+        if (job == null) continue;
+        String id = jobId(job, i);
+        Map<String, Object> match = matchesById.get(id);
+        if (match == null) {
+          throw new IllegalStateException("岗位匹配结果完整性校验失效，缺少岗位 ID：" + id);
+        }
+        int score = toScore(match.get("score"));
+        if (match.get("score") == null || score < properties.getMinimumRecommendedMatchScore()) {
+          increment(rejected, "未达到最低匹配分");
+          continue;
+        }
+        String confidence = stringValue(firstPresent(match, "score_confidence", "confidence"));
+        String recommendation = stringValue(match.get("recommendation"));
+        if ("low".equalsIgnoreCase(confidence)) {
+          increment(rejected, "匹配置信度低");
+          continue;
+        }
+        if (isRejectedRecommendation(recommendation)) {
+          increment(rejected, recommendation.isEmpty() ? "投递建议不明确" : "投递建议为" + recommendation);
+          continue;
+        }
+        Map<String, Object> accepted = new LinkedHashMap<String, Object>(job);
+        accepted.put("matchScore", score);
+        accepted.put("matchConfidence", confidence);
+        accepted.put("matchRecommendation", recommendation);
+        accepted.put(
+            "recommendationReasons", firstTexts(match.get("hits"), match.get("evidence"), 2));
+        accepted.put(
+            "recommendationWarnings", firstTexts(match.get("gaps"), match.get("limitations"), 2));
+        accepted.put(
+            "recommendationEvidenceLevel", hasJobDescription(job) ? "full_jd" : "list_metadata");
+        qualified.add(accepted);
       }
-      String confidence = stringValue(firstPresent(match, "score_confidence", "confidence"));
-      String recommendation = stringValue(match.get("recommendation"));
-      if ("low".equalsIgnoreCase(confidence)) {
-        increment(rejected, "匹配置信度低");
-        continue;
-      }
-      if (isRejectedRecommendation(recommendation)) {
-        increment(rejected, recommendation.isEmpty() ? "投递建议不明确" : "投递建议为" + recommendation);
-        continue;
-      }
-      Map<String, Object> accepted = new LinkedHashMap<String, Object>(job);
-      accepted.put("matchScore", score);
-      accepted.put("matchConfidence", confidence);
-      accepted.put("matchRecommendation", recommendation);
-      accepted.put(
-          "recommendationReasons", firstTexts(match.get("hits"), match.get("evidence"), 2));
-      accepted.put(
-          "recommendationWarnings", firstTexts(match.get("gaps"), match.get("limitations"), 2));
-      accepted.put(
-          "recommendationEvidenceLevel", hasJobDescription(job) ? "full_jd" : "list_metadata");
-      qualified.add(accepted);
+      evaluated += batch.size();
+      from = to;
     }
     qualified.sort(
         (left, right) ->
             Integer.compare(toScore(right.get("matchScore")), toScore(left.get("matchScore"))));
+    if (qualified.size() > desired) {
+      qualified = new ArrayList<Map<String, Object>>(qualified.subList(0, desired));
+    }
     List<String> warnings = new ArrayList<String>();
-    if (qualified.isEmpty()) warnings.add("当前批次没有岗位同时达到匹配分、置信度和投递建议门槛。");
-    return new JobRecommendationResult(qualified, candidateCount, rejected, warnings);
+    if (qualified.isEmpty()) warnings.add(NO_QUALIFIED_BATCH_WARNING);
+    return new JobRecommendationResult(qualified, evaluated, rejected, warnings);
+  }
+
+  /** 在同一推荐任务内闭环执行“评分不足则继续检索”。每轮只消费实际完成评分的候选，并受总评分上限、 Boss 最大页深、单次补页数和上游枯竭状态共同约束。 */
+  public JobRecommendationResult prequalifyRecommendationsWithContinuation(
+      ResumeRecord resume,
+      IntentResult intent,
+      List<Map<String, Object>> initialJobs,
+      String sessionId) {
+    if (resume == null || resume.getParsed() == null || resume.getParsed().isEmpty()) {
+      return prequalifyRecommendations(resume, initialJobs, sessionId);
+    }
+    int desired = Math.max(1, properties.getMaxJobsPerRecommend());
+    int scoringLimit = Math.max(1, properties.getMaxJobsPerScoring());
+    int candidateBatchSize = recommendationCandidateBatchSize(desired);
+    Map<String, Object> slots =
+        intent == null || intent.getSlots() == null
+            ? Collections.<String, Object>emptyMap()
+            : intent.getSlots();
+    int page = intSlot(slots.get("boss_page"), 1);
+    int offset = candidateOffset(slots, page, candidateBatchSize);
+    int evaluated = 0;
+    List<Map<String, Object>> qualified = new ArrayList<Map<String, Object>>();
+    Map<String, Integer> rejected = new LinkedHashMap<String, Integer>();
+    java.util.Set<String> warnings = new java.util.LinkedHashSet<String>();
+    List<Map<String, Object>> candidates = copyJobs(initialJobs);
+    int consecutiveEmptyContinuations = 0;
+    int emptyContinuationLimit = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
+
+    while (evaluated < scoringLimit && qualified.size() < desired) {
+      if (candidates.isEmpty()) {
+        if (consecutiveEmptyContinuations >= emptyContinuationLimit) break;
+        candidates = recommendJobsFast(withCandidateOffset(intent, offset), sessionId, null);
+        if (candidates.isEmpty()) {
+          consecutiveEmptyContinuations++;
+          continue;
+        }
+        consecutiveEmptyContinuations = 0;
+      }
+      int remainingBudget = scoringLimit - evaluated;
+      List<Map<String, Object>> scoringBatch =
+          candidates.size() > remainingBudget
+              ? new ArrayList<Map<String, Object>>(candidates.subList(0, remainingBudget))
+              : candidates;
+      JobRecommendationResult batch =
+          prequalifyRecommendations(resume, scoringBatch, sessionId, desired - qualified.size());
+      int consumed = Math.max(0, batch.getCandidateCount());
+      evaluated += consumed;
+      offset += consumed;
+      qualified.addAll(batch.getJobs());
+      mergeCounters(rejected, batch.getRejectionReasons());
+      warnings.addAll(batch.getWarnings());
+
+      if (qualified.size() >= desired || evaluated >= scoringLimit || consumed <= 0) break;
+      candidates = Collections.<Map<String, Object>>emptyList();
+    }
+
+    qualified.sort(
+        (left, right) ->
+            Integer.compare(toScore(right.get("matchScore")), toScore(left.get("matchScore"))));
+    if (qualified.size() > desired) {
+      qualified = new ArrayList<Map<String, Object>>(qualified.subList(0, desired));
+    }
+    if (!qualified.isEmpty()) warnings.remove(NO_QUALIFIED_BATCH_WARNING);
+    if (qualified.isEmpty()) warnings.add(NO_QUALIFIED_BATCH_WARNING);
+    if (!qualified.isEmpty() && qualified.size() < desired) {
+      warnings.add("已继续检索到当前页深或评分预算上限，本轮找到 " + qualified.size() + " 个达到推荐门槛的岗位。");
+    }
+    return new JobRecommendationResult(
+        qualified, evaluated, rejected, new ArrayList<String>(warnings));
   }
 
   public Map<String, Object> matchResume(
@@ -663,7 +810,8 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       List<Map<String, Object>> jobs,
       String sessionId,
       List<String> sections) {
-    return normalizeResumeMatchEvidence(invokeResumeMatch(resume, jobs, sessionId, sections), true);
+    return normalizeResumeMatchEvidence(
+        invokeResumeMatch(resume, jobs, sessionId, sections, FULL_JD_ANALYSIS_MODE), true);
   }
 
   private Map<String, Object> invokeResumeMatch(
@@ -671,6 +819,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       List<Map<String, Object>> jobs,
       String sessionId,
       List<String> sections) {
+    return invokeResumeMatch(resume, jobs, sessionId, sections, FULL_JD_ANALYSIS_MODE);
+  }
+
+  private Map<String, Object> invokeResumeMatch(
+      ResumeRecord resume,
+      List<Map<String, Object>> jobs,
+      String sessionId,
+      List<String> sections,
+      String evaluationMode) {
     if (resume == null || resume.getParsed() == null || resume.getParsed().isEmpty()) {
       throw new IllegalArgumentException("请先上传并解析简历");
     }
@@ -680,6 +837,11 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     args.put("jobs", jobs);
     args.put("top_k", Math.min(jobs == null ? 0 : jobs.size(), properties.getMaxJobsPerScoring()));
     if (sections != null && !sections.isEmpty()) args.put("sections", sections);
+    args.put(
+        "evaluation_mode",
+        RECOMMENDATION_LIST_MODE.equals(evaluationMode)
+            ? RECOMMENDATION_LIST_MODE
+            : FULL_JD_ANALYSIS_MODE);
     Map<String, Object> result = runtimeToolClient.invoke("resume_match", args, sessionId, null);
     if (!Boolean.TRUE.equals(result.get("success"))) {
       throw new RuntimeException(
@@ -689,6 +851,109 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return output instanceof Map
         ? (Map<String, Object>) output
         : Collections.<String, Object>emptyMap();
+  }
+
+  /** 推荐预筛要求 Runtime 对输入岗位逐一返回结果。首轮不完整时按更小批次拆分重试一次；未评分岗位既不能计为低分，也不能推进候选游标。 */
+  private Map<String, Object> scoreCompleteRecommendationBatch(
+      ResumeRecord resume,
+      List<Map<String, Object>> jobs,
+      String sessionId,
+      List<String> sections) {
+    try {
+      return requireCompleteRecommendationBatch(
+          invokeResumeMatch(resume, jobs, sessionId, sections, RECOMMENDATION_LIST_MODE), jobs);
+    } catch (RuntimeException firstFailure) {
+      if (!isIncompleteMatchFailure(firstFailure) || jobs.size() <= 1) throw firstFailure;
+      List<Map<String, Object>> mergedRows = new ArrayList<Map<String, Object>>();
+      for (int from = 0; from < jobs.size(); from += RESUME_MATCH_RETRY_BATCH_SIZE) {
+        int to = Math.min(jobs.size(), from + RESUME_MATCH_RETRY_BATCH_SIZE);
+        List<Map<String, Object>> retryBatch =
+            new ArrayList<Map<String, Object>>(jobs.subList(from, to));
+        try {
+          Map<String, Object> retry =
+              requireCompleteRecommendationBatch(
+                  invokeResumeMatch(
+                      resume, retryBatch, sessionId, sections, RECOMMENDATION_LIST_MODE),
+                  retryBatch);
+          Object matches = retry.get("matches");
+          if (matches instanceof List) {
+            for (Object item : (List) matches) {
+              if (item instanceof Map) {
+                mergedRows.add(new LinkedHashMap<String, Object>((Map<String, Object>) item));
+              }
+            }
+          }
+        } catch (RuntimeException retryFailure) {
+          throw new IncompleteMatchBatchException("岗位匹配结果不完整，拆分重试后仍未覆盖全部候选。", retryFailure);
+        }
+      }
+      Map<String, Object> merged = new LinkedHashMap<String, Object>();
+      merged.put("matches", mergedRows);
+      merged.put("scored_count", mergedRows.size());
+      merged.put("total_jobs", jobs.size());
+      merged.put("evaluation_mode", RECOMMENDATION_LIST_MODE);
+      return requireCompleteRecommendationBatch(merged, jobs);
+    }
+  }
+
+  private Map<String, Object> requireCompleteRecommendationBatch(
+      Map<String, Object> raw, List<Map<String, Object>> jobs) {
+    Map<String, Object> normalized = normalizeResumeMatchEvidence(raw, false, false);
+    Map<String, Integer> expected = new LinkedHashMap<String, Integer>();
+    for (int i = 0; i < jobs.size(); i++) {
+      String id = jobId(jobs.get(i), i);
+      expected.put(id, Integer.valueOf(expected.getOrDefault(id, Integer.valueOf(0)) + 1));
+    }
+    if (expected.size() != jobs.size()) {
+      throw new IncompleteMatchBatchException("岗位匹配输入包含重复岗位 ID，无法建立一一对应关系。");
+    }
+
+    java.util.Set<String> returned = new java.util.LinkedHashSet<String>();
+    java.util.Set<String> duplicateIds = new java.util.LinkedHashSet<String>();
+    java.util.Set<String> unknownIds = new java.util.LinkedHashSet<String>();
+    Object matches = normalized.get("matches");
+    if (matches instanceof List) {
+      for (Object item : (List) matches) {
+        if (!(item instanceof Map)) continue;
+        String id = stringValue(((Map<String, Object>) item).get("id")).trim();
+        if (!expected.containsKey(id)) unknownIds.add(id.isEmpty() ? "<empty>" : id);
+        if (!returned.add(id)) duplicateIds.add(id.isEmpty() ? "<empty>" : id);
+      }
+    }
+    java.util.Set<String> missingIds = new java.util.LinkedHashSet<String>(expected.keySet());
+    missingIds.removeAll(returned);
+    int reportedCount = intValue(normalized.get("scored_count"), returned.size());
+    if (!missingIds.isEmpty()
+        || !duplicateIds.isEmpty()
+        || !unknownIds.isEmpty()
+        || returned.size() != jobs.size()
+        || reportedCount != jobs.size()) {
+      throw new IncompleteMatchBatchException(
+          "岗位匹配结果不完整：requested="
+              + jobs.size()
+              + ", returned="
+              + returned.size()
+              + ", reported="
+              + reportedCount
+              + ", missing="
+              + missingIds
+              + ", duplicate="
+              + duplicateIds
+              + ", unknown="
+              + unknownIds);
+    }
+    normalized.put("requested_match_count", jobs.size());
+    normalized.put("returned_match_count", returned.size());
+    normalized.put("missing_match_count", 0);
+    return normalized;
+  }
+
+  private boolean isIncompleteMatchFailure(RuntimeException error) {
+    if (error instanceof IncompleteMatchBatchException) return true;
+    String message = error.getMessage() == null ? "" : error.getMessage();
+    return message.contains("岗位匹配结果不完整")
+        || message.contains("匹配结果不完整")
+        || message.contains("missing");
   }
 
   private void validateMatchEvidence(List<Map<String, Object>> jobs) {
@@ -706,6 +971,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
 
   private Map<String, Object> normalizeResumeMatchEvidence(
       Map<String, Object> match, boolean allowThresholdRelaxation) {
+    return normalizeResumeMatchEvidence(match, allowThresholdRelaxation, true);
+  }
+
+  private Map<String, Object> normalizeResumeMatchEvidence(
+      Map<String, Object> match,
+      boolean allowThresholdRelaxation,
+      boolean filterByRecommendationThreshold) {
     Map<String, Object> normalized = new LinkedHashMap<String, Object>();
     if (match != null) normalized.putAll(match);
     Object matches = normalized.get("matches");
@@ -731,7 +1003,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         }
         rows.add(next);
       }
-      applyRecommendationThreshold(normalized, rows, allowThresholdRelaxation);
+      if (filterByRecommendationThreshold) {
+        applyRecommendationThreshold(normalized, rows, allowThresholdRelaxation);
+      } else {
+        normalized.put("matches", rows);
+        normalized.put("recommendation_threshold_applied", false);
+        normalized.put("recommendation_threshold_relaxed", false);
+      }
     }
     normalized.put("evaluation_policy", "evidence_required_no_fixture_no_mock");
     return normalized;
@@ -859,6 +1137,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  private int intValue(Object value, int fallback) {
+    if (value instanceof Number) return ((Number) value).intValue();
+    try {
+      return value == null ? fallback : Integer.parseInt(String.valueOf(value));
+    } catch (Exception e) {
+      return fallback;
+    }
+  }
+
   private String stringValue(Object value) {
     return value == null ? "" : String.valueOf(value);
   }
@@ -923,5 +1210,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       if (structured instanceof Map) return extractJobs(structured);
     }
     return new ArrayList<Map<String, Object>>();
+  }
+
+  private static final class IncompleteMatchBatchException extends RuntimeException {
+    private IncompleteMatchBatchException(String message) {
+      super(message);
+    }
+
+    private IncompleteMatchBatchException(String message, Throwable cause) {
+      super(message, cause);
+    }
   }
 }

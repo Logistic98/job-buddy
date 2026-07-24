@@ -9,7 +9,9 @@ public class InterviewGenerateRequest {
   private String difficulty;
   private String questionType;
   private String bankType;
+  private String language;
   private String requirements;
+  private String sourceUrl;
   private String documentText;
   private Integer count;
 }

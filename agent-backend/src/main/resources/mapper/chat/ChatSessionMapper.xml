@@ -16,7 +16,23 @@
     WHERE chat_session_state.tenant_id=EXCLUDED.tenant_id
       AND chat_session_state.user_id=EXCLUDED.user_id
   </insert>
-  <insert id="appendMessage">INSERT INTO chat_message_log(tenant_id,user_id,session_id,role,content,metadata_json,created_at) VALUES(#{tenantId},#{userId},#{sessionId},#{role},#{content},#{metadataJson},#{createdAt})</insert>
+  <insert id="appendMessage">
+    INSERT INTO chat_message_log(tenant_id,user_id,session_id,role,content,metadata_json,created_at)
+    VALUES(#{tenantId},#{userId},#{sessionId},#{role},#{content},#{metadataJson},#{createdAt})
+  </insert>
+  <insert id="appendUserMessageOnce">
+    INSERT INTO chat_message_log(tenant_id,user_id,session_id,turn_id,role,content,metadata_json,created_at)
+    VALUES(#{tenantId},#{userId},#{sessionId},#{turnId},'user',#{content},#{metadataJson},#{createdAt})
+    ON CONFLICT (tenant_id,user_id,session_id,turn_id)
+      WHERE role='user' AND turn_id IS NOT NULL
+    DO NOTHING
+  </insert>
+  <select id="findUserMessageContentByTurnId" resultType="string">
+    SELECT content FROM chat_message_log
+    WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId}
+      AND turn_id=#{turnId} AND role='user'
+    LIMIT 1
+  </select>
   <select id="findLatestAssistantJobMessage" resultType="map">SELECT id,metadata_json AS "metadataJson" FROM chat_message_log WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId} AND role='assistant' AND metadata_json LIKE '%jobCards%' ORDER BY created_at DESC,id DESC LIMIT 1</select>
   <update id="updateMessageMetadata">UPDATE chat_message_log SET metadata_json=#{metadataJson} WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND id=#{id}</update>
   <select id="listSessions" resultType="map">
@@ -24,7 +40,7 @@
       (SELECT content FROM chat_message_log m WHERE m.tenant_id=s.tenant_id AND m.user_id=s.user_id AND m.session_id=s.session_id ORDER BY m.created_at,m.id LIMIT 1) AS "firstMessage"
     FROM chat_session_state s WHERE s.tenant_id=#{tenantId} AND s.user_id=#{userId} ORDER BY s.updated_at DESC LIMIT 50
   </select>
-  <select id="listMessages" resultType="map">SELECT role,content,metadata_json AS "metadataJson",created_at AS "createdAt" FROM chat_message_log WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId} ORDER BY created_at,id</select>
+  <select id="listMessages" resultType="map">SELECT id,turn_id AS "turnId",role,content,metadata_json AS "metadataJson",created_at AS "createdAt" FROM chat_message_log WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId} ORDER BY created_at,id</select>
   <delete id="deleteMessages">DELETE FROM chat_message_log WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId}</delete>
   <delete id="deleteState">DELETE FROM chat_session_state WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId}</delete>
 </mapper>

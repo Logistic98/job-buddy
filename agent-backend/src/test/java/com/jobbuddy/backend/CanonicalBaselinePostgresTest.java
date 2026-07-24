@@ -72,11 +72,11 @@ class CanonicalBaselinePostgresTest {
   void emptyDatabaseMigratesWithDefaultUsersAuthorizationAndJobBlacklist() throws Exception {
     var result = flyway().migrate();
 
-    assertEquals(11, result.migrationsExecuted);
-    assertEquals("1.0.10", result.targetSchemaVersion);
+    assertEquals(13, result.migrationsExecuted);
+    assertEquals("1.0.12", result.targetSchemaVersion);
     assertEquals(EXPECTED_TABLES, applicationTables());
     assertEquals(
-        289,
+        290,
         queryLong(
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
                 + "AND table_name <> 'flyway_schema_history'"));
@@ -85,42 +85,58 @@ class CanonicalBaselinePostgresTest {
     assertEquals(
         1,
         queryLong(
-            "SELECT COUNT(*) FROM user_role WHERE user_id = 'job_buddy_admin' AND role_id = 'role_admin'"));
+            "SELECT COUNT(*) FROM user_role WHERE user_id = 'job_buddy_admin' AND role_id ="
+                + " 'role_admin'"));
     assertEquals(
         1,
         queryLong(
-            "SELECT COUNT(*) FROM user_role WHERE user_id = 'job_buddy_user' AND role_id = 'role_user'"));
+            "SELECT COUNT(*) FROM user_role WHERE user_id = 'job_buddy_user' AND role_id ="
+                + " 'role_user'"));
     assertEquals(
         "admin", queryString("SELECT username FROM app_user WHERE user_id = 'job_buddy_admin'"));
     assertEquals(
         "user", queryString("SELECT username FROM app_user WHERE user_id = 'job_buddy_user'"));
     assertTrue(queryBoolean("SELECT enabled FROM app_user WHERE user_id = 'job_buddy_admin'"));
     assertTrue(queryBoolean("SELECT enabled FROM app_user WHERE user_id = 'job_buddy_user'"));
-    assertEquals(12, queryLong("SELECT COUNT(*) FROM permission_definition"));
+    assertEquals(10, queryLong("SELECT COUNT(*) FROM permission_definition"));
     assertEquals(2, queryLong("SELECT COUNT(*) FROM rbac_role"));
-    assertEquals(14, queryLong("SELECT COUNT(*) FROM rbac_menu"));
+    assertEquals(15, queryLong("SELECT COUNT(*) FROM rbac_menu"));
     assertEquals(22, queryLong("SELECT COUNT(*) FROM role_menu"));
     assertEquals(
-        1,
+        7,
         queryLong(
             "SELECT COUNT(*) FROM role_menu WHERE role_id = 'role_admin' "
-                + "AND menu_id = 'menu_settings_platform'"));
+                + "AND menu_id IN ('menu_settings_users', 'menu_settings_roles', "
+                + "'menu_settings_menus', 'menu_settings_tenant', 'menu_settings_platform', "
+                + "'menu_settings_memory', 'menu_settings_services')"));
     assertEquals(
         0,
         queryLong(
             "SELECT COUNT(*) FROM role_menu WHERE role_id = 'role_user' "
-                + "AND menu_id IN ('menu_settings', 'menu_settings_tenant')"));
+                + "AND menu_id IN ('menu_settings', 'menu_settings_tenant', "
+                + "'menu_settings_platform', 'menu_settings_memory', 'menu_settings_services')"));
+    assertEquals(
+        0,
+        queryLong(
+            "SELECT COUNT(*) FROM rbac_menu WHERE menu_type = 'action' "
+                + "OR menu_code = 'chat-boss'"));
+    assertEquals(
+        0,
+        queryLong("SELECT COUNT(*) FROM permission_definition WHERE permission_code = 'boss:use'"));
     assertEquals(47, queryLong("SELECT COUNT(*) FROM blacklist_item"));
     assertTrue(tableExists("idx_app_user_tenant_created_username"));
     assertTrue(tableExists("idx_rbac_role_tenant_created_name"));
+    assertTrue(tableExists("uk_chat_message_user_turn"));
     assertEquals(
         40,
         queryLong(
-            "SELECT COUNT(*) FROM blacklist_item WHERE item_type = 'company' AND source = 'system'"));
+            "SELECT COUNT(*) FROM blacklist_item WHERE item_type = 'company' AND source ="
+                + " 'system'"));
     assertEquals(
         7,
         queryLong(
-            "SELECT COUNT(*) FROM blacklist_item WHERE item_type = 'keyword' AND source = 'system'"));
+            "SELECT COUNT(*) FROM blacklist_item WHERE item_type = 'keyword' AND source ="
+                + " 'system'"));
     assertEquals(
         1,
         queryLong(
@@ -130,8 +146,9 @@ class CanonicalBaselinePostgresTest {
     assertEquals(
         0,
         queryLong(
-            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
-                + "AND (column_name IN ('source_hash', 'folder_name', 'version_label', 'tenant_name'))"));
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND"
+                + " (column_name IN ('source_hash', 'folder_name', 'version_label',"
+                + " 'tenant_name'))"));
   }
 
   @Test

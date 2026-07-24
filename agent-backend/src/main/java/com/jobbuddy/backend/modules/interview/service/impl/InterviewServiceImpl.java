@@ -1,6 +1,7 @@
 package com.jobbuddy.backend.modules.interview.service.impl;
 
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.interview.dto.request.*;
 import com.jobbuddy.backend.modules.interview.dto.response.*;
 import com.jobbuddy.backend.modules.interview.repository.InterviewRepository;
@@ -20,20 +21,23 @@ public class InterviewServiceImpl implements InterviewService {
   private final InterviewRepository interviewRepository;
   private final InterviewCodeRunner interviewCodeRunner;
   private final JsonCodec jsonCodec;
+  private final AgentIntegrationService agentIntegrationService;
 
   @Autowired
   public InterviewServiceImpl(
       InterviewRepository interviewRepository,
       InterviewCodeRunner interviewCodeRunner,
-      JsonCodec jsonCodec) {
+      JsonCodec jsonCodec,
+      AgentIntegrationService agentIntegrationService) {
     this.interviewRepository = interviewRepository;
     this.interviewCodeRunner = interviewCodeRunner;
     this.jsonCodec = jsonCodec;
+    this.agentIntegrationService = agentIntegrationService;
   }
 
   public InterviewServiceImpl(
       InterviewRepository interviewRepository, InterviewCodeRunner interviewCodeRunner) {
-    this(interviewRepository, interviewCodeRunner, new JsonCodec());
+    this(interviewRepository, interviewCodeRunner, new JsonCodec(), null);
   }
 
   public List<InterviewQuestionResponse> listQuestions(String keyword, String category) {
@@ -144,6 +148,7 @@ public class InterviewServiceImpl implements InterviewService {
   }
 
   @SuppressWarnings("unchecked")
+  @Transactional
   public InterviewImportResponse importQuestions(InterviewImportRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
     Object value = payload == null ? null : payload.get("items");
@@ -164,84 +169,97 @@ public class InterviewServiceImpl implements InterviewService {
 
   public InterviewGenerateResponse generateQuestions(InterviewGenerateRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
-    String topic = defaultString(payload.get("topic"), "Java 后端");
-    String category = defaultString(payload.get("category"), topic);
-    String difficulty = defaultString(payload.get("difficulty"), "中等");
-    String questionType = defaultString(payload.get("questionType"), "单选");
+    String topic = stringValue(payload.get("topic"));
+    String category = required(payload, "category", "分类不能为空");
+    String difficulty = required(payload, "difficulty", "难度不能为空");
+    String questionType = required(payload, "questionType", "题型不能为空");
     String bankType =
         normalizeBankType(
             stringValue(payload.get("bankType")), "编程题".equals(questionType) ? "leetcode" : "qa");
-    if ("leetcode".equals(bankType)) {
-      throw new IllegalArgumentException("算法题生成必须同时提供独立维护的代码模板、参数个数和测试用例，请使用手动录入或结构化导入");
-    }
-    String requirements = defaultString(payload.get("requirements"), "结合工程实践、原理理解和排障经验");
+    if (!"leetcode".equals(bankType) && !"qa".equals(bankType))
+      throw new IllegalArgumentException("不支持的题库类型");
+    String requirements = stringValue(payload.get("requirements"));
+    String sourceUrl = stringValue(payload.get("sourceUrl"));
     String documentText = stringValue(payload.get("documentText"));
-    if (documentText != null && documentText.length() > 600)
-      documentText = documentText.substring(0, 600);
-    String sourceHint =
-        documentText == null || documentText.trim().isEmpty()
-            ? ""
-            : " 参考资料：" + documentText.replaceAll("\\s+", " ");
+    if (documentText != null && documentText.length() > 20000)
+      documentText = documentText.substring(0, 20000);
+    if (isBlank(topic) && isBlank(sourceUrl) && isBlank(documentText) && isBlank(requirements))
+      throw new IllegalArgumentException(
+          "leetcode".equals(bankType) ? "请提供算法主题、LeetCode 链接、题面或算法资料" : "请提供知识主题、参考文本、出题要求或问答资料");
     int count = intValue(payload.get("count"), 5);
-    if (count <= 0) count = 5;
-    if (count > 20) count = 20;
-    List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
-    for (int i = 1; i <= count; i++) {
-      Map<String, Object> question = new LinkedHashMap<String, Object>();
-      question.put("title", topic + " 面试题 " + i);
-      question.put("bankType", bankType);
-      question.put("category", category);
-      question.put("difficulty", difficulty);
-      question.put("questionType", questionType);
-      question.put("content", generatedContent(topic, requirements + sourceHint, questionType, i));
-      question.put("answer", generatedAnswer(topic, requirements, questionType, i));
-      List<Map<String, Object>> tags = new ArrayList<Map<String, Object>>();
-      addTag(tags, category);
-      addTag(tags, topic);
-      question.put("tags", tags);
-      items.add(saveQuestionMap(question, null));
+    if (count < 1 || count > 20) throw new IllegalArgumentException("生成数量需在 1-20 之间");
+    String language = defaultString(payload.get("language"), "python").toLowerCase();
+    if ("leetcode".equals(bankType)
+        && !"python".equals(language)
+        && !"java".equals(language)
+        && !"javascript".equals(language))
+      throw new IllegalArgumentException("代码语言仅支持 python、java、javascript");
+    if (agentIntegrationService == null) throw new IllegalStateException("智能生成服务未配置");
+
+    Map<String, Object> arguments = new LinkedHashMap<String, Object>();
+    arguments.put("topic", topic);
+    arguments.put("bank_type", bankType);
+    arguments.put("category", category);
+    arguments.put("difficulty", difficulty);
+    arguments.put("question_type", "leetcode".equals(bankType) ? "编程题" : questionType);
+    arguments.put("language", language);
+    arguments.put("count", Integer.valueOf(count));
+    arguments.put("requirements", requirements);
+    arguments.put("source_url", sourceUrl);
+    arguments.put("source_text", documentText);
+    Map<String, Object> toolResult =
+        agentIntegrationService.invokeRuntimeTool("interview_question_generate", arguments);
+    if (toolResult == null || toolResult.isEmpty())
+      throw new IllegalStateException("智能生成服务暂不可用，请稍后重试");
+    if (Boolean.FALSE.equals(toolResult.get("success"))) {
+      String message = stringValue(toolResult.get("error"));
+      throw new IllegalArgumentException(isBlank(message) ? "候选题生成失败，请调整资料后重试" : message);
     }
+    Object dataValue = toolResult.get("data");
+    Map<String, Object> generated =
+        dataValue instanceof Map
+            ? (Map<String, Object>) dataValue
+            : toolResult.get("output") instanceof Map
+                ? (Map<String, Object>) toolResult.get("output")
+                : Collections.<String, Object>emptyMap();
+    Object rowsValue = generated.get("items");
+    if (!(rowsValue instanceof List)) throw new IllegalArgumentException("智能生成结果缺少候选题列表，请重新生成");
+    List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
+    for (Object row : (List<Object>) rowsValue) {
+      if (!(row instanceof Map)) throw new IllegalArgumentException("智能生成的候选题结构不正确，请重新生成");
+      items.add(
+          normalizeGeneratedQuestion(
+              (Map<String, Object>) row, bankType, category, difficulty, questionType));
+    }
+    if (items.size() != count) throw new IllegalArgumentException("智能生成的候选题数量不完整，请重新生成");
+    return generatedResponse(items);
+  }
+
+  private Map<String, Object> normalizeGeneratedQuestion(
+      Map<String, Object> payload,
+      String bankType,
+      String category,
+      String difficulty,
+      String questionType) {
+    Map<String, Object> question = new LinkedHashMap<String, Object>();
+    question.put("title", required(payload, "title", "候选题标题不能为空"));
+    question.put("content", required(payload, "content", "候选题内容不能为空"));
+    question.put("bankType", bankType);
+    question.put("answer", stringValue(payload.get("answer")));
+    question.put("category", defaultString(payload.get("category"), category));
+    question.put("difficulty", defaultString(payload.get("difficulty"), difficulty));
+    question.put("questionType", "leetcode".equals(bankType) ? "编程题" : questionType);
+    question.put("tags", normalizeTags(payload.get("tags")));
+    if ("leetcode".equals(bankType))
+      question.put("codingMeta", normalizeCodingMeta(payload.get("codingMeta"), true));
+    return question;
+  }
+
+  private InterviewGenerateResponse generatedResponse(List<Map<String, Object>> items) {
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("count", Integer.valueOf(items.size()));
     result.put("items", items);
     return jsonCodec.convert(result, InterviewGenerateResponse.class);
-  }
-
-  private String generatedContent(
-      String topic, String requirements, String questionType, int index) {
-    String stem;
-    switch ((index - 1) % 5) {
-      case 0:
-        stem = "请说明 " + topic + " 中一个核心机制的工作原理，并结合实际项目解释它解决了什么问题。要求：" + requirements;
-        break;
-      case 1:
-        stem = "如果线上 " + topic + " 相关能力出现性能下降，你会如何定位、验证和修复？请给出排查步骤。要求：" + requirements;
-        break;
-      case 2:
-        stem = "请设计一个与 " + topic + " 相关的工程方案，说明模块划分、关键数据流、异常处理和可观测性设计。要求：" + requirements;
-        break;
-      case 3:
-        stem = "请比较 " + topic + " 中两个常见方案的优缺点、适用场景和风险边界。要求：" + requirements;
-        break;
-      default:
-        stem = "请结合一次真实或模拟项目经历，说明你如何落地 " + topic + "，包括技术选择、难点和结果指标。要求：" + requirements;
-    }
-    if ("编程题".equals(questionType))
-      return stem + "\n\n请任选 Python、Java 或 JavaScript 完成解法，并至少覆盖示例与边界场景。";
-    if (!"单选".equals(questionType) && !"多选".equals(questionType)) return stem;
-    return stem
-        + "\n\nA. 原理清晰、能结合工程场景并说明边界\nB. 只背诵概念，不说明适用场景\nC. 能给出排查步骤、验证指标和回滚方案\nD. 完全忽略异常处理和性能影响";
-  }
-
-  private String generatedAnswer(
-      String topic, String requirements, String questionType, int index) {
-    if ("单选".equals(questionType)) return "A";
-    if ("多选".equals(questionType)) return "A,C";
-    if ("编程题".equals(questionType)) return "以测试用例是否通过作为主要判断标准，同时关注时间复杂度、边界处理和代码可读性。";
-    return "参考答案应覆盖：1）核心概念和原理；2）关键流程或架构设计；3）工程实践中的异常、性能和边界处理；4）结合 "
-        + topic
-        + " 的实际项目案例；5）说明权衡理由和可验证结果。补充要求："
-        + requirements;
   }
 
   @SuppressWarnings("unchecked")
@@ -485,6 +503,9 @@ public class InterviewServiceImpl implements InterviewService {
     }
     List<Object> sourceTests =
         testsValue instanceof List ? (List<Object>) testsValue : Collections.<Object>emptyList();
+    if (codingRequired && sourceTests.isEmpty()) {
+      throw new IllegalArgumentException("codingMeta.tests 至少需要 1 条测试用例");
+    }
     List<Map<String, Object>> tests = new ArrayList<Map<String, Object>>();
     for (Object item : sourceTests) {
       if (!(item instanceof Map)) throw new IllegalArgumentException("codingMeta.tests 每项必须是对象");
@@ -517,6 +538,10 @@ public class InterviewServiceImpl implements InterviewService {
 
   private String stringValue(Object value) {
     return value == null ? null : String.valueOf(value);
+  }
+
+  private boolean isBlank(String value) {
+    return value == null || value.trim().isEmpty();
   }
 
   private boolean booleanValue(Object value) {

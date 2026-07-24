@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -16,12 +17,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
+import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
+import com.jobbuddy.backend.modules.chat.service.JobRecommendationResult;
+import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
+import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.prompt.model.PersonalContext;
 import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
+import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import java.io.IOException;
 import java.util.Arrays;
@@ -56,6 +62,222 @@ class ChatSseCollaboratorsTest {
 
     request.setResumeAfterAuth(false);
     assertFalse(ChatSseServiceImpl.shouldResumeSelectedJobMatchAfterAuth(request, state));
+  }
+
+  @Test
+  void jobRecommendationShouldPersistResolvedSlotsBeforeRequestingAuthentication() {
+    ChatSseEventSender sender = mock(ChatSseEventSender.class);
+    ChatPersistenceCoordinator persistence = mock(ChatPersistenceCoordinator.class);
+    JobRuntimeService jobRuntimeService = mock(JobRuntimeService.class);
+    PersonalContextBuilder personalContextBuilder = mock(PersonalContextBuilder.class);
+    CurrentResumeLoader resumeLoader = mock(CurrentResumeLoader.class);
+    when(personalContextBuilder.build(anyString(), anyString(), anyString(), any(), any()))
+        .thenReturn(
+            new PersonalContext(
+                "job",
+                Collections.<String, Object>emptyMap(),
+                Collections.<String, Object>emptyMap(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                ""));
+    when(jobRuntimeService.bossCandidatePoolTimeoutSeconds()).thenReturn(30);
+    when(jobRuntimeService.recommendJobsFast(any(IntentResult.class), eq("s1"), any()))
+        .thenThrow(new BossAuthRequiredException("需要扫码", Collections.<String, Object>emptyMap()));
+    JobRecommendHandler handler =
+        new JobRecommendHandler(
+            sender,
+            persistence,
+            jobRuntimeService,
+            personalContextBuilder,
+            resumeLoader,
+            new JobBuddyProperties());
+    ChatSessionState state = new ChatSessionState();
+    state.sessionId = "s1";
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            1.0,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            Collections.<String, Object>singletonMap("role", "大模型应用开发"));
+
+    assertThrows(
+        BossAuthRequiredException.class,
+        () -> handler.handle(new SseEmitter(0L), "s1", state, intent, false, "筛选大模型岗位"));
+
+    assertEquals("大模型应用开发", state.lastSlots.get("role"));
+    verify(persistence).saveStateAsync(state);
+  }
+
+  @Test
+  void jobRecommendationShouldPersistClearedStateWhenQualityGateErrorCannotBeSent()
+      throws Exception {
+    ChatSseEventSender sender = mock(ChatSseEventSender.class);
+    ChatPersistenceCoordinator persistence = mock(ChatPersistenceCoordinator.class);
+    JobRuntimeService jobRuntimeService = mock(JobRuntimeService.class);
+    PersonalContextBuilder personalContextBuilder = mock(PersonalContextBuilder.class);
+    CurrentResumeLoader resumeLoader = mock(CurrentResumeLoader.class);
+    when(personalContextBuilder.build(anyString(), anyString(), anyString(), any(), any()))
+        .thenReturn(
+            new PersonalContext(
+                "job",
+                Collections.<String, Object>emptyMap(),
+                Collections.<String, Object>emptyMap(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                ""));
+    when(jobRuntimeService.bossCandidatePoolTimeoutSeconds()).thenReturn(30);
+    List<Map<String, Object>> candidates =
+        Collections.<Map<String, Object>>singletonList(
+            Collections.<String, Object>singletonMap("jobName", "大模型应用开发"));
+    when(jobRuntimeService.recommendJobsFast(any(IntentResult.class), eq("s1"), any()))
+        .thenReturn(candidates);
+    when(resumeLoader.loadCurrentResume(any(ChatSessionState.class)))
+        .thenReturn(mock(ResumeRecord.class));
+    when(jobRuntimeService.prequalifyRecommendationsWithContinuation(
+            any(ResumeRecord.class), any(IntentResult.class), eq(candidates), eq("s1")))
+        .thenThrow(new RuntimeException("quality gate failed"));
+    doNothing()
+        .doNothing()
+        .doThrow(new IOException("connection closed"))
+        .when(sender)
+        .sendToolStatus(any(SseEmitter.class), eq("s1"), any(ChatSessionState.class), anyMap());
+    JobRecommendHandler handler =
+        new JobRecommendHandler(
+            sender,
+            persistence,
+            jobRuntimeService,
+            personalContextBuilder,
+            resumeLoader,
+            new JobBuddyProperties());
+    ChatSessionState state = new ChatSessionState();
+    state.sessionId = "s1";
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    state.jobs =
+        Collections.<Map<String, Object>>singletonList(
+            Collections.<String, Object>singletonMap("jobName", "旧岗位"));
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            1.0,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            Collections.<String, Object>singletonMap("role", "大模型应用开发"));
+
+    assertThrows(
+        IOException.class,
+        () -> handler.handle(new SseEmitter(0L), "s1", state, intent, false, "筛选大模型岗位"));
+
+    assertTrue(state.jobs.isEmpty());
+    verify(persistence).saveStateAsync(state);
+  }
+
+  @Test
+  void jobRecommendationShouldReportAllSearchCandidatesBeforeQualityGateFiltering()
+      throws Exception {
+    ChatSseEventSender sender = mock(ChatSseEventSender.class);
+    ChatPersistenceCoordinator persistence = mock(ChatPersistenceCoordinator.class);
+    JobRuntimeService jobRuntimeService = mock(JobRuntimeService.class);
+    PersonalContextBuilder personalContextBuilder = mock(PersonalContextBuilder.class);
+    CurrentResumeLoader resumeLoader = mock(CurrentResumeLoader.class);
+    when(personalContextBuilder.build(anyString(), anyString(), anyString(), any(), any()))
+        .thenReturn(
+            new PersonalContext(
+                "job",
+                Collections.<String, Object>emptyMap(),
+                Collections.<String, Object>emptyMap(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                ""));
+    when(jobRuntimeService.bossCandidatePoolTimeoutSeconds()).thenReturn(30);
+    List<Map<String, Object>> candidates = new java.util.ArrayList<Map<String, Object>>();
+    for (int index = 1; index <= 23; index++) {
+      candidates.add(Collections.<String, Object>singletonMap("jobName", "候选岗位 " + index));
+    }
+    List<Map<String, Object>> qualified = candidates.subList(0, 8);
+    Map<String, Integer> rejectionReasons = new LinkedHashMap<String, Integer>();
+    rejectionReasons.put("匹配置信度低", Integer.valueOf(10));
+    rejectionReasons.put("未达到最低匹配分", Integer.valueOf(5));
+    JobRecommendationResult quality =
+        new JobRecommendationResult(
+            qualified, 23, rejectionReasons, Collections.<String>emptyList());
+    when(jobRuntimeService.recommendJobsFast(any(IntentResult.class), eq("s1"), any()))
+        .thenReturn(candidates);
+    when(resumeLoader.loadCurrentResume(any(ChatSessionState.class)))
+        .thenReturn(mock(ResumeRecord.class));
+    when(jobRuntimeService.prequalifyRecommendationsWithContinuation(
+            any(ResumeRecord.class), any(IntentResult.class), eq(candidates), eq("s1")))
+        .thenReturn(quality);
+    JobRecommendHandler handler =
+        new JobRecommendHandler(
+            sender,
+            persistence,
+            jobRuntimeService,
+            personalContextBuilder,
+            resumeLoader,
+            new JobBuddyProperties());
+    ChatSessionState state = new ChatSessionState();
+    state.sessionId = "s1";
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            1.0,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            Collections.<String, Object>singletonMap("role", "大模型应用开发"));
+
+    handler.handle(new SseEmitter(0L), "s1", state, intent, false, "筛选大模型岗位");
+
+    ArgumentCaptor<Map<String, Object>> statusCaptor = ArgumentCaptor.forClass((Class) Map.class);
+    verify(sender, org.mockito.Mockito.times(4))
+        .sendToolStatus(any(SseEmitter.class), eq("s1"), eq(state), statusCaptor.capture());
+    Map<String, Object> searchCompleted =
+        statusCaptor.getAllValues().stream()
+            .filter(
+                event ->
+                    "job_search".equals(event.get("id")) && "success".equals(event.get("status")))
+            .findFirst()
+            .orElseThrow();
+    Map<String, Object> searchDetail = (Map<String, Object>) searchCompleted.get("detail");
+    assertEquals("累计检索到 23 个候选岗位。", searchCompleted.get("summary"));
+    assertEquals(23, searchDetail.get("count"));
+    assertFalse(searchDetail.containsKey("qualifiedCount"));
+    assertFalse(searchDetail.containsKey("rejectionReasons"));
+
+    Map<String, Object> qualityCompleted =
+        statusCaptor.getAllValues().stream()
+            .filter(
+                event ->
+                    "recommendation_quality_gate".equals(event.get("id"))
+                        && "success".equals(event.get("status")))
+            .findFirst()
+            .orElseThrow();
+    Map<String, Object> qualityDetail = (Map<String, Object>) qualityCompleted.get("detail");
+    assertEquals(23, qualityDetail.get("candidateCount"));
+    assertEquals(8, qualityDetail.get("qualifiedCount"));
   }
 
   // ---- ChatSseEventSender ----
@@ -195,6 +417,9 @@ class ChatSseCollaboratorsTest {
   @Test
   void buildRuntimeManagedRequestShouldCarryBudgetAndMetadata() {
     JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setRuntimeMaxTurns(9);
+    properties.setRuntimeMaxToolCalls(14);
+    properties.setRuntimeMaxFailures(4);
     RuntimeManagedRequestFactory factory =
         new RuntimeManagedRequestFactory(
             mock(AgentIntegrationService.class), mock(PersonalContextBuilder.class), properties);
@@ -209,9 +434,9 @@ class ChatSseCollaboratorsTest {
     assertEquals(1, messages.size());
     assertEquals("帮我找岗位", ((Map<?, ?>) messages.get(0)).get("content"));
     Map<?, ?> budget = (Map<?, ?>) request.get("budget");
-    assertEquals(properties.getRuntimeMaxTurns(), budget.get("max_turns"));
-    assertEquals(properties.getRuntimeMaxToolCalls(), budget.get("max_tool_calls"));
-    assertEquals(properties.getRuntimeMaxFailures(), budget.get("max_failures"));
+    assertEquals(9, budget.get("max_turns"));
+    assertEquals(14, budget.get("max_tool_calls"));
+    assertEquals(4, budget.get("max_failures"));
     Map<?, ?> metadata = (Map<?, ?>) request.get("metadata");
     assertEquals("job_buddy", metadata.get("profile"));
     assertEquals("chat.ask", metadata.get("entrypoint"));

@@ -8,12 +8,15 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.anyInt;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewBatchRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewExamSubmitRequest;
+import com.jobbuddy.backend.modules.interview.dto.request.InterviewGenerateRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewQuestionRequest;
 import com.jobbuddy.backend.modules.interview.repository.InterviewRepository;
 import com.jobbuddy.backend.modules.interview.service.impl.InterviewCodeRunner;
@@ -32,7 +35,10 @@ class InterviewServiceImplTest {
 
   private final InterviewRepository repository = mock(InterviewRepository.class);
   private final InterviewCodeRunner codeRunner = mock(InterviewCodeRunner.class);
-  private final InterviewServiceImpl service = new InterviewServiceImpl(repository, codeRunner);
+  private final AgentIntegrationService agentIntegrationService =
+      mock(AgentIntegrationService.class);
+  private final InterviewServiceImpl service =
+      new InterviewServiceImpl(repository, codeRunner, JSON, agentIntegrationService);
 
   @Test
   void pageQuestionsShouldClampPageAndSizeAndComputePages() {
@@ -112,7 +118,7 @@ class InterviewServiceImplTest {
   }
 
   @Test
-  void saveQuestionShouldAllowCodingQuestionWithEmptyTests() {
+  void saveQuestionShouldRejectCodingQuestionWithEmptyTests() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
     payload.put("title", "无测试用例算法题");
     payload.put("content", "描述解题目标");
@@ -124,14 +130,127 @@ class InterviewServiceImplTest {
     codingMeta.put("template", "def solution(value):\n    return value");
     codingMeta.put("tests", Collections.emptyList());
     payload.put("codingMeta", codingMeta);
-    when(repository.findQuestion(anyString())).thenReturn(new LinkedHashMap<String, Object>());
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null));
 
-    service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null);
+    assertEquals("codingMeta.tests 至少需要 1 条测试用例", error.getMessage());
+  }
 
+  @Test
+  void generateAlgorithmQuestionsShouldReturnReviewCandidatesWithoutPersistence() {
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("topic", "动态规划");
+    payload.put("category", "动态规划");
+    payload.put("difficulty", "困难");
+    payload.put("questionType", "编程题");
+    payload.put("bankType", "leetcode");
+    payload.put("language", "java");
+    payload.put("requirements", "覆盖状态定义和边界条件");
+    payload.put("sourceUrl", "https://leetcode.com/problems/coin-change/");
+    payload.put("count", Integer.valueOf(1));
+    Map<String, Object> candidate =
+        JSON.toMap(
+            "{\"title\":\"零钱兑换变体\",\"bankType\":\"leetcode\",\"category\":\"动态规划\","
+                + "\"difficulty\":\"困难\",\"questionType\":\"编程题\","
+                + "\"content\":\"给定硬币集合和目标金额，返回最少硬币数。\","
+                + "\"answer\":\"使用一维动态规划。\",\"tags\":[\"动态规划\"],"
+                + "\"codingMeta\":{\"language\":\"java\",\"functionName\":\"coinChange\",\"parameterCount\":2,\"signature\":\"coinChange(int[],"
+                + " int)\",\"template\":\"class Solution { int coinChange(int[] coins, int amount)"
+                + " { return 0; } }\","
+                + "\"tests\":[{\"name\":\"样例\",\"args\":[[1,2,5],11],\"expected\":3,\"sample\":true},"
+                + "{\"name\":\"无解\",\"args\":[[2],3],\"expected\":-1,\"sample\":false},"
+                + "{\"name\":\"零金额\",\"args\":[[1],0],\"expected\":0,\"sample\":false}]}}");
+    Map<String, Object> generated = new LinkedHashMap<String, Object>();
+    generated.put("items", Arrays.asList(candidate));
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("success", Boolean.TRUE);
+    toolResult.put("data", generated);
+    when(agentIntegrationService.invokeRuntimeTool(
+            eq("interview_question_generate"), org.mockito.ArgumentMatchers.anyMap()))
+        .thenReturn(toolResult);
+
+    Map<String, Object> result =
+        JSON.toMap(
+            service.generateQuestions(JSON.convert(payload, InterviewGenerateRequest.class)));
+
+    assertEquals(Integer.valueOf(1), result.get("count"));
+    List<Map<String, Object>> items = (List<Map<String, Object>>) result.get("items");
+    assertEquals("零钱兑换变体", items.get(0).get("title"));
+    assertEquals(null, items.get(0).get("questionId"));
+    Map<String, Object> codingMeta = (Map<String, Object>) items.get(0).get("codingMeta");
+    assertEquals("java", codingMeta.get("language"));
+    assertEquals(Integer.valueOf(3), Integer.valueOf(((List) codingMeta.get("tests")).size()));
+    verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
+  }
+
+  @Test
+  void generateQaQuestionsShouldAcceptRequirementsAsTheOnlySource() {
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("category", "Java 基础");
+    payload.put("difficulty", "中等");
+    payload.put("questionType", "单选");
+    payload.put("bankType", "qa");
+    payload.put("requirements", "生成一道考察 Java 集合线程安全性的单选题");
+    payload.put("count", Integer.valueOf(1));
+    Map<String, Object> candidate =
+        JSON.toMap(
+            "{\"title\":\"HashMap 线程安全判断\",\"bankType\":\"qa\","
+                + "\"category\":\"Java 基础\",\"difficulty\":\"中等\",\"questionType\":\"单选\","
+                + "\"content\":\"以下关于 HashMap 的描述，正确的是哪一项？\\n\\n"
+                + "A. 默认线程安全\\nB. 默认线程不安全\","
+                + "\"answer\":\"B\",\"tags\":[\"Java\",\"集合\"]}");
+    Map<String, Object> generated = new LinkedHashMap<String, Object>();
+    generated.put("items", Arrays.asList(candidate));
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("success", Boolean.TRUE);
+    toolResult.put("data", generated);
+    when(agentIntegrationService.invokeRuntimeTool(
+            eq("interview_question_generate"), org.mockito.ArgumentMatchers.anyMap()))
+        .thenReturn(toolResult);
+
+    Map<String, Object> result =
+        JSON.toMap(
+            service.generateQuestions(JSON.convert(payload, InterviewGenerateRequest.class)));
+
+    assertEquals(Integer.valueOf(1), result.get("count"));
+    List<Map<String, Object>> items = (List<Map<String, Object>>) result.get("items");
+    assertEquals("单选", items.get(0).get("questionType"));
+    assertEquals(null, items.get(0).get("codingMeta"));
     ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass((Class) Map.class);
-    verify(repository).saveQuestion(captor.capture());
-    Map<String, Object> savedMeta = (Map<String, Object>) captor.getValue().get("codingMeta");
-    assertTrue(((List<?>) savedMeta.get("tests")).isEmpty());
+    verify(agentIntegrationService)
+        .invokeRuntimeTool(eq("interview_question_generate"), captor.capture());
+    assertEquals("生成一道考察 Java 集合线程安全性的单选题", captor.getValue().get("requirements"));
+    assertEquals("单选", captor.getValue().get("question_type"));
+    verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
+  }
+
+  @Test
+  void generateAlgorithmQuestionsShouldSurfaceRuntimeFailure() {
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("topic", "动态规划");
+    payload.put("category", "动态规划");
+    payload.put("difficulty", "中等");
+    payload.put("questionType", "编程题");
+    payload.put("bankType", "leetcode");
+    payload.put("language", "python");
+    payload.put("count", Integer.valueOf(1));
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("success", Boolean.FALSE);
+    toolResult.put("error", "模型返回内容不是完整 JSON，请重新生成");
+    when(agentIntegrationService.invokeRuntimeTool(
+            eq("interview_question_generate"), org.mockito.ArgumentMatchers.anyMap()))
+        .thenReturn(toolResult);
+
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> service.generateQuestions(JSON.convert(payload, InterviewGenerateRequest.class)));
+
+    assertEquals("模型返回内容不是完整 JSON，请重新生成", error.getMessage());
+    verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
   }
 
   @Test

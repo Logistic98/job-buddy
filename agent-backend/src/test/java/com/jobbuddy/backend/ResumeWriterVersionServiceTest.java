@@ -21,7 +21,9 @@ class ResumeWriterVersionServiceTest {
   void createAssignsIncrementingVersionNoAndTrimsToLimit() {
     ResumeWriterVersionMapper mapper = mock(ResumeWriterVersionMapper.class);
     when(mapper.maxVersionNo("tenant-a", "user-a")).thenReturn(30L);
-    ResumeWriterVersionServiceImpl service = newService(mapper);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setResumeWriterVersionLimit(12);
+    ResumeWriterVersionServiceImpl service = new ResumeWriterVersionServiceImpl(mapper, properties);
     ResumeWriterVersionResponse created =
         service.create(
             "tenant-a",
@@ -37,7 +39,7 @@ class ResumeWriterVersionServiceTest {
     ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass((Class) Map.class);
     verify(mapper).insertVersion(captor.capture());
     assertEquals("{\"markdown\":\"x\"}", captor.getValue().get("snapshotJson"));
-    verify(mapper).deleteBeyondLimit("tenant-a", "user-a", 30);
+    verify(mapper).deleteBeyondLimit("tenant-a", "user-a", 12);
   }
 
   @Test

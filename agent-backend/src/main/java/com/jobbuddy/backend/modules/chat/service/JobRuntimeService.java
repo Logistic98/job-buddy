@@ -23,6 +23,12 @@ public interface JobRuntimeService {
   JobRecommendationResult prequalifyRecommendations(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId);
 
+  JobRecommendationResult prequalifyRecommendationsWithContinuation(
+      ResumeRecord resume,
+      IntentResult intent,
+      List<Map<String, Object>> initialJobs,
+      String sessionId);
+
   Map<String, Object> matchResume(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId);
 

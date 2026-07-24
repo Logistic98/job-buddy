@@ -124,6 +124,19 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
     return postRuntime(baseUrl + "/v1/agent/runs", runtimeRequest);
   }
 
+  public Map<String, Object> invokeRuntimeTool(String toolName, Map<String, Object> arguments) {
+    String baseUrl = runtimeBaseUrl();
+    if (baseUrl.isEmpty()) return Collections.emptyMap();
+    String normalizedName = toolName == null ? "" : toolName.trim();
+    if (!normalizedName.matches("[a-z][a-z0-9_]{1,63}")) {
+      throw new IllegalArgumentException("Runtime 工具名称格式不正确");
+    }
+    Map<String, Object> request = new HashMap<String, Object>();
+    request.put(
+        "arguments", arguments == null ? Collections.<String, Object>emptyMap() : arguments);
+    return postRuntime(baseUrl + "/v1/runtime/tools/" + normalizedName + "/invoke", request);
+  }
+
   public Map<String, Object> runRuntimeStream(
       Map<String, Object> request, Consumer<String> onToken) {
     return runRuntimeStream(request, onToken, null);

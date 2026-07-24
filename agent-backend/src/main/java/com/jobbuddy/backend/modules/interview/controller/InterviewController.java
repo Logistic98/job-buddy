@@ -91,7 +91,6 @@ public class InterviewController {
    * @return 统一接口响应
    */
   @Operation(summary = "创建面试题")
-  @RequirePermission(PermissionCodes.TENANT_MANAGE)
   @PostMapping("/questions")
   public ApiResponse<InterviewQuestionResponse> createQuestion(
       @RequestBody InterviewQuestionRequest payload) {
@@ -104,7 +103,6 @@ public class InterviewController {
    * @return 统一接口响应
    */
   @Operation(summary = "批量导入面试题")
-  @RequirePermission(PermissionCodes.TENANT_MANAGE)
   @PostMapping("/questions/import")
   public ApiResponse<InterviewImportResponse> importQuestions(
       @RequestBody InterviewImportRequest payload) {
@@ -117,7 +115,6 @@ public class InterviewController {
    * @return 统一接口响应
    */
   @Operation(summary = "提取 AI 出题参考资料文本")
-  @RequirePermission(PermissionCodes.TENANT_MANAGE)
   @PostMapping(value = "/documents/extract", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public ApiResponse<InterviewDocumentExtractResponse> extractDocumentText(
       @RequestParam("file") MultipartFile file) {
@@ -130,7 +127,6 @@ public class InterviewController {
    * @return 统一接口响应
    */
   @Operation(summary = "生成面试题")
-  @RequirePermission(PermissionCodes.TENANT_MANAGE)
   @PostMapping("/questions/generate")
   public ApiResponse<InterviewGenerateResponse> generateQuestions(
       @RequestBody InterviewGenerateRequest payload) {
@@ -143,7 +139,6 @@ public class InterviewController {
    * @return 统一接口响应
    */
   @Operation(summary = "批量处理面试题")
-  @RequirePermission(PermissionCodes.TENANT_MANAGE)
   @PostMapping("/questions/batch")
   public ApiResponse<InterviewBatchResponse> batchQuestions(
       @RequestBody InterviewBatchRequest payload) {
@@ -156,7 +151,6 @@ public class InterviewController {
    * @return 统一接口响应
    */
   @Operation(summary = "更新面试题")
-  @RequirePermission(PermissionCodes.TENANT_MANAGE)
   @PutMapping("/questions/{questionId}")
   public ApiResponse<InterviewQuestionResponse> updateQuestion(
       @PathVariable String questionId, @RequestBody InterviewQuestionRequest payload) {
@@ -169,7 +163,6 @@ public class InterviewController {
    * @return 统一接口响应
    */
   @Operation(summary = "删除面试题")
-  @RequirePermission(PermissionCodes.TENANT_MANAGE)
   @DeleteMapping("/questions/{questionId}")
   public ApiResponse<QuestionIdResponse> deleteQuestion(@PathVariable String questionId) {
     interviewService.deleteQuestion(questionId);

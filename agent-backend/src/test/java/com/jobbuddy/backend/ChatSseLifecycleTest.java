@@ -1,5 +1,6 @@
 package com.jobbuddy.backend;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -7,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,6 +28,7 @@ import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
 import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import java.lang.reflect.Field;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
@@ -47,6 +50,15 @@ class ChatSseLifecycleTest {
       ChatSessionStore sessionStore,
       IntentService intentService,
       AgentIntegrationService integrationService) {
+    return newService(
+        sessionStore, intentService, integrationService, new AgentServiceProperties());
+  }
+
+  private ChatSseServiceImpl newService(
+      ChatSessionStore sessionStore,
+      IntentService intentService,
+      AgentIntegrationService integrationService,
+      AgentServiceProperties agentServiceProperties) {
     when(sessionStore.getOrCreate(anyString()))
         .thenAnswer(
             inv -> {
@@ -64,8 +76,8 @@ class ChatSseLifecycleTest {
         mock(PersonalContextBuilder.class),
         mock(SystemSettingsService.class),
         new JobBuddyProperties(),
-        new AgentServiceProperties(),
-        new ChatStreamAdmissionController(new AgentServiceProperties()));
+        agentServiceProperties,
+        new ChatStreamAdmissionController(agentServiceProperties));
   }
 
   @SuppressWarnings("unchecked")
@@ -85,6 +97,58 @@ class ChatSseLifecycleTest {
       Thread.sleep(20);
     }
     return !map.containsKey(emitter);
+  }
+
+  @Test
+  void streamUsesConfiguredSessionLifecycleTimeout() throws Exception {
+    AgentServiceProperties properties = new AgentServiceProperties();
+    properties.setStreamReadTimeout(Duration.ofSeconds(180));
+    ChatSessionStore sessionStore = mock(ChatSessionStore.class);
+    ChatSseServiceImpl service =
+        newService(
+            sessionStore,
+            mock(IntentService.class),
+            mock(AgentIntegrationService.class),
+            properties);
+
+    ChatStreamRequest request = new ChatStreamRequest();
+    request.setSessionId("s-session-timeout");
+    request.setTurnId("turn-session-timeout");
+    request.setMessage("帮我找岗位");
+    request.setAuthenticatedTenantId("tenant-a");
+    request.setAuthenticatedUserId("user-a");
+    SseEmitter emitter = service.stream(request);
+
+    assertEquals(Duration.ofMinutes(15), properties.getStreamSessionTimeout());
+    assertEquals(Long.valueOf(Duration.ofMinutes(15).toMillis()), emitter.getTimeout());
+    assertTrue(waitUntilRemoved(cancelledMap(service), emitter, 1000));
+    service.shutdownExecutors();
+  }
+
+  @Test
+  void streamKeepsRuntimeReadTimeoutMarginWhenItExceedsSessionTimeout() throws Exception {
+    AgentServiceProperties properties = new AgentServiceProperties();
+    properties.setStreamReadTimeout(Duration.ofSeconds(180));
+    properties.setStreamSessionTimeout(Duration.ofMinutes(2));
+    ChatSessionStore sessionStore = mock(ChatSessionStore.class);
+    ChatSseServiceImpl service =
+        newService(
+            sessionStore,
+            mock(IntentService.class),
+            mock(AgentIntegrationService.class),
+            properties);
+
+    ChatStreamRequest request = new ChatStreamRequest();
+    request.setSessionId("s-runtime-timeout-margin");
+    request.setTurnId("turn-runtime-timeout-margin");
+    request.setMessage("帮我找岗位");
+    request.setAuthenticatedTenantId("tenant-a");
+    request.setAuthenticatedUserId("user-a");
+    SseEmitter emitter = service.stream(request);
+
+    assertEquals(Long.valueOf(Duration.ofSeconds(190).toMillis()), emitter.getTimeout());
+    assertTrue(waitUntilRemoved(cancelledMap(service), emitter, 1000));
+    service.shutdownExecutors();
   }
 
   @Test
@@ -120,6 +184,56 @@ class ChatSseLifecycleTest {
 
     assertTrue(entered.await(3, TimeUnit.SECONDS), "后台任务应已进入可中断的意图分类阶段");
     verify(sessionStore, timeout(1000)).appendMessage("s-early-persist", "user", "切换会话也要保留");
+    release.countDown();
+    service.shutdownExecutors();
+  }
+
+  @Test
+  void duplicateTurnIdMustPersistAndExecuteOnlyOnce() throws Exception {
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    IntentService intentService = mock(IntentService.class);
+    when(intentService.classify(anyString()))
+        .thenAnswer(
+            inv -> {
+              entered.countDown();
+              release.await(5, TimeUnit.SECONDS);
+              return new IntentResult(
+                  "job",
+                  "job.recommend",
+                  1.0,
+                  Collections.<String>emptyList(),
+                  "low",
+                  false,
+                  "call_get_recommend_jobs",
+                  Collections.<String, Object>emptyMap());
+            });
+    ChatSessionStore sessionStore = mock(ChatSessionStore.class);
+    when(sessionStore.appendUserMessageOnce("s-idempotent", "turn-same", "筛选上海大模型岗位"))
+        .thenReturn(true, false);
+    ChatSseServiceImpl service =
+        newService(sessionStore, intentService, mock(AgentIntegrationService.class));
+
+    ChatStreamRequest first = new ChatStreamRequest();
+    first.setSessionId("s-idempotent");
+    first.setTurnId("turn-same");
+    first.setMessage("筛选上海大模型岗位");
+    first.setAuthenticatedTenantId("tenant-a");
+    first.setAuthenticatedUserId("user-a");
+    service.stream(first);
+    assertTrue(entered.await(3, TimeUnit.SECONDS));
+
+    ChatStreamRequest duplicate = new ChatStreamRequest();
+    duplicate.setSessionId("s-idempotent");
+    duplicate.setTurnId("turn-same");
+    duplicate.setMessage("筛选上海大模型岗位");
+    duplicate.setAuthenticatedTenantId("tenant-a");
+    duplicate.setAuthenticatedUserId("user-a");
+    service.stream(duplicate);
+
+    verify(sessionStore, timeout(1000).times(2))
+        .appendUserMessageOnce("s-idempotent", "turn-same", "筛选上海大模型岗位");
+    verify(intentService, times(1)).classify(anyString());
     release.countDown();
     service.shutdownExecutors();
   }

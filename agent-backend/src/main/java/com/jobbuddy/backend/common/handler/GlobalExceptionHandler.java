@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
@@ -120,6 +121,20 @@ public class GlobalExceptionHandler {
       AsyncRequestNotUsableException exception, HttpServletRequest request) {
     LOG.debug(
         "客户端已断开异步请求：method={}, uri={}, reason={}",
+        request.getMethod(),
+        request.getRequestURI(),
+        exception.getMessage());
+  }
+
+  /**
+   * SSE 总生命周期超时后响应通常已经提交，不能再由兜底异常处理器写入 JSON。保持无响应体， 避免在 text/event-stream 上触发
+   * HttpMessageNotWritableException。
+   */
+  @ExceptionHandler(AsyncRequestTimeoutException.class)
+  public void handleAsyncRequestTimeout(
+      AsyncRequestTimeoutException exception, HttpServletRequest request) {
+    LOG.debug(
+        "异步请求已超时：method={}, uri={}, reason={}",
         request.getMethod(),
         request.getRequestURI(),
         exception.getMessage());

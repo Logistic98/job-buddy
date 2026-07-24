@@ -9,6 +9,7 @@ import com.jobbuddy.backend.modules.auth.dto.response.CurrentUserResponse;
 import com.jobbuddy.backend.modules.auth.dto.response.LoginResponse;
 import com.jobbuddy.backend.modules.auth.service.UserLoginService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -34,7 +35,8 @@ public class UserAuthController {
    *
    * @return 统一接口响应
    */
-  @Operation(summary = "用户登录")
+  @Operation(summary = "用户登录", description = "使用全局唯一用户名和密码登录；成功后同时返回令牌并写入会话 Cookie。")
+  @SecurityRequirements
   @PostMapping("/login")
   public ApiResponse<LoginResponse> login(
       @RequestBody LoginRequest body, HttpServletRequest request, HttpServletResponse response) {
