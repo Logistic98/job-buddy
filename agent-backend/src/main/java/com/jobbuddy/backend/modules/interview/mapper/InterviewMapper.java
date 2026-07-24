@@ -103,8 +103,7 @@ public interface InterviewMapper {
       @Param("questionId") String questionId,
       @Param("answer") String answer,
       @Param("correct") boolean correct,
-      @Param("score") double score,
-      @Param("evaluatedAt") Timestamp evaluatedAt);
+      @Param("score") double score);
 
   int finishExam(
       @Param("examId") String examId,

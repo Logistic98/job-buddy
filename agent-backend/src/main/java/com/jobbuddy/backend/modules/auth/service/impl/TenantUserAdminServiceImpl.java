@@ -55,7 +55,9 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
         response.getRoleNames().add(text(assignment.get("roleName")));
       }
     }
-    for (Map<String, Object> assignment : repository.listUserPermissionAssignments(tenantId)) {
+    // 权限来自用户角色与角色菜单的实时并集，不维护第二套用户直授权数据。
+    for (Map<String, Object> assignment :
+        repository.listUserEffectivePermissionAssignments(tenantId)) {
       ManagedUserResponse response = users.get(text(assignment.get("userId")));
       if (response != null) {
         response.getPermissions().add(text(assignment.get("permissionCode")));

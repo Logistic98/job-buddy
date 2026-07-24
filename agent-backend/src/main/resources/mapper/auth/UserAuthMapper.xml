@@ -67,7 +67,7 @@
     ORDER BY ur.user_id, r.role_name, r.role_id
   </select>
 
-  <select id="listUserPermissionAssignments" resultType="map">
+  <select id="listUserEffectivePermissionAssignments" resultType="map">
     SELECT DISTINCT ur.user_id AS "userId", m.permission_code AS "permissionCode"
     FROM user_role ur
     JOIN rbac_role r
@@ -86,20 +86,10 @@
     FROM app_user u WHERE u.tenant_id = #{tenantId} AND u.user_id = #{userId}
   </select>
 
-  <select id="listGrantablePermissions" resultType="map">
-    SELECT permission_code AS "permissionCode", permission_name AS "permissionName", grantable,
-           display_order AS "displayOrder"
-    FROM permission_definition WHERE grantable = TRUE ORDER BY display_order, permission_code
-  </select>
-
   <select id="listPermissionDefinitions" resultType="map">
     SELECT permission_code AS "permissionCode", permission_name AS "permissionName", grantable,
            display_order AS "displayOrder"
     FROM permission_definition ORDER BY display_order, permission_code
-  </select>
-
-  <select id="countEnabledAdmins" resultType="int">
-    SELECT COUNT(*) FROM app_user WHERE tenant_id = #{tenantId} AND role = 'admin' AND enabled = TRUE
   </select>
 
   <insert id="insertUser">
@@ -117,20 +107,10 @@
     UPDATE app_user SET password_hash = #{passwordHash}, updated_at = #{now} WHERE user_id = #{userId}
   </update>
 
-  <delete id="deleteUserPermissions">
-    DELETE FROM user_permission WHERE tenant_id = #{tenantId} AND user_id = #{userId}
-  </delete>
-
-  <insert id="insertUserPermission">
-    INSERT INTO user_permission(tenant_id, user_id, permission_code, created_at)
-    VALUES(#{tenantId}, #{userId}, #{permissionCode}, #{now}) ON CONFLICT DO NOTHING
-  </insert>
-
   <insert id="saveSession">
-    INSERT INTO user_login_session(token, user_id, expires_at, created_at, last_seen_at)
-    VALUES(#{token}, #{userId}, #{expiresAt}, #{now}, #{now})
+    INSERT INTO user_login_session(token, user_id, expires_at, created_at)
+    VALUES(#{token}, #{userId}, #{expiresAt}, #{now})
   </insert>
-  <update id="touchSession">UPDATE user_login_session SET last_seen_at = #{now} WHERE token = #{token}</update>
   <delete id="deleteSession">DELETE FROM user_login_session WHERE token = #{token}</delete>
   <delete id="deleteSessionsByUserId">DELETE FROM user_login_session WHERE user_id = #{userId}</delete>
   <delete id="deleteExpiredSessions">DELETE FROM user_login_session WHERE expires_at &lt; #{now}</delete>

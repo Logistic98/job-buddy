@@ -1,7 +1,6 @@
 package com.jobbuddy.backend.modules.prompt.service.impl;
 
 import com.jobbuddy.backend.common.util.JsonCodec;
-import com.jobbuddy.backend.modules.prompt.mapper.ProfileDocumentMapper;
 import com.jobbuddy.backend.modules.prompt.model.UserProfileContext;
 import com.jobbuddy.backend.modules.prompt.service.ProfileContextService;
 import com.jobbuddy.backend.modules.resume.dto.response.ResumeSummaryResponse;
@@ -14,25 +13,16 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ProfileContextServiceImpl implements ProfileContextService {
   private static final Logger log = LoggerFactory.getLogger(ProfileContextServiceImpl.class);
   private final ResumeStorageService resumeStorageService;
-  private final ProfileDocumentMapper profileDocumentMapper;
   private final JsonCodec jsonCodec = new JsonCodec();
 
-  @Autowired
-  public ProfileContextServiceImpl(
-      ResumeStorageService resumeStorageService, ProfileDocumentMapper profileDocumentMapper) {
-    this.resumeStorageService = resumeStorageService;
-    this.profileDocumentMapper = profileDocumentMapper;
-  }
-
   public ProfileContextServiceImpl(ResumeStorageService resumeStorageService) {
-    this(resumeStorageService, null);
+    this.resumeStorageService = resumeStorageService;
   }
 
   @Override
@@ -46,14 +36,6 @@ public class ProfileContextServiceImpl implements ProfileContextService {
     } catch (RuntimeException e) {
       // 动态画像读取失败时不阻断主问答，但需留痕以便定位画像缺失。
       log.warn("读取求职画像失败 userId={}", userId, e);
-    }
-    if (profileDocumentMapper != null) {
-      try {
-        List<Map<String, Object>> documents = profileDocumentMapper.listContextDocuments(userId);
-        if (documents != null && !documents.isEmpty()) profile.put("profile_documents", documents);
-      } catch (RuntimeException e) {
-        log.warn("读取用户画像文档失败 userId={}", userId, e);
-      }
     }
     if (resumeId != null && !resumeId.trim().isEmpty()) {
       try {

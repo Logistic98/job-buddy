@@ -49,8 +49,8 @@ public class UserAuthRepository {
     return assignments == null ? Collections.<Map<String, Object>>emptyList() : assignments;
   }
 
-  public List<Map<String, Object>> listUserPermissionAssignments(String tenantId) {
-    List<Map<String, Object>> assignments = mapper.listUserPermissionAssignments(tenantId);
+  public List<Map<String, Object>> listUserEffectivePermissionAssignments(String tenantId) {
+    List<Map<String, Object>> assignments = mapper.listUserEffectivePermissionAssignments(tenantId);
     return assignments == null ? Collections.<Map<String, Object>>emptyList() : assignments;
   }
 
@@ -58,16 +58,8 @@ public class UserAuthRepository {
     return mapper.findUserById(tenantId, userId);
   }
 
-  public List<Map<String, Object>> listGrantablePermissions() {
-    return mapper.listGrantablePermissions();
-  }
-
   public List<Map<String, Object>> listPermissionDefinitions() {
     return mapper.listPermissionDefinitions();
-  }
-
-  public int countEnabledAdmins(String tenantId) {
-    return mapper.countEnabledAdmins(tenantId);
   }
 
   public void insertUser(
@@ -92,23 +84,12 @@ public class UserAuthRepository {
     mapper.updateUser(tenantId, userId, username, displayName, role, enabled, Instant.now());
   }
 
-  public void replacePermissions(String tenantId, String userId, List<String> permissions) {
-    mapper.deleteUserPermissions(tenantId, userId);
-    Instant now = Instant.now();
-    for (String permission : permissions)
-      mapper.insertUserPermission(tenantId, userId, permission, now);
-  }
-
   public void updatePasswordHash(String userId, String passwordHash) {
     mapper.updatePasswordHash(userId, passwordHash, Instant.now());
   }
 
   public void saveSession(String token, String userId, Instant expiresAt) {
     mapper.saveSession(token, userId, expiresAt, Instant.now());
-  }
-
-  public void touchSession(String token) {
-    mapper.touchSession(token, Instant.now());
   }
 
   public void deleteSession(String token) {

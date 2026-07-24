@@ -38,7 +38,6 @@
 
   <insert id="upsertFavorite">
     INSERT INTO job_favorite(
-      favorite_id,
       user_id,
       job_key,
       job_json,
@@ -46,7 +45,6 @@
       updated_at
     )
     VALUES (
-      #{favoriteId},
       #{userId},
       #{jobKey},
       #{jobJson},

@@ -337,8 +337,7 @@
     SET
       user_answer = #{answer},
       correct = #{correct},
-      score = #{score},
-      evaluated_at = #{evaluatedAt}
+      score = #{score}
     WHERE exam_id = #{examId}
       AND question_id = #{questionId}
   </update>

@@ -19,7 +19,6 @@ public interface JobFavoriteMapper {
       @Param("analyzedAt") Instant analyzedAt);
 
   int upsertFavorite(
-      @Param("favoriteId") String favoriteId,
       @Param("userId") String userId,
       @Param("jobKey") String jobKey,
       @Param("jobJson") String jobJson);

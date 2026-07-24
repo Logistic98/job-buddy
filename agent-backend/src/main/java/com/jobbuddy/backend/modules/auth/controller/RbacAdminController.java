@@ -10,16 +10,13 @@ import com.jobbuddy.backend.modules.auth.dto.request.RbacRoleRequest;
 import com.jobbuddy.backend.modules.auth.dto.response.PermissionDefinitionResponse;
 import com.jobbuddy.backend.modules.auth.dto.response.RbacMenuResponse;
 import com.jobbuddy.backend.modules.auth.dto.response.RbacRoleResponse;
-import com.jobbuddy.backend.modules.auth.repository.UserAuthRepository;
 import com.jobbuddy.backend.modules.auth.service.DynamicRbacService;
-import com.jobbuddy.backend.modules.auth.service.impl.RbacDelegationPolicy;
+import com.jobbuddy.backend.modules.auth.service.impl.PermissionDelegationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,16 +36,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin/rbac")
 public class RbacAdminController {
   private final DynamicRbacService service;
-  private final UserAuthRepository userRepository;
-  private final RbacDelegationPolicy delegationPolicy;
+  private final PermissionDelegationService permissionDelegationService;
 
   public RbacAdminController(
-      DynamicRbacService service,
-      UserAuthRepository userRepository,
-      RbacDelegationPolicy delegationPolicy) {
+      DynamicRbacService service, PermissionDelegationService permissionDelegationService) {
     this.service = service;
-    this.userRepository = userRepository;
-    this.delegationPolicy = delegationPolicy;
+    this.permissionDelegationService = permissionDelegationService;
   }
 
   /** 查询当前租户的角色及其菜单授权。 */
@@ -163,19 +156,9 @@ public class RbacAdminController {
   @GetMapping("/permissions")
   @RequirePermission(PermissionCodes.MENUS_MANAGE)
   public ApiResponse<List<PermissionDefinitionResponse>> permissions(HttpServletRequest request) {
-    List<PermissionDefinitionResponse> result = new ArrayList<PermissionDefinitionResponse>();
-    java.util.Set<String> allowed =
-        delegationPolicy.assignablePermissionCodes(
-            tenant(request), AuthenticatedUserContext.user(request));
-    for (Map<String, Object> row : userRepository.listPermissionDefinitions()) {
-      String permissionCode = String.valueOf(row.get("permissionCode"));
-      if (allowed.contains(permissionCode)) {
-        result.add(
-            new PermissionDefinitionResponse(
-                permissionCode, String.valueOf(row.get("permissionName"))));
-      }
-    }
-    return ApiResponse.success(result);
+    return ApiResponse.success(
+        permissionDelegationService.listAssignablePermissions(
+            tenant(request), AuthenticatedUserContext.user(request)));
   }
 
   private String tenant(HttpServletRequest request) {

@@ -46,7 +46,6 @@ class ApiAuthenticationInterceptorTest {
     jdbcTemplate.update("DELETE FROM user_role");
     jdbcTemplate.update("DELETE FROM rbac_menu");
     jdbcTemplate.update("DELETE FROM rbac_role");
-    jdbcTemplate.update("DELETE FROM user_permission");
     jdbcTemplate.update("DELETE FROM app_user");
     jdbcTemplate.update(
         "INSERT INTO app_user(user_id, username, password_hash, display_name, role, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -69,11 +68,10 @@ class ApiAuthenticationInterceptorTest {
     jdbcTemplate.update(
         "INSERT INTO role_menu(tenant_id,role_id,menu_id) VALUES ('default-tenant','role-manager','menu-settings')");
     jdbcTemplate.update(
-        "INSERT INTO user_login_session(token, user_id, expires_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO user_login_session(token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
         TOKEN,
         "user-auth-1",
         Timestamp.from(Instant.now().plus(1, ChronoUnit.HOURS)),
-        Timestamp.from(Instant.now()),
         Timestamp.from(Instant.now()));
   }
 
@@ -115,11 +113,10 @@ class ApiAuthenticationInterceptorTest {
         Timestamp.from(Instant.now()),
         Timestamp.from(Instant.now()));
     jdbcTemplate.update(
-        "INSERT INTO user_login_session(token, user_id, expires_at, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO user_login_session(token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)",
         USER_TOKEN,
         "user-auth-2",
         Timestamp.from(Instant.now().plus(1, ChronoUnit.HOURS)),
-        Timestamp.from(Instant.now()),
         Timestamp.from(Instant.now()));
 
     mockMvc

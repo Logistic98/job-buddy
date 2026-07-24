@@ -24,7 +24,6 @@ class CanonicalBaselinePostgresTest {
 
   private static final Set<String> EXPECTED_TABLES =
       Set.of(
-          "agent_run_checkpoint",
           "analysis_task",
           "app_user",
           "auth_state",
@@ -40,7 +39,6 @@ class CanonicalBaselinePostgresTest {
           "journey_target",
           "permission_definition",
           "platform_setting",
-          "profile_document",
           "project_deep_dive_material",
           "project_deep_dive_project",
           "project_deep_dive_question",
@@ -52,7 +50,6 @@ class CanonicalBaselinePostgresTest {
           "role_menu",
           "tenant",
           "user_login_session",
-          "user_permission",
           "user_role",
           "user_workspace_state");
 
@@ -72,11 +69,11 @@ class CanonicalBaselinePostgresTest {
   void emptyDatabaseMigratesWithDefaultUsersAuthorizationAndJobBlacklist() throws Exception {
     var result = flyway().migrate();
 
-    assertEquals(13, result.migrationsExecuted);
-    assertEquals("1.0.12", result.targetSchemaVersion);
+    assertEquals(14, result.migrationsExecuted);
+    assertEquals("1.0.13", result.targetSchemaVersion);
     assertEquals(EXPECTED_TABLES, applicationTables());
     assertEquals(
-        290,
+        266,
         queryLong(
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
                 + "AND table_name <> 'flyway_schema_history'"));
@@ -142,13 +139,16 @@ class CanonicalBaselinePostgresTest {
         queryLong(
             "SELECT COUNT(*) FROM blacklist_item WHERE name = 'OD' AND item_type = 'keyword'"));
     assertFalse(tableExists("agent_tool_result"));
+    assertTrue(tableExists("agent_run_checkpoint"));
     assertFalse(tableExists("project_asset"));
+    assertFalse(tableExists("profile_document"));
+    assertFalse(tableExists("user_permission"));
     assertEquals(
         0,
         queryLong(
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' AND"
                 + " (column_name IN ('source_hash', 'folder_name', 'version_label',"
-                + " 'tenant_name'))"));
+                + " 'tenant_name', 'last_seen_at', 'favorite_id', 'evaluated_at'))"));
   }
 
   @Test

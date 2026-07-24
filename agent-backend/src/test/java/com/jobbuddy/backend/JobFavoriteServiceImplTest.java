@@ -16,6 +16,7 @@ import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.analysis.dto.AnalysisPartialResult;
 import com.jobbuddy.backend.modules.auth.dto.internal.BossFavoriteListResult;
+import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
 import com.jobbuddy.backend.modules.job.dto.command.JobFavoriteAnalysisCommand;
@@ -50,7 +51,7 @@ class JobFavoriteServiceImplTest {
 
     verify(fixture.bossCliService, never()).jobDetail(anyString(), anyString());
     ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
-    verify(fixture.mapper).upsertFavorite(anyString(), anyString(), anyString(), json.capture());
+    verify(fixture.mapper).upsertFavorite(anyString(), anyString(), json.capture());
     assertEquals(
         "负责 Java 与 Agent 平台研发", fixture.jsonCodec.toMap(json.getValue()).get("jobDescription"));
   }
@@ -69,7 +70,7 @@ class JobFavoriteServiceImplTest {
         "user-1", JobFavoriteSaveCommand.from(fixture.jsonCodec.toTree(job)));
 
     ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
-    verify(fixture.mapper).upsertFavorite(anyString(), anyString(), anyString(), json.capture());
+    verify(fixture.mapper).upsertFavorite(anyString(), anyString(), json.capture());
     assertEquals("负责大模型应用研发与系统交付", fixture.jsonCodec.toMap(json.getValue()).get("jobDescription"));
   }
 
@@ -87,8 +88,7 @@ class JobFavoriteServiceImplTest {
                     "user-1", JobFavoriteSaveCommand.from(fixture.jsonCodec.toTree(job("sec-1")))));
 
     assertTrue(error.getMessage().contains("不可用"));
-    verify(fixture.mapper, never())
-        .upsertFavorite(anyString(), anyString(), anyString(), anyString());
+    verify(fixture.mapper, never()).upsertFavorite(anyString(), anyString(), anyString());
   }
 
   @Test
@@ -113,7 +113,7 @@ class JobFavoriteServiceImplTest {
     assertEquals(88, ((Map<?, ?>) ((Map<?, ?>) result.get("analysis")).get("match")).get("score"));
     verify(fixture.bossCliService).jobDetail("sec-1", "");
     ArgumentCaptor<String> jobJson = ArgumentCaptor.forClass(String.class);
-    verify(fixture.mapper).upsertFavorite(anyString(), anyString(), anyString(), jobJson.capture());
+    verify(fixture.mapper).upsertFavorite(anyString(), anyString(), jobJson.capture());
     assertEquals(
         "负责 Java 大模型应用研发", fixture.jsonCodec.toMap(jobJson.getValue()).get("jobDescription"));
     verify(fixture.mapper)
@@ -274,17 +274,20 @@ class JobFavoriteServiceImplTest {
 
     assertEquals(6, result.getImportedCount());
     assertEquals(0, result.getFailedCount());
-    verify(fixture.mapper, times(6))
-        .upsertFavorite(anyString(), anyString(), anyString(), anyString());
+    verify(fixture.mapper, times(6)).upsertFavorite(anyString(), anyString(), anyString());
     verify(fixture.mapper, never()).findFavorite(anyString(), anyString());
     verify(fixture.bossCliService, never()).jobDetail(anyString(), anyString());
   }
 
   @Test
-  void importBossFavoritesShouldPersistSummariesWithoutFetchingDetails() {
+  void importBossFavoritesShouldFetchAndPersistDescriptionsInSelectionOrder() {
     Fixture fixture = new Fixture();
     when(fixture.bossCliService.jobDetail(anyString(), anyString()))
-        .thenThrow(new AssertionError("导入摘要时不应请求 Boss 岗位详情"));
+        .thenAnswer(
+            invocation ->
+                fixture.jsonCodec.toTree(
+                    Collections.singletonMap(
+                        "description", "岗位描述 " + invocation.getArgument(0, String.class))));
     BossFavoriteImportRequest request = new BossFavoriteImportRequest();
     request.setJobs(
         Arrays.asList(
@@ -298,11 +301,82 @@ class JobFavoriteServiceImplTest {
     assertEquals(0, result.getFailedCount());
     assertEquals(0, result.getUnprocessedCount());
     assertEquals(false, result.isStopped());
+    verify(fixture.mapper, times(3)).upsertFavorite(anyString(), anyString(), anyString());
+    verify(fixture.bossCliService).jobDetail("sec-1", "");
+    verify(fixture.bossCliService).jobDetail("sec-2", "");
+    verify(fixture.bossCliService).jobDetail("sec-3", "");
+    ArgumentCaptor<String> persistedJobs = ArgumentCaptor.forClass(String.class);
     verify(fixture.mapper, times(3))
-        .upsertFavorite(anyString(), anyString(), anyString(), anyString());
-    verify(fixture.bossCliService, never()).jobDetail(anyString(), anyString());
+        .upsertFavorite(anyString(), anyString(), persistedJobs.capture());
+    assertEquals(
+        "岗位描述 sec-1",
+        fixture.jsonCodec.toMap(persistedJobs.getAllValues().get(0)).get("jobDescription"));
+    assertEquals(
+        "岗位描述 sec-2",
+        fixture.jsonCodec.toMap(persistedJobs.getAllValues().get(1)).get("jobDescription"));
+    assertEquals(
+        "岗位描述 sec-3",
+        fixture.jsonCodec.toMap(persistedJobs.getAllValues().get(2)).get("jobDescription"));
     verify(fixture.jobRuntimeService, never()).matchResume(any(), any(), any());
     verify(fixture.jobRuntimeService, never()).matchResumeSections(any(), any(), any(), any());
+  }
+
+  @Test
+  void importBossFavoritesShouldStopAfterFirstDetailFailure() {
+    Fixture fixture = new Fixture();
+    when(fixture.bossCliService.jobDetail("sec-1", ""))
+        .thenReturn(fixture.jsonCodec.toTree(Collections.singletonMap("description", "首个岗位的完整描述")));
+    when(fixture.bossCliService.jobDetail("sec-2", ""))
+        .thenThrow(new RuntimeException("Boss 网络暂时不可用"));
+    BossFavoriteImportRequest request = new BossFavoriteImportRequest();
+    request.setJobs(
+        Arrays.asList(
+            fixture.jsonCodec.toTree(job("sec-1")),
+            fixture.jsonCodec.toTree(job("sec-2")),
+            fixture.jsonCodec.toTree(job("sec-3"))));
+
+    BossFavoriteImportResponse result = fixture.service.importBossFavorites("user-1", request);
+
+    assertEquals(1, result.getImportedCount());
+    assertEquals(1, result.getFailedCount());
+    assertEquals(1, result.getUnprocessedCount());
+    assertEquals(true, result.isStopped());
+    assertEquals("Boss 网络暂时不可用", result.getStoppedReason());
+    assertEquals("imported", result.getItems().get(0).getStatus());
+    assertEquals("failed", result.getItems().get(1).getStatus());
+    assertEquals("not_processed", result.getItems().get(2).getStatus());
+    verify(fixture.mapper, times(1)).upsertFavorite(anyString(), anyString(), anyString());
+    verify(fixture.bossCliService, never()).jobDetail("sec-3", "");
+  }
+
+  @Test
+  void importBossFavoritesShouldReturnAuthDataAndStopAfterLoginExpires() {
+    Fixture fixture = new Fixture();
+    when(fixture.bossCliService.jobDetail("sec-1", ""))
+        .thenReturn(fixture.jsonCodec.toTree(Collections.singletonMap("description", "首个岗位的完整描述")));
+    when(fixture.bossCliService.jobDetail("sec-2", ""))
+        .thenThrow(
+            new BossAuthRequiredException(
+                "Boss 登录已失效", Collections.<String, Object>singletonMap("status", "auth_required")));
+    BossFavoriteImportRequest request = new BossFavoriteImportRequest();
+    request.setJobs(
+        Arrays.asList(
+            fixture.jsonCodec.toTree(job("sec-1")),
+            fixture.jsonCodec.toTree(job("sec-2")),
+            fixture.jsonCodec.toTree(job("sec-3"))));
+
+    BossFavoriteImportResponse result = fixture.service.importBossFavorites("user-1", request);
+
+    assertEquals(1, result.getImportedCount());
+    assertEquals(1, result.getFailedCount());
+    assertEquals(1, result.getUnprocessedCount());
+    assertEquals(true, result.isStopped());
+    assertEquals(true, result.isAuthRequired());
+    assertEquals("auth_required", result.getAuthData().path("status").asText());
+    assertEquals("failed", result.getItems().get(1).getStatus());
+    assertEquals("not_processed", result.getItems().get(2).getStatus());
+    verify(fixture.mapper, times(1)).upsertFavorite(anyString(), anyString(), anyString());
+    verify(fixture.bossCliService, never()).jobDetail("sec-3", "");
   }
 
   private static Map<String, Object> matchOutput(Map<String, Object> match) {

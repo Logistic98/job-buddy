@@ -198,8 +198,7 @@ public class InterviewRepository {
 
   public void saveExamAnswer(
       String examId, String questionId, String answer, boolean correct, double score) {
-    mapper.saveExamAnswer(
-        examId, questionId, answer, correct, score, Timestamp.from(Instant.now()));
+    mapper.saveExamAnswer(examId, questionId, answer, correct, score);
   }
 
   public void finishExam(String examId, int answeredCount, double score) {
