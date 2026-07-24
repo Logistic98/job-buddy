@@ -14,6 +14,25 @@ async def test_add_and_search_memory():
     assert results[0].content == "Agent Loop needs trace"
 
 
+async def test_list_clear_and_disabled_search():
+    store = MemoryStore()
+    first = store.add(
+        "long_term",
+        "优先远程岗位",
+        kind="long_term",
+        category="preference",
+        source="manual",
+    )
+    store.add("long_term", "排除外包岗位", enabled=False)
+
+    listed = store.list_items("long_term")
+    assert len(listed) == 2
+    assert first.id in {item.id for item in listed}
+    assert [item.id for item in await store.search("外包", "long_term")] == []
+    assert store.clear(tenant_id="default-tenant", operator_id="anonymous", scope="long_term") == 2
+    assert store.list_items("long_term") == []
+
+
 def test_postgres_store_derives_dsn_from_spring_datasource(monkeypatch):
     monkeypatch.delenv("AGENT_MEMORY_DATABASE_URL", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)

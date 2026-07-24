@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.system.client.AgentMemoryClient;
 import com.jobbuddy.backend.modules.system.dto.request.SystemSettingsRequest;
 import com.jobbuddy.backend.modules.system.mapper.SystemSettingsMapper;
 import com.jobbuddy.backend.modules.system.service.impl.SystemSettingsServiceImpl;
@@ -118,7 +119,10 @@ class SystemSettingsServiceSecurityTest {
         .thenReturn(Arrays.asList(blacklistItem("company", "示例科技", true)));
     SystemSettingsServiceImpl service =
         new SystemSettingsServiceImpl(
-            new AgentServiceProperties(), new JobBuddyProperties(), mapper);
+            new AgentServiceProperties(),
+            new JobBuddyProperties(),
+            mapper,
+            mock(AgentMemoryClient.class));
 
     List<Map<String, Object>> result =
         service.filterBlacklistedJobs(
@@ -152,7 +156,8 @@ class SystemSettingsServiceSecurityTest {
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMaxJobsPerRecommend(17);
     SystemSettingsServiceImpl service =
-        new SystemSettingsServiceImpl(new AgentServiceProperties(), properties, mapper);
+        new SystemSettingsServiceImpl(
+            new AgentServiceProperties(), properties, mapper, mock(AgentMemoryClient.class));
 
     Map<String, Object> loaded = JSON.toMap(service.getSettings());
     assertEquals(29, ((Map<String, Object>) loaded.get("workspace")).get("maxJobsPerRecommend"));
@@ -178,7 +183,8 @@ class SystemSettingsServiceSecurityTest {
     when(mapper.listBlacklistItems()).thenReturn(Collections.<Map<String, Object>>emptyList());
     JobBuddyProperties properties = new JobBuddyProperties();
     SystemSettingsServiceImpl service =
-        new SystemSettingsServiceImpl(new AgentServiceProperties(), properties, mapper);
+        new SystemSettingsServiceImpl(
+            new AgentServiceProperties(), properties, mapper, mock(AgentMemoryClient.class));
 
     service.loadPersistedRuntimeSettings();
 
@@ -195,7 +201,8 @@ class SystemSettingsServiceSecurityTest {
         .thenThrow(new RuntimeException("platform_setting unavailable"));
     JobBuddyProperties properties = new JobBuddyProperties();
     SystemSettingsServiceImpl service =
-        new SystemSettingsServiceImpl(new AgentServiceProperties(), properties, mapper);
+        new SystemSettingsServiceImpl(
+            new AgentServiceProperties(), properties, mapper, mock(AgentMemoryClient.class));
 
     assertDoesNotThrow(service::loadPersistedRuntimeSettings);
     assertEquals(12, properties.getRuntimeMaxTurns());
@@ -235,7 +242,7 @@ class SystemSettingsServiceSecurityTest {
 
     assertEquals(30, normalized.get("maxJobsPerRecommend"));
     assertEquals(1, normalized.get("recommendOverfetchFactor"));
-    assertEquals(200, normalized.get("maxJobsPerScoring"));
+    assertFalse(normalized.containsKey("maxJobsPerScoring"));
     assertEquals(100, normalized.get("minimumRecommendedMatchScore"));
     assertEquals(1, normalized.get("bossSearchMaxPages"));
     assertEquals(10, normalized.get("bossSearchMaxPageDepth"));
@@ -252,7 +259,7 @@ class SystemSettingsServiceSecurityTest {
 
     assertEquals(30, properties.getMaxJobsPerRecommend());
     assertEquals(1, properties.getRecommendOverfetchFactor());
-    assertEquals(200, properties.getMaxJobsPerScoring());
+    assertEquals(80, properties.getMaxJobsPerScoring());
     assertEquals(100, properties.getMinimumRecommendedMatchScore());
     assertEquals(1, properties.getBossSearchMaxPages());
     assertEquals(10, properties.getBossSearchMaxPageDepth());
@@ -287,7 +294,8 @@ class SystemSettingsServiceSecurityTest {
             });
     AgentServiceProperties agentProperties = new AgentServiceProperties();
     agentProperties.setRuntimeUrl("http://127.0.0.1:8010");
-    return new SystemSettingsServiceImpl(agentProperties, properties, mapper);
+    return new SystemSettingsServiceImpl(
+        agentProperties, properties, mapper, mock(AgentMemoryClient.class));
   }
 
   private Map<String, Object> blacklistItem(String type, String name, boolean enabled) {

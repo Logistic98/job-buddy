@@ -67,14 +67,6 @@ CREATE TABLE IF NOT EXISTS permission_definition (
   display_order INT DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS user_permission (
-  tenant_id VARCHAR(64) NOT NULL,
-  user_id VARCHAR(64) NOT NULL,
-  permission_code VARCHAR(64) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (tenant_id, user_id, permission_code)
-);
-
 CREATE TABLE IF NOT EXISTS rbac_role (
   role_id VARCHAR(64) PRIMARY KEY,
   tenant_id VARCHAR(64) NOT NULL,
@@ -127,8 +119,7 @@ CREATE TABLE IF NOT EXISTS user_login_session (
   token VARCHAR(128) PRIMARY KEY,
   user_id VARCHAR(64) NOT NULL,
   expires_at TIMESTAMP NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS job_buddy_journey_target (
@@ -222,8 +213,7 @@ CREATE TABLE IF NOT EXISTS interview_exam_question (
   display_order INT,
   user_answer CLOB,
   correct BOOLEAN,
-  score DECIMAL(8,2),
-  evaluated_at TIMESTAMP
+  score DECIMAL(8,2)
 );
 
 CREATE TABLE IF NOT EXISTS platform_setting (
@@ -240,17 +230,4 @@ CREATE TABLE IF NOT EXISTS user_workspace_state (
   state_json JSON NOT NULL,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (user_id, state_key)
-);
-
-CREATE TABLE IF NOT EXISTS profile_document (
-  document_id VARCHAR(64) PRIMARY KEY,
-  user_id VARCHAR(128) NOT NULL,
-  title VARCHAR(512) NOT NULL,
-  document_type VARCHAR(64) NOT NULL,
-  content CLOB NOT NULL,
-  storage_path VARCHAR(1024),
-  sha256 VARCHAR(64) NOT NULL,
-  metadata_json JSON NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

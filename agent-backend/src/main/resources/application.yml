@@ -83,6 +83,8 @@ agent:
     internal-service-token: ${AGENT_INTERNAL_SERVICE_TOKEN:}
     connect-timeout: ${AGENT_SERVICE_CONNECT_TIMEOUT:2s}
     read-timeout: ${AGENT_SERVICE_READ_TIMEOUT:135s}
+    memory-connect-timeout: ${AGENT_MEMORY_CLIENT_CONNECT_TIMEOUT:2s}
+    memory-read-timeout: ${AGENT_MEMORY_CLIENT_READ_TIMEOUT:10s}
     stream-connect-timeout: ${AGENT_SERVICE_STREAM_CONNECT_TIMEOUT:10s}
     stream-read-timeout: ${AGENT_SERVICE_STREAM_READ_TIMEOUT:180s}
     stream-session-timeout: ${AGENT_SERVICE_STREAM_SESSION_TIMEOUT:15m}

@@ -34,7 +34,7 @@ class TenantUserAdminServiceTest {
             List.of(
                 Map.of("userId", "user-1", "roleId", "role-a", "roleName", "Role A"),
                 Map.of("userId", "user-1", "roleId", "role-b", "roleName", "Role B")));
-    when(repository.listUserPermissionAssignments("tenant-1"))
+    when(repository.listUserEffectivePermissionAssignments("tenant-1"))
         .thenReturn(
             List.of(
                 Map.of("userId", "user-1", "permissionCode", "users:manage"),

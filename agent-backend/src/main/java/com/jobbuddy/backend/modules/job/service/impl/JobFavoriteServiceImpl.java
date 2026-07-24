@@ -29,7 +29,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Service;
@@ -132,11 +131,12 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
       }
       try {
         job.put("favoriteKey", key);
+        job = ensureJobDescription(job);
         persistFavoriteSnapshot(userId, job);
         imported++;
         importedKeys.addAll(jobIdentityKeys(job));
         importedKeys.add(key);
-        items.add(new BossFavoriteImportItemResponse(key, "imported", "导入成功"));
+        items.add(new BossFavoriteImportItemResponse(key, "imported", "岗位详情已补全并导入"));
       } catch (BossAuthRequiredException exception) {
         failed++;
         stopped = true;
@@ -357,11 +357,7 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
     }
     payload.put("updatedAt", Instant.now().toString());
 
-    mapper.upsertFavorite(
-        "fav_" + UUID.randomUUID().toString().replace("-", ""),
-        userId,
-        key,
-        jsonCodec.toJson(payload));
+    mapper.upsertFavorite(userId, key, jsonCodec.toJson(payload));
   }
 
   private Map<String, Object> ensurePersistedJobDescription(

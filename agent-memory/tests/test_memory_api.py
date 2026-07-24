@@ -26,6 +26,32 @@ def test_create_and_search_via_local_backend(monkeypatch):
     assert len(found["data"]) == 1
 
 
+def test_list_and_clear_long_term_memories(monkeypatch):
+    client = make_client(monkeypatch)
+    headers = {"X-Tenant-Id": "tenant-a", "X-Operator-Id": "user-a"}
+    created = client.post(
+        "/v1/memories",
+        json={
+            "scope": "long_term",
+            "kind": "long_term",
+            "category": "constraint",
+            "source": "manual",
+            "content": "排除外包岗位",
+        },
+        headers=headers,
+    ).json()["data"]
+
+    assert created["category"] == "constraint"
+    assert created["source"] == "manual"
+    listed = client.get("/v1/memories", params={"scope": "long_term"}, headers=headers).json()["data"]
+    assert [item["id"] for item in listed] == [created["id"]]
+    assert client.get("/v1/memories", headers={"X-Operator-Id": "user-b"}).json()["data"] == []
+
+    cleared = client.delete("/v1/memories", params={"scope": "long_term"}, headers=headers).json()
+    assert cleared["data"]["deleted"] == 1
+    assert client.get("/v1/memories", headers=headers).json()["data"] == []
+
+
 def test_update_memory_changes_content(monkeypatch):
     client = make_client(monkeypatch)
     memory_id = client.post("/v1/memories", json={"content": "目标城市上海"}).json()["data"]["id"]

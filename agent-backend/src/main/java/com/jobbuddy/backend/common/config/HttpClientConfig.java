@@ -4,12 +4,14 @@ import com.jobbuddy.backend.common.security.AuthenticationScope;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 import org.apache.hc.core5.util.Timeout;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
@@ -17,9 +19,30 @@ import org.springframework.web.client.RestTemplate;
 public class HttpClientConfig {
 
   @Bean
+  @Primary
   public RestTemplate restTemplate(AgentServiceProperties properties) {
-    Timeout connectTimeout = Timeout.of(properties.getConnectTimeout());
-    Timeout readTimeout = Timeout.of(properties.getReadTimeout());
+    return createRestTemplate(
+        properties, properties.getConnectTimeout(), properties.getReadTimeout(), false);
+  }
+
+  /**
+   * Memory management is a synchronous settings-path dependency, so it uses a short dedicated
+   * timeout. Automatic Apache retries are disabled because ServiceResilience owns the explicit
+   * retry budget and error classification.
+   */
+  @Bean("agentMemoryRestTemplate")
+  public RestTemplate agentMemoryRestTemplate(AgentServiceProperties properties) {
+    return createRestTemplate(
+        properties, properties.getMemoryConnectTimeout(), properties.getMemoryReadTimeout(), true);
+  }
+
+  private RestTemplate createRestTemplate(
+      AgentServiceProperties properties,
+      java.time.Duration connectDuration,
+      java.time.Duration readDuration,
+      boolean disableAutomaticRetries) {
+    Timeout connectTimeout = Timeout.of(connectDuration);
+    Timeout readTimeout = Timeout.of(readDuration);
     ConnectionConfig connectionConfig =
         ConnectionConfig.custom()
             .setConnectTimeout(connectTimeout)
@@ -38,12 +61,13 @@ public class HttpClientConfig {
             .setConnectionRequestTimeout(connectTimeout)
             .build();
 
-    CloseableHttpClient httpClient =
+    HttpClientBuilder httpClientBuilder =
         HttpClients.custom()
             .setConnectionManager(connectionManager)
             .setDefaultRequestConfig(requestConfig)
-            .evictExpiredConnections()
-            .build();
+            .evictExpiredConnections();
+    if (disableAutomaticRetries) httpClientBuilder.disableAutomaticRetries();
+    CloseableHttpClient httpClient = httpClientBuilder.build();
 
     RestTemplate restTemplate =
         new RestTemplate(new HttpComponentsClientHttpRequestFactory(httpClient));

@@ -24,6 +24,16 @@ function serviceStatuses(history) {
       message: history.at(-1).message,
       history,
     },
+    sandbox: {
+      id: 'sandbox',
+      name: 'Sandbox Service',
+      url: 'http://127.0.0.1:8061',
+      healthUrl: 'http://127.0.0.1:8061/health',
+      status: 'running',
+      checkedAt: secondCheckedAt,
+      message: '运行中',
+      history: [{ status: 'running', checkedAt: secondCheckedAt, message: '运行中' }],
+    },
   }
 }
 
@@ -51,12 +61,14 @@ describe('ServiceMonitorPanel', () => {
     vi.clearAllMocks()
   })
 
-  it('renders backend history without starting statistics from the page load', async () => {
+  it('renders downstream history including Sandbox without starting a forced refresh', async () => {
     const wrapper = mount(ServiceMonitorPanel)
     await flushPromises()
 
     expect(refreshServiceHealth).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('50.00%')
+    expect(wrapper.text()).toContain('Sandbox Service')
+    expect(wrapper.text()).toContain('http://127.0.0.1:8061/health')
 
     await wrapper.find('.service-health-summary').trigger('click')
     expect(wrapper.text()).toContain('监测次数：2')

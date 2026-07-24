@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.system.client.AgentMemoryClient;
 import com.jobbuddy.backend.modules.system.mapper.SystemSettingsMapper;
 import java.util.List;
 import java.util.Map;
@@ -21,12 +22,17 @@ class SystemSettingsServiceHealthMonitorTest {
     when(mapper.findSettingJson("global", "settings")).thenReturn(null);
     when(mapper.listBlacklistItems()).thenReturn(List.of());
     SystemSettingsServiceImpl service =
-        new SystemSettingsServiceImpl(emptyServiceProperties(), new JobBuddyProperties(), mapper);
+        new SystemSettingsServiceImpl(
+            emptyServiceProperties(),
+            new JobBuddyProperties(),
+            mapper,
+            mock(AgentMemoryClient.class));
 
     service.refreshServiceStatuses();
     Map<String, Object> secondRefresh = JSON.toMap(service.refreshServiceStatuses());
 
     assertEquals(2, historySize(secondRefresh, "runtime"));
+    assertEquals(2, historySize(secondRefresh, "sandbox"));
     Map<String, Object> settings = JSON.toMap(service.getSettings());
     assertEquals(2, historySize(statuses(settings), "runtime"));
   }
@@ -35,7 +41,10 @@ class SystemSettingsServiceHealthMonitorTest {
   void scheduledSamplesAreLimitedToRecentHistory() {
     SystemSettingsServiceImpl service =
         new SystemSettingsServiceImpl(
-            emptyServiceProperties(), new JobBuddyProperties(), mock(SystemSettingsMapper.class));
+            emptyServiceProperties(),
+            new JobBuddyProperties(),
+            mock(SystemSettingsMapper.class),
+            mock(AgentMemoryClient.class));
 
     Map<String, Object> statuses = null;
     for (int index = 0; index < 65; index++)
@@ -51,6 +60,7 @@ class SystemSettingsServiceHealthMonitorTest {
     properties.setMemoryUrl("");
     properties.setToolUrl("");
     properties.setEvalUrl("");
+    properties.setSandboxUrl("");
     return properties;
   }
 

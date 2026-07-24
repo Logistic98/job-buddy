@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.system.client.AgentMemoryClient;
 import com.jobbuddy.backend.modules.system.dto.request.SystemMemoryRequest;
 import com.jobbuddy.backend.modules.system.dto.request.SystemSettingsRequest;
 import com.jobbuddy.backend.modules.system.dto.response.ServiceStatusesResponse;
@@ -23,7 +24,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -40,8 +40,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private static final int MAX_JOBS_PER_RECOMMEND = 30;
   private static final int MIN_RECOMMEND_OVERFETCH_FACTOR = 1;
   private static final int MAX_RECOMMEND_OVERFETCH_FACTOR = 10;
-  private static final int MIN_JOBS_PER_SCORING = 10;
-  private static final int MAX_JOBS_PER_SCORING = 200;
   private static final int MIN_RECOMMENDED_MATCH_SCORE = 0;
   private static final int MAX_RECOMMENDED_MATCH_SCORE = 100;
   private static final int MIN_BOSS_SEARCH_MAX_PAGES = 1;
@@ -63,7 +61,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private static final String[] WORKSPACE_SETTING_KEYS = {
     "maxJobsPerRecommend",
     "recommendOverfetchFactor",
-    "maxJobsPerScoring",
     "minimumRecommendedMatchScore",
     "bossSearchMaxPages",
     "bossSearchMaxPageDepth",
@@ -81,6 +78,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private final Map<String, Object> workspaceDefaultSettings;
   private final ObjectMapper objectMapper = new ObjectMapper();
   private final SystemSettingsMapper systemSettingsMapper;
+  private final AgentMemoryClient agentMemoryClient;
   private final JsonCodec jsonCodec = new JsonCodec();
   private final ServiceHealthMonitor serviceHealthMonitor;
   private final JobBlacklistPolicy blacklistPolicy;
@@ -89,11 +87,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   public SystemSettingsServiceImpl(
       AgentServiceProperties agentServiceProperties,
       JobBuddyProperties jobBuddyProperties,
-      SystemSettingsMapper systemSettingsMapper) {
+      SystemSettingsMapper systemSettingsMapper,
+      AgentMemoryClient agentMemoryClient) {
     this.agentServiceProperties = agentServiceProperties;
     this.jobBuddyProperties = jobBuddyProperties;
     this.workspaceDefaultSettings = workspaceSettingsFromProperties();
     this.systemSettingsMapper = systemSettingsMapper;
+    this.agentMemoryClient = agentMemoryClient;
     this.serviceHealthMonitor =
         new ServiceHealthMonitor(agentServiceProperties, jobBuddyProperties);
     this.blacklistPolicy = new JobBlacklistPolicy(systemSettingsMapper);
@@ -153,39 +153,22 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   }
 
   public synchronized List<SystemMemoryResponse> listMemories(String tenantId, String userId) {
-    return jsonCodec.convertList(listMemoriesMap(tenantId, userId), SystemMemoryResponse.class);
-  }
-
-  private synchronized List<Map<String, Object>> listMemoriesMap(String tenantId, String userId) {
-    Map<String, Object> memory = readUserMemory(tenantId, userId);
-    List<Map<String, Object>> items = memoryItems(memory);
-    if (dedupeMemories(items)) writeUserMemory(tenantId, userId, memory);
-    List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
-    for (Map<String, Object> item : items) result.add(new LinkedHashMap<String, Object>(item));
-    return result;
+    migrateLegacyMemories(tenantId, userId);
+    return agentMemoryClient.list(tenantId, userId);
   }
 
   public synchronized SystemMemoryResponse addMemory(
       String tenantId, String userId, SystemMemoryRequest request) {
-    Map<String, Object> payload = jsonCodec.toMap(request);
-    Map<String, Object> memory = readUserMemory(tenantId, userId);
-    List<Map<String, Object>> items = memoryItems(memory);
-    Map<String, Object> item =
-        normalizeMemory(payload == null ? new LinkedHashMap<String, Object>() : payload, true);
-    Map<String, Object> existing = findSameMemory(items, item);
+    migrateLegacyMemories(tenantId, userId);
+    SystemMemoryRequest normalized = normalizeMemoryRequest(request, "manual");
+    List<SystemMemoryResponse> items = agentMemoryClient.list(tenantId, userId);
+    SystemMemoryResponse existing = findSameMemory(items, normalized);
     if (existing != null) {
-      mergeMemory(existing, item);
-      moveMemoryToTop(items, existing);
-      dedupeMemories(items);
-      writeUserMemory(tenantId, userId, memory);
-      return jsonCodec.convert(
-          new LinkedHashMap<String, Object>(existing), SystemMemoryResponse.class);
+      return existing;
     }
-    items.add(0, item);
-    dedupeMemories(items);
-    trimMemories(memory, items);
-    writeUserMemory(tenantId, userId, memory);
-    return jsonCodec.convert(item, SystemMemoryResponse.class);
+    SystemMemoryResponse created = agentMemoryClient.create(tenantId, userId, normalized);
+    trimMemories(tenantId, userId, items, created);
+    return created;
   }
 
   public synchronized void writeLocalMemory(
@@ -193,78 +176,38 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     requireMemoryOwner(tenantId, userId);
     if (content == null || content.trim().length() < 2) return;
     if (!shouldAutoWriteMemory(type, content)) return;
-    Map<String, Object> memory = readUserMemory(tenantId, userId);
-    if (!booleanValue(memory.get("enabled"), true)
-        || !booleanValue(memory.get("autoSaveChat"), false)) return;
-    List<Map<String, Object>> items = memoryItems(memory);
-    Map<String, Object> payload = new LinkedHashMap<String, Object>();
-    payload.put("type", type == null ? "conversation" : type);
-    payload.put("content", content.trim());
-    payload.put("source", source == null ? "chat" : source);
-    payload.put("enabled", true);
-    Map<String, Object> item = normalizeMemory(payload, true);
-    Map<String, Object> existing = findSameMemory(items, item);
-    if (existing != null) {
-      mergeMemory(existing, item);
-      moveMemoryToTop(items, existing);
-    } else {
-      items.add(0, item);
-    }
-    dedupeMemories(items);
-    trimMemories(memory, items);
-    writeUserMemory(tenantId, userId, memory);
+    Map<String, Object> policy = memoryPolicy();
+    if (!booleanValue(policy.get("enabled"), true)
+        || !booleanValue(policy.get("autoSaveChat"), false)) return;
+    migrateLegacyMemories(tenantId, userId);
+    SystemMemoryRequest request = new SystemMemoryRequest();
+    request.setType(type);
+    request.setContent(content);
+    request.setSource(source);
+    request.setEnabled(Boolean.TRUE);
+    addMemory(tenantId, userId, request);
   }
 
   public synchronized void deleteMemory(String tenantId, String userId, String memoryId) {
-    Map<String, Object> memory = readUserMemory(tenantId, userId);
-    List<Map<String, Object>> items = memoryItems(memory);
-    items.removeIf(item -> memoryId != null && memoryId.equals(String.valueOf(item.get("id"))));
-    writeUserMemory(tenantId, userId, memory);
+    migrateLegacyMemories(tenantId, userId);
+    agentMemoryClient.delete(tenantId, userId, memoryId);
   }
 
   public synchronized int clearMemories(String tenantId, String userId) {
-    Map<String, Object> memory = readUserMemory(tenantId, userId);
-    List<Map<String, Object>> items = memoryItems(memory);
-    int count = items.size();
-    items.clear();
-    writeUserMemory(tenantId, userId, memory);
-    return count;
+    migrateLegacyMemories(tenantId, userId);
+    return agentMemoryClient.clear(tenantId, userId);
   }
 
   public synchronized List<SystemMemoryResponse> searchLocalMemories(
       String tenantId, String userId, String query, int limit) {
-    Map<String, Object> memory = readUserMemory(tenantId, userId);
-    if (!booleanValue(memory.get("enabled"), true)
-        || !booleanValue(memory.get("autoUseMemory"), true))
+    Map<String, Object> policy = memoryPolicy();
+    if (!booleanValue(policy.get("enabled"), true)
+        || !booleanValue(policy.get("autoUseMemory"), true))
       return new ArrayList<SystemMemoryResponse>();
     String normalizedQuery = normalizeMemoryText(query);
-    List<String> queryTokens = memoryTokens(query);
-    if (normalizedQuery.length() < 4 || queryTokens.isEmpty())
-      return new ArrayList<SystemMemoryResponse>();
-    List<Map<String, Object>> scored = new ArrayList<Map<String, Object>>();
-    for (Map<String, Object> item : listMemoriesMap(tenantId, userId)) {
-      if (!booleanValue(item.get("enabled"), true)) continue;
-      if ("conversation".equalsIgnoreCase(String.valueOf(item.get("type")))) continue;
-      String content = String.valueOf(item.get("content"));
-      MemoryScore score = scoreMemory(queryTokens, normalizedQuery, content);
-      if (score.score < 2) continue;
-      Map<String, Object> copy = new LinkedHashMap<String, Object>(item);
-      copy.put("scope", "user");
-      copy.put("score", score.score);
-      copy.put("matchReasons", score.reasons);
-      scored.add(copy);
-    }
-    scored.sort(
-        new java.util.Comparator<Map<String, Object>>() {
-          @Override
-          public int compare(Map<String, Object> a, Map<String, Object> b) {
-            return Integer.compare(intValueOrZero(b.get("score")), intValueOrZero(a.get("score")));
-          }
-        });
-    int max = Math.max(0, Math.min(Math.max(1, limit), 2));
-    List<Map<String, Object>> limited =
-        scored.size() > max ? new ArrayList<Map<String, Object>>(scored.subList(0, max)) : scored;
-    return jsonCodec.convertList(limited, SystemMemoryResponse.class);
+    if (normalizedQuery.length() < 4) return new ArrayList<SystemMemoryResponse>();
+    migrateLegacyMemories(tenantId, userId);
+    return agentMemoryClient.search(tenantId, userId, query, Math.max(1, Math.min(limit, 2)));
   }
 
   private Map<String, Object> defaultSettings() {
@@ -285,7 +228,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("maxJobsPerRecommend", jobBuddyProperties.getMaxJobsPerRecommend());
     data.put("recommendOverfetchFactor", jobBuddyProperties.getRecommendOverfetchFactor());
-    data.put("maxJobsPerScoring", jobBuddyProperties.getMaxJobsPerScoring());
     data.put("minimumRecommendedMatchScore", jobBuddyProperties.getMinimumRecommendedMatchScore());
     data.put("bossSearchMaxPages", jobBuddyProperties.getBossSearchMaxPages());
     data.put("bossSearchMaxPageDepth", jobBuddyProperties.getBossSearchMaxPageDepth());
@@ -407,13 +349,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
           jobBuddyProperties::setRecommendOverfetchFactor);
       applyIntegerSetting(
           workspace,
-          "maxJobsPerScoring",
-          MIN_JOBS_PER_SCORING,
-          MAX_JOBS_PER_SCORING,
-          jobBuddyProperties.getMaxJobsPerScoring(),
-          jobBuddyProperties::setMaxJobsPerScoring);
-      applyIntegerSetting(
-          workspace,
           "minimumRecommendedMatchScore",
           MIN_RECOMMENDED_MATCH_SCORE,
           MAX_RECOMMENDED_MATCH_SCORE,
@@ -526,6 +461,14 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
               agentServiceProperties.setEvalUrl(value);
             }
           });
+      setText(
+          services,
+          "sandboxUrl",
+          new TextSetter() {
+            public void set(String value) {
+              agentServiceProperties.setSandboxUrl(value);
+            }
+          });
       Duration connectTimeout = durationValue(services.get("connectTimeout"));
       if (connectTimeout != null) agentServiceProperties.setConnectTimeout(connectTimeout);
       Duration readTimeout = durationValue(services.get("readTimeout"));
@@ -552,39 +495,43 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   }
 
   @SuppressWarnings("unchecked")
-  private Map<String, Object> readUserMemory(String tenantId, String userId) {
+  private Map<String, Object> memoryPolicy() {
+    Map<String, Object> settings = getSettingsWithoutRuntime();
+    Object value = settings.get("memory");
+    return value instanceof Map
+        ? new LinkedHashMap<String, Object>((Map<String, Object>) value)
+        : memoryDefaults();
+  }
+
+  private void migrateLegacyMemories(String tenantId, String userId) {
+    List<Map<String, Object>> legacyItems = readLegacyMemoryItems(tenantId, userId);
+    if (legacyItems.isEmpty()) return;
+    List<SystemMemoryResponse> existing = agentMemoryClient.list(tenantId, userId);
+    for (Map<String, Object> item : legacyItems) {
+      SystemMemoryRequest request =
+          normalizeMemoryRequest(jsonCodec.convert(item, SystemMemoryRequest.class), "legacy");
+      if (findSameMemory(existing, request) != null) continue;
+      SystemMemoryResponse created = agentMemoryClient.create(tenantId, userId, request);
+      existing.add(created);
+    }
+    systemSettingsMapper.deleteSetting(memoryScope(tenantId, userId), USER_MEMORY_KEY);
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<Map<String, Object>> readLegacyMemoryItems(String tenantId, String userId) {
     requireMemoryOwner(tenantId, userId);
-    Map<String, Object> globalSettings = getSettingsWithoutRuntime();
-    Map<String, Object> policy =
-        new LinkedHashMap<String, Object>(asMap(globalSettings.get("memory"), memoryDefaults()));
-    policy.put("items", new ArrayList<Map<String, Object>>());
     try {
       String json =
           systemSettingsMapper.findSettingJson(memoryScope(tenantId, userId), USER_MEMORY_KEY);
-      if (json == null || json.trim().isEmpty()) return policy;
+      if (json == null || json.trim().isEmpty()) return new ArrayList<Map<String, Object>>();
       Map<String, Object> saved =
           objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
       Object items = saved.get("items");
-      if (items instanceof List)
-        policy.put("items", new ArrayList<Map<String, Object>>((List<Map<String, Object>>) items));
-      return policy;
+      return items instanceof List
+          ? new ArrayList<Map<String, Object>>((List<Map<String, Object>>) items)
+          : new ArrayList<Map<String, Object>>();
     } catch (Exception e) {
-      throw new RuntimeException("读取用户长期记忆失败: " + e.getMessage(), e);
-    }
-  }
-
-  private void writeUserMemory(String tenantId, String userId, Map<String, Object> memory) {
-    requireMemoryOwner(tenantId, userId);
-    Map<String, Object> document = new LinkedHashMap<String, Object>();
-    document.put("items", new ArrayList<Map<String, Object>>(memoryItems(memory)));
-    document.put("updatedAt", Instant.now().toString());
-    try {
-      systemSettingsMapper.upsertSetting(
-          memoryScope(tenantId, userId),
-          USER_MEMORY_KEY,
-          objectMapper.writeValueAsString(document));
-    } catch (Exception e) {
-      throw new RuntimeException("保存用户长期记忆失败: " + e.getMessage(), e);
+      throw new RuntimeException("读取待迁移的用户长期记忆失败: " + e.getMessage(), e);
     }
   }
 
@@ -612,111 +559,54 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
-  @SuppressWarnings("unchecked")
-  private Map<String, Object> asMap(Object value, Map<String, Object> fallback) {
-    return value instanceof Map ? (Map<String, Object>) value : fallback;
-  }
-
-  @SuppressWarnings("unchecked")
-  private List<Map<String, Object>> memoryItems(Map<String, Object> memory) {
-    Object items = memory.get("items");
-    if (items instanceof List) return (List<Map<String, Object>>) items;
-    List<Map<String, Object>> list = new ArrayList<Map<String, Object>>();
-    memory.put("items", list);
-    return list;
-  }
-
-  private Map<String, Object> normalizeMemory(Map<String, Object> payload, boolean newId) {
-    Map<String, Object> item = new LinkedHashMap<String, Object>();
-    Object id = payload.get("id");
-    item.put(
-        "id",
-        id == null || newId
-            ? "mem_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12)
-            : String.valueOf(id));
-    item.put(
-        "type", payload.get("type") == null ? "preference" : String.valueOf(payload.get("type")));
-    item.put(
-        "content", payload.get("content") == null ? "" : String.valueOf(payload.get("content")));
-    item.put(
-        "source", payload.get("source") == null ? "manual" : String.valueOf(payload.get("source")));
-    item.put("enabled", Boolean.valueOf(booleanValue(payload.get("enabled"), true)));
-    item.put(
-        "createdAt",
-        payload.get("createdAt") == null
-            ? Instant.now().toString()
-            : String.valueOf(payload.get("createdAt")));
-    return item;
-  }
-
-  private void trimMemories(Map<String, Object> memory, List<Map<String, Object>> items) {
-    Integer maxValue = intValue(memory.get("maxItems"));
-    int max = maxValue == null ? 200 : Math.max(1, maxValue.intValue());
-    while (items.size() > max) items.remove(items.size() - 1);
-  }
-
-  private boolean dedupeMemories(List<Map<String, Object>> items) {
-    if (items == null || items.size() < 2) return false;
-    Map<String, Map<String, Object>> seen = new LinkedHashMap<String, Map<String, Object>>();
-    boolean changed = false;
-    for (int i = 0; i < items.size(); i++) {
-      Map<String, Object> item = items.get(i);
-      String key = memoryKey(item);
-      if (key.isEmpty()) continue;
-      Map<String, Object> existing = seen.get(key);
-      if (existing == null) {
-        seen.put(key, item);
-      } else {
-        mergeMemory(existing, item);
-        items.remove(i);
-        i--;
-        changed = true;
-      }
+  private SystemMemoryRequest normalizeMemoryRequest(
+      SystemMemoryRequest request, String defaultSource) {
+    if (request == null || request.getContent() == null || request.getContent().trim().isEmpty()) {
+      throw new IllegalArgumentException("记忆内容不能为空");
     }
-    return changed;
+    SystemMemoryRequest normalized = new SystemMemoryRequest();
+    String type = request.getType() == null ? "" : request.getType().trim().toLowerCase();
+    normalized.setType(
+        type.matches("preference|constraint|interview|conversation") ? type : "preference");
+    normalized.setContent(request.getContent().trim());
+    normalized.setSource(
+        request.getSource() == null || request.getSource().trim().isEmpty()
+            ? defaultSource
+            : request.getSource().trim());
+    normalized.setEnabled(request.getEnabled() == null ? Boolean.TRUE : request.getEnabled());
+    return normalized;
   }
 
-  private Map<String, Object> findSameMemory(
-      List<Map<String, Object>> items, Map<String, Object> target) {
-    if (items == null || target == null) return null;
-    String targetKey = memoryKey(target);
-    if (targetKey.isEmpty()) return null;
-    for (Map<String, Object> item : items) if (targetKey.equals(memoryKey(item))) return item;
+  private SystemMemoryResponse findSameMemory(
+      List<SystemMemoryResponse> items, SystemMemoryRequest target) {
+    String targetKey = memoryKey(target.getType(), target.getContent());
+    for (SystemMemoryResponse item : items) {
+      if (targetKey.equals(memoryKey(item.getType(), item.getContent()))) return item;
+    }
     return null;
   }
 
-  private void mergeMemory(Map<String, Object> existing, Map<String, Object> incoming) {
-    if (existing == null || incoming == null) return;
-    existing.put(
-        "content",
-        incoming.get("content") == null ? existing.get("content") : incoming.get("content"));
-    existing.put(
-        "type", incoming.get("type") == null ? existing.get("type") : incoming.get("type"));
-    existing.put(
-        "source", incoming.get("source") == null ? existing.get("source") : incoming.get("source"));
-    existing.put(
-        "enabled",
-        Boolean.valueOf(
-            booleanValue(incoming.get("enabled"), booleanValue(existing.get("enabled"), true))));
-    if (existing.get("createdAt") == null && incoming.get("createdAt") != null)
-      existing.put("createdAt", incoming.get("createdAt"));
-    existing.put("updatedAt", Instant.now().toString());
+  private void trimMemories(
+      String tenantId,
+      String userId,
+      List<SystemMemoryResponse> existing,
+      SystemMemoryResponse created) {
+    Integer configured = intValue(memoryPolicy().get("maxItems"));
+    int max = configured == null ? 200 : Math.max(1, configured.intValue());
+    List<SystemMemoryResponse> ordered = new ArrayList<SystemMemoryResponse>();
+    ordered.add(created);
+    for (SystemMemoryResponse item : existing) {
+      if (!created.getId().equals(item.getId())) ordered.add(item);
+    }
+    for (int index = max; index < ordered.size(); index++) {
+      agentMemoryClient.delete(tenantId, userId, ordered.get(index).getId());
+    }
   }
 
-  private void moveMemoryToTop(List<Map<String, Object>> items, Map<String, Object> item) {
-    if (items == null || item == null) return;
-    if (items.remove(item)) items.add(0, item);
-  }
-
-  private String memoryKey(Map<String, Object> item) {
-    if (item == null) return "";
-    String type =
-        normalizeMemoryText(
-            String.valueOf(item.get("type") == null ? "preference" : item.get("type")));
-    String content =
-        normalizeMemoryText(String.valueOf(item.get("content") == null ? "" : item.get("content")));
-    if (content.isEmpty()) return "";
-    return type + "|" + content;
+  private String memoryKey(String type, String content) {
+    String normalizedContent = normalizeMemoryText(content);
+    if (normalizedContent.isEmpty()) return "";
+    return normalizeMemoryText(type == null ? "preference" : type) + "|" + normalizedContent;
   }
 
   private String normalizeMemoryText(String value) {
@@ -731,83 +621,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
         .trim();
   }
 
-  private MemoryScore scoreMemory(
-      List<String> queryTokens, String normalizedQuery, String content) {
-    MemoryScore result = new MemoryScore();
-    String normalizedContent = normalizeMemoryText(content);
-    if (normalizedContent.isEmpty()) return result;
-    for (String token : queryTokens) {
-      if (token.length() < 2) continue;
-      if (normalizedContent.contains(token)) {
-        result.score += token.length() >= 4 ? 2 : 1;
-        result.reasons.add(token);
-      }
-    }
-    if (normalizedQuery.length() >= 8 && normalizedContent.contains(normalizedQuery)) {
-      result.score += 3;
-      result.reasons.add("exact_query");
-    }
-    return result;
-  }
-
-  private List<String> memoryTokens(String value) {
-    List<String> tokens = new ArrayList<String>();
-    String text = value == null ? "" : value.toLowerCase();
-    java.util.regex.Matcher ascii =
-        java.util.regex.Pattern.compile("[a-z0-9_+#.-]{2,}").matcher(text);
-    while (ascii.find()) addToken(tokens, ascii.group());
-    java.util.regex.Matcher chinese =
-        java.util.regex.Pattern.compile("[\\u4e00-\\u9fff]{2,}").matcher(text);
-    while (chinese.find()) {
-      String chunk = chinese.group();
-      if (chunk.length() <= 4) {
-        addToken(tokens, chunk);
-      } else {
-        for (int i = 0; i < chunk.length() - 1; i++) addToken(tokens, chunk.substring(i, i + 2));
-      }
-    }
-    return tokens;
-  }
-
-  private void addToken(List<String> tokens, String token) {
-    if (token == null) return;
-    String value = normalizeMemoryText(token);
-    if (value.length() < 2 || isWeakMemoryToken(value)) return;
-    if (!tokens.contains(value)) tokens.add(value);
-  }
-
-  private boolean isWeakMemoryToken(String token) {
-    return token.length() < 2
-        || "分析".equals(token)
-        || "当前".equals(token)
-        || "是否".equals(token)
-        || "帮我".equals(token)
-        || "岗位".equals(token)
-        || "职位".equals(token)
-        || "简历".equals(token)
-        || "这个".equals(token)
-        || "这些".equals(token)
-        || "什么".equals(token)
-        || "怎么".equals(token)
-        || "如何".equals(token);
-  }
-
   private boolean shouldAutoWriteMemory(String type, String content) {
     String memoryType = type == null ? "" : type.trim().toLowerCase();
     if (!"preference".equals(memoryType) && !"constraint".equals(memoryType)) return false;
     String text = content == null ? "" : content.trim();
     // 文本是否为稳定信号由 ChatSseSupport.classifyMemoryType 统一判断；此处只保留最终写入边界，避免重复关键词规则漂移。
     return normalizeMemoryText(text).length() >= 4;
-  }
-
-  private int intValueOrZero(Object value) {
-    Integer parsed = intValue(value);
-    return parsed == null ? 0 : parsed.intValue();
-  }
-
-  private static class MemoryScore {
-    int score = 0;
-    List<String> reasons = new ArrayList<String>();
   }
 
   private boolean booleanValue(Object value, boolean fallback) {
@@ -893,6 +712,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     sanitizeServiceUrl(services, "memoryUrl");
     sanitizeServiceUrl(services, "toolUrl");
     sanitizeServiceUrl(services, "evalUrl");
+    sanitizeServiceUrl(services, "sandboxUrl");
     to.put("services", services);
   }
 

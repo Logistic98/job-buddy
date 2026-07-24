@@ -38,6 +38,9 @@ class MemoryCreateRequest(BaseModel):
     content: str = Field(min_length=1)
     role: str = "user"
     kind: str | None = None
+    category: str = "preference"
+    source: str = "agent-memory"
+    enabled: bool = True
     operator_id: str | None = None
     ttl_seconds: int | None = Field(default=None, ge=1)
 
@@ -75,13 +78,36 @@ async def add_local_memory(
     content: str,
     ttl_seconds: int | None = None,
     kind: str | None = None,
+    category: str | None = None,
+    source: str | None = None,
+    enabled: bool = True,
     operator_id: str | None = None,
     tenant_id: str = DEFAULT_TENANT,
 ) -> dict:
     if postgres_store.enabled:
-        item = await postgres_store.add(scope, content, ttl_seconds, kind, operator_id, tenant_id)
+        item = await postgres_store.add(
+            scope,
+            content,
+            ttl_seconds,
+            kind,
+            category,
+            source,
+            enabled,
+            operator_id,
+            tenant_id,
+        )
     else:
-        item = local_store.add(scope, content, ttl_seconds, kind, operator_id, tenant_id)
+        item = local_store.add(
+            scope,
+            content,
+            ttl_seconds,
+            kind,
+            category,
+            source,
+            enabled,
+            operator_id,
+            tenant_id,
+        )
     return item.__dict__
 
 
@@ -90,6 +116,14 @@ async def search_local_memories(query: str, scope: str | None, *, tenant_id: str
         items = await postgres_store.search(query, scope, tenant_id=tenant_id, operator_id=operator_id)
     else:
         items = await local_store.search(query, scope, tenant_id=tenant_id, operator_id=operator_id)
+    return [item.__dict__ for item in items]
+
+
+async def list_local_memories(scope: str | None, limit: int, *, tenant_id: str, operator_id: str) -> list[dict]:
+    if postgres_store.enabled:
+        items = await postgres_store.list_items(scope, tenant_id=tenant_id, operator_id=operator_id, limit=limit)
+    else:
+        items = local_store.list_items(scope, tenant_id=tenant_id, operator_id=operator_id, limit=limit)
     return [item.__dict__ for item in items]
 
 
@@ -140,7 +174,7 @@ async def create_memory(
 ) -> dict:
     tenant_id, operator_id = _resolve_identity(x_tenant_id, x_operator_id)
     kind = normalize_kind(request.kind)
-    if adapter.is_available():
+    if request.scope != "long_term" and adapter.is_available():
         try:
             data = await adapter.capture(
                 _owned_scope(tenant_id, operator_id, request.scope), request.content, request.role
@@ -149,7 +183,17 @@ async def create_memory(
             return {"code": 200, "message": "success", "data": data}
         except Exception as exc:
             logger.warning("memory capture 网关失败，降级本地存储: scope={}, error={}", request.scope, exc)
-    data = await add_local_memory(request.scope, request.content, request.ttl_seconds, kind, operator_id, tenant_id)
+    data = await add_local_memory(
+        request.scope,
+        request.content,
+        request.ttl_seconds,
+        kind,
+        request.category,
+        request.source,
+        request.enabled,
+        operator_id,
+        tenant_id,
+    )
     _audit(
         "create",
         operator_id,
@@ -162,6 +206,21 @@ async def create_memory(
     return {"code": 200, "message": "success", "data": data}
 
 
+@app.get("/v1/memories")
+async def list_memories(
+    scope: str | None = None,
+    limit: int = 1000,
+    x_tenant_id: str | None = Header(default=None),
+    x_operator_id: str | None = Header(default=None),
+) -> dict:
+    """按当前租户和操作者列出记忆，供受鉴权的管理界面使用。"""
+    tenant_id, operator_id = _resolve_identity(x_tenant_id, x_operator_id)
+    bounded_limit = max(1, min(limit, 1000))
+    data = await list_local_memories(scope, bounded_limit, tenant_id=tenant_id, operator_id=operator_id)
+    _audit("list", operator_id, outcome="local", tenant_id=tenant_id, scope=scope, hits=len(data))
+    return {"code": 200, "message": "success", "data": data}
+
+
 @app.get("/v1/memories/search")
 async def search_memories(
     q: str,
@@ -170,7 +229,7 @@ async def search_memories(
     x_operator_id: str | None = Header(default=None),
 ) -> dict:
     tenant_id, operator_id = _resolve_identity(x_tenant_id, x_operator_id)
-    if adapter.is_available():
+    if scope != "long_term" and adapter.is_available():
         try:
             data = await adapter.recall(q, _owned_scope(tenant_id, operator_id, scope or "session"))
             _audit(
@@ -229,6 +288,22 @@ async def rollback_memory(
         return {"code": 1, "message": f"no revision to rollback: {memory_id}", "data": None}
     _audit("rollback", operator_id, outcome="ok", memory_id=memory_id, version=item.version)
     return {"code": 200, "message": "success", "data": item.__dict__}
+
+
+@app.delete("/v1/memories")
+async def clear_memories(
+    scope: str | None = None,
+    x_tenant_id: str | None = Header(default=None),
+    x_operator_id: str | None = Header(default=None),
+) -> dict:
+    """清空当前租户和操作者拥有的记忆，可按 scope 收窄。"""
+    tenant_id, operator_id = _resolve_identity(x_tenant_id, x_operator_id)
+    if postgres_store.enabled:
+        deleted = await postgres_store.clear(tenant_id=tenant_id, operator_id=operator_id, scope=scope)
+    else:
+        deleted = local_store.clear(tenant_id=tenant_id, operator_id=operator_id, scope=scope)
+    _audit("clear", operator_id, outcome="ok", tenant_id=tenant_id, scope=scope, deleted=deleted)
+    return {"code": 200, "message": "success", "data": {"deleted": deleted}}
 
 
 @app.delete("/v1/memories/{memory_id}")

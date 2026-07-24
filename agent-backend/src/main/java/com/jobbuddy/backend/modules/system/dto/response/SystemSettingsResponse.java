@@ -24,7 +24,6 @@ public class SystemSettingsResponse {
   public static class Workspace {
     private Integer maxJobsPerRecommend;
     private Integer recommendOverfetchFactor;
-    private Integer maxJobsPerScoring;
     private Integer minimumRecommendedMatchScore;
     private Integer bossSearchMaxPages;
     private Integer bossSearchMaxPageDepth;
@@ -45,6 +44,7 @@ public class SystemSettingsResponse {
     private String memoryUrl;
     private String toolUrl;
     private String evalUrl;
+    private String sandboxUrl;
     private String connectTimeout;
     private String readTimeout;
   }

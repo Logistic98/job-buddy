@@ -80,7 +80,6 @@ class UserLoginServiceCacheTest {
     assertEquals("admin", second.getUserId());
     verify(repository, times(1)).findUserByToken("token-1");
     verify(repository, never()).deleteExpiredSessions();
-    verify(repository, never()).touchSession("token-1");
   }
 
   @Test

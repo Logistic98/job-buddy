@@ -111,6 +111,9 @@ class MemoryItem:
     created_at: str
     tenant_id: str = "default-tenant"
     kind: str = DEFAULT_MEMORY_KIND
+    category: str = "preference"
+    source: str = "agent-memory"
+    enabled: bool = True
     operator_id: str | None = None
     version: int = 1
     updated_at: str | None = None
@@ -154,6 +157,9 @@ class MemoryStore:
         content: str,
         ttl_seconds: int | None = None,
         kind: str | None = None,
+        category: str | None = None,
+        source: str | None = None,
+        enabled: bool = True,
         operator_id: str | None = None,
         tenant_id: str = "default-tenant",
     ) -> MemoryItem:
@@ -164,11 +170,32 @@ class MemoryStore:
             created_at=_now().isoformat(),
             tenant_id=tenant_id,
             kind=normalize_kind(kind),
+            category=(category or "preference").strip() or "preference",
+            source=(source or "agent-memory").strip() or "agent-memory",
+            enabled=enabled,
             operator_id=operator_id or "anonymous",
             expires_at=_expires_at(ttl_seconds),
         )
         self.items.append(item)
         return item
+
+    def list_items(
+        self,
+        scope: str | None = None,
+        *,
+        tenant_id: str = "default-tenant",
+        operator_id: str = "anonymous",
+        limit: int = 1000,
+    ) -> list[MemoryItem]:
+        self.purge_expired()
+        items = [
+            item
+            for item in self.items
+            if item.tenant_id == tenant_id
+            and item.operator_id == operator_id
+            and (scope is None or item.scope == scope)
+        ]
+        return sorted(items, key=lambda item: item.updated_at or item.created_at, reverse=True)[:limit]
 
     async def search(
         self,
@@ -184,6 +211,7 @@ class MemoryStore:
             for item in self.items
             if item.tenant_id == tenant_id
             and item.operator_id == operator_id
+            and item.enabled
             and (scope is None or item.scope == scope)
         ]
         return await hybrid_rank(query, candidates)
@@ -252,6 +280,21 @@ class MemoryStore:
         if deleted:
             self.revisions.pop(item_id, None)
         return deleted
+
+    def clear(self, *, tenant_id: str, operator_id: str, scope: str | None = None) -> int:
+        owned_ids = {
+            item.id
+            for item in self.items
+            if item.tenant_id == tenant_id
+            and item.operator_id == operator_id
+            and (scope is None or item.scope == scope)
+        }
+        if not owned_ids:
+            return 0
+        self.items = [item for item in self.items if item.id not in owned_ids]
+        for item_id in owned_ids:
+            self.revisions.pop(item_id, None)
+        return len(owned_ids)
 
     def purge_expired(self) -> int:
         before = len(self.items)
@@ -390,6 +433,9 @@ class PostgresMemoryStore:
                     scope TEXT NOT NULL,
                     content TEXT NOT NULL,
                     kind TEXT NOT NULL DEFAULT 'task',
+                    category TEXT NOT NULL DEFAULT 'preference',
+                    source TEXT NOT NULL DEFAULT 'agent-memory',
+                    enabled BOOLEAN NOT NULL DEFAULT TRUE,
                     operator_id TEXT NOT NULL DEFAULT 'anonymous',
                     version INTEGER NOT NULL DEFAULT 1,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -414,6 +460,13 @@ class PostgresMemoryStore:
                     ON agent_memory_items (tenant_id, operator_id, scope, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_agent_memory_items_content_lower
                     ON agent_memory_items (LOWER(content) text_pattern_ops);
+
+                ALTER TABLE agent_memory_items
+                    ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'preference';
+                ALTER TABLE agent_memory_items
+                    ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'agent-memory';
+                ALTER TABLE agent_memory_items
+                    ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
                 """
             )
 
@@ -423,6 +476,9 @@ class PostgresMemoryStore:
         content: str,
         ttl_seconds: int | None = None,
         kind: str | None = None,
+        category: str | None = None,
+        source: str | None = None,
+        enabled: bool = True,
         operator_id: str | None = None,
         tenant_id: str = "default-tenant",
     ) -> MemoryItem:
@@ -432,19 +488,57 @@ class PostgresMemoryStore:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                INSERT INTO agent_memory_items (id, tenant_id, scope, content, kind, operator_id, expires_at)
-                VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $7::int IS NULL THEN NULL ELSE NOW() + ($7::int * INTERVAL '1 second') END)
-                RETURNING id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                INSERT INTO agent_memory_items (
+                    id, tenant_id, scope, content, kind, category, source, enabled, operator_id, expires_at
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                    CASE WHEN $10::int IS NULL THEN NULL ELSE NOW() + ($10::int * INTERVAL '1 second') END
+                )
+                RETURNING id, tenant_id, scope, content, kind, category, source, enabled,
+                          operator_id, version, created_at, updated_at, expires_at
                 """,
                 item_id,
                 tenant_id,
                 scope,
                 content,
                 normalize_kind(kind),
+                (category or "preference").strip() or "preference",
+                (source or "agent-memory").strip() or "agent-memory",
+                enabled,
                 operator_id or "anonymous",
                 ttl_seconds,
             )
         return self._row_to_item(row)
+
+    async def list_items(
+        self,
+        scope: str | None = None,
+        *,
+        tenant_id: str = "default-tenant",
+        operator_id: str = "anonymous",
+        limit: int = 1000,
+    ) -> list[MemoryItem]:
+        if self.pool is None:
+            raise RuntimeError("PostgreSQL memory store 未连接")
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, tenant_id, scope, content, kind, category, source, enabled,
+                       operator_id, version, created_at, updated_at, expires_at
+                FROM agent_memory_items
+                WHERE tenant_id = $1 AND operator_id = $2
+                  AND ($3::text IS NULL OR scope = $3)
+                  AND (expires_at IS NULL OR expires_at > NOW())
+                ORDER BY COALESCE(updated_at, created_at) DESC
+                LIMIT $4
+                """,
+                tenant_id,
+                operator_id,
+                scope,
+                limit,
+            )
+        return [self._row_to_item(row) for row in rows]
 
     async def search(
         self,
@@ -463,10 +557,12 @@ class PostgresMemoryStore:
             if patterns:
                 rows = await conn.fetch(
                     """
-                    SELECT id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                    SELECT id, tenant_id, scope, content, kind, category, source, enabled,
+                           operator_id, version, created_at, updated_at, expires_at
                     FROM agent_memory_items
                     WHERE tenant_id = $1 AND operator_id = $2
                       AND ($3::text IS NULL OR scope = $3)
+                      AND enabled = TRUE
                       AND LOWER(content) ILIKE ANY($4::text[])
                       AND (expires_at IS NULL OR expires_at > NOW())
                     ORDER BY created_at DESC
@@ -481,10 +577,12 @@ class PostgresMemoryStore:
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                    SELECT id, tenant_id, scope, content, kind, category, source, enabled,
+                           operator_id, version, created_at, updated_at, expires_at
                     FROM agent_memory_items
                     WHERE tenant_id = $1 AND operator_id = $2
                       AND ($3::text IS NULL OR scope = $3)
+                      AND enabled = TRUE
                       AND (expires_at IS NULL OR expires_at > NOW())
                     ORDER BY created_at DESC
                     LIMIT $4
@@ -543,7 +641,8 @@ class PostgresMemoryStore:
                         version = version + 1,
                         expires_at = CASE WHEN $5::int IS NULL THEN expires_at ELSE NOW() + ($5::int * INTERVAL '1 second') END
                     WHERE id = $1 AND tenant_id = $2 AND operator_id = $3
-                    RETURNING id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                    RETURNING id, tenant_id, scope, content, kind, category, source, enabled,
+                              operator_id, version, created_at, updated_at, expires_at
                     """,
                     item_id,
                     tenant_id,
@@ -583,7 +682,8 @@ class PostgresMemoryStore:
                         version = version + 1
                     WHERE id = $1 AND tenant_id = $2 AND operator_id = $3
                       AND (expires_at IS NULL OR expires_at > NOW())
-                    RETURNING id, tenant_id, scope, content, kind, operator_id, version, created_at, updated_at, expires_at
+                    RETURNING id, tenant_id, scope, content, kind, category, source, enabled,
+                              operator_id, version, created_at, updated_at, expires_at
                     """,
                     item_id,
                     tenant_id,
@@ -616,6 +716,41 @@ class PostgresMemoryStore:
                     operator_id,
                 )
         return result.endswith("1")
+
+    async def clear(self, *, tenant_id: str, operator_id: str, scope: str | None = None) -> int:
+        if self.pool is None:
+            raise RuntimeError("PostgreSQL memory store 未连接")
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                item_ids = await conn.fetch(
+                    """
+                    SELECT id
+                    FROM agent_memory_items
+                    WHERE tenant_id = $1 AND operator_id = $2
+                      AND ($3::text IS NULL OR scope = $3)
+                    """,
+                    tenant_id,
+                    operator_id,
+                    scope,
+                )
+                ids = [row["id"] for row in item_ids]
+                if not ids:
+                    return 0
+                await conn.execute(
+                    "DELETE FROM agent_memory_revisions WHERE memory_id = ANY($1::text[])",
+                    ids,
+                )
+                await conn.execute(
+                    """
+                    DELETE FROM agent_memory_items
+                    WHERE tenant_id = $1 AND operator_id = $2
+                      AND ($3::text IS NULL OR scope = $3)
+                    """,
+                    tenant_id,
+                    operator_id,
+                    scope,
+                )
+        return len(ids)
 
     async def purge_expired(self) -> int:
         if self.pool is None:
@@ -678,6 +813,9 @@ class PostgresMemoryStore:
             created_at=iso(row["created_at"]),
             tenant_id=row["tenant_id"] if "tenant_id" in row else "default-tenant",
             kind=row["kind"] if "kind" in row else DEFAULT_MEMORY_KIND,
+            category=row["category"] if "category" in row else "preference",
+            source=row["source"] if "source" in row else "agent-memory",
+            enabled=row["enabled"] if "enabled" in row else True,
             operator_id=row["operator_id"] if "operator_id" in row else None,
             version=row["version"] if "version" in row else 1,
             updated_at=iso(row["updated_at"]),

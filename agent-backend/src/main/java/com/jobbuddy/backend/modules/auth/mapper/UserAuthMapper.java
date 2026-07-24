@@ -20,16 +20,13 @@ public interface UserAuthMapper {
 
   List<Map<String, Object>> listUserRoleAssignments(@Param("tenantId") String tenantId);
 
-  List<Map<String, Object>> listUserPermissionAssignments(@Param("tenantId") String tenantId);
+  List<Map<String, Object>> listUserEffectivePermissionAssignments(
+      @Param("tenantId") String tenantId);
 
   Map<String, Object> findUserById(
       @Param("tenantId") String tenantId, @Param("userId") String userId);
 
-  List<Map<String, Object>> listGrantablePermissions();
-
   List<Map<String, Object>> listPermissionDefinitions();
-
-  int countEnabledAdmins(@Param("tenantId") String tenantId);
 
   int insertUser(
       @Param("userId") String userId,
@@ -55,21 +52,11 @@ public interface UserAuthMapper {
       @Param("passwordHash") String passwordHash,
       @Param("now") Instant now);
 
-  int deleteUserPermissions(@Param("tenantId") String tenantId, @Param("userId") String userId);
-
-  int insertUserPermission(
-      @Param("tenantId") String tenantId,
-      @Param("userId") String userId,
-      @Param("permissionCode") String permissionCode,
-      @Param("now") Instant now);
-
   int saveSession(
       @Param("token") String token,
       @Param("userId") String userId,
       @Param("expiresAt") Instant expiresAt,
       @Param("now") Instant now);
-
-  int touchSession(@Param("token") String token, @Param("now") Instant now);
 
   int deleteSession(@Param("token") String token);
 

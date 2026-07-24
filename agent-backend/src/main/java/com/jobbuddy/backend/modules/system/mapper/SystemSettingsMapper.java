@@ -17,4 +17,6 @@ public interface SystemSettingsMapper {
       @Param("scopeId") String scopeId,
       @Param("settingKey") String settingKey,
       @Param("settingJson") String settingJson);
+
+  int deleteSetting(@Param("scopeId") String scopeId, @Param("settingKey") String settingKey);
 }
