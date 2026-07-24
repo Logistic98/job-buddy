@@ -40,7 +40,7 @@
                 max="10"
                 step="1"
                 @blur="normalizeLimits"
-              /><small>范围 1–10，倍率越高，筛选空间越大。</small></label
+              /><small>范围 1–10，合格岗位不足时按倍率继续评估后续候选。</small></label
             >
             <label class="wide"
               ><span>最低推荐匹配度（分）</span
@@ -52,7 +52,7 @@
                 max="100"
                 step="5"
                 @blur="normalizeLimits"
-              /><small>范围 0–100，优先推荐达到该分数的岗位；候选不足时保留匹配度最高的岗位。</small></label
+              /><small>范围 0–100，候选不足时扩大评估范围，但不会降低推荐门槛。</small></label
             >
           </div>
         </div>

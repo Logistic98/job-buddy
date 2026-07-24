@@ -151,7 +151,7 @@
             ×
           </button>
         </header>
-        <div class="journey-analysis-body">
+        <div :class="['journey-analysis-body', { 'is-loading': analyzing }]">
           <div v-if="analyzing" class="favorite-analysis-loading">
             <strong>正在分析求职进展</strong>
             <p>系统正在根据所选记录统计漏斗、风险和下一步建议。</p>
@@ -482,7 +482,6 @@
           {{ error }}
         </p>
         <div class="detail-actions modal-actions-right">
-          <button class="secondary-btn" @click="closeModal">{{ modalMode === 'view' ? '关闭' : '取消' }}</button>
           <button v-if="modalMode === 'view'" class="primary-btn" @click="modalMode = 'edit'">编辑</button>
           <button v-else class="primary-btn" :disabled="savingRecord" @click="saveRecord">
             {{ savingRecord ? '保存中' : '保存' }}

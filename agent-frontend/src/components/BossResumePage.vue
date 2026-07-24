@@ -551,9 +551,7 @@
               <h2 id="profile-overview-title">画像概览</h2>
               <span :class="['profile-overview-status', { dirty }]">{{ dirty ? '待保存' : '已同步' }}</span>
             </div>
-            <p id="profile-overview-description">
-              基于当前已填写的信息提炼，用于岗位推荐、匹配和问答上下文。你也可以直接编辑。
-            </p>
+            <p id="profile-overview-description">基于当前已填写的信息提炼，用于岗位推荐、匹配和问答上下文。</p>
           </div>
           <button
             type="button"

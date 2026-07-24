@@ -75,6 +75,17 @@
           <span>深挖问题</span><strong>{{ libraryStats.questions }}</strong>
         </div>
       </div>
+      <div class="project-stat-card readiness">
+        <span class="project-stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.5" />
+            <path d="m8.5 12 2.2 2.2 4.8-5" />
+          </svg>
+        </span>
+        <div>
+          <span>平均准备度</span><strong>{{ libraryStats.averageReadiness }}%</strong>
+        </div>
+      </div>
     </section>
 
     <div v-if="projects.length" :class="['project-library-grid', { 'two-row': projects.length > 3 }]">

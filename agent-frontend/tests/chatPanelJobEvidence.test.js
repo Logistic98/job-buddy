@@ -61,6 +61,7 @@ describe('ChatPanel job recommendation evidence', () => {
             matchScore: 75,
             matchConfidence: 'medium',
             matchRecommendation: '可尝试',
+            recommendationEvidenceLevel: 'list_metadata',
           },
         ],
       },
@@ -73,6 +74,9 @@ describe('ChatPanel job recommendation evidence', () => {
 
     expect(actionLabels).toEqual(['查看职位描述', '推荐依据', '分析此岗位', '收藏'])
     expect(card.find('.chat-job-recommendation-details').exists()).toBe(false)
+    expect(card.text()).not.toContain('75 分')
+    expect(card.text()).not.toContain('置信度中')
+    expect(card.text()).not.toContain('可尝试')
     expect(actions.findAll('button')[1].attributes('aria-expanded')).toBe('false')
 
     await actions.findAll('button')[1].trigger('click')
@@ -80,6 +84,10 @@ describe('ChatPanel job recommendation evidence', () => {
     const details = card.get('.chat-job-recommendation-details')
     expect(actions.findAll('button')[1].text()).toBe('收起推荐依据')
     expect(actions.findAll('button')[1].attributes('aria-expanded')).toBe('true')
+    expect(details.text()).toContain('匹配分75 分')
+    expect(details.text()).toContain('置信度中')
+    expect(details.text()).toContain('投递建议可尝试')
+    expect(details.text()).toContain('证据范围岗位列表信息')
     expect(details.text()).toContain('简历具备 RAG 与 Agent 项目经验')
     expect(details.text()).toContain('列表证据有限，需查看完整职位描述')
     expect(actions.element.nextElementSibling).toBe(details.element)

@@ -9,7 +9,7 @@
         v-for="item in menu"
         :key="item.key"
         :class="['settings-tab', { active: activeTab === item.key }]"
-        @click="activeTab = item.key"
+        @click="selectTab(item.key)"
       >
         <span class="tab-letter">{{ item.letter }}</span>
         <span
@@ -75,58 +75,77 @@ import RuntimeSettingsPanel from './settings/RuntimeSettingsPanel.vue'
 import ServiceMonitorPanel from './settings/ServiceMonitorPanel.vue'
 
 const auth = useAuthStore()
+const settingsMenu = [
+  {
+    key: 'users',
+    menuCode: 'settings-users',
+    permission: 'users:manage',
+    letter: 'UM',
+    label: '用户管理',
+    en: 'Users',
+    desc: '账号状态与动态角色',
+  },
+  {
+    key: 'roles',
+    menuCode: 'settings-roles',
+    permission: 'roles:manage',
+    letter: 'RM',
+    label: '角色管理',
+    en: 'Roles',
+    desc: '角色与菜单授权',
+  },
+  {
+    key: 'menus',
+    menuCode: 'settings-menus',
+    permission: 'menus:manage',
+    letter: 'MN',
+    label: '菜单管理',
+    en: 'Menus',
+    desc: '动态菜单树与权限码',
+  },
+  {
+    key: 'workspace',
+    menuCode: 'settings-workspace',
+    permission: 'platform:manage',
+    letter: 'RP',
+    label: '运行参数',
+    en: 'Runtime Parameters',
+    desc: '推荐、检索、执行与简历参数',
+  },
+  {
+    key: 'blacklist',
+    menuCode: 'settings-blacklist',
+    permission: 'platform:manage',
+    letter: 'CB',
+    label: '公司屏蔽',
+    en: 'Company Blocking',
+    desc: '屏蔽外包、驻场和指定公司',
+  },
+  {
+    key: 'memory',
+    menuCode: 'settings-memory',
+    permission: 'platform:manage',
+    letter: 'MM',
+    label: '记忆管理',
+    en: 'Memory',
+    desc: '长期记忆新增、删除、清空',
+  },
+  {
+    key: 'services',
+    menuCode: 'settings-services',
+    permission: 'platform:manage',
+    letter: 'SM',
+    label: '服务监控',
+    en: 'Service Monitor',
+    desc: '服务地址、健康状态与监测记录',
+  },
+]
 const menu = computed(() =>
-  [
-    auth.hasPermission('users:manage') && {
-      key: 'users',
-      letter: 'UM',
-      label: '用户管理',
-      en: 'Users',
-      desc: '账号状态与动态角色',
-    },
-    auth.hasPermission('roles:manage') && {
-      key: 'roles',
-      letter: 'RM',
-      label: '角色管理',
-      en: 'Roles',
-      desc: '角色与菜单授权',
-    },
-    auth.hasPermission('menus:manage') && {
-      key: 'menus',
-      letter: 'MN',
-      label: '菜单管理',
-      en: 'Menus',
-      desc: '动态菜单树与权限码',
-    },
-    auth.hasPermission('platform:manage') && {
-      key: 'workspace',
-      letter: 'RP',
-      label: '运行参数',
-      en: 'Runtime Parameters',
-      desc: '推荐、检索、执行与简历参数',
-    },
-    auth.hasPermission('platform:manage') && {
-      key: 'blacklist',
-      letter: 'CB',
-      label: '公司屏蔽',
-      en: 'Company Blocking',
-      desc: '屏蔽外包、驻场和指定公司',
-    },
-    auth.hasPermission('platform:manage') && {
-      key: 'memory',
-      letter: 'MM',
-      label: '记忆管理',
-      en: 'Memory',
-      desc: '长期记忆新增、删除、清空',
-    },
-    auth.hasPermission('platform:manage') && {
-      key: 'services',
-      letter: 'SM',
-      label: '服务监控',
-      en: 'Service Monitor',
-      desc: '服务地址、健康状态与监测记录',
-    },
-  ].filter(Boolean),
+  settingsMenu.filter(
+    (item) =>
+      auth.menus.some((authorizedMenu) => authorizedMenu.menuCode === item.menuCode) &&
+      auth.hasPermission(item.permission),
+  ),
 )
 const settingsComponents = {
   workspace: RuntimeSettingsPanel,
@@ -146,11 +165,24 @@ const currentModuleState = computed(
 watch(
   menu,
   (availableMenu) => {
-    if (!availableMenu.some((item) => item.key === activeTab.value)) activeTab.value = availableMenu[0]?.key || 'users'
+    if (!availableMenu.some((item) => item.key === activeTab.value)) {
+      activeTab.value = availableMenu[0]?.key || ''
+      replaceTabQuery(activeTab.value)
+    }
   },
   { immediate: true },
 )
 
+function selectTab(key) {
+  activeTab.value = key
+  replaceTabQuery(key)
+}
+function replaceTabQuery(key) {
+  const url = new URL(window.location.href)
+  if (key) url.searchParams.set('tab', key)
+  else url.searchParams.delete('tab')
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+}
 function handleModuleState(state) {
   moduleStates.value = { ...moduleStates.value, [state.key]: state }
 }

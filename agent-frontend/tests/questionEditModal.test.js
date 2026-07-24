@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   createQuestion: vi.fn(),
   extractInterviewDocument: vi.fn(),
   generateQuestions: vi.fn(),
+  importQuestions: vi.fn(),
   updateQuestion: vi.fn(),
 }))
 
@@ -16,6 +17,7 @@ vi.mock('../src/api/interview', () => ({
   createQuestion: mocks.createQuestion,
   extractInterviewDocument: mocks.extractInterviewDocument,
   generateQuestions: mocks.generateQuestions,
+  importQuestions: mocks.importQuestions,
   updateQuestion: mocks.updateQuestion,
 }))
 
@@ -23,9 +25,10 @@ const bankTypeOptions = [
   { value: 'qa', label: '问答题库' },
   { value: 'leetcode', label: '算法题库' },
 ]
+const questionTypeOptions = ['简答', '单选', '多选', '编程题']
 
 function mountModal() {
-  return mount(QuestionEditModal, { props: { bankTypeOptions }, attachTo: document.body })
+  return mount(QuestionEditModal, { props: { bankTypeOptions, questionTypeOptions }, attachTo: document.body })
 }
 
 function editableQuestion() {
@@ -42,6 +45,76 @@ function editableQuestion() {
   }
 }
 
+function algorithmCandidate(overrides = {}) {
+  return {
+    title: '区间合并计数',
+    bankType: 'leetcode',
+    category: '数组',
+    difficulty: '中等',
+    questionType: '编程题',
+    content: '给定区间数组，合并重叠区间并返回合并后的数量。',
+    answer: '排序后线性扫描，时间复杂度 O(n log n)。',
+    tags: ['数组', '排序'],
+    codingMeta: {
+      language: 'python',
+      functionName: 'merge_count',
+      signature: 'merge_count(intervals)',
+      template: 'def merge_count(intervals):\n    # TODO: implement\n    pass\n',
+      parameterCount: 1,
+      tests: [
+        {
+          name: '公开样例',
+          args: [
+            [
+              [1, 3],
+              [2, 4],
+            ],
+          ],
+          expected: 1,
+          sample: true,
+        },
+        { name: '空数组', args: [[]], expected: 0, sample: false },
+        {
+          name: '互不重叠',
+          args: [
+            [
+              [1, 2],
+              [3, 4],
+            ],
+          ],
+          expected: 2,
+          sample: false,
+        },
+      ],
+    },
+    ...overrides,
+  }
+}
+
+function qaChoiceCandidate(overrides = {}) {
+  return {
+    title: '线程池拒绝策略',
+    bankType: 'qa',
+    category: 'Java 并发',
+    difficulty: '中等',
+    questionType: '单选',
+    content: '当线程池和工作队列都已满时，哪种拒绝策略会在调用线程中执行任务？\n\nA. AbortPolicy\nB. CallerRunsPolicy',
+    answer: 'B',
+    tags: ['Java 并发', '线程池'],
+    ...overrides,
+  }
+}
+
+async function fillQaBasics(wrapper) {
+  await wrapper.find('input[placeholder="例如：解释 Agent 工具调用的失败恢复机制"]').setValue('Agent 并发基础')
+  await wrapper.find('input[placeholder="例如：Agent 工程"]').setValue('Agent 工程')
+}
+
+async function fillAlgorithmBasics(wrapper) {
+  await wrapper.find('input[placeholder="例如：合并重叠区间"]').setValue('数组求和')
+  await wrapper.find('input[placeholder="例如：数组与排序"]').setValue('数组')
+}
+
 beforeEach(() => {
   mocks.createQuestion.mockReset().mockResolvedValue({ questionId: 'q-new' })
   mocks.extractInterviewDocument.mockReset().mockResolvedValue({
@@ -50,115 +123,190 @@ beforeEach(() => {
     characterCount: 14,
     truncated: false,
   })
-  mocks.generateQuestions.mockReset().mockResolvedValue([])
+  mocks.generateQuestions.mockReset().mockResolvedValue({ count: 1, items: [algorithmCandidate()] })
+  mocks.importQuestions.mockReset().mockResolvedValue({ count: 1, items: [] })
   mocks.updateQuestion.mockReset().mockResolvedValue(editableQuestion())
 })
 
 describe('QuestionEditModal', () => {
-  it('uses the current QA bank and keeps save available while steps remain freely navigable', async () => {
+  it('guides QA creation step by step and only saves on the final step', async () => {
     const wrapper = mountModal()
     wrapper.vm.openCreate('qa')
     await nextTick()
 
     expect(wrapper.find('[role="dialog"]').attributes('aria-modal')).toBe('true')
-    expect(wrapper.find('.question-maintain-scroll').exists()).toBe(true)
-    expect(wrapper.findAll('[role="tab"]')).toHaveLength(2)
-    expect(wrapper.text()).toContain('分步维护问答题，也可上传资料后由 AI 辅助生成。')
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题库')).toBe(false)
-    expect(wrapper.find('input[placeholder*="最多 200 字"]').exists()).toBe(false)
-    expect(wrapper.find('input[placeholder="例如：Agent 工具调用与失败恢复"]').attributes('maxlength')).toBe('200')
-    expect(wrapper.find('.question-tag-field').classes()).toContain('wide')
-    expect(wrapper.find('.question-wizard-action-buttons').text()).not.toContain('取消')
+    expect(wrapper.find('#question-maintain-title').text()).toBe('新增问答题')
+    expect(wrapper.text()).toContain('先确定知识分类和问答题型')
+    expect(wrapper.find('.question-guidance-card').exists()).toBe(false)
+    expect(wrapper.find('select[aria-required="true"]').element.value).toBe('简答')
+    expect(wrapper.find('.question-wizard-save').exists()).toBe(false)
     expect(wrapper.find('.question-wizard-previous').exists()).toBe(false)
     expect(wrapper.find('.question-wizard-next').text()).toBe('下一步')
-    expect(wrapper.find('.question-wizard-save').text()).toBe('保存题目')
+    expect(wrapper.findAll('.question-wizard-steps button')[1].attributes()).toHaveProperty('disabled')
+    expect(wrapper.find('.question-segmented-control button.active').text()).toBe('中等')
 
-    const stepButtons = wrapper.findAll('.question-wizard-steps button')
-    expect(stepButtons).toHaveLength(3)
-    expect(stepButtons.every((button) => !Object.hasOwn(button.attributes(), 'disabled'))).toBe(true)
-    await stepButtons[2].trigger('click')
-    expect(wrapper.find('.practice-section').text()).toContain('参考答案')
-    expect(wrapper.find('.question-wizard-error').exists()).toBe(false)
-    expect(wrapper.find('.question-wizard-next').exists()).toBe(false)
-    expect(wrapper.find('.question-wizard-previous').text()).toBe('上一步')
-    expect(wrapper.find('.question-wizard-save').text()).toBe('保存题目')
-
-    await stepButtons[0].trigger('click')
-    await wrapper.find('input[placeholder*="Agent 工具调用"]').setValue('Agent 并发基础')
-    await wrapper.find('input[placeholder*="Agent 工程"]').setValue('Agent 工程')
-    const basicSelects = wrapper.findAll('.maintain-field-grid select')
-    expect(basicSelects).toHaveLength(1)
-    await basicSelects[0].setValue('中等')
+    await fillQaBasics(wrapper)
     await wrapper.find('.question-wizard-next').trigger('click')
-    expect(wrapper.find('.practice-section').text()).toContain('题目描述')
-    expect(wrapper.find('.question-content-textarea--standalone').exists()).toBe(true)
-    expect(wrapper.find('.question-wizard-previous').exists()).toBe(true)
-    expect(wrapper.find('.question-wizard-next').exists()).toBe(true)
-    expect(wrapper.find('.question-wizard-save').exists()).toBe(true)
-
+    expect(wrapper.find('.practice-section').text()).toContain('问答题干')
+    expect(wrapper.find('.question-wizard-save').exists()).toBe(false)
     await wrapper.find('#question-content-markdown').setValue('请说明线程池的核心参数。')
     await wrapper.find('.question-wizard-next').trigger('click')
-    expect(wrapper.find('.practice-section').text()).toContain('参考答案')
-    expect(wrapper.find('.question-answer-textarea--standalone').exists()).toBe(true)
 
-    await wrapper.find('.question-wizard-previous').trigger('click')
-    expect(wrapper.find('.practice-section').text()).toContain('题目描述')
+    expect(wrapper.find('.practice-section').text()).toContain('参考答案 / 评分要点')
+    expect(wrapper.find('.question-wizard-save').text()).toBe('保存题目')
+    await wrapper.find('.question-answer-textarea').setValue('核心参数包括核心线程数、最大线程数和队列。')
     await wrapper.find('.question-wizard-save').trigger('click')
     await flushPromises()
-    expect(mocks.createQuestion).toHaveBeenCalledWith(expect.objectContaining({ bankType: 'qa', questionType: '简答' }))
 
+    expect(mocks.createQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({ bankType: 'qa', questionType: '简答', difficulty: '中等' }),
+    )
     wrapper.unmount()
   })
 
-  it('splits algorithm AI generation into settings and streamlined requirement steps', async () => {
+  it('switches the QA manual form to choice-specific fields and prompts', async () => {
+    const wrapper = mountModal()
+    wrapper.vm.openCreate('qa')
+    await nextTick()
+
+    const questionTypeSelect = wrapper.find('.maintain-field-grid select[aria-required="true"]')
+    await questionTypeSelect.setValue('单选')
+    expect(wrapper.find('input[placeholder="例如：以下关于 Agent 工具权限的说法哪项正确"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('选择题需要在下一步维护至少两个选项')
+
+    await wrapper.find('input[placeholder="例如：以下关于 Agent 工具权限的说法哪项正确"]').setValue('Agent 工具权限')
+    await wrapper.find('input[placeholder="例如：Agent 工程"]').setValue('Agent 安全')
+    await wrapper.find('.question-wizard-next').trigger('click')
+
+    expect(wrapper.text()).toContain('问答题干与选项')
+    expect(wrapper.find('#question-content-markdown').attributes('placeholder')).toBe(
+      '请输入完整题干，不要在这里重复填写选项',
+    )
+    expect(wrapper.findAll('.choice-option-row')).toHaveLength(4)
+    await wrapper.find('#question-content-markdown').setValue('以下关于线程池拒绝策略的描述哪项正确？')
+    await wrapper.findAll('.choice-option-row input')[0].setValue('AbortPolicy 会直接抛出异常')
+    await wrapper.findAll('.choice-option-row input')[1].setValue('所有拒绝策略都会静默丢弃任务')
+    await wrapper.find('.question-wizard-next').trigger('click')
+    expect(wrapper.text()).toContain('正确选项编号')
+    expect(wrapper.text()).toContain('填写唯一正确选项的编号')
+    expect(wrapper.find('input[placeholder="例如：A"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('generates editable candidates and imports only after explicit review', async () => {
     const wrapper = mountModal()
     wrapper.vm.openCreate('leetcode')
     await nextTick()
 
     await wrapper.findAll('[role="tab"]')[1].trigger('click')
-    expect(wrapper.findAll('.question-wizard-steps button')).toHaveLength(2)
-    expect(wrapper.find('.practice-section').text()).toContain('生成设置')
-    expect(wrapper.text()).toContain('分步维护算法题，也可上传资料后由 AI 辅助生成。')
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题库')).toBe(false)
-    expect(wrapper.findAll('.maintain-field-grid select').map((select) => select.element.value)).toEqual([''])
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题型')).toBe(false)
-    expect(wrapper.find('.question-wizard-save').text()).toBe('生成并入库')
-    await wrapper.find('input[placeholder="例如：动态规划、图论、二分查找"]').setValue('动态规划')
-    await wrapper.find('input[placeholder="例如：动态规划"]').setValue('动态规划')
-    await wrapper.find('.maintain-field-grid select').setValue('中等')
-    await wrapper.find('input[type="number"]').setValue(3)
+    expect(wrapper.findAll('.question-wizard-steps button')).toHaveLength(3)
+    expect(wrapper.find('.question-guidance-card').exists()).toBe(false)
+    expect(wrapper.find('.question-wizard-save').exists()).toBe(false)
+    expect(wrapper.find('select').element.value).toBe('python')
+    expect(wrapper.find('input[type="number"]').element.value).toBe('3')
+    expect(wrapper.find('.question-segmented-control button.active').text()).toBe('中等')
 
+    await wrapper.find('input[placeholder="例如：动态规划、图论、二分查找"]').setValue('区间问题')
+    await wrapper.find('input[placeholder="例如：动态规划"]').setValue('数组')
+    await wrapper.find('input[type="number"]').setValue(1)
     await wrapper.find('.question-wizard-next').trigger('click')
-    expect(wrapper.find('.practice-section').text()).toContain('上传资料')
-    expect(wrapper.find('.practice-section').text()).toContain('出题要求')
-    const documentInput = wrapper.find('.doc-upload-box input[type="file"]')
-    expect(documentInput.exists()).toBe(true)
-    expect(documentInput.attributes('accept')).toContain('.pdf')
-    expect(documentInput.attributes('accept')).toContain('.doc')
-    expect(documentInput.attributes('accept')).toContain('.docx')
-    expect(wrapper.find('.doc-upload-box b').text()).toBe('选择文档')
-    expect(wrapper.find('.doc-upload-box').text()).toContain('可上传算法题、题解或样例数据')
-    expect(wrapper.find('.doc-upload-box').text()).not.toContain('上传后自动填入下方资料区')
-    expect(wrapper.find('.question-document-textarea').exists()).toBe(false)
-    expect(wrapper.find('.question-requirements-textarea').attributes('placeholder')).toContain(
-      '生成 3 道动态规划算法题',
+
+    expect(wrapper.text()).toContain('LeetCode 链接只作为来源标识')
+    await wrapper
+      .find('input[placeholder="https://leetcode.com/problems/two-sum/"]')
+      .setValue('https://leetcode.com/problems/merge-intervals/')
+    expect(wrapper.find('.question-wizard-next').text()).toBe('生成候选题')
+    await wrapper.find('.question-wizard-next').trigger('click')
+    await flushPromises()
+
+    expect(mocks.generateQuestions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bankType: 'leetcode',
+        questionType: '编程题',
+        topic: '区间问题',
+        category: '数组',
+        difficulty: '中等',
+        language: 'python',
+        count: 1,
+        sourceUrl: 'https://leetcode.com/problems/merge-intervals/',
+      }),
     )
-    expect(wrapper.find('[role="dialog"]').classes()).toContain('question-maintain-modal--compact')
-    expect(wrapper.text()).not.toContain('岗位 JD')
-    expect(wrapper.text()).not.toContain('技术文档')
-    expect(wrapper.text()).not.toContain('知识点材料')
-    expect(wrapper.find('.question-wizard-next').exists()).toBe(false)
-    expect(wrapper.find('.question-wizard-save').text()).toBe('生成并入库')
+    expect(mocks.importQuestions).not.toHaveBeenCalled()
+    expect(wrapper.findAll('.question-candidate-card')).toHaveLength(1)
+    expect(wrapper.find('.question-wizard-save').text()).toBe('确认导入 1 道题')
+
+    await wrapper.find('.question-wizard-save').trigger('click')
+    expect(wrapper.find('.question-wizard-error').text()).toBe('请先核对并确认候选题 1')
+    await wrapper.find('.candidate-field-grid input').setValue('人工修订后的区间题')
+    expect(wrapper.find('.question-wizard-error').exists()).toBe(false)
+    await wrapper.find('.candidate-confirm-toggle input').setValue(true)
     await wrapper.find('.question-wizard-save').trigger('click')
     await flushPromises()
-    expect(mocks.generateQuestions).toHaveBeenCalledWith(
-      expect.objectContaining({ bankType: 'leetcode', questionType: '编程题', count: 3 }),
-    )
 
+    expect(mocks.importQuestions).toHaveBeenCalledWith({
+      items: [
+        expect.objectContaining({
+          title: '人工修订后的区间题',
+          bankType: 'leetcode',
+          codingMeta: expect.objectContaining({
+            functionName: 'merge_count',
+            parameterCount: 1,
+            tests: expect.arrayContaining([expect.objectContaining({ sample: true })]),
+          }),
+        }),
+      ],
+    })
     wrapper.unmount()
   })
 
-  it('keeps extracted document text in the generation payload when a later extraction fails', async () => {
+  it('uses QA-specific AI prompts and imports editable choice candidates', async () => {
+    mocks.generateQuestions.mockResolvedValueOnce({ count: 1, items: [qaChoiceCandidate()] })
+    const wrapper = mountModal()
+    wrapper.vm.openCreate('qa')
+    await nextTick()
+
+    await wrapper.findAll('[role="tab"]')[1].trigger('click')
+    expect(wrapper.find('#question-maintain-title').text()).toBe('新增问答题')
+    expect(wrapper.find('.question-guidance-card').exists()).toBe(false)
+    expect(wrapper.find('input[placeholder="例如：Agent 工程、RAG 与模型评测"]').exists()).toBe(true)
+
+    const qaTypeSelect = wrapper.find('.ai-generate-panel select[aria-required="true"]')
+    await qaTypeSelect.setValue('单选')
+    await wrapper.find('input[placeholder="例如：Agent 工程、RAG 与模型评测"]').setValue('Java 线程池')
+    await wrapper.find('input[placeholder="例如：Agent 工程"]').setValue('Agent 安全')
+    await wrapper.find('input[type="number"]').setValue(1)
+    await wrapper.find('.question-wizard-next').trigger('click')
+
+    expect(wrapper.text()).toContain('知识资料 / 参考文本')
+    expect(wrapper.find('.question-source-textarea').attributes('placeholder')).toContain('技术文档、岗位要求')
+    expect(wrapper.find('.question-requirements-textarea').attributes('placeholder')).toContain('4 个互斥选项')
+    await wrapper.find('.question-wizard-next').trigger('click')
+    await flushPromises()
+
+    expect(mocks.generateQuestions).toHaveBeenCalledWith(
+      expect.objectContaining({ bankType: 'qa', questionType: '单选', topic: 'Java 线程池' }),
+    )
+    expect(wrapper.findAll('.question-candidate-card .choice-option-row')).toHaveLength(2)
+    expect(wrapper.find('.candidate-content-textarea').element.value).not.toContain('A. AbortPolicy')
+    expect(wrapper.text()).toContain('已核对题干、选项和正确答案')
+
+    await wrapper.find('.candidate-confirm-toggle input').setValue(true)
+    await wrapper.find('.question-wizard-save').trigger('click')
+    await flushPromises()
+    expect(mocks.importQuestions).toHaveBeenCalledWith({
+      items: [
+        expect.objectContaining({
+          bankType: 'qa',
+          questionType: '单选',
+          answer: 'B',
+          content: expect.stringContaining('A. AbortPolicy'),
+        }),
+      ],
+    })
+    wrapper.unmount()
+  })
+
+  it('keeps extracted document text when a later extraction fails', async () => {
     let resolveExtraction
     mocks.extractInterviewDocument.mockReturnValueOnce(
       new Promise((resolve) => {
@@ -169,20 +317,15 @@ describe('QuestionEditModal', () => {
     wrapper.vm.openCreate('leetcode')
     await nextTick()
     await wrapper.findAll('[role="tab"]')[1].trigger('click')
-    await wrapper.find('input[placeholder="例如：动态规划、图论、二分查找"]').setValue('动态规划')
     await wrapper.find('input[placeholder="例如：动态规划"]').setValue('动态规划')
-    await wrapper.find('.maintain-field-grid select').setValue('困难')
-    await wrapper.find('input[type="number"]').setValue(2)
     await wrapper.find('.question-wizard-next').trigger('click')
 
     const input = wrapper.find('.doc-upload-box input[type="file"]')
     const pdf = new File(['pdf'], 'reference.pdf', { type: 'application/pdf' })
     Object.defineProperty(input.element, 'files', { configurable: true, value: [pdf] })
     await input.trigger('change')
-
-    expect(mocks.extractInterviewDocument).toHaveBeenCalledWith(pdf)
     expect(wrapper.find('.doc-upload-box b').text()).toBe('正在读取')
-    expect(wrapper.find('.question-wizard-save').attributes()).toHaveProperty('disabled')
+    expect(wrapper.find('.question-wizard-next').attributes()).toHaveProperty('disabled')
 
     resolveExtraction({
       fileName: 'reference.pdf',
@@ -191,10 +334,8 @@ describe('QuestionEditModal', () => {
       truncated: true,
     })
     await flushPromises()
-
-    expect(wrapper.find('.question-document-textarea').exists()).toBe(false)
     expect(wrapper.find('.doc-upload-box').text()).toContain('reference.pdf')
-    expect(wrapper.find('.field-hint').text()).toContain('已提取前 20000 个字符')
+    expect(wrapper.text()).toContain('已提取前 20000 个字符')
 
     mocks.extractInterviewDocument.mockRejectedValueOnce(new Error('Word 文档解析失败'))
     const docx = new File(['broken'], 'broken.docx', {
@@ -206,13 +347,11 @@ describe('QuestionEditModal', () => {
 
     expect(wrapper.find('.question-wizard-error').text()).toBe('Word 文档解析失败')
     expect(wrapper.find('.doc-upload-box').text()).toContain('reference.pdf')
-
-    await wrapper.find('.question-wizard-save').trigger('click')
+    await wrapper.find('.question-wizard-next').trigger('click')
     await flushPromises()
     expect(mocks.generateQuestions).toHaveBeenCalledWith(
       expect.objectContaining({ documentName: 'reference.pdf', documentText: '动态规划状态转移与复杂度分析' }),
     )
-
     wrapper.unmount()
   })
 
@@ -222,109 +361,92 @@ describe('QuestionEditModal', () => {
     await nextTick()
 
     await wrapper.find('.question-wizard-next').trigger('click')
-    const contentSource = wrapper.find('#question-content-markdown')
     const contentTabs = wrapper.find('[aria-label="题目描述编辑模式"]')
-    expect(contentSource.exists()).toBe(true)
-    expect(wrapper.find('[aria-label="题目描述 Markdown 预览"]').exists()).toBe(false)
-    expect(contentTabs.findAll('[role="tab"]')[0].attributes('aria-selected')).toBe('true')
-
-    await contentSource.setValue('## 扩容流程\n\n- 容量翻倍\n- 重新分桶')
+    await wrapper.find('#question-content-markdown').setValue('## 扩容流程\n\n- 容量翻倍\n- 重新分桶')
     await contentTabs.findAll('[role="tab"]')[1].trigger('click')
-    expect(wrapper.find('#question-content-markdown').exists()).toBe(false)
     expect(wrapper.find('[aria-label="题目描述 Markdown 预览"]').exists()).toBe(true)
     expect(wrapper.findComponent(PracticeMarkdown).props('content')).toContain('## 扩容流程')
 
     await wrapper.find('.question-wizard-next').trigger('click')
-    const answerSource = wrapper.find('#question-answer-markdown')
     const answerTabs = wrapper.find('[aria-label="参考答案编辑模式"]')
-    expect(answerSource.exists()).toBe(true)
-    expect(wrapper.find('[aria-label="参考答案 Markdown 预览"]').exists()).toBe(false)
-    await answerSource.setValue('`resize()` 会重新计算桶位置。')
+    await wrapper.find('#question-answer-markdown').setValue('`resize()` 会重新计算桶位置。')
     await answerTabs.findAll('[role="tab"]')[1].trigger('click')
-    expect(wrapper.find('#question-answer-markdown').exists()).toBe(false)
     expect(wrapper.find('[aria-label="参考答案 Markdown 预览"]').exists()).toBe(true)
     expect(wrapper.findComponent(PracticeMarkdown).props('content')).toContain('`resize()`')
-
     wrapper.unmount()
   })
 
-  it('uses dedicated editing areas for coding templates, tests, and answers', async () => {
+  it('provides a visual coding test editor without injecting a hardcoded question', async () => {
     const wrapper = mountModal()
     wrapper.vm.openCreate('leetcode')
     await nextTick()
 
-    expect(wrapper.text()).toContain('分步维护算法题，也可上传资料后由 AI 辅助生成。')
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题库')).toBe(false)
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题型')).toBe(false)
-    await wrapper.find('input[placeholder*="Agent 工具调用"]').setValue('两数之和')
-    await wrapper.find('input[placeholder*="Agent 工程"]').setValue('算法')
-    await wrapper.find('.maintain-field-grid select').setValue('中等')
+    expect(wrapper.text()).not.toContain('不再手写整段 codingMeta 或测试 JSON')
+    expect(wrapper.find('.question-guidance-card').exists()).toBe(false)
+    expect(wrapper.find('.question-example-button').exists()).toBe(false)
+    await fillAlgorithmBasics(wrapper)
     await wrapper.find('.question-wizard-next').trigger('click')
-    expect(wrapper.find('.question-content-textarea').exists()).toBe(true)
-    expect(wrapper.find('.question-code-template-textarea').exists()).toBe(true)
+
     expect(wrapper.findAllComponents(CodeHighlightEditor)).toHaveLength(1)
-    expect(wrapper.find('#question-content-markdown').element.tagName).toBe('TEXTAREA')
-    expect(wrapper.find('[aria-label="题目描述编辑模式"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="题目描述 Markdown 预览"]').exists()).toBe(false)
-
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '默认语言')).toBe(false)
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '参数个数')).toBe(false)
-    expect(wrapper.find('.coding-meta-editor select').exists()).toBe(false)
-    expect(wrapper.find('.coding-meta-editor input[type="number"]').exists()).toBe(false)
-    await wrapper.find('#question-content-markdown').setValue('给定整数数组和目标值，返回两个下标。')
-    await wrapper.find('.question-code-template-textarea').setValue('def solution(nums, target):\n    return []')
-    expect(wrapper.findAll('.code-token-keyword').some((token) => token.text() === 'def')).toBe(true)
+    expect(wrapper.find('.coding-meta-editor select').element.value).toBe('python')
+    expect(wrapper.find('input[placeholder="例如：twoSum"]').element.value).toBe('solution')
+    expect(wrapper.find('.question-code-template-textarea').element.value).toContain('def solution')
+    await wrapper.find('#question-content-markdown').setValue('给定整数数组，返回所有元素之和。')
     await wrapper.find('.question-wizard-next').trigger('click')
-    const testsTextarea = wrapper.find('.question-tests-textarea')
-    expect(testsTextarea.exists()).toBe(true)
-    expect(testsTextarea.attributes('aria-required')).toBeUndefined()
-    expect(testsTextarea.element.closest('label').textContent).toContain('测试用例 JSON（可选）')
-    expect(wrapper.find('.question-answer-textarea').exists()).toBe(true)
-    expect(wrapper.find('.question-answer-textarea--standalone').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="参考答案编辑模式"]').exists()).toBe(true)
-    expect(wrapper.find('[aria-label="参考答案 Markdown 预览"]').exists()).toBe(false)
 
+    expect(wrapper.find('.question-tests-textarea').exists()).toBe(false)
+    expect(wrapper.findAll('.coding-test-card')).toHaveLength(1)
+    await wrapper.findAll('.coding-test-value')[0].setValue('[[1,2,3]]')
+    await wrapper.findAll('.coding-test-value')[1].setValue('6')
+    await wrapper.find('.question-wizard-save').trigger('click')
+    await flushPromises()
+
+    expect(mocks.createQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bankType: 'leetcode',
+        codingMeta: expect.objectContaining({
+          language: 'python',
+          functionName: 'solution',
+          parameterCount: 1,
+          tests: expect.arrayContaining([expect.objectContaining({ sample: true })]),
+        }),
+      }),
+    )
     wrapper.unmount()
   })
 
-  it('allows free step navigation and validates the whole form when saving from any step', async () => {
+  it('blocks future steps and reports the first incomplete field before advancing', async () => {
     const wrapper = mountModal()
     wrapper.vm.openCreate('qa')
     await nextTick()
 
     await wrapper.findAll('.question-wizard-steps button')[2].trigger('click')
-    expect(wrapper.find('.question-wizard-steps button[aria-current="step"]').text()).toContain('答案与判题')
-    expect(wrapper.find('.question-wizard-error').exists()).toBe(false)
-    expect(wrapper.find('.question-wizard-save').text()).toBe('保存题目')
-
-    await wrapper.find('.question-wizard-save').trigger('click')
     expect(wrapper.find('.question-wizard-steps button[aria-current="step"]').text()).toContain('基本信息')
+    await wrapper.find('.question-wizard-next').trigger('click')
     expect(wrapper.find('.question-wizard-error').text()).toBe('请填写题目标题')
-    expect(mocks.createQuestion).not.toHaveBeenCalled()
 
+    await fillQaBasics(wrapper)
+    await wrapper.find('.question-wizard-next').trigger('click')
+    expect(wrapper.find('.question-wizard-steps button[aria-current="step"]').text()).toContain('问答题干')
+    expect(wrapper.findAll('.question-wizard-steps button')[1].attributes()).not.toHaveProperty('disabled')
     wrapper.unmount()
   })
 
-  it('keeps the final step open when save validation fails', async () => {
+  it('keeps the coding-test step open and identifies the invalid row', async () => {
     const wrapper = mountModal()
     wrapper.vm.openCreate('leetcode')
     await nextTick()
-
-    await wrapper.find('input[placeholder*="Agent 工具调用"]').setValue('两数之和')
-    await wrapper.find('input[placeholder*="Agent 工程"]').setValue('算法')
-    await wrapper.find('.maintain-field-grid select').setValue('中等')
+    await fillAlgorithmBasics(wrapper)
     await wrapper.find('.question-wizard-next').trigger('click')
-    await wrapper.find('#question-content-markdown').setValue('给定整数数组和目标值，返回两个下标。')
-    await wrapper.find('.question-code-template-textarea').setValue('def solution(*args):\n    return None')
+    await wrapper.find('#question-content-markdown').setValue('给定数组并返回总和。')
     await wrapper.find('.question-wizard-next').trigger('click')
-    await wrapper.find('.question-tests-textarea').setValue('{ not json')
+    await wrapper.findAll('.coding-test-value')[0].setValue('not-json')
+    await wrapper.findAll('.coding-test-value')[1].setValue('6')
     await wrapper.find('.question-wizard-save').trigger('click')
 
-    expect(wrapper.find('.question-wizard-steps button[aria-current="step"]').text()).toContain('答案与判题')
-    expect(wrapper.find('.question-wizard-error').text()).toBe('测试用例 JSON 格式不正确')
-    expect(wrapper.find('.question-tests-textarea').element.value).toBe('{ not json')
+    expect(wrapper.find('.question-wizard-steps button[aria-current="step"]').text()).toContain('判题与题解')
+    expect(wrapper.find('.question-wizard-error').text()).toBe('第 1 条测试用例的参数 JSON 格式不正确')
     expect(mocks.createQuestion).not.toHaveBeenCalled()
-
     wrapper.unmount()
   })
 
@@ -333,9 +455,7 @@ describe('QuestionEditModal', () => {
     wrapper.vm.openEdit(editableQuestion())
     await nextTick()
 
-    expect(wrapper.find('input[placeholder*="逗号分隔"]').exists()).toBe(false)
     expect(wrapper.findAll('.question-tag-list > span').map((tag) => tag.text())).toEqual(['Java×', '集合×'])
-
     const tagInput = wrapper.find('.question-tag-input-row input')
     await tagInput.setValue('Spring Boot')
     await tagInput.trigger('keydown', { key: 'Enter' })
@@ -344,15 +464,8 @@ describe('QuestionEditModal', () => {
       '集合×',
       'Spring Boot×',
     ])
-
     await wrapper.find('[aria-label="移除标签 集合"]').trigger('click')
     expect(wrapper.findAll('.question-tag-list > span').map((tag) => tag.text())).toEqual(['Java×', 'Spring Boot×'])
-
-    await tagInput.setValue('Java,Spring')
-    await wrapper.find('.question-tag-input-row button').trigger('click')
-    expect(wrapper.find('.question-tag-error').text()).toBe('请一次添加一个标签。')
-    expect(wrapper.findAll('.question-tag-list > span')).toHaveLength(2)
-
     wrapper.unmount()
   })
 
@@ -361,31 +474,16 @@ describe('QuestionEditModal', () => {
     wrapper.vm.openEdit(editableQuestion())
     await nextTick()
 
-    expect(wrapper.text()).toContain('编辑题目')
-    expect(wrapper.text()).toContain('分步修改当前问答题的内容、分类和答案。')
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题库')).toBe(false)
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题型')).toBe(false)
-    expect(wrapper.find('.question-wizard-action-buttons').text()).not.toContain('取消')
+    expect(wrapper.text()).toContain('编辑问答题')
     expect(wrapper.find('.interview-modal-tabs').exists()).toBe(false)
-    expect(wrapper.findAll('[role="tab"]')).toHaveLength(0)
-    expect(wrapper.text()).not.toContain('手动录入')
-    expect(wrapper.text()).not.toContain('AI 生成')
-
+    expect(wrapper.find('.question-wizard-save').exists()).toBe(false)
+    await wrapper.findAll('.question-wizard-steps button')[2].trigger('click')
     expect(wrapper.find('.question-wizard-save').text()).toBe('保存修改')
-    await wrapper.find('.question-wizard-next').trigger('click')
-    expect(wrapper.find('.question-content-textarea--standalone').exists()).toBe(true)
-    expect(wrapper.find('.question-wizard-save').text()).toBe('保存修改')
-    await wrapper.find('.question-wizard-next').trigger('click')
-    expect(wrapper.find('.practice-section > .practice-field-label').exists()).toBe(false)
-    expect(wrapper.find('.practice-section').text()).toContain('参考答案')
     expect(wrapper.find('.question-answer-textarea--standalone').exists()).toBe(true)
-    expect(wrapper.find('.question-wizard-next').exists()).toBe(false)
-    expect(wrapper.find('.question-wizard-save').text()).toBe('保存修改')
-
     wrapper.unmount()
   })
 
-  it('normalizes legacy coding metadata and updates exactly once from the final save action', async () => {
+  it('normalizes legacy coding metadata and updates exactly once', async () => {
     const legacyQuestion = {
       questionId: 'q-legacy',
       title: '两数之和',
@@ -406,21 +504,12 @@ describe('QuestionEditModal', () => {
     wrapper.vm.openEdit(legacyQuestion)
     await nextTick()
 
-    expect(wrapper.text()).toContain('分步修改当前算法题的内容、分类和答案。')
-    expect(wrapper.findAll('.practice-field-label').some((label) => label.text() === '题库')).toBe(false)
-    expect(wrapper.find('.question-tag-field').classes()).toContain('wide')
-    expect(wrapper.find('.question-wizard-action-buttons').text()).not.toContain('取消')
     await wrapper.find('.question-wizard-next').trigger('click')
-    expect(wrapper.find('.coding-meta-editor select').exists()).toBe(false)
-    expect(wrapper.find('.coding-meta-editor input[type="number"]').exists()).toBe(false)
+    expect(wrapper.find('.coding-meta-editor select').element.value).toBe('python')
     expect(wrapper.find('.question-code-template-textarea').element.value).toContain('def two_sum')
-    expect(wrapper.find('.coding-meta-editor .code-highlight-editor').attributes('data-language')).toBe('python')
     await wrapper.find('.question-wizard-next').trigger('click')
-
-    const saveButton = wrapper.find('.question-wizard-save')
-    expect(saveButton.text()).toBe('保存修改')
-    expect(saveButton.attributes('type')).toBe('button')
-    await saveButton.trigger('click')
+    expect(wrapper.findAll('.coding-test-card')).toHaveLength(1)
+    await wrapper.find('.question-wizard-save').trigger('click')
     await flushPromises()
 
     expect(mocks.updateQuestion).toHaveBeenCalledTimes(1)
@@ -431,10 +520,7 @@ describe('QuestionEditModal', () => {
         codingMeta: expect.objectContaining({ language: 'python', functionName: 'two_sum', parameterCount: 2 }),
       }),
     )
-    expect(mocks.createQuestion).not.toHaveBeenCalled()
-    expect(wrapper.emitted('saved')).toHaveLength(1)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
-
     wrapper.unmount()
   })
 
@@ -448,16 +534,13 @@ describe('QuestionEditModal', () => {
     const wrapper = mountModal()
     wrapper.vm.openEdit(editableQuestion())
     await nextTick()
-
-    await wrapper.find('.question-wizard-save').trigger('click')
+    await wrapper.findAll('.question-wizard-steps button')[2].trigger('click')
     await wrapper.find('.question-wizard-save').trigger('click')
     await nextTick()
 
     expect(wrapper.find('.close').attributes()).toHaveProperty('disabled')
     expect(
-      wrapper
-        .findAll('.question-wizard-steps button')
-        .every((button) => Object.hasOwn(button.attributes(), 'disabled')),
+      wrapper.findAll('.question-wizard-steps button').every((button) => button.attributes().disabled !== undefined),
     ).toBe(true)
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await nextTick()

@@ -139,9 +139,6 @@
                     <p>{{ company(item) }} · {{ locationText(item) }} · {{ experienceText(item) }}</p>
                     <p v-if="chatJobSummary(item)" class="chat-job-summary">{{ chatJobSummary(item) }}</p>
                     <div class="chat-job-meta">
-                      <span v-if="item.matchScore">匹配 {{ item.matchScore }} 分</span>
-                      <span v-if="matchConfidence(item)">置信度 {{ matchConfidence(item) }}</span>
-                      <span v-if="item.matchRecommendation">{{ item.matchRecommendation }}</span>
                       <span v-for="tag in jobTags(item)" :key="tag">{{ tag }}</span>
                     </div>
                     <div class="chat-job-actions">
@@ -186,6 +183,16 @@
                       {{ chatJobFullJd(item) }}
                     </div>
                     <div v-if="isRecommendationEvidenceOpen(item, idx)" class="chat-job-recommendation-details">
+                      <div class="chat-job-evidence-summary">
+                        <span v-if="hasMatchScore(item)"><strong>匹配分</strong>{{ item.matchScore }} 分</span>
+                        <span v-if="matchConfidence(item)"><strong>置信度</strong>{{ matchConfidence(item) }}</span>
+                        <span v-if="item.matchRecommendation"
+                          ><strong>投递建议</strong>{{ item.matchRecommendation }}</span
+                        >
+                        <span v-if="recommendationEvidenceLevel(item)"
+                          ><strong>证据范围</strong>{{ recommendationEvidenceLevel(item) }}</span
+                        >
+                      </div>
                       <p v-if="recommendationReasons(item)" class="chat-job-recommendation">
                         <strong>推荐依据</strong>{{ recommendationReasons(item) }}
                       </p>
@@ -434,7 +441,25 @@ function recommendationWarnings(item) {
     .join('；')
 }
 function hasRecommendationEvidence(item) {
-  return !!(recommendationReasons(item) || recommendationWarnings(item))
+  return !!(
+    hasMatchScore(item) ||
+    matchConfidence(item) ||
+    item?.matchRecommendation ||
+    recommendationEvidenceLevel(item) ||
+    recommendationReasons(item) ||
+    recommendationWarnings(item)
+  )
+}
+function hasMatchScore(item) {
+  return item?.matchScore !== undefined && item?.matchScore !== null && item?.matchScore !== ''
+}
+function recommendationEvidenceLevel(item) {
+  return (
+    {
+      full_jd: '完整职位描述',
+      list_metadata: '岗位列表信息',
+    }[String(item?.recommendationEvidenceLevel || '').toLowerCase()] || ''
+  )
 }
 function isRecommendationEvidenceOpen(item, idx) {
   return recommendationExpandedKeys.value.has(jobId(item, idx))

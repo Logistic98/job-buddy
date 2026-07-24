@@ -237,8 +237,7 @@
         /></label>
         <p v-if="versionError" class="form-error-alert" role="alert" aria-live="assertive">{{ versionError }}</p>
         <div class="writer-dialog-actions">
-          <button class="secondary-btn" @click="showSaveVersionDialog = false">取消</button
-          ><button class="primary-btn" :disabled="savingVersion" @click="saveManualVersion">
+          <button class="primary-btn" :disabled="savingVersion" @click="saveManualVersion">
             {{ savingVersion ? '保存中' : '保存版本' }}
           </button>
         </div>

@@ -443,6 +443,42 @@ describe('chat store - send', () => {
     expect(streamChat).toHaveBeenCalledTimes(1)
   })
 
+  it('reuses the original turn id when continuing after Boss authentication', async () => {
+    const payloads = []
+    getBossLoginStatus.mockResolvedValue({ status: 'logged_out' })
+    streamChat.mockImplementation(async (payload, handlers) => {
+      payloads.push(payload)
+      if (payloads.length === 1) {
+        handlers.auth_required?.({ authRequired: true, message: '请扫码登录' })
+        handlers.done?.({ ok: false })
+      } else {
+        handlers.message?.({ content: '续跑完成' })
+        handlers.done?.({ ok: true })
+      }
+    })
+    const store = useChatStore()
+
+    await store.send('筛选岗位', 'resume-1')
+    await vi.waitFor(() => expect(store.pendingAuthRequest?.turnId).toBe(payloads[0].turnId))
+    const originalTurnId = payloads[0].turnId
+    expect(store.messages.filter((item) => item.role === 'user')).toEqual([
+      expect.objectContaining({ id: originalTurnId, turnId: originalTurnId, content: '筛选岗位' }),
+    ])
+    expect(store.sessionSnapshots[store.sessionId].messages[0].turnId).toBe(originalTurnId)
+
+    await store.resumeAfterAuth()
+
+    expect(payloads).toHaveLength(2)
+    expect(payloads[1]).toEqual(
+      expect.objectContaining({
+        turnId: originalTurnId,
+        resumeAfterAuth: true,
+        message: '筛选岗位',
+      }),
+    )
+    expect(store.messages.filter((item) => item.role === 'user')).toHaveLength(1)
+  })
+
   it('surfaces stream errors as an assistant message', async () => {
     streamChat.mockImplementation(async (payload, handlers) => {
       handlers.error?.({ message: '模型超时' })

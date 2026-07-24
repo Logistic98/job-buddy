@@ -13,6 +13,7 @@ import {
   selectedAnswerKeys,
   shouldShowExamOpening,
   validateAiForm,
+  validateAiStep,
   validatePracticeConfig,
   validateQuestionForm,
 } from '../src/utils/interviewForm'
@@ -81,6 +82,10 @@ describe('validateQuestionForm', () => {
     expect(() => validateQuestionForm(baseForm())).not.toThrow()
   })
 
+  it('requires a reference answer and scoring points for short-answer questions', () => {
+    expect(() => validateQuestionForm(baseForm({ answer: '' }))).toThrow('请填写参考答案和评分要点')
+  })
+
   it('requires at least two choice options', () => {
     const form = baseForm({
       questionType: '单选',
@@ -104,14 +109,14 @@ describe('validateQuestionForm', () => {
     expect(() => validateQuestionForm(form)).not.toThrow()
   })
 
-  it('allows leetcode questions without test cases', () => {
+  it('requires at least one leetcode test case', () => {
     const form = baseForm({
       bankType: 'leetcode',
       questionType: '编程题',
       codingTemplate: 'def solution(value):\n    return value',
       codingTestsText: '',
     })
-    expect(() => validateQuestionForm(form)).not.toThrow()
+    expect(() => validateQuestionForm(form)).toThrow('请至少添加 1 条测试用例')
   })
 
   it('still requires a non-empty leetcode code template', () => {
@@ -122,7 +127,16 @@ describe('validateQuestionForm', () => {
 
 describe('validateAiForm', () => {
   it('requires topic or document', () => {
-    expect(() => validateAiForm({ topic: '', documentText: '', count: 5 })).toThrow('请填写方向主题或上传参考资料')
+    expect(() =>
+      validateAiForm({
+        topic: '',
+        sourceUrl: '',
+        documentText: '',
+        requirements: '',
+        bankType: 'qa',
+        count: 5,
+      }),
+    ).toThrow('请填写知识主题、参考文本、出题要求或上传问答资料')
   })
 
   it('requires explicit generation settings and bounds the count', () => {
@@ -137,6 +151,59 @@ describe('validateAiForm', () => {
     expect(() => validateAiForm({ ...valid, bankType: '' })).toThrow('请选择题库')
     expect(() => validateAiForm({ ...valid, count: 0 })).toThrow('生成数量需在 1-20 之间')
     expect(() => validateAiForm(valid)).not.toThrow()
+    expect(() => validateAiForm({ ...valid, bankType: 'leetcode', questionType: '编程题', language: '' })).toThrow(
+      '请选择生成代码语言',
+    )
+  })
+
+  it('allows the settings step to advance before an upload-only source is selected', () => {
+    const settings = {
+      topic: '',
+      documentText: '',
+      bankType: 'leetcode',
+      category: '动态规划',
+      difficulty: '中等',
+      questionType: '编程题',
+      language: 'python',
+      count: 3,
+    }
+    expect(() => validateAiStep(settings, 0)).not.toThrow()
+    expect(() => validateAiForm(settings)).toThrow('请填写算法主题、LeetCode 链接、题面或上传算法资料')
+  })
+
+  it('accepts QA generation requirements as the only source', () => {
+    expect(() =>
+      validateAiForm({
+        topic: '',
+        sourceUrl: '',
+        documentText: '',
+        requirements: '生成一道考察 Java 集合线程安全性的单选题',
+        bankType: 'qa',
+        category: 'Java 基础',
+        difficulty: '中等',
+        questionType: '单选',
+        count: 1,
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts official LeetCode problem links and rejects arbitrary scraping targets', () => {
+    const settings = {
+      topic: '',
+      sourceUrl: 'https://leetcode.com/problems/two-sum/',
+      documentText: '',
+      requirements: '',
+      bankType: 'leetcode',
+      category: '数组',
+      difficulty: '简单',
+      questionType: '编程题',
+      language: 'python',
+      count: 1,
+    }
+    expect(() => validateAiForm(settings)).not.toThrow()
+    expect(() => validateAiForm({ ...settings, sourceUrl: 'https://example.com/problems/two-sum/' })).toThrow(
+      '请输入 leetcode.com 或 leetcode.cn 的标准 HTTPS 题目链接',
+    )
   })
 })
 
@@ -184,12 +251,16 @@ describe('assertManualPracticeMatches', () => {
 })
 
 describe('buildCodingMetaFromForm', () => {
-  it('allows empty test JSON and preserves compatible metadata defaults', () => {
-    const meta = buildCodingMetaFromForm(
-      baseForm({ bankType: 'leetcode', codingTemplate: 'def solution(value):\n    return value', codingTestsText: '' }),
-    )
-    expect(meta.tests).toEqual([])
-    expect(meta.parameterCount).toBe(1)
+  it('rejects an empty test collection', () => {
+    expect(() =>
+      buildCodingMetaFromForm(
+        baseForm({
+          bankType: 'leetcode',
+          codingTemplate: 'def solution(value):\n    return value',
+          codingTestsText: '',
+        }),
+      ),
+    ).toThrow('请至少添加 1 条测试用例')
   })
 
   it('throws on invalid test JSON', () => {
@@ -212,11 +283,11 @@ describe('buildCodingMetaFromForm', () => {
     expect(meta.tests).toHaveLength(1)
   })
 
-  it('detects the language from code instead of trusting the hidden compatibility value', () => {
+  it('uses the explicitly selected language for predictable code configuration', () => {
     const meta = buildCodingMetaFromForm(
       baseForm({
         bankType: 'leetcode',
-        codingLanguage: 'python',
+        codingLanguage: 'javascript',
         codingTemplate: 'const solve = (value) => value + 1',
         codingTestsText: '[{"name":"示例","args":[1],"expected":2}]',
       }),
@@ -224,6 +295,28 @@ describe('buildCodingMetaFromForm', () => {
     expect(meta.language).toBe('javascript')
     expect(meta.functionName).toBe('solution')
     expect(meta.parameterCount).toBe(1)
+  })
+
+  it('parses visual test rows and reports the exact invalid row', () => {
+    const form = baseForm({
+      bankType: 'leetcode',
+      codingLanguage: 'python',
+      codingTemplate: 'def two_sum(nums, target):\n    pass\n',
+      codingTestsText: undefined,
+      codingTests: [
+        { name: '公开样例', argsText: '[[2,7],9]', expectedText: '[0,1]', sample: true },
+        { name: '边界', argsText: 'not-json', expectedText: '[]', sample: false },
+      ],
+    })
+    expect(() => buildCodingMetaFromForm(form)).toThrow('第 2 条测试用例的参数 JSON 格式不正确')
+    form.codingTests[1].argsText = '[[3,3],6]'
+    expect(buildCodingMetaFromForm(form)).toMatchObject({
+      parameterCount: 2,
+      tests: [
+        { name: '公开样例', args: [[2, 7], 9], expected: [0, 1], sample: true },
+        { name: '边界', args: [[3, 3], 6], expected: [], sample: false },
+      ],
+    })
   })
 
   it('falls back to the stored function name or solution for arbitrary code', () => {
@@ -275,13 +368,15 @@ describe('buildQuestionPayload', () => {
       bankType: 'leetcode',
       codingLanguage: 'python',
       codingTemplate: 'def solve(value):\n    pass\n',
-      codingTestsText: '[{"name":"示例","args":[1],"expected":1,"sample":true}]',
+      codingTestsText: undefined,
+      codingTests: [{ name: '示例', argsText: '[1]', expectedText: '1', sample: true }],
     })
     const payload = buildQuestionPayload(form)
     expect(payload.questionType).toBe('编程题')
     expect(payload.codingMeta.functionName).toBe('solve')
     expect(payload.codingTemplate).toBeUndefined()
     expect(payload.codingTestsText).toBeUndefined()
+    expect(payload.codingTests).toBeUndefined()
   })
 })
 

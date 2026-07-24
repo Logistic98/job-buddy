@@ -654,7 +654,12 @@
       </div>
     </div>
 
-    <QuestionEditModal ref="editModalRef" :bank-type-options="bankTypeOptions" @saved="handleQuestionSaved" />
+    <QuestionEditModal
+      ref="editModalRef"
+      :bank-type-options="bankTypeOptions"
+      :question-type-options="questionTypes"
+      @saved="handleQuestionSaved"
+    />
   </section>
 </template>
 

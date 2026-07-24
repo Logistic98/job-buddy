@@ -20,6 +20,7 @@ import {
 } from '../utils/chatSnapshots'
 
 const duplicateSubmitWindowMs = 1800
+const createTurnId = () => `turn_${crypto.randomUUID().replace(/-/g, '')}`
 
 export const useChatStore = defineStore('chat', {
   state: () => ({
@@ -413,6 +414,9 @@ export const useChatStore = defineStore('chat', {
       if (!options.replay && this.lastSubmitKey === key && now - this.lastSubmitAt < duplicateSubmitWindowMs) {
         return false
       }
+      // turnId 是一次用户提交在乐观消息、登录续跑与服务端持久化之间的稳定身份。
+      // replay 必须显式复用原 turnId；普通新提交则在通过重复提交拦截后创建新身份。
+      const turnId = String(options.turnId || '').trim() || createTurnId()
       this.loading = true
       this.inFlightRequestKey = key
       this.lastSubmitKey = key
@@ -429,7 +433,7 @@ export const useChatStore = defineStore('chat', {
       if (!options.replay) {
         const authReplayKey = `${text || ''}::${resumeId || ''}::${selectedJob ? key : ''}`
         this.bossAuthReplayKeys = this.bossAuthReplayKeys.filter((item) => item !== authReplayKey)
-        this.messages.push({ id: crypto.randomUUID(), role: 'user', content: text })
+        this.messages.push({ id: turnId, turnId, role: 'user', content: text })
         this.snapshotCurrentSession()
       }
       const fallbackFlipAssistantId = options.flipJobs
@@ -463,7 +467,12 @@ export const useChatStore = defineStore('chat', {
       // 请求级缓冲：流式增量无论会话当前是否展示都先累积到这里；可见时同步镜像到消息列表，
       // 用户切走再切回时用缓冲重建，保证后台会话不丢增量、不丢终态结果。
       const requestAcc = { assistantId: '', content: '', reasoning: '', toolEvents: [], jobCards: [] }
-      this.activeSessionRequests[requestSessionId] = { controller: requestController, key, acc: requestAcc }
+      this.activeSessionRequests[requestSessionId] = {
+        controller: requestController,
+        key,
+        turnId,
+        acc: requestAcc,
+      }
       this.applyCurrentRequestProjection(requestSessionId)
       const streamSignal = requestController.signal
       // 请求生命周期固定绑定创建时的 sessionId。切换会话后 SSE 继续读取并由后端完成持久化，
@@ -536,6 +545,7 @@ export const useChatStore = defineStore('chat', {
           {
             message: text,
             sessionId: requestSessionId,
+            turnId,
             resumeId,
             resumeAfterAuth: !!options.resumeAfterAuth,
             flipJobs: !!options.flipJobs,
@@ -599,7 +609,7 @@ export const useChatStore = defineStore('chat', {
             },
             auth_required: (data) => {
               if (!isStreamStale() && isRequestVisible())
-                this.handleBossAuthRequired(data, { message: text, resumeId, selectedJob }, assistantId)
+                this.handleBossAuthRequired(data, { message: text, resumeId, selectedJob, turnId }, assistantId)
             },
             error: (data) => {
               if (errorAppended) return
@@ -817,6 +827,7 @@ export const useChatStore = defineStore('chat', {
         resumeAfterAuth: true,
         selectedJob: pending.selectedJob,
         assistantId: pending.assistantId,
+        turnId: pending.turnId,
       })
     },
     upsertToolEvent(data, assistantId) {

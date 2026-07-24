@@ -50,7 +50,10 @@ export function validateQuestionStep(form, step) {
     return
   }
   if (step === 1) {
-    requireText(form.content, choice ? '请填写选择题题干' : '请填写题目内容')
+    requireText(
+      form.content,
+      form.bankType === 'leetcode' ? '请填写算法题面' : choice ? '请填写选择题题干' : '请填写问答题题干',
+    )
     if (choice) {
       const validOptions = form.options.map((item) => String(item.text || '').trim()).filter(Boolean)
       if (validOptions.length < 2) throw new Error('选择题至少需要 2 个有效选项')
@@ -65,6 +68,8 @@ export function validateQuestionStep(form, step) {
     if (form.questionType === '单选' && answerKeys.length !== 1) throw new Error('单选题只能填写一个正确答案')
     if (!answerKeys.length || answerKeys.some((key) => !validKeys.has(key.toUpperCase())))
       throw new Error('正确答案必须使用现有选项编号')
+  } else if (form.bankType === 'qa') {
+    requireText(form.answer, '请填写参考答案和评分要点')
   }
   validateLength(form.answer, '参考答案', { max: 20000 })
   if (form.bankType === 'leetcode') buildCodingMetaFromForm(form)
@@ -78,16 +83,64 @@ export function validateQuestionForm(form) {
 }
 
 export function validateAiForm(aiForm) {
-  if (!String(aiForm.topic || '').trim() && !String(aiForm.documentText || '').trim())
-    throw new Error('请填写方向主题或上传参考资料')
+  if (
+    !String(aiForm.topic || '').trim() &&
+    !String(aiForm.sourceUrl || '').trim() &&
+    !String(aiForm.documentText || '').trim() &&
+    !String(aiForm.requirements || '').trim()
+  )
+    throw new Error(aiSourceRequiredMessage(aiForm.bankType))
+  validateAiStep(aiForm, 0)
+  validateLength(aiForm.requirements, '补充要求', { max: 2000 })
+  validateLength(aiForm.sourceUrl, 'LeetCode 题目链接', { max: 500 })
+  validateLeetCodeSourceUrl(aiForm.sourceUrl)
+  validateLength(aiForm.documentText, '参考资料', { max: 20000 })
+}
+
+export function validateAiStep(aiForm, step) {
   validateLength(aiForm.topic, '方向主题', { max: 200 })
   requireText(aiForm.bankType, '请选择题库')
   validateLength(aiForm.category, '分类', { max: 64, required: true })
   requireText(aiForm.difficulty, '请选择难度')
   requireText(aiForm.questionType, '请选择题型')
+  if (aiForm.bankType === 'leetcode' && !['python', 'java', 'javascript'].includes(aiForm.language))
+    throw new Error('请选择生成代码语言')
   validateInteger(aiForm.count, '生成数量', { min: 1, max: 20 })
-  validateLength(aiForm.requirements, '补充要求', { max: 2000 })
-  validateLength(aiForm.documentText, '参考资料', { max: 20000 })
+  if (step > 0) {
+    validateLength(aiForm.sourceUrl, 'LeetCode 题目链接', { max: 500 })
+    validateLeetCodeSourceUrl(aiForm.sourceUrl)
+    if (
+      !String(aiForm.topic || '').trim() &&
+      !String(aiForm.sourceUrl || '').trim() &&
+      !String(aiForm.documentText || '').trim() &&
+      !String(aiForm.requirements || '').trim()
+    )
+      throw new Error(aiSourceRequiredMessage(aiForm.bankType))
+  }
+}
+
+function aiSourceRequiredMessage(bankType) {
+  return bankType === 'leetcode'
+    ? '请填写算法主题、LeetCode 链接、题面或上传算法资料'
+    : '请填写知识主题、参考文本、出题要求或上传问答资料'
+}
+
+function validateLeetCodeSourceUrl(value) {
+  const sourceUrl = String(value || '').trim()
+  if (!sourceUrl) return
+  let parsed
+  try {
+    parsed = new URL(sourceUrl)
+  } catch (_) {
+    throw new Error('LeetCode 题目链接格式不正确')
+  }
+  const supportedHosts = new Set(['leetcode.com', 'www.leetcode.com', 'leetcode.cn', 'www.leetcode.cn'])
+  if (
+    parsed.protocol !== 'https:' ||
+    !supportedHosts.has(parsed.hostname) ||
+    !/^\/problems\/[^/?#]+\/?$/.test(parsed.pathname)
+  )
+    throw new Error('请输入 leetcode.com 或 leetcode.cn 的标准 HTTPS 题目链接')
 }
 
 export function examRuleTotal(rules = []) {
@@ -119,34 +172,23 @@ export function assertManualPracticeMatches(exam, questionIds) {
 }
 
 export function buildCodingMetaFromForm(form) {
-  let tests = []
-  if (form.codingTestsText.trim()) {
-    try {
-      const parsed = JSON.parse(form.codingTestsText)
-      tests = Array.isArray(parsed) ? parsed : []
-    } catch (err) {
-      throw new Error('测试用例 JSON 格式不正确')
-    }
-  }
-  for (const test of tests) {
-    if (
-      !test ||
-      typeof test !== 'object' ||
-      !Array.isArray(test.args) ||
-      !Object.prototype.hasOwnProperty.call(test, 'expected')
-    ) {
-      throw new Error('每个测试用例必须包含 args 数组和 expected 字段')
-    }
-  }
+  const tests = buildCodingTests(form)
+  if (!tests.length) throw new Error('请至少添加 1 条测试用例')
+  const parameterCount = tests[0].args.length
+  if (parameterCount < 1 || parameterCount > 10) throw new Error('每条测试用例需包含 1-10 个函数参数')
+  tests.forEach((test, index) => {
+    if (test.args.length !== parameterCount) throw new Error(`第 ${index + 1} 条测试用例的参数数量与首条不一致`)
+  })
+  if (!tests.some((test) => test.sample)) tests[0].sample = true
   const language = normalizeCodingLanguage(
-    detectCodeLanguage(`${form.codingTemplate || ''}\n${form.content || ''}`, form.codingLanguage),
+    form.codingLanguage || detectCodeLanguage(`${form.codingTemplate || ''}\n${form.content || ''}`, 'python'),
   )
-  const functionName = extractFunctionName(form.codingTemplate, language) || form.codingFunctionName || 'solution'
-  const inferredParameterCount = tests.find((test) => Array.isArray(test.args) && test.args.length)?.args.length || 0
-  const storedParameterCount = Number(form.codingParameterCount || 0)
-  const parameterCount =
-    inferredParameterCount ||
-    (Number.isInteger(storedParameterCount) && storedParameterCount >= 1 ? storedParameterCount : 1)
+  const detectedFunctionName = extractFunctionName(form.codingTemplate, language)
+  const configuredFunctionName = String(form.codingFunctionName || '').trim()
+  if (detectedFunctionName && configuredFunctionName && detectedFunctionName !== configuredFunctionName)
+    throw new Error('函数入口与代码模板中的函数名不一致，请重建模板或同步修改代码')
+  const functionName = configuredFunctionName || detectedFunctionName || 'solution'
+  if (!/^[A-Za-z_$][\w$]*$/.test(functionName)) throw new Error('函数入口名称格式不正确')
   return {
     language,
     functionName,
@@ -155,6 +197,82 @@ export function buildCodingMetaFromForm(form) {
     template: form.codingTemplate || buildDefaultTemplate(functionName, language),
     tests,
   }
+}
+
+function buildCodingTests(form) {
+  if (Array.isArray(form.codingTests)) {
+    return form.codingTests.map((row, index) => parseCodingTestRow(row, index)).filter(Boolean)
+  }
+  const rawText = String(form.codingTestsText || '').trim()
+  if (!rawText) return []
+  let parsed
+  try {
+    parsed = JSON.parse(rawText)
+  } catch (_) {
+    throw new Error('测试用例 JSON 格式不正确')
+  }
+  if (!Array.isArray(parsed)) throw new Error('测试用例 JSON 必须是数组')
+  return parsed.map((test, index) => normalizeStructuredTest(test, index))
+}
+
+function parseCodingTestRow(row, index) {
+  const name = String(row?.name || '').trim()
+  const argsText = String(row?.argsText || '').trim()
+  const expectedText = String(row?.expectedText || '').trim()
+  if (!name && !argsText && !expectedText) return null
+  if (!argsText) throw new Error(`请填写第 ${index + 1} 条测试用例的参数`)
+  if (!expectedText) throw new Error(`请填写第 ${index + 1} 条测试用例的期望结果`)
+  let args
+  let expected
+  try {
+    args = JSON.parse(argsText)
+  } catch (_) {
+    throw new Error(`第 ${index + 1} 条测试用例的参数 JSON 格式不正确`)
+  }
+  if (!Array.isArray(args)) throw new Error(`第 ${index + 1} 条测试用例的参数必须是 JSON 数组`)
+  try {
+    expected = JSON.parse(expectedText)
+  } catch (_) {
+    throw new Error(`第 ${index + 1} 条测试用例的期望结果 JSON 格式不正确`)
+  }
+  return {
+    name: name || `用例 ${index + 1}`,
+    args,
+    expected,
+    sample: Boolean(row?.sample),
+  }
+}
+
+function normalizeStructuredTest(test, index) {
+  if (
+    !test ||
+    typeof test !== 'object' ||
+    !Array.isArray(test.args) ||
+    !Object.prototype.hasOwnProperty.call(test, 'expected')
+  ) {
+    throw new Error(`第 ${index + 1} 条测试用例必须包含 args 数组和 expected 字段`)
+  }
+  return {
+    name: String(test.name || `用例 ${index + 1}`),
+    args: test.args,
+    expected: test.expected,
+    sample: Boolean(test.sample),
+  }
+}
+
+export function createCodingTestRow(test = {}, index = 0) {
+  return {
+    id: String(test.id || `coding-test-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`),
+    name: String(test.name || `用例 ${index + 1}`),
+    argsText: Object.prototype.hasOwnProperty.call(test, 'args') ? JSON.stringify(test.args) : '',
+    expectedText: Object.prototype.hasOwnProperty.call(test, 'expected') ? JSON.stringify(test.expected) : '',
+    sample: Object.prototype.hasOwnProperty.call(test, 'sample') ? Boolean(test.sample) : index === 0,
+  }
+}
+
+export function formatCodingTestRows(tests) {
+  const rows = Array.isArray(tests) ? tests.map((test, index) => createCodingTestRow(test, index)) : []
+  return rows.length ? rows : [createCodingTestRow({}, 0)]
 }
 
 export function buildQuestionPayload(form) {
@@ -184,6 +302,7 @@ export function buildQuestionPayload(form) {
   delete payload.codingTemplate
   delete payload.codingParameterCount
   delete payload.codingTestsText
+  delete payload.codingTests
   return payload
 }
 

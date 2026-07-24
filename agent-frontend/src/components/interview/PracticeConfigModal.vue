@@ -121,7 +121,6 @@
         {{ practiceModalError }}
       </p>
       <div class="modal-actions practice-modal-actions">
-        <button class="secondary-btn" @click="close">取消</button>
         <button class="primary-btn" :disabled="examLoading" @click="startExam">
           {{ examLoading ? '组卷中…' : `开始练习（${examRuleTotal} 题）` }}
         </button>

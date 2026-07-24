@@ -119,8 +119,9 @@ describe('ProjectDeepDive two-level workflow', () => {
     expect(wrapper.findAll('.project-library-card')).toHaveLength(2)
     expect(wrapper.text()).toContain('更新于 2026')
     const summaryItems = wrapper.findAll('.project-library-summary > div')
-    expect(summaryItems).toHaveLength(3)
+    expect(summaryItems).toHaveLength(4)
     expect(summaryItems[2].text()).toBe('深挖问题12')
+    expect(summaryItems[3].text()).toBe('平均准备度60%')
     expect(wrapper.text()).not.toContain('项目平均问题')
     expect(wrapper.text()).not.toContain('待补充材料')
     expect(wrapper.text()).not.toContain('可复盘项目')
@@ -605,7 +606,12 @@ describe('ProjectDeepDive two-level workflow', () => {
     expect(wrapper.findAll('.question-create-methods button')).toHaveLength(2)
     expect(wrapper.findAll('.question-create-methods button')[0].classes()).toContain('active')
     expect(wrapper.find('.question-generate-form input[type="number"]').element.value).toBe('')
+    expect(wrapper.find('.question-generate-form input[type="number"]').attributes('placeholder')).toBe(
+      '请输入 4-40 的整数',
+    )
     expect(wrapper.find('.question-generate-form input:not([type])').element.value).toBe('')
+    expect(wrapper.findAll('.question-editor-card .modal-actions button')).toHaveLength(1)
+    expect(wrapper.find('.question-editor-card .modal-actions').text()).not.toContain('取消')
     await wrapper.find('.question-generate-form input[type="number"]').setValue(12)
     await wrapper.find('.question-editor-card .modal-actions .question-add-btn').trigger('click')
     await flushPromises()

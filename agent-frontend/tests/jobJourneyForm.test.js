@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import JobJourney from '../src/components/JobJourney.vue'
 
 const mocks = vi.hoisted(() => ({
+  analyzeProgress: vi.fn(),
   createRecord: vi.fn(),
   listRecords: vi.fn(),
   loadFavorites: vi.fn(),
 }))
 
 vi.mock('../src/api/journey', () => ({
-  analyzeJourneyProgress: vi.fn(),
+  analyzeJourneyProgress: mocks.analyzeProgress,
   createJourneyRecord: mocks.createRecord,
   deleteJourneyRecord: vi.fn(),
   listJourneyRecords: mocks.listRecords,
@@ -24,6 +25,7 @@ vi.mock('../src/stores/job', () => ({
 }))
 
 beforeEach(() => {
+  mocks.analyzeProgress.mockReset().mockResolvedValue({})
   mocks.createRecord.mockReset().mockResolvedValue({ recordId: 'record-created' })
   mocks.listRecords.mockReset().mockResolvedValue([])
   mocks.loadFavorites.mockReset().mockResolvedValue()
@@ -36,6 +38,24 @@ async function mountJourney() {
 }
 
 describe('JobJourney form placeholders', () => {
+  it('stretches the analysis loading state across the available modal body', async () => {
+    let resolveAnalysis
+    mocks.analyzeProgress.mockReturnValue(
+      new Promise((resolve) => {
+        resolveAnalysis = resolve
+      }),
+    )
+    const wrapper = await mountJourney()
+
+    await wrapper.find('.history-header-actions .secondary-btn').trigger('click')
+
+    expect(wrapper.get('.journey-analysis-body').classes()).toContain('is-loading')
+    expect(wrapper.get('.journey-analysis-body > .favorite-analysis-loading').exists()).toBe(true)
+
+    resolveAnalysis({})
+    await flushPromises()
+  })
+
   it('removes the redundant list heading and paginates journey records', async () => {
     mocks.listRecords.mockResolvedValue(
       Array.from({ length: 12 }, (_, index) => ({
