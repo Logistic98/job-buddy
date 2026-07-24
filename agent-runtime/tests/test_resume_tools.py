@@ -288,6 +288,13 @@ def test_job_profile_summary_cleaning_preserves_meaningful_leading_number():
     assert JobProfileSummaryTool._clean_summary("1. 具备6年研发经验。") == "具备6年研发经验。"
 
 
+def test_resume_match_schema_declares_evaluation_modes():
+    schema = ResumeMatchTool.input_schema["properties"]["evaluation_mode"]
+
+    assert schema["enum"] == ["recommendation_list", "full_jd_analysis"]
+    assert schema["default"] == "full_jd_analysis"
+
+
 @pytest.mark.asyncio
 async def test_job_profile_summary_preserves_complete_content_beyond_220_characters(workspace):
     long_summary = (
@@ -402,6 +409,243 @@ async def test_resume_match_sorts_and_clamps_scores_with_evidence(workspace):
 
 
 @pytest.mark.asyncio
+async def test_resume_match_uses_structured_list_metadata_as_prefilter_evidence(workspace):
+    stub = _StubLLM(
+        content=json.dumps(
+            {
+                "matches": [
+                    {
+                        "id": "j1",
+                        "score": 65,
+                        "score_confidence": "low",
+                        "recommendation": "证据不足",
+                        "evidence": [
+                            {
+                                "resume_evidence": "6 年 Python、LangGraph 与大模型应用开发经验",
+                                "job_requirement": "大模型应用开发、Python、5-10 年",
+                                "assessment": "方向、技能和年限均有列表证据支持",
+                            }
+                        ],
+                        "limitations": [],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="recommendation-list-evidence",
+            name="resume_match",
+            arguments={
+                "evaluation_mode": "recommendation_list",
+                "resume": {
+                    "summary": "6 年 Python、LangGraph 与大模型应用开发经验",
+                    "years_experience": 6,
+                    "skills": ["Python", "LangGraph"],
+                },
+                "jobs": [
+                    {
+                        "securityId": "j1",
+                        "jobName": "大模型应用开发工程师",
+                        "skills": ["Python", "LangGraph"],
+                        "jobLabels": ["大模型", "Agent"],
+                        "jobExperience": "5-10年",
+                        "jobDegree": "本科",
+                        "cityName": "上海",
+                        "salaryDesc": "40-50K",
+                    }
+                ],
+            },
+        ),
+        _context(workspace),
+    )
+
+    assert result.success is True
+    match = result.output["matches"][0]
+    assert match["score_confidence"] == "medium"
+    assert match["recommendation"] == "可尝试"
+    assert "缺少完整岗位描述，当前结论仅用于列表预筛。" in match["limitations"]
+    assert set(match) == {"id", *resume_tools.RECOMMENDATION_LIST_MATCH_FIELDS}
+    assert result.output["evaluation_mode"] == "recommendation_list"
+    assert result.output["evidence_policy"] == "recommendation_list_structured_metadata_prefilter"
+    system_prompt = stub.calls[0]["messages"][0].content
+    assert "结构化列表元数据共同构成合法的预筛证据" in system_prompt
+    assert "列表预筛的置信度上限也是 medium" in system_prompt
+    assert "每个输入 id 恰好返回一次" in system_prompt
+    assert "evidence 最多 1 项" in system_prompt
+    assert "dimensions" not in system_prompt
+    assert "risks" not in system_prompt
+    assert "interview_focus" not in system_prompt
+    assert "improvement_actions" not in system_prompt
+    assert stub.calls[0]["max_tokens"] == resume_tools.MAX_RECOMMENDATION_LIST_MATCH_TOKENS
+    user_payload = json.loads(stub.calls[0]["messages"][1].content)
+    assert user_payload["evaluation_mode"] == "recommendation_list"
+
+
+@pytest.mark.asyncio
+async def test_resume_match_compacts_recommendation_list_output(workspace):
+    repeated = "这是需要截断的列表预筛内容" * 12
+    stub = _StubLLM(
+        content=json.dumps(
+            {
+                "matches": [
+                    {
+                        "id": "j1",
+                        "score": 72,
+                        "score_confidence": "medium",
+                        "recommendation": "可尝试",
+                        "reasoning": repeated,
+                        "evidence": [
+                            {
+                                "resume_evidence": repeated,
+                                "job_requirement": repeated,
+                                "assessment": repeated,
+                            },
+                            {
+                                "resume_evidence": "第二条证据",
+                                "job_requirement": "第二条要求",
+                                "assessment": "第二条判断",
+                            },
+                        ],
+                        "hits": [repeated, "第二个命中点"],
+                        "gaps": [repeated, "第二个差距"],
+                        "limitations": [repeated, "第二个限制"],
+                        "dimensions": {"technical_skill": {"score": 72}},
+                        "risks": ["不应进入列表结果"],
+                        "interview_focus": ["不应进入列表结果"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="compact-recommendation-list",
+            name="resume_match",
+            arguments={
+                "evaluation_mode": "recommendation_list",
+                "resume": {"skills": ["Python"]},
+                "jobs": [{"securityId": "j1", "jobName": "Python 工程师", "skills": ["Python"]}],
+            },
+        ),
+        _context(workspace),
+    )
+
+    assert result.success is True
+    match = result.output["matches"][0]
+    assert set(match) == {"id", *resume_tools.RECOMMENDATION_LIST_MATCH_FIELDS}
+    assert len(match["reasoning"]) == resume_tools.RECOMMENDATION_LIST_REASONING_CHARS
+    assert len(match["evidence"]) == 1
+    assert all(len(value) <= resume_tools.RECOMMENDATION_LIST_EVIDENCE_CHARS for value in match["evidence"][0].values())
+    assert len(match["hits"]) == 1
+    assert len(match["hits"][0]) == resume_tools.RECOMMENDATION_LIST_ITEM_CHARS
+    assert len(match["gaps"]) == 1
+    assert len(match["gaps"][0]) == resume_tools.RECOMMENDATION_LIST_ITEM_CHARS
+    assert len(match["limitations"]) == 1
+    assert len(match["limitations"][0]) <= resume_tools.RECOMMENDATION_LIST_LIMITATION_CHARS
+
+
+@pytest.mark.asyncio
+async def test_resume_match_caps_recommendation_list_confidence_at_medium(workspace):
+    stub = _StubLLM(
+        content=json.dumps(
+            {
+                "matches": [
+                    {
+                        "id": "j1",
+                        "score": 84,
+                        "score_confidence": "high",
+                        "recommendation": "推荐",
+                        "evidence": [
+                            {
+                                "resume_evidence": "具备 6 年 Java 开发经验",
+                                "job_requirement": "Java、5-10 年",
+                                "assessment": "技能与年限匹配",
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="recommendation-list-confidence-cap",
+            name="resume_match",
+            arguments={
+                "evaluation_mode": "recommendation_list",
+                "resume": {"summary": "6 年 Java 开发经验", "skills": ["Java"]},
+                "jobs": [
+                    {
+                        "securityId": "j1",
+                        "jobName": "Java 工程师",
+                        "skills": ["Java"],
+                        "jobExperience": "5-10年",
+                    }
+                ],
+            },
+        ),
+        _context(workspace),
+    )
+
+    assert result.success is True
+    assert result.output["matches"][0]["score_confidence"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_resume_match_keeps_title_only_job_fail_closed(workspace):
+    stub = _StubLLM(
+        content=json.dumps(
+            {
+                "matches": [
+                    {
+                        "id": "j1",
+                        "score": 75,
+                        "score_confidence": "high",
+                        "recommendation": "推荐",
+                        "evidence": [
+                            {
+                                "resume_evidence": "具备大模型应用经验",
+                                "job_requirement": "岗位名称为大模型应用工程师",
+                                "assessment": "方向相似",
+                            }
+                        ],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="title-only-fail-closed",
+            name="resume_match",
+            arguments={
+                "evaluation_mode": "recommendation_list",
+                "resume": {"summary": "具备大模型应用经验"},
+                "jobs": [{"securityId": "j1", "jobName": "大模型应用工程师"}],
+            },
+        ),
+        _context(workspace),
+    )
+
+    assert result.success is True
+    assert result.output["matches"][0]["score_confidence"] == "low"
+    assert result.output["matches"][0]["recommendation"] == "证据不足"
+
+
+@pytest.mark.asyncio
 async def test_resume_match_recalibrates_confidence_from_grounded_evidence(workspace):
     evidence = [
         {
@@ -482,6 +726,7 @@ async def test_resume_match_upgrades_low_confidence_to_medium_with_partial_groun
             id="partial-confidence-calibration",
             name="resume_match",
             arguments={
+                "evaluation_mode": "full_jd_analysis",
                 "resume": {"skills": ["Python"]},
                 "jobs": [{"securityId": "j1", "jobName": "Python 工程师", "skills": ["Python"]}],
             },
@@ -491,6 +736,7 @@ async def test_resume_match_upgrades_low_confidence_to_medium_with_partial_groun
 
     assert result.success is True
     assert result.output["matches"][0]["score_confidence"] == "medium"
+    assert result.output["matches"][0]["recommendation"] == "谨慎"
 
 
 @pytest.mark.asyncio
@@ -669,11 +915,67 @@ async def test_resume_match_rejects_empty_model_matches(workspace):
     result = await tool.safe_run(call, _context(workspace))
 
     assert result.success is False
+    assert "岗位匹配结果不完整" in result.error
     assert "未返回有效" in result.error
 
 
 @pytest.mark.asyncio
-async def test_resume_match_falls_back_on_missing_id(workspace):
+async def test_resume_match_rejects_partial_model_results_with_missing_ids(workspace):
+    tool = ResumeMatchTool(
+        llm_client=_StubLLM(
+            content=json.dumps(
+                {
+                    "matches": [
+                        {
+                            "id": "j1",
+                            "score": 80,
+                            "score_confidence": "medium",
+                            "recommendation": "可尝试",
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        )
+    )
+    call = ToolCall(
+        id="partial-model-results",
+        name="resume_match",
+        arguments={
+            "evaluation_mode": "recommendation_list",
+            "resume": {"skills": ["Java"]},
+            "jobs": [
+                {"securityId": "j1", "jobName": "Java 工程师", "skills": ["Java"]},
+                {"securityId": "j2", "jobName": "后端工程师", "skills": ["Java"]},
+            ],
+        },
+    )
+
+    result = await tool.safe_run(call, _context(workspace))
+
+    assert result.success is False
+    assert "岗位匹配结果不完整" in result.error
+    assert "missing_ids=['j2']" in result.error
+    assert "expected_count=2" in result.error
+    assert "returned_count=1" in result.error
+
+
+@pytest.mark.parametrize(
+    ("rows", "diagnostic"),
+    [
+        ([{"id": "j1"}, {"id": "unknown"}], "unknown_ids=['unknown']"),
+        ([{"id": "j1"}, {"id": "j1"}], "duplicate_ids=['j1']"),
+    ],
+)
+def test_resume_match_alignment_reports_invalid_model_ids(rows, diagnostic):
+    with pytest.raises(ValueError, match="岗位匹配结果不完整") as exc_info:
+        ResumeMatchTool._align_match_rows(rows, [{"id": "j1"}, {"id": "j2"}])
+
+    assert diagnostic in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_resume_match_rejects_missing_id_in_full_jd_analysis(workspace):
     resume = {"skills": ["Python"]}
     jobs = [{"jobName": "Python 工程师", "skills": ["Python"]}]
     llm_response = {"matches": [{"score": 70}]}
@@ -682,10 +984,26 @@ async def test_resume_match_falls_back_on_missing_id(workspace):
     call = ToolCall(id="c6", name="resume_match", arguments={"resume": resume, "jobs": jobs})
     result = await tool.safe_run(call, _context(workspace))
 
-    assert result.success is True
-    assert result.output["matches"][0]["id"] == "job_0"
-    assert result.output["matches"][0]["hits"] == []
-    assert result.output["matches"][0]["score_confidence"] == "low"
+    assert result.success is False
+    assert "岗位匹配结果不完整" in result.error
+    assert "missing_ids=['job_0']" in result.error
+    assert "missing_id_indexes=[0]" in result.error
+
+
+@pytest.mark.parametrize(
+    ("rows", "missing_id"),
+    [
+        ([{"id": "j1", "score": 70}, {"score": 65}], "j2"),
+        ([{"id": "j2", "score": 70}, {"score": 65}], "j1"),
+    ],
+)
+def test_resume_match_alignment_rejects_missing_id_in_multi_row_results(rows, missing_id):
+    with pytest.raises(ValueError, match="岗位匹配结果不完整") as exc_info:
+        ResumeMatchTool._align_match_rows(rows, [{"id": "j1"}, {"id": "j2"}])
+
+    error = str(exc_info.value)
+    assert f"missing_ids=['{missing_id}']" in error
+    assert "missing_id_indexes=[1]" in error
 
 
 @pytest.mark.asyncio

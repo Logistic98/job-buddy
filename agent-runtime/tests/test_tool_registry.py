@@ -9,7 +9,18 @@ def test_register_builtin_tools_full_set():
     registry = ToolRegistry()
     register_builtin_tools(registry)
     names = registry.names()
-    expected = {"echo", "file_read", "file_write", "file_edit", "glob", "grep", "web_fetch", "web_search", "shell_exec"}
+    expected = {
+        "echo",
+        "file_read",
+        "file_write",
+        "file_edit",
+        "glob",
+        "grep",
+        "web_fetch",
+        "web_search",
+        "shell_exec",
+        "interview_question_generate",
+    }
     assert expected.issubset(set(names))
 
 

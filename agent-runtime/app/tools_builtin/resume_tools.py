@@ -29,9 +29,24 @@ MAX_RESUME_TEXT_CHARS = 9000
 MAX_RESUME_PARSE_TOKENS = 3072
 MAX_RESUME_ANALYSIS_TOKENS = 4096
 MAX_RESUME_MATCH_TOKENS = 8192
+MAX_RECOMMENDATION_LIST_MATCH_TOKENS = 6144
 MAX_PROFILE_SUMMARY_TOKENS = 1024
 # 单次模型调用需要为每个岗位输出结构化证据，过大的批次会使响应稳定超过工具超时并被取消。
 MAX_JOBS_PER_MATCH = 15
+RECOMMENDATION_LIST_MATCH_FIELDS = (
+    "score",
+    "score_confidence",
+    "recommendation",
+    "reasoning",
+    "evidence",
+    "hits",
+    "gaps",
+    "limitations",
+)
+RECOMMENDATION_LIST_REASONING_CHARS = 48
+RECOMMENDATION_LIST_EVIDENCE_CHARS = 36
+RECOMMENDATION_LIST_ITEM_CHARS = 36
+RECOMMENDATION_LIST_LIMITATION_CHARS = 48
 
 RESUME_SCORE_DIMENSIONS = {
     "content_completeness": {"label": "内容完整性", "weight": 15},
@@ -519,6 +534,12 @@ class ResumeMatchTool(BaseTool):
                 "items": {"type": "object"},
             },
             "top_k": {"type": "integer", "description": "只对前 N 个岗位评分,默认 10", "default": MAX_JOBS_PER_MATCH},
+            "evaluation_mode": {
+                "type": "string",
+                "enum": ["recommendation_list", "full_jd_analysis"],
+                "description": "评估模式: 岗位列表预筛或完整 JD 深度分析",
+                "default": "full_jd_analysis",
+            },
             "sections": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -552,6 +573,9 @@ class ResumeMatchTool(BaseTool):
         top_k = int(arguments.get("top_k") or MAX_JOBS_PER_MATCH)
         if top_k <= 0:
             raise ValueError("top_k 必须为正整数")
+        evaluation_mode = str(arguments.get("evaluation_mode") or "full_jd_analysis").strip()
+        if evaluation_mode not in {"recommendation_list", "full_jd_analysis"}:
+            raise ValueError("evaluation_mode 必须为 recommendation_list 或 full_jd_analysis")
         scoped_jobs = jobs[: min(top_k, MAX_JOBS_PER_MATCH)]
         all_sections = [
             "score",
@@ -568,40 +592,77 @@ class ResumeMatchTool(BaseTool):
             "limitations",
         ]
         requested = [str(x) for x in (arguments.get("sections") or []) if str(x) in all_sections]
-        sections = requested or all_sections
+        sections = (
+            list(RECOMMENDATION_LIST_MATCH_FIELDS)
+            if evaluation_mode == "recommendation_list"
+            else requested or all_sections
+        )
 
         resume_brief = self._compact_resume(resume)
         jobs_brief = [self._compact_job(idx, job) for idx, job in enumerate(scoped_jobs)]
+        if evaluation_mode == "recommendation_list":
+            system_prompt = (
+                "你是一名技术岗位列表预筛器。本次只根据简历摘要和岗位列表元数据做初筛，不做完整岗位深度分析。"
+                "必须严格基于输入证据，不得编造经历、岗位要求或公司信息。"
+                "jobName、skills、jobLabels、jobExperience、jobDegree、cityName、salaryDesc、industry "
+                "等结构化列表元数据共同构成合法的预筛证据；缺少详细岗位描述只写入 limitations，"
+                "不得仅因此输出 low 或证据不足。存在至少一条简历与结构化岗位证据对照时 "
+                "score_confidence 应为 medium，但列表预筛的置信度上限也是 medium。"
+                "只有岗位名称、没有其他要求或约束时，score_confidence 必须为 low，recommendation 必须为证据不足。"
+                "score 必须是 0-100 的整数；80-100 表示高度匹配，60-79 表示值得尝试，40-59 表示谨慎，"
+                "0-39 表示不建议。"
+                "只返回一个严格 JSON 对象，根字段只能是 matches。matches 必须与输入 jobs 一一对应、顺序一致，"
+                "每个输入 id 恰好返回一次，即使证据不足也不得遗漏。"
+                "每个 match 只能包含 id、score、score_confidence、recommendation、reasoning、evidence、hits、"
+                "gaps、limitations。recommendation 只能是 推荐、可尝试、谨慎、不建议、证据不足之一。"
+                f"reasoning 只能写一句话且不超过 {RECOMMENDATION_LIST_REASONING_CHARS} 个字符。"
+                "evidence 最多 1 项，项结构固定为 resume_evidence、job_requirement、assessment，"
+                f"每个值不超过 {RECOMMENDATION_LIST_EVIDENCE_CHARS} 个字符。"
+                f"hits 和 gaps 各最多 1 项，每项不超过 {RECOMMENDATION_LIST_ITEM_CHARS} 个字符；"
+                f"limitations 最多 1 项，每项不超过 {RECOMMENDATION_LIST_LIMITATION_CHARS} 个字符。"
+                "不要输出 Markdown、解释文字或任何其他字段。"
+            )
+        else:
+            evaluation_policy = (
+                "本次是完整 JD 深度分析。完整 JD 与简历能够形成至少 3 条具体要求-证据对照时应为 high；"
+                "只有部分要求可核实时为 medium；仅当 JD、简历核心信息或证据链明显缺失时才为 low。"
+                "如果岗位除名称外没有 JD 或其他结构化要求，则 score_confidence 必须为 low，"
+                "recommendation 必须为证据不足。"
+            )
+            system_prompt = (
+                "你是一名资深技术招聘评估专家。下面会给你一份候选人简历摘要和若干岗位摘要。"
+                "必须严格基于输入证据评估,不得编造经历、岗位要求或公司信息；如果岗位描述不足,必须降低置信度并写入 limitations。"
+                "输出严格 JSON 对象,字段为: evaluation_schema, matches, limitations。matches 为数组,顺序与输入岗位一致。"
+                "每个 match 字段固定如下: id(string), score(0-100整数或 null), score_confidence(high|medium|low), "
+                "recommendation(enum: 推荐|可尝试|谨慎|不建议|证据不足), reasoning(str), "
+                "dimensions{technical_skill{score,evidence,gap}, seniority{score,evidence,gap}, education_fit{score,evidence,gap}, project_relevance{score,evidence,gap}, domain_fit{score,evidence,gap}, constraints{score,evidence,gap}}, "
+                "evidence[{resume_evidence,job_requirement,assessment}], hits[str], gaps[str], risks[str], interview_focus[str], improvement_actions[str], limitations[str]。"
+                "dimensions 必须完整输出上述六个维度。education_fit.score 必须输出 0-100 整数，不得输出 null；"
+                "学历与资质需综合学历层次、专业相关性和岗位明确要求评分，专业名称不要求严格一致，"
+                "相近专业、交叉学科以及能由项目或工作经历证明的相关知识均应按相关程度评估。"
+                "岗位未明确学历、专业或资质要求时不得因此扣分；简历信息不完整时仍给出保守数值分，并在 gap 中说明缺失信息。"
+                "reasoning 必须用 2-3 句话直接回答是否值得投递、核心依据和最大阻碍,不得只复述岗位名称或技能词。"
+                "hits 和 gaps 必须引用当前简历与当前岗位证据的具体内容；risks 只写可能影响筛选、定级或录用的关键风险。"
+                "improvement_actions 必须是投递前可执行动作,优先说明简历哪段应补充什么项目证据、指标或技能验证；禁止使用继续学习、加强能力等空话。"
+                "interview_focus 必须结合当前岗位证据与简历经历给出具体追问方向或准备问题。"
+                "score_confidence 衡量输入信息和证据链是否足以支撑结论，与匹配分高低、推荐结果和差距数量无关。"
+                "不得仅因存在技能差距、风险项或不建议投递就输出 low。"
+                "评分规则: 只有岗位要求和简历证据都明确时才给高分；证据不足不得给 80 以上。"
+                f"{evaluation_policy}"
+                f"本次每个 match 只生成 id 和这些字段: {', '.join(sections)}。除指定字段外不要输出其他 match 字段。只返回 JSON。"
+            )
 
         messages = [
             ChatMessage(
                 role="system",
-                content=(
-                    "你是一名资深技术招聘评估专家。下面会给你一份候选人简历摘要和若干岗位摘要。"
-                    "必须严格基于输入证据评估,不得编造经历、岗位要求或公司信息；如果岗位描述不足,必须降低置信度并写入 limitations。"
-                    "输出严格 JSON 对象,字段为: evaluation_schema, matches, limitations。matches 为数组,顺序与输入岗位一致。"
-                    "每个 match 字段固定如下: id(string), score(0-100整数或 null), score_confidence(high|medium|low), "
-                    "recommendation(enum: 推荐|可尝试|谨慎|不建议|证据不足), reasoning(str), "
-                    "dimensions{technical_skill{score,evidence,gap}, seniority{score,evidence,gap}, education_fit{score,evidence,gap}, project_relevance{score,evidence,gap}, domain_fit{score,evidence,gap}, constraints{score,evidence,gap}}, "
-                    "evidence[{resume_evidence,job_requirement,assessment}], hits[str], gaps[str], risks[str], interview_focus[str], improvement_actions[str], limitations[str]。"
-                    "dimensions 必须完整输出上述六个维度。education_fit.score 必须输出 0-100 整数，不得输出 null；"
-                    "学历与资质需综合学历层次、专业相关性和岗位明确要求评分，专业名称不要求严格一致，"
-                    "相近专业、交叉学科以及能由项目或工作经历证明的相关知识均应按相关程度评估。"
-                    "岗位未明确学历、专业或资质要求时不得因此扣分；简历信息不完整时仍给出保守数值分，并在 gap 中说明缺失信息。"
-                    "reasoning 必须用 2-3 句话直接回答是否值得投递、核心依据和最大阻碍,不得只复述岗位名称或技能词。"
-                    "hits 和 gaps 必须引用当前简历与当前 JD 的具体内容；risks 只写可能影响筛选、定级或录用的关键风险。"
-                    "improvement_actions 必须是投递前可执行动作,优先说明简历哪段应补充什么项目证据、指标或技能验证；禁止使用继续学习、加强能力等空话。"
-                    "interview_focus 必须结合当前 JD 与简历经历给出具体追问方向或准备问题。"
-                    "score_confidence 衡量输入信息和证据链是否足以支撑结论，与匹配分高低、推荐结果和差距数量无关。"
-                    "完整 JD 与简历能够形成至少 3 条具体要求-证据对照时应为 high；只有部分要求可核实时为 medium；"
-                    "仅当 JD、简历核心信息或证据链明显缺失时才为 low。不得仅因存在技能差距、风险项或不建议投递就输出 low。"
-                    "评分规则: 只有岗位要求和简历证据都明确时才给高分；证据不足不得给 80 以上；只有岗位名称没有 JD 时 score_confidence 必须 low, recommendation 必须证据不足。"
-                    f"本次每个 match 只生成 id 和这些字段: {', '.join(sections)}。除指定字段外不要输出其他 match 字段。只返回 JSON。"
-                ),
+                content=system_prompt,
             ),
             ChatMessage(
                 role="user",
-                content=json.dumps({"resume": resume_brief, "jobs": jobs_brief}, ensure_ascii=False),
+                content=json.dumps(
+                    {"evaluation_mode": evaluation_mode, "resume": resume_brief, "jobs": jobs_brief},
+                    ensure_ascii=False,
+                ),
             ),
         ]
 
@@ -609,7 +670,11 @@ class ResumeMatchTool(BaseTool):
             response = await self._client().chat(
                 messages=messages,
                 temperature=0.1,
-                max_tokens=MAX_RESUME_MATCH_TOKENS,
+                max_tokens=(
+                    MAX_RECOMMENDATION_LIST_MATCH_TOKENS
+                    if evaluation_mode == "recommendation_list"
+                    else MAX_RESUME_MATCH_TOKENS
+                ),
                 disable_thinking=True,
             )
         except LLMServiceError as exc:
@@ -627,12 +692,21 @@ class ResumeMatchTool(BaseTool):
                 sorted(payload.keys()),
                 type(payload.get("matches")).__name__,
             )
-            raise ValueError("大模型未返回有效的岗位匹配结果，请重试")
+            raise ValueError("岗位匹配结果不完整: 大模型未返回有效的岗位匹配结果，请重试")
+        rows = self._align_match_rows(rows, jobs_brief)
         normalized = [
-            self._normalize_match(item, idx, scoped_jobs, evidence_requested="evidence" in sections)
+            self._normalize_match(
+                item,
+                idx,
+                scoped_jobs,
+                evidence_requested="evidence" in sections,
+                evaluation_mode=evaluation_mode,
+            )
             for idx, item in enumerate(rows)
         ]
-        if requested:
+        if evaluation_mode == "recommendation_list":
+            normalized = [self._compact_recommendation_list_match(row) for row in normalized]
+        elif requested:
             normalized = [{key: row.get(key) for key in ["id", *sections] if key in row} for row in normalized]
         else:
             normalized.sort(key=lambda x: -1 if x.get("score") is None else int(x.get("score") or 0), reverse=True)
@@ -641,8 +715,13 @@ class ResumeMatchTool(BaseTool):
             "scored_count": len(normalized),
             "total_jobs": len(jobs),
             "evaluation_schema": payload.get("evaluation_schema") or "evidence_based_resume_job_match_v4",
+            "evaluation_mode": evaluation_mode,
             "limitations": [str(x) for x in (payload.get("limitations") or [])][:10],
-            "evidence_policy": "no_fabrication_score_requires_resume_and_job_evidence",
+            "evidence_policy": (
+                "recommendation_list_structured_metadata_prefilter"
+                if evaluation_mode == "recommendation_list"
+                else "no_fabrication_score_requires_resume_and_job_evidence"
+            ),
         }
 
     @staticmethod
@@ -659,6 +738,88 @@ class ResumeMatchTool(BaseTool):
         if any(key in payload for key in ("score", "score_confidence", "confidence", "recommendation", "evidence")):
             return [payload]
         return []
+
+    @staticmethod
+    def _align_match_rows(rows: List[Dict[str, Any]], jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        expected_ids = [str(job.get("id") or f"job_{idx}") for idx, job in enumerate(jobs)]
+        if len(set(expected_ids)) != len(expected_ids):
+            duplicate_input_ids = sorted({job_id for job_id in expected_ids if expected_ids.count(job_id) > 1})
+            raise ValueError(f"岗位匹配输入 ID 重复: {', '.join(duplicate_input_ids)}")
+
+        assigned_rows: Dict[str, Dict[str, Any]] = {}
+        returned_ids: List[str] = []
+        unknown_ids: List[str] = []
+        duplicate_ids: List[str] = []
+        missing_id_indexes: List[int] = []
+        for idx, row in enumerate(rows):
+            raw_id = str(row.get("id") or "").strip()
+            if not raw_id:
+                missing_id_indexes.append(idx)
+                continue
+            returned_ids.append(raw_id)
+            if raw_id not in expected_ids:
+                unknown_ids.append(raw_id)
+                continue
+            if raw_id in assigned_rows:
+                duplicate_ids.append(raw_id)
+                continue
+            assigned = dict(row)
+            assigned["id"] = raw_id
+            assigned_rows[raw_id] = assigned
+
+        missing_ids = [job_id for job_id in expected_ids if job_id not in assigned_rows]
+        if (
+            len(rows) != len(expected_ids)
+            or missing_ids
+            or unknown_ids
+            or duplicate_ids
+            or missing_id_indexes
+            or len(set(returned_ids)) != len(returned_ids)
+        ):
+            raise ValueError(
+                "岗位匹配结果不完整: "
+                f"expected_count={len(expected_ids)}, returned_count={len(rows)}, "
+                f"missing_ids={missing_ids}, unknown_ids={sorted(set(unknown_ids))}, "
+                f"duplicate_ids={sorted(set(duplicate_ids))}, missing_id_indexes={missing_id_indexes}"
+            )
+        return [assigned_rows[job_id] for job_id in expected_ids]
+
+    @staticmethod
+    def _compact_recommendation_list_match(row: Dict[str, Any]) -> Dict[str, Any]:
+        def bounded_text(value: Any, max_chars: int) -> str:
+            return str(value or "").strip()[:max_chars]
+
+        evidence: List[Dict[str, str]] = []
+        for item in row.get("evidence") or []:
+            if not isinstance(item, dict):
+                continue
+            evidence.append(
+                {
+                    "resume_evidence": bounded_text(item.get("resume_evidence"), RECOMMENDATION_LIST_EVIDENCE_CHARS),
+                    "job_requirement": bounded_text(
+                        item.get("job_requirement") or item.get("requirement"),
+                        RECOMMENDATION_LIST_EVIDENCE_CHARS,
+                    ),
+                    "assessment": bounded_text(item.get("assessment"), RECOMMENDATION_LIST_EVIDENCE_CHARS),
+                }
+            )
+            break
+
+        def compact_items(key: str, max_chars: int) -> List[str]:
+            values = row.get(key) if isinstance(row.get(key), list) else []
+            return [text for item in values[:1] if (text := bounded_text(item, max_chars))]
+
+        return {
+            "id": str(row.get("id") or ""),
+            "score": row.get("score"),
+            "score_confidence": str(row.get("score_confidence") or "low"),
+            "recommendation": str(row.get("recommendation") or "证据不足"),
+            "reasoning": bounded_text(row.get("reasoning"), RECOMMENDATION_LIST_REASONING_CHARS),
+            "evidence": evidence,
+            "hits": compact_items("hits", RECOMMENDATION_LIST_ITEM_CHARS),
+            "gaps": compact_items("gaps", RECOMMENDATION_LIST_ITEM_CHARS),
+            "limitations": compact_items("limitations", RECOMMENDATION_LIST_LIMITATION_CHARS),
+        }
 
     @staticmethod
     def _compact_resume(resume: Dict[str, Any]) -> Dict[str, Any]:
@@ -790,6 +951,7 @@ class ResumeMatchTool(BaseTool):
         jobs: List[Dict[str, Any]],
         *,
         evidence_requested: bool = True,
+        evaluation_mode: str = "full_jd_analysis",
     ) -> Dict[str, Any]:
         item = item if isinstance(item, dict) else {}
         job = jobs[idx] if idx < len(jobs) and isinstance(jobs[idx], dict) else {}
@@ -815,7 +977,20 @@ class ResumeMatchTool(BaseTool):
             job.get("jobDescription") or job.get("description") or job.get("postDescription") or ""
         ).strip()
         has_detailed_job_context = len(job_description) >= 40
-        has_structured_job_context = bool(job.get("skills") or job.get("jobLabels"))
+        has_structured_job_context = any(
+            job.get(key)
+            for key in (
+                "skills",
+                "jobLabels",
+                "jobExperience",
+                "jobDegree",
+                "degreeName",
+                "education",
+                "cityName",
+                "salaryDesc",
+                "industry",
+            )
+        )
         if evidence_requested and grounded_evidence_count == 0:
             confidence = "low"
         elif has_detailed_job_context and grounded_evidence_count >= 3:
@@ -823,15 +998,40 @@ class ResumeMatchTool(BaseTool):
         elif (has_detailed_job_context or has_structured_job_context) and grounded_evidence_count >= 1:
             if confidence == "low":
                 confidence = "medium"
+        if evaluation_mode == "recommendation_list":
+            if confidence == "high":
+                confidence = "medium"
+            if not has_detailed_job_context:
+                list_limitation = "缺少完整岗位描述，当前结论仅用于列表预筛。"
+                if list_limitation not in limitations:
+                    limitations.insert(0, list_limitation)
+        title_only = not has_detailed_job_context and not has_structured_job_context
+        if title_only:
+            confidence = "low"
         if score is not None and score >= 80 and not evidence:
             score = min(score, 70)
             confidence = "low"
             limitations.append("缺少逐条证据支撑,高分已下调。")
+        recommendation = str(item.get("recommendation") or "").strip()
+        if title_only:
+            recommendation = "证据不足"
+        elif (
+            evaluation_mode == "recommendation_list"
+            and has_structured_job_context
+            and grounded_evidence_count >= 1
+            and confidence == "medium"
+            and score is not None
+            and score >= 60
+            and recommendation in {"", "谨慎", "证据不足"}
+        ):
+            recommendation = "可尝试"
+        elif not recommendation and confidence == "low":
+            recommendation = "证据不足"
         return {
             "id": str(item.get("id") or fallback_id),
             "score": score,
             "score_confidence": confidence,
-            "recommendation": str(item.get("recommendation") or ("证据不足" if confidence == "low" else "")),
+            "recommendation": recommendation,
             "reasoning": str(item.get("reasoning") or ""),
             "dimensions": dimensions,
             "evidence": evidence[:12],

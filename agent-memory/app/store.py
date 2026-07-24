@@ -1,3 +1,6 @@
+import asyncio
+import errno
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -5,6 +8,7 @@ from urllib.parse import quote, urlparse, urlunparse
 from uuid import uuid4
 
 import asyncpg
+from loguru import logger
 
 from .embedding import EmbeddingClient, vector_min_similarity
 from .relevance import cosine_similarity, rank, significant_terms
@@ -13,6 +17,17 @@ from .relevance import cosine_similarity, rank, significant_terms
 # Runtime Core 不感知具体业务语义，仅用该枚举区分记忆生命周期与召回策略。
 MEMORY_KINDS = ("step", "task", "long_term", "semantic")
 DEFAULT_MEMORY_KIND = "task"
+TRANSIENT_POSTGRES_ERRORS = (
+    asyncpg.exceptions.ConnectionDoesNotExistError,
+    asyncpg.exceptions.ConnectionFailureError,
+    asyncpg.exceptions.ClientCannotConnectError,
+    asyncpg.exceptions.CannotConnectNowError,
+    asyncpg.exceptions.AdminShutdownError,
+    asyncpg.exceptions.CrashShutdownError,
+    asyncpg.exceptions.TooManyConnectionsError,
+    ConnectionError,
+    TimeoutError,
+)
 
 
 def normalize_kind(kind: str | None) -> str:
@@ -30,6 +45,28 @@ def _search_pool() -> int:
 
 def _search_half_life_days() -> float:
     return float(os.getenv("AGENT_MEMORY_SEARCH_HALF_LIFE_DAYS", "30"))
+
+
+def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} 必须是整数") from exc
+    if value < minimum or value > maximum:
+        raise ValueError(f"{name} 必须介于 {minimum} 和 {maximum} 之间")
+    return value
+
+
+def _bounded_float_env(name: str, default: float, minimum: float, maximum: float) -> float:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} 必须是数字") from exc
+    if not math.isfinite(value) or value < minimum or value > maximum:
+        raise ValueError(f"{name} 必须介于 {minimum} 和 {maximum} 之间")
+    return value
 
 
 _embedding_client = EmbeddingClient()
@@ -246,26 +283,80 @@ class PostgresMemoryStore:
     async def connect(self) -> None:
         if not self.enabled or self.pool is not None:
             return
+        parsed = urlparse(self.dsn)
+        target = f"{parsed.hostname or '<unknown>'}:{parsed.port or 5432}"
+        attempts = _bounded_int_env("AGENT_MEMORY_DB_CONNECT_ATTEMPTS", 4, 1, 10)
+        connect_timeout = _bounded_float_env("AGENT_MEMORY_DB_CONNECT_TIMEOUT_SECONDS", 8.0, 0.5, 60.0)
+        base_backoff = _bounded_float_env("AGENT_MEMORY_DB_CONNECT_BACKOFF_SECONDS", 0.5, 0.0, 30.0)
+        ssl_mode = self._database_ssl_mode()
+        last_error: Exception | None = None
+
+        for attempt in range(1, attempts + 1):
+            try:
+                self.pool = await asyncpg.create_pool(
+                    dsn=self.dsn,
+                    min_size=1,
+                    max_size=int(os.getenv("AGENT_MEMORY_DB_POOL_SIZE", "5")),
+                    command_timeout=float(os.getenv("AGENT_MEMORY_DB_CMD_TIMEOUT", "5")),
+                    timeout=connect_timeout,
+                    ssl=ssl_mode,
+                )
+                await self.init_schema()
+                return
+            except Exception as exc:
+                last_error = exc
+                await self._discard_pool()
+                if not self._is_transient_connection_error(exc) or attempt >= attempts:
+                    break
+                delay_seconds = min(base_backoff * (2 ** (attempt - 1)), 30.0)
+                logger.warning(
+                    "agent-memory PostgreSQL 瞬时连接失败，准备重试："
+                    "target={}, attempt={}/{}, delay_seconds={}, error_type={}",
+                    target,
+                    attempt,
+                    attempts,
+                    delay_seconds,
+                    type(exc).__name__,
+                )
+                if delay_seconds > 0:
+                    await asyncio.sleep(delay_seconds)
+
+        attempt_summary = (
+            f"，已尝试 {attempts} 次"
+            if last_error is not None and self._is_transient_connection_error(last_error)
+            else ""
+        )
+        raise RuntimeError(
+            "agent-memory 无法连接 PostgreSQL "
+            f"({target}{attempt_summary})；请检查网络可达性、数据库负载、地址、端口及 "
+            "AGENT_MEMORY_DB_SSL_MODE "
+            "（本地无 TLS 使用 disable，生产环境使用 require/verify-full）"
+        ) from last_error
+
+    @staticmethod
+    def _is_transient_connection_error(error: Exception) -> bool:
+        if isinstance(error, TRANSIENT_POSTGRES_ERRORS):
+            return True
+        return isinstance(error, OSError) and error.errno in {
+            errno.ECONNABORTED,
+            errno.ECONNREFUSED,
+            errno.ECONNRESET,
+            errno.EHOSTDOWN,
+            errno.EHOSTUNREACH,
+            errno.ENETDOWN,
+            errno.ENETUNREACH,
+            errno.ETIMEDOUT,
+        }
+
+    async def _discard_pool(self) -> None:
+        pool = self.pool
+        self.pool = None
+        if pool is None:
+            return
         try:
-            self.pool = await asyncpg.create_pool(
-                dsn=self.dsn,
-                min_size=1,
-                max_size=int(os.getenv("AGENT_MEMORY_DB_POOL_SIZE", "5")),
-                command_timeout=float(os.getenv("AGENT_MEMORY_DB_CMD_TIMEOUT", "5")),
-                ssl=self._database_ssl_mode(),
-            )
-            await self.init_schema()
-        except Exception as exc:
-            if self.pool is not None:
-                await self.pool.close()
-                self.pool = None
-            parsed = urlparse(self.dsn)
-            target = f"{parsed.hostname or '<unknown>'}:{parsed.port or 5432}"
-            raise RuntimeError(
-                "agent-memory 无法连接 PostgreSQL "
-                f"({target})；请检查地址、端口及 AGENT_MEMORY_DB_SSL_MODE "
-                "（本地无 TLS 使用 disable，生产环境使用 require/verify-full）"
-            ) from exc
+            await asyncio.wait_for(pool.close(), timeout=2.0)
+        except Exception:
+            pool.terminate()
 
     def _database_ssl_mode(self) -> str:
         configured = os.getenv("AGENT_MEMORY_DB_SSL_MODE", "").strip().lower()

@@ -4,6 +4,7 @@ from app.tools_builtin.echo_tool import EchoTool
 from app.tools_builtin.file_edit_tool import FileEditTool
 from app.tools_builtin.file_read_tool import FileReadTool
 from app.tools_builtin.file_write_tool import FileWriteTool
+from app.tools_builtin.interview_tools import InterviewQuestionGenerateTool
 from app.tools_builtin.resume_tools import JobProfileSummaryTool, ResumeAnalyzeTool, ResumeMatchTool, ResumeParseTool
 from app.tools_builtin.search_tools import GlobTool, GrepTool
 from app.tools_builtin.shell_tool import ShellTool
@@ -23,6 +24,7 @@ def _builtin_tool_instances():
         WebFetchTool(),
         WebSearchTool(),
         ShellTool(),
+        InterviewQuestionGenerateTool(),
         ResumeParseTool(),
         ResumeAnalyzeTool(),
         ResumeMatchTool(),
