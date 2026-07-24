@@ -34,11 +34,16 @@ SPRING_DATASOURCE_USERNAME=<username>
 SPRING_DATASOURCE_PASSWORD=<password>
 AGENT_MEMORY_DB_SSL_MODE=disable
 AGENT_MEMORY_DB_POOL_SIZE=5
+AGENT_MEMORY_DB_CONNECT_ATTEMPTS=4
+AGENT_MEMORY_DB_CONNECT_TIMEOUT_SECONDS=8
+AGENT_MEMORY_DB_CONNECT_BACKOFF_SECONDS=0.5
 ```
 
 `agent-memory` 会自动加载根目录 `.env`，并将 `SPRING_DATASOURCE_*` 转换为 PostgreSQL 连接串，默认与 Backend 共用业务数据库。也可通过根目录 `.env` 中的 `AGENT_MEMORY_DATABASE_URL` 覆盖连接串，其优先级高于 `SPRING_DATASOURCE_*`。服务启动时会自动创建带 `agent_memory_` 前缀的表和必要索引。
 
 `AGENT_MEMORY_DB_SSL_MODE` 支持 `disable`、`prefer`、`allow`、`require`、`verify-ca` 和 `verify-full`。未配置且连接串不含 `sslmode` 时默认使用 `disable`，避免本地无 TLS PostgreSQL 在 SSL 升级阶段断开；连接串中的 `sslmode` 可直接生效，独立环境变量的优先级更高。生产环境应使用 `require` 或 `verify-full`，并通过 Secret 或部署平台注入连接串，不要提交真实账号密码。
+
+服务启动时会对建池和幂等 Schema 初始化期间出现的瞬时断连、连接超时或数据库临时不可用执行有界重试。默认最多尝试 4 次，单次建连超时 8 秒，按 0.5、1、2 秒指数退避；可分别通过 `AGENT_MEMORY_DB_CONNECT_ATTEMPTS`、`AGENT_MEMORY_DB_CONNECT_TIMEOUT_SECONDS` 和 `AGENT_MEMORY_DB_CONNECT_BACKOFF_SECONDS` 调整。密码、库名、权限、SSL 校验及非法配置等确定性错误不会重试，重试耗尽后服务仍会启动失败，避免静默退化造成持久化记忆丢失。
 
 ## TencentDB Agent Memory 自部署配置
 
