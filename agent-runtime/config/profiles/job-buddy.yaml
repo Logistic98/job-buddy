@@ -152,7 +152,7 @@ capabilities:
     risk: low
     next_action: call_get_recommend_jobs
     required_tools: ["boss_browser"]
-    evidence_requirements: ["真实 Boss 搜索结果", "岗位来源和岗位 ID", "用户槽位约束", "求职画像与当前简历严格预筛结果"]
+    evidence_requirements: ["真实 Boss 搜索结果", "岗位来源和岗位 ID", "用户槽位约束", "求职画像与当前简历的列表元数据预筛结果", "评分返回 ID 完整覆盖"]
     context_dependencies: ["profile"]
     secondary: ["needs_job_filters"]
     business_tags: ["job_search"]
@@ -180,7 +180,7 @@ capabilities:
     risk: low
     next_action: run_resume_match
     required_tools: ["resume_match"]
-    evidence_requirements: ["已解析简历", "真实岗位列表或完整 JD", "逐条匹配证据"]
+    evidence_requirements: ["已解析简历", "真实岗位列表或完整 JD", "逐条匹配证据", "完整 JD 分析模式的证据限制"]
     eval_rubric:
       require_evidence: true
       min_evidence_per_high_score: 2
