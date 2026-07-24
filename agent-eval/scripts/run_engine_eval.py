@@ -151,6 +151,21 @@ def _build_run(sample: dict) -> dict:
     done = sample.get("done") or {}
     trace_events = done.get("trace_events") or []
     directive = _directive_from_trace(trace_events)
+    job_cards = done.get("job_cards") or done.get("jobCards") or []
+    if not isinstance(job_cards, list):
+        job_cards = []
+    tool_events = done.get("tool_events") or done.get("toolEvents") or []
+    if not isinstance(tool_events, list):
+        tool_events = []
+    else:
+        tool_events = list(tool_events)
+    for event in sample.get("events") or []:
+        name = event.get("event")
+        data = event.get("data")
+        if name == "job_cards" and isinstance(data, list):
+            job_cards = data
+        elif name == "tool_status" and isinstance(data, dict):
+            tool_events.append(data)
     return {
         "status": done.get("status"),
         "stop_reason": done.get("stop_reason"),
@@ -158,6 +173,8 @@ def _build_run(sample: dict) -> dict:
         "reasoning": done.get("reasoning") or "",
         "directive": directive,
         "trace_events": trace_events,
+        "job_cards": job_cards,
+        "tool_events": tool_events,
         "metrics": sample.get("metrics") or {},
     }
 
@@ -275,7 +292,13 @@ def _evaluate_sample(case: dict, sample: dict) -> dict:
 def _grader_expected(case: dict) -> dict:
     exp = case.get("expected") or {}
     out: dict[str, Any] = {}
-    for key in ("intent", "domain"):
+    for key in (
+        "intent",
+        "domain",
+        "minimum_recommended_match_score",
+        "minimum_qualified_jobs",
+        "require_complete_recommendation_scoring",
+    ):
         if key in exp:
             out[key] = exp[key]
     if exp.get("requires_evidence"):

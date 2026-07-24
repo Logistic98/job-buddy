@@ -11,7 +11,9 @@ cases:
       intent: job.recommend
       runtime_capability: job.recommend
       runtime_next_action: call_get_recommend_jobs
-      events: [intent, job_cards, done]
+      minimum_recommended_match_score: 60
+      require_complete_recommendation_scoring: true
+      events: [intent, done]
   - id: resume_match_current_jobs
     input: "把这些岗位和我的简历做匹配"
     preconditions: [resume_uploaded, jobs_loaded]

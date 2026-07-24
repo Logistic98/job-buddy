@@ -27,6 +27,11 @@ DML_TABLE_RE = re.compile(
     r'(?:(?:"?[A-Za-z_][A-Za-z0-9_]*"?)\.)?"?(?P<table>[A-Za-z_][A-Za-z0-9_]*)"?',
     re.I,
 )
+TEMP_TABLE_RE = re.compile(
+    r'\bCREATE\s+(?:LOCAL\s+)?TEMP(?:ORARY)?\s+TABLE\s+'
+    r'(?:(?:"?[A-Za-z_][A-Za-z0-9_]*"?)\.)?"?(?P<table>[A-Za-z_][A-Za-z0-9_]*)"?',
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -79,8 +84,11 @@ def validate_migration_policy(migrations: list[Migration]) -> list[str]:
     errors: list[str] = []
     for migration in migrations:
         sql = migration.path.read_text(encoding="utf-8")
+        temporary_tables = {
+            match.group("table").lower() for match in TEMP_TABLE_RE.finditer(sql)
+        }
         for operation, table in dml_targets(sql):
-            if table in SYSTEM_DATA_TABLES:
+            if table in SYSTEM_DATA_TABLES or table in temporary_tables:
                 continue
             if table in DEFAULT_IDENTITY_TABLES and DEFAULT_IDENTITY_LITERAL_RE.search(sql):
                 continue
