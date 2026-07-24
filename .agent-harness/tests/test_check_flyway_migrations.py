@@ -1,4 +1,3 @@
-import hashlib
 import importlib.util
 import sys
 import tempfile
@@ -27,105 +26,71 @@ class FlywayPolicyTest(unittest.TestCase):
         path.write_text(sql, encoding="utf-8")
         match = MODULE.MIGRATION_RE.match(name)
         assert match
-        version_text = match.group("version")
-        return MODULE.Migration(path, name, version_text, MODULE.parse_version(version_text))
+        return MODULE.Migration(path, name, match.group("version"))
 
-    def canonical_migrations(self):
-        return [self.migration(name) for name in sorted(MODULE.CANONICAL_BASELINE)]
+    def validate(self, sql: str, name: str = "V3_4_5__Alter_business_schema.sql"):
+        return MODULE.validate_migration_policy([self.migration(name, sql)])
 
-    def validate_future(self, sql: str, name: str = "V1_0_8__Insert_test_data.sql"):
-        migrations = self.canonical_migrations()
-        migrations.append(self.migration(name, sql))
-        return MODULE.validate_canonical_baseline(migrations)
-
-    def test_rejects_schema_evolution_inside_canonical_baseline(self):
-        migrations = self.canonical_migrations()
-        migrations[0].path.write_text("ALTER TABLE tenant ADD COLUMN extra_name TEXT;", encoding="utf-8")
-        errors = MODULE.validate_canonical_baseline(migrations)
-        self.assertTrue(any("must not ALTER/RENAME/DROP" in error for error in errors))
-
-    def test_baseline_data_allows_catalog_and_default_identity_inserts(self):
-        migrations = self.canonical_migrations()
-        data_migration = next(item for item in migrations if item.version == MODULE.BASELINE_MAX_VERSION)
-        data_migration.path.write_text(
-            "INSERT INTO rbac_menu(menu_id) VALUES ('menu_test');\n"
-            "INSERT INTO app_user(user_id) VALUES ('job_buddy_admin');\n"
-            "INSERT INTO user_role(tenant_id, user_id, role_id) "
-            "VALUES ('default-tenant', 'job_buddy_admin', 'role_admin');",
-            encoding="utf-8",
-        )
-        self.assertEqual([], MODULE.validate_canonical_baseline(migrations))
-        data_migration.path.write_text("INSERT INTO auth_state(provider) VALUES ('private');", encoding="utf-8")
-        errors = MODULE.validate_canonical_baseline(migrations)
-        self.assertTrue(any("forbidden tables" in error for error in errors))
-
-    def test_rejects_private_insert_after_baseline(self):
-        for table in ("project_deep_dive_project", "profile_document", "interview_question", "analysis_task"):
-            with self.subTest(table=table):
-                errors = self.validate_future(f"INSERT INTO {table}(id) VALUES ('private');")
-                self.assertTrue(any(f"private table {table}" in error for error in errors))
-
-    def test_allows_controlled_system_blacklist_insert_after_baseline(self):
-        errors = self.validate_future(
-            "INSERT INTO blacklist_item(item_id, name, item_type, source) "
-            "VALUES ('system-keyword-od', 'OD', 'keyword', 'system');",
-            name="V1_0_8__Insert_default_job_blacklist.sql",
+    def test_allows_schema_evolution_without_version_specific_rules(self):
+        errors = self.validate(
+            "ALTER TABLE project_deep_dive_project ADD COLUMN project_type VARCHAR(128);"
         )
         self.assertEqual([], errors)
 
-    def test_rejects_blacklist_insert_from_unregistered_migration(self):
-        errors = self.validate_future(
-            "INSERT INTO blacklist_item(item_id, name, item_type, source) "
-            "VALUES ('manual-keyword', 'manual', 'keyword', 'manual');"
+    def test_allows_shared_system_data(self):
+        errors = self.validate(
+            "INSERT INTO rbac_menu(menu_id) VALUES ('menu_future') "
+            "ON CONFLICT (menu_id) DO UPDATE SET display_order = 1;\n"
+            "UPDATE permission_definition SET grantable = TRUE WHERE permission_code = 'resume:use';",
+            name="V8_2_1__Update_authorization_catalog.sql",
         )
-        self.assertTrue(any("private table blacklist_item" in error for error in errors))
+        self.assertEqual([], errors)
 
-    def test_rejects_private_update_and_delete_after_baseline(self):
-        for sql in (
-            "UPDATE resume_record SET tenant_id = 'default';",
-            "DELETE FROM job_favorite WHERE user_id = 'user-1';",
-            "UPDATE blacklist_item SET enabled = FALSE;",
-            "DELETE FROM blacklist_item WHERE source = 'system';",
-        ):
-            with self.subTest(sql=sql):
-                errors = self.validate_future(sql)
-                self.assertTrue(any("is forbidden" in error for error in errors))
+    def test_allows_controlled_default_identity_data(self):
+        errors = self.validate(
+            "INSERT INTO app_user(user_id, username) VALUES ('job_buddy_admin', 'admin');\n"
+            "DELETE FROM user_login_session WHERE user_id = 'job_buddy_admin';",
+            name="V2_7_3__Update_default_identity.sql",
+        )
+        self.assertEqual([], errors)
 
-    def test_rejects_identity_changes_after_baseline(self):
+    def test_rejects_unscoped_identity_data(self):
         for sql in (
             "INSERT INTO app_user(user_id) VALUES ('another-user');",
             "UPDATE app_user SET enabled = FALSE;",
-            "DELETE FROM user_role WHERE user_id = 'job_buddy_admin';",
+            "DELETE FROM user_role WHERE tenant_id = 'default-tenant';",
         ):
             with self.subTest(sql=sql):
-                errors = self.validate_future(sql)
+                errors = self.validate(sql, name="V6_1_2__Update_identity_data.sql")
+                self.assertTrue(any("non-system table" in error for error in errors))
+
+    def test_rejects_private_business_data(self):
+        for sql in (
+            "INSERT INTO project_deep_dive_project(id) VALUES ('private');",
+            "UPDATE resume_record SET tenant_id = 'default';",
+            "DELETE FROM job_favorite WHERE user_id = 'user-1';",
+        ):
+            with self.subTest(sql=sql):
+                errors = self.validate(sql, name="V9_5_4__Update_business_data.sql")
                 self.assertTrue(any("is forbidden" in error for error in errors))
 
     def test_rejects_non_action_description_prefix(self):
-        path = self.root / "V1_0_8__Seed_default_users.sql"
+        path = self.root / "V2_3_4__Seed_default_users.sql"
         path.write_text("INSERT INTO app_user(user_id) VALUES ('user');", encoding="utf-8")
         _, errors = MODULE.collect(self.root, self.root)
         self.assertTrue(any("SQL action verb" in error for error in errors))
 
-    def test_allows_shared_insert_and_private_schema_change_after_baseline(self):
-        self.assertEqual([], self.validate_future(
-            "INSERT INTO rbac_menu(menu_id) VALUES ('menu_future');\n"
-            "ALTER TABLE project_deep_dive_project ADD COLUMN project_type VARCHAR(128);"
-        ))
+    def test_rejects_duplicate_versions(self):
+        (self.root / "V4_5_6__Create_first_table.sql").write_text("", encoding="utf-8")
+        (self.root / "V4_5_6__Alter_second_table.sql").write_text("", encoding="utf-8")
+        _, errors = MODULE.collect(self.root, self.root)
+        self.assertTrue(any("duplicate Flyway version" in error for error in errors))
 
-    def test_rejects_canonical_baseline_checksum_changes(self):
-        migrations = self.canonical_migrations()
-        checksum_file = self.root / "flyway-baseline.sha256"
-        checksum_file.write_text("\n".join(
-            f"{hashlib.sha256(migration.path.read_bytes()).hexdigest()}  {migration.path.name}"
-            for migration in migrations
-        ) + "\n", encoding="utf-8")
-        manifest_digest = hashlib.sha256(checksum_file.read_bytes()).hexdigest()
-        self.assertEqual([], MODULE.validate_baseline_checksums(migrations, checksum_file, manifest_digest))
-
-        migrations[0].path.write_text("CREATE TABLE changed(id BIGINT);", encoding="utf-8")
-        errors = MODULE.validate_baseline_checksums(migrations, checksum_file, manifest_digest)
-        self.assertTrue(any("checksum mismatch" in error for error in errors))
+    def test_rejects_leading_zero_version_segments(self):
+        path = self.root / "V4_05_6__Create_table.sql"
+        path.write_text("", encoding="utf-8")
+        _, errors = MODULE.collect(self.root, self.root)
+        self.assertTrue(any("leading zeroes" in error for error in errors))
 
 
 if __name__ == "__main__":

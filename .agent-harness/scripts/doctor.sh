@@ -56,15 +56,13 @@ need_java17() {
 }
 
 need_cmd git "Install Git and ensure it is available in PATH."
-need_cmd bash "Install Bash 4+ if your system shell is too old."
+need_cmd bash "Install Bash and ensure it is available in PATH."
 need_cmd python3 "Install Python 3.10+ for helper scripts and timeout wrappers."
 need_optional_cmd claude "Required only for run_goal.sh / loop.sh execution. Install and authenticate Claude Code CLI."
 need_optional_cmd uv "Required for Python module verification. Install uv if you work on backend modules."
 need_optional_cmd npm "Required for Vue frontend and sandbox-runtime dependencies."
 need_java17
 need_optional_cmd mvn "Required for agent-backend verification: the repo has no mvnw wrapper, verify.sh/gate.sh fall back to global mvn."
-need_optional_cmd gradle "Required if a Java module uses Gradle without gradlew."
-need_optional_cmd jq "Optional but useful for future structured report processing."
 
 if [[ -d .git ]]; then
   ok "git repository detected"

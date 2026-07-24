@@ -2,7 +2,7 @@
 max_turns: 20
 max_minutes: 60
 max_diff_lines: 2000
-verify_cmd: ./.agent-harness/scripts/verify.sh <module> --quick
+verify_cmd: ./.agent-harness/scripts/gate.sh <module> --quick
 # model: <optional claude model name; omit to use CLI default or CLAUDE_MODEL>
 ---
 
@@ -19,21 +19,15 @@ verify_cmd: ./.agent-harness/scripts/verify.sh <module> --quick
 关键改动必须先阅读 `agent-doc` 对应主题目录下的文档；若缺少对应文档，必须先新增语义化命名的主题文档再改代码。涉及 Agent 架构、Prompt 迁移、Java 后端瘦身或 Runtime 代理执行时，必须先阅读 `agent-doc/架构设计/系统架构与核心链路.md`。
 
 ## 目标模块
-- `<module>`，例如：`agent-backend` / `agent-frontend` / `agent-intent` / `agent-runtime`。
+- `<module>`，可通过 `./.agent-harness/scripts/verify.sh --list` 查看。
 
 ## 完成条件（必须可通过命令或证据验证）
 1. `<具体测试命令>` 退出码为 0，并输出通过摘要。
-2. `./.agent-harness/scripts/verify.sh <module> --quick` 退出码为 0。
+2. `./.agent-harness/scripts/gate.sh <module> --quick` 退出码为 0。
 3. 新增或更新必要测试，覆盖 <主流程 / 边界 / 异常路径>。
 4. 文档、示例或配置变更与实现保持一致。
 5. 若属于关键改动，`agent-doc` 对应主题目录已新增或更新语义化文档，并说明为什么、怎么做、注意事项和验证方式。
 6. 若涉及前端、工作台交互、登录/扫码弹窗、SSE、岗位卡片、原岗位预览或用户可见状态变化，必须启动本地服务并完成浏览器验证，记录访问地址、用户路径和观察结果。
-
-## 模块约束
-- `agent-backend`：Spring Boot 后端，统一响应、异常处理、配置外置、接口文档必须同步。
-- `agent-frontend`：Vue 3 + Vite 前端，接口请求统一封装，不硬编码后端地址；涉及交互改动时必须做浏览器端到端验证，不能只跑 `npm run build`。
-- `agent-intent`：意图识别与路由，输出结构至少包含 `domain`、`intent`、`confidence`、`risk`、`needs_clarification`、`next_action`。
-- Python 模块：使用 `uv` 与 `pyproject.toml`，通过 `python -m pytest` 验证。
 
 ## 允许修改的范围
 - `<module>/...`
@@ -54,7 +48,7 @@ verify_cmd: ./.agent-harness/scripts/verify.sh <module> --quick
 
 ## 浏览器验证记录（涉及前端/交互时必填）
 - 访问地址：`<http://localhost:5173 或其他地址>`
-- 启动命令：`<后端/前端启动命令>`
+- 启动命令：`<默认使用 ./scripts/start-all.sh；如有差异请记录>`
 - 用户路径：`<逐步描述实际点击/输入/等待过程>`
 - 观察结果：`<弹窗、加载态、卡片、错误提示、网络请求、控制台错误等>`
 - 未覆盖项及原因：`<如无则填“无”>`

@@ -16,29 +16,13 @@
 
 ## 启动服务
 
-启动 agent-tool、Runtime 和后端。Boss 具体实现位于 `agent-tool`，`agent-runtime` 只代理 `boss_browser` 工具调用，后端从 PostgreSQL `auth_state` 注入凭证：
+先启动根目录 `.env` 已配置的本地服务链。统一启动脚本按当前依赖顺序启动 Sandbox、Backend、Memory、Tool、Runtime、Intent、Eval 和 Frontend，避免本手册重复维护端口与启动参数：
 
 ```bash
-cd agent-tool
-PORT=8040 ./scripts/start.sh
-
-# 另开终端
-cd agent-runtime
-AGENT_TOOL_URL=http://127.0.0.1:8040 PORT=8010 ./scripts/start.sh
-
-# 另开终端
-cd agent-backend
-AGENT_RUNTIME_URL=http://127.0.0.1:8010 mvn spring-boot:run
+./scripts/start-all.sh
 ```
 
-启动前端：
-
-```bash
-cd agent-frontend
-npm run dev
-```
-
-默认访问地址：
+脚本会输出实际访问地址、日志目录和 PID 目录。默认前端地址为：
 
 ```text
 http://localhost:5173

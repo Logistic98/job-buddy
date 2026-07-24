@@ -19,23 +19,12 @@ if [[ -z "$STAGED_FILES" ]]; then
   exit 0
 fi
 
-MODULES=(
-  agent-backend
-  agent-runtime
-  agent-intent
-  agent-sandbox
-  agent-eval
-  agent-memory
-  agent-tool
-  agent-frontend
-)
-
 declare -a TARGETS=()
-for module in "${MODULES[@]}"; do
+while IFS= read -r module; do
   if grep -q "^${module}/" <<<"$STAGED_FILES"; then
     TARGETS+=("$module")
   fi
-done
+done < <(./.agent-harness/scripts/verify.sh --list)
 
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
   echo "[pre-commit] no known module changed, skipping verify"
