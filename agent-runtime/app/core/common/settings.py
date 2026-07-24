@@ -158,7 +158,7 @@ class MemoryConfig(BaseModel):
     base_url: str = "http://localhost:8030"
     timeout_seconds: float = 3.0
     top_k: int = 5
-    default_scope: str = "session"
+    default_scope: str = "long_term"
 
 
 class McpServerConfig(BaseModel):

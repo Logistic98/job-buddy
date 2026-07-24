@@ -24,7 +24,7 @@ class RateLimitConfig(BaseModel):
     favorite_list_per_hour: int = 0
     favorite_list_per_day: int = 0
     detail_per_hour: int = 12
-    detail_per_day: int = 120
+    detail_per_day: int = 60
     action_delay_min_ms: int = 800
     action_delay_max_ms: int = 2000
     cooldown_minutes_on_risk: int = 30
@@ -137,6 +137,7 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     settings.rate_limit.state_file = ""
 
     settings.rate_limit.search_per_hour = _env_int("BOSS_CLI_SEARCH_PER_HOUR", settings.rate_limit.search_per_hour)
+    settings.rate_limit.search_per_day = _env_int("BOSS_CLI_SEARCH_PER_DAY", settings.rate_limit.search_per_day)
     settings.rate_limit.favorite_list_per_hour = _env_int(
         "BOSS_CLI_FAVORITE_LIST_PER_HOUR", settings.rate_limit.favorite_list_per_hour
     )
@@ -144,6 +145,7 @@ def _apply_env_overrides(settings: Settings) -> Settings:
         "BOSS_CLI_FAVORITE_LIST_PER_DAY", settings.rate_limit.favorite_list_per_day
     )
     settings.rate_limit.detail_per_hour = _env_int("BOSS_CLI_DETAIL_PER_HOUR", settings.rate_limit.detail_per_hour)
+    settings.rate_limit.detail_per_day = _env_int("BOSS_CLI_DETAIL_PER_DAY", settings.rate_limit.detail_per_day)
     settings.rate_limit.action_delay_min_ms = _env_int("BOSS_CLI_DELAY_MIN_MS", settings.rate_limit.action_delay_min_ms)
     settings.rate_limit.action_delay_max_ms = _env_int("BOSS_CLI_DELAY_MAX_MS", settings.rate_limit.action_delay_max_ms)
     settings.rate_limit.cooldown_minutes_on_risk = _env_int(

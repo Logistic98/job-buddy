@@ -47,13 +47,13 @@ TOOLS: list[dict] = [
     },
     {
         "name": "boss_browser",
-        "description": "Boss 直聘 boss-cli 工具。复用本机浏览器 Cookie，支持登录态、扫码兜底、岗位搜索、详情、在线简历和限速快照；不启动单独浏览器或 CDP。",
+        "description": "Boss 直聘 boss-cli 工具。默认使用 Backend 注入的持久化凭据和二维码登录，浏览器 Cookie 导入仅在显式开启时使用；支持登录态、岗位搜索、详情、在线简历和限速快照。",
         "permission": "medium_risk",
         "parameters": {
             "operation": {
                 "type": "string",
                 "required": True,
-                "description": "status、qr_start、qr_status、search、favorite_list、detail、profile、rate",
+                "description": "status、refresh_auth、qr_start、qr_status、qr_cancel、search、favorite_list、detail、profile、rate",
             },
             "payload": {"type": "object", "required": False, "description": "search/detail 等操作参数"},
         },

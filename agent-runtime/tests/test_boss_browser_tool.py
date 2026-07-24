@@ -141,6 +141,19 @@ async def test_boss_browser_tool_accepts_read_only_favorite_list_operation(tool_
 
 
 @pytest.mark.asyncio
+async def test_boss_browser_tool_declares_and_accepts_refresh_auth_operation(tool_context):
+    tool_context.metadata.update({"tenant_id": "tenant-a", "operator_id": "user-a"})
+    tool = BossBrowserTool()
+
+    result = await tool.validate_input({"operation": "refresh_auth", "payload": {}}, tool_context)
+    operation_schema = tool.definition().input_schema["properties"]["operation"]
+
+    assert result.result is True
+    assert "refresh_auth" in operation_schema["enum"]
+    assert "refresh_auth" in operation_schema["description"]
+
+
+@pytest.mark.asyncio
 async def test_boss_browser_tool_rejects_missing_authenticated_owner(tool_context):
     tool_context.metadata.clear()
     tool = BossBrowserTool()
