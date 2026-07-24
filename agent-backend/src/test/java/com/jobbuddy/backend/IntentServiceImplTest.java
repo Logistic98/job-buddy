@@ -28,12 +28,14 @@ class IntentServiceImplTest {
             "low",
             false,
             "call_get_recommend_jobs");
+    remote.setRouter("llm");
     when(client.classify("找 Java 岗位")).thenReturn(remote);
 
     IntentServiceImpl service = new IntentServiceImpl(client);
     IntentResult result = service.classify("找 Java 岗位");
 
     assertEquals("job.recommend", result.getIntent());
+    assertEquals("llm", result.getRouter());
     assertFalse(result.getSecondary().contains(FALLBACK_MARKER));
   }
 
@@ -47,6 +49,7 @@ class IntentServiceImplTest {
     assertEquals("unknown", result.getIntent());
     assertTrue(result.isNeedsClarification());
     assertEquals("clarify", result.getNextAction());
+    assertEquals("backend_fallback", result.getRouter());
     assertTrue(result.getSecondary().contains(FALLBACK_MARKER));
   }
 
@@ -61,6 +64,7 @@ class IntentServiceImplTest {
     assertEquals("high_risk_request", result.getIntent());
     assertEquals("reject", result.getNextAction());
     assertEquals("high", result.getRisk());
+    assertEquals("backend_fallback", result.getRouter());
     assertTrue(result.isNeedsClarification());
   }
 
@@ -74,6 +78,7 @@ class IntentServiceImplTest {
     assertEquals("job", result.getDomain());
     assertEquals("job.consult", result.getIntent());
     assertEquals("direct_answer", result.getNextAction());
+    assertEquals("backend_fallback", result.getRouter());
     assertTrue(result.getSecondary().contains(FALLBACK_MARKER));
   }
 
@@ -86,6 +91,7 @@ class IntentServiceImplTest {
 
     assertEquals("open_domain", result.getDomain());
     assertEquals("general.chat", result.getIntent());
+    assertEquals("backend_fallback", result.getRouter());
     assertFalse(result.isNeedsClarification());
     assertTrue(result.getSecondary().contains(FALLBACK_MARKER));
   }

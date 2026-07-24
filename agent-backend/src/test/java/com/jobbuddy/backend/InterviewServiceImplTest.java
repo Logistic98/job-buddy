@@ -13,6 +13,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewBatchRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewExamSubmitRequest;
@@ -169,8 +171,9 @@ class InterviewServiceImplTest {
     toolResult.put("success", Boolean.TRUE);
     toolResult.put("data", generated);
     when(agentIntegrationService.invokeRuntimeTool(
-            eq("interview_question_generate"), org.mockito.ArgumentMatchers.anyMap()))
-        .thenReturn(toolResult);
+            eq("interview_question_generate"),
+            org.mockito.ArgumentMatchers.any(RuntimeToolArguments.class)))
+        .thenReturn(runtimeToolResult(toolResult));
 
     Map<String, Object> result =
         JSON.toMap(
@@ -208,8 +211,9 @@ class InterviewServiceImplTest {
     toolResult.put("success", Boolean.TRUE);
     toolResult.put("data", generated);
     when(agentIntegrationService.invokeRuntimeTool(
-            eq("interview_question_generate"), org.mockito.ArgumentMatchers.anyMap()))
-        .thenReturn(toolResult);
+            eq("interview_question_generate"),
+            org.mockito.ArgumentMatchers.any(RuntimeToolArguments.class)))
+        .thenReturn(runtimeToolResult(toolResult));
 
     Map<String, Object> result =
         JSON.toMap(
@@ -219,11 +223,13 @@ class InterviewServiceImplTest {
     List<Map<String, Object>> items = (List<Map<String, Object>>) result.get("items");
     assertEquals("单选", items.get(0).get("questionType"));
     assertEquals(null, items.get(0).get("codingMeta"));
-    ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass((Class) Map.class);
+    ArgumentCaptor<RuntimeToolArguments> captor =
+        ArgumentCaptor.forClass(RuntimeToolArguments.class);
     verify(agentIntegrationService)
         .invokeRuntimeTool(eq("interview_question_generate"), captor.capture());
-    assertEquals("生成一道考察 Java 集合线程安全性的单选题", captor.getValue().get("requirements"));
-    assertEquals("单选", captor.getValue().get("question_type"));
+    Map<String, Object> capturedArguments = captor.getValue().toMap(JSON);
+    assertEquals("生成一道考察 Java 集合线程安全性的单选题", capturedArguments.get("requirements"));
+    assertEquals("单选", capturedArguments.get("question_type"));
     verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
   }
 
@@ -241,8 +247,9 @@ class InterviewServiceImplTest {
     toolResult.put("success", Boolean.FALSE);
     toolResult.put("error", "模型返回内容不是完整 JSON，请重新生成");
     when(agentIntegrationService.invokeRuntimeTool(
-            eq("interview_question_generate"), org.mockito.ArgumentMatchers.anyMap()))
-        .thenReturn(toolResult);
+            eq("interview_question_generate"),
+            org.mockito.ArgumentMatchers.any(RuntimeToolArguments.class)))
+        .thenReturn(runtimeToolResult(toolResult));
 
     IllegalArgumentException error =
         assertThrows(
@@ -414,6 +421,10 @@ class InterviewServiceImplTest {
             service.getExam("tenant-1", "user-1", "missing");
           }
         });
+  }
+
+  private RuntimeToolResult runtimeToolResult(Map<String, Object> value) {
+    return RuntimeToolResult.fromJson(JSON.toTree(value));
   }
 
   private Map<String, Object> question(String id, String questionType, String answer) {

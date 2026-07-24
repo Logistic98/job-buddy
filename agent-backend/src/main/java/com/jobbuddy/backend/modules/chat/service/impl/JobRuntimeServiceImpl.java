@@ -6,6 +6,8 @@ import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
 import com.jobbuddy.backend.modules.auth.service.BossAuthService;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.JobRecommendationResult;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
 import com.jobbuddy.backend.modules.chat.service.JobRuntimeService.JobProgressConsumer;
@@ -363,18 +365,21 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
           "call_get_recommend_jobs",
           slots);
     }
-    return new IntentResult(
-        source.getDomain(),
-        source.getIntent(),
-        source.getConfidence(),
-        source.getSecondary() == null
-            ? Collections.<String>emptyList()
-            : new ArrayList<String>(source.getSecondary()),
-        source.getRisk(),
-        source.isNeedsClarification(),
-        source.getNextAction(),
-        slots,
-        source.getTraceId());
+    IntentResult result =
+        new IntentResult(
+            source.getDomain(),
+            source.getIntent(),
+            source.getConfidence(),
+            source.getSecondary() == null
+                ? Collections.<String>emptyList()
+                : new ArrayList<String>(source.getSecondary()),
+            source.getRisk(),
+            source.isNeedsClarification(),
+            source.getNextAction(),
+            slots,
+            source.getTraceId());
+    result.setRouter(source.getRouter());
+    return result;
   }
 
   private void mergeCounters(Map<String, Integer> target, Map<String, Integer> source) {
@@ -842,7 +847,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         RECOMMENDATION_LIST_MODE.equals(evaluationMode)
             ? RECOMMENDATION_LIST_MODE
             : FULL_JD_ANALYSIS_MODE);
-    Map<String, Object> result = runtimeToolClient.invoke("resume_match", args, sessionId, null);
+    RuntimeToolResult runtimeResult =
+        runtimeToolClient.invoke(
+            "resume_match", RuntimeToolArguments.fromMap(args, jsonCodec), sessionId, null);
+    Map<String, Object> result =
+        runtimeResult == null
+            ? Collections.<String, Object>emptyMap()
+            : runtimeResult.toMap(jsonCodec);
     if (!Boolean.TRUE.equals(result.get("success"))) {
       throw new RuntimeException(
           ChatValueSupport.errorMessage(result.get("error"), "Runtime 简历匹配执行失败，请稍后重试。"));

@@ -1,10 +1,16 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.resilience.ServiceResilience;
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
-import com.jobbuddy.backend.modules.chat.vo.TraceStep;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -12,10 +18,6 @@ import java.net.HttpURLConnection;
 import java.net.Proxy;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,115 +43,39 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
     this.resilience = resilience;
   }
 
-  public List<Map<String, Object>> listTools() {
-    final String url = properties.getToolUrl() + "/v1/tools";
-    return resilience.call(
-        "agent-tool",
-        new java.util.function.Supplier<List<Map<String, Object>>>() {
-          public List<Map<String, Object>> get() {
-            Map response = restTemplate.getForObject(url, Map.class);
-            Object data = response == null ? null : response.get("data");
-            return data instanceof List
-                ? (List<Map<String, Object>>) data
-                : Collections.<Map<String, Object>>emptyList();
-          }
-        },
-        Collections.<Map<String, Object>>emptyList(),
-        true);
-  }
-
-  public List<Map<String, Object>> searchMemory(final String query, final String scope) {
-    final String url =
-        properties.getMemoryUrl()
-            + "/v1/memories/search?q="
-            + encode(query)
-            + "&scope="
-            + encode(scope);
-    return resilience.call(
-        "agent-memory",
-        new java.util.function.Supplier<List<Map<String, Object>>>() {
-          public List<Map<String, Object>> get() {
-            Map response = restTemplate.getForObject(url, Map.class);
-            Object data = response == null ? null : response.get("data");
-            return data instanceof List
-                ? (List<Map<String, Object>>) data
-                : Collections.<Map<String, Object>>emptyList();
-          }
-        },
-        Collections.<Map<String, Object>>emptyList(),
-        true);
-  }
-
-  public void writeMemory(final String scope, final String content) {
-    resilience.call(
-        "agent-memory-write",
-        new java.util.function.Supplier<Void>() {
-          public Void get() {
-            Map<String, String> request = new HashMap<String, String>();
-            request.put("scope", scope);
-            request.put("content", content);
-            restTemplate.postForObject(
-                properties.getMemoryUrl() + "/v1/memories", request, Map.class);
-            return null;
-          }
-        },
-        null,
-        false);
-  }
-
-  public Map<String, Object> evalTrace(final List<TraceStep> trace) {
-    return resilience.call(
-        "agent-eval",
-        new java.util.function.Supplier<Map<String, Object>>() {
-          public Map<String, Object> get() {
-            Map<String, Object> request = new HashMap<String, Object>();
-            request.put("trace", trace);
-            Map response =
-                restTemplate.postForObject(
-                    properties.getEvalUrl() + "/v1/eval/trace", request, Map.class);
-            Object data = response == null ? null : response.get("data");
-            return data instanceof Map
-                ? (Map<String, Object>) data
-                : Collections.<String, Object>emptyMap();
-          }
-        },
-        Collections.<String, Object>emptyMap(),
-        true);
-  }
-
-  public Map<String, Object> runRuntime(Map<String, Object> request) {
+  public RuntimeRunResult runRuntime(RuntimeRunRequest request) {
     String baseUrl = runtimeBaseUrl();
-    if (baseUrl.isEmpty()) return Collections.emptyMap();
-    Map<String, Object> runtimeRequest = request == null ? new HashMap<String, Object>() : request;
-    return postRuntime(baseUrl + "/v1/agent/runs", runtimeRequest);
+    if (baseUrl.isEmpty()) return RuntimeRunResult.empty();
+    RuntimeRunRequest runtimeRequest = request == null ? RuntimeRunRequest.empty() : request;
+    return postRuntimeRun(baseUrl + "/v1/agent/runs", runtimeRequest);
   }
 
-  public Map<String, Object> invokeRuntimeTool(String toolName, Map<String, Object> arguments) {
+  public RuntimeToolResult invokeRuntimeTool(String toolName, RuntimeToolArguments arguments) {
     String baseUrl = runtimeBaseUrl();
-    if (baseUrl.isEmpty()) return Collections.emptyMap();
+    if (baseUrl.isEmpty()) return RuntimeToolResult.empty();
     String normalizedName = toolName == null ? "" : toolName.trim();
     if (!normalizedName.matches("[a-z][a-z0-9_]{1,63}")) {
       throw new IllegalArgumentException("Runtime 工具名称格式不正确");
     }
-    Map<String, Object> request = new HashMap<String, Object>();
-    request.put(
-        "arguments", arguments == null ? Collections.<String, Object>emptyMap() : arguments);
-    return postRuntime(baseUrl + "/v1/runtime/tools/" + normalizedName + "/invoke", request);
+    ObjectNode request = JsonNodeFactory.instance.objectNode();
+    request.set(
+        "arguments",
+        arguments == null ? JsonNodeFactory.instance.objectNode() : arguments.toJson());
+    return postRuntimeTool(baseUrl + "/v1/runtime/tools/" + normalizedName + "/invoke", request);
   }
 
-  public Map<String, Object> runRuntimeStream(
-      Map<String, Object> request, Consumer<String> onToken) {
+  public RuntimeRunResult runRuntimeStream(RuntimeRunRequest request, Consumer<String> onToken) {
     return runRuntimeStream(request, onToken, null);
   }
 
-  public Map<String, Object> runRuntimeStream(
-      Map<String, Object> request, Consumer<String> onToken, Consumer<String> onReasoning) {
+  public RuntimeRunResult runRuntimeStream(
+      RuntimeRunRequest request, Consumer<String> onToken, Consumer<String> onReasoning) {
     String baseUrl = runtimeBaseUrl();
-    if (baseUrl.isEmpty()) return Collections.emptyMap();
+    if (baseUrl.isEmpty()) return RuntimeRunResult.empty();
     String url = baseUrl + "/v1/agent/runs/stream";
     if (resilience.isOpen("agent-runtime-stream")) {
       log.warn("Agent Runtime 流式熔断开启中，直接降级：url={}", url);
-      return Collections.emptyMap();
+      return RuntimeRunResult.empty();
     }
     HttpURLConnection conn = null;
     try {
@@ -165,7 +91,7 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
       conn.setConnectTimeout((int) properties.getStreamConnectTimeout().toMillis());
       conn.setReadTimeout((int) properties.getStreamReadTimeout().toMillis());
       String bodyJson =
-          jsonCodec.toJson(request == null ? Collections.<String, Object>emptyMap() : request);
+          jsonCodec.toJson(request == null ? RuntimeRunRequest.empty().toJson() : request.toJson());
       byte[] body = bodyJson.getBytes(StandardCharsets.UTF_8);
       OutputStream os = conn.getOutputStream();
       try {
@@ -191,9 +117,9 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
         }
         log.warn("Agent Runtime 流式调用失败：url={}, code={}, body={}", url, code, errBody);
         resilience.recordFailure("agent-runtime-stream");
-        return Collections.emptyMap();
+        return RuntimeRunResult.empty();
       }
-      Map<String, Object> doneData = Collections.emptyMap();
+      RuntimeRunResult doneData = RuntimeRunResult.empty();
       String currentEvent = "message";
       BufferedReader reader =
           new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
@@ -211,18 +137,23 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
           if (line.startsWith("data:")) {
             String data = line.substring("data:".length()).trim();
             if (data.isEmpty() || "[DONE]".equals(data)) continue;
-            Map<String, Object> payload = jsonCodec.toMap(data);
+            JsonNode payload = jsonCodec.readTree(data);
             if ("token".equals(currentEvent)) {
-              Object text = payload.get("text");
-              if (text != null && onToken != null) onToken.accept(String.valueOf(text));
+              JsonNode text = payload.get("text");
+              if (text != null && !text.isNull() && onToken != null) onToken.accept(text.asText());
             } else if ("reasoning".equals(currentEvent)) {
-              Object text = payload.get("text");
-              if (text != null && onReasoning != null) onReasoning.accept(String.valueOf(text));
+              JsonNode text = payload.get("text");
+              if (text != null && !text.isNull() && onReasoning != null)
+                onReasoning.accept(text.asText());
             } else if ("done".equals(currentEvent)) {
-              doneData = payload;
+              doneData = RuntimeRunResult.fromJson(payload);
             } else if ("error".equals(currentEvent)) {
-              Map<String, Object> err = new HashMap<String, Object>(payload);
-              err.put("error", payload.get("message"));
+              RuntimeRunResult err =
+                  RuntimeRunResult.fromJson(payload)
+                      .withError(
+                          payload.has("message") && !payload.get("message").isNull()
+                              ? payload.get("message").asText()
+                              : null);
               resilience.recordSuccess("agent-runtime-stream");
               return err;
             }
@@ -236,7 +167,7 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
     } catch (Exception e) {
       log.warn("Agent Runtime 流式调用异常：url={}", url, e);
       resilience.recordFailure("agent-runtime-stream");
-      return Collections.emptyMap();
+      return RuntimeRunResult.empty();
     } finally {
       if (conn != null) conn.disconnect();
     }
@@ -246,28 +177,35 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
     return properties.resolvedRuntimeUrl();
   }
 
-  private Map<String, Object> postRuntime(final String url, final Map<String, Object> request) {
+  private RuntimeRunResult postRuntimeRun(final String url, final RuntimeRunRequest request) {
     return resilience.call(
         "agent-runtime",
-        new java.util.function.Supplier<Map<String, Object>>() {
-          public Map<String, Object> get() {
-            Map response = restTemplate.postForObject(url, request, Map.class);
-            Object data = response == null ? null : response.get("data");
-            if (data instanceof Map) return (Map<String, Object>) data;
-            return response == null
-                ? Collections.<String, Object>emptyMap()
-                : new HashMap<String, Object>(response);
+        new java.util.function.Supplier<RuntimeRunResult>() {
+          public RuntimeRunResult get() {
+            JsonNode response = restTemplate.postForObject(url, request.toJson(), JsonNode.class);
+            return RuntimeRunResult.fromJson(responseDataOrEnvelope(response));
           }
         },
-        Collections.<String, Object>emptyMap(),
+        RuntimeRunResult.empty(),
         false);
   }
 
-  private String encode(String value) {
-    try {
-      return java.net.URLEncoder.encode(value == null ? "" : value, "UTF-8");
-    } catch (Exception ignored) {
-      return "";
-    }
+  private RuntimeToolResult postRuntimeTool(final String url, final ObjectNode request) {
+    return resilience.call(
+        "agent-runtime",
+        new java.util.function.Supplier<RuntimeToolResult>() {
+          public RuntimeToolResult get() {
+            JsonNode response = restTemplate.postForObject(url, request, JsonNode.class);
+            return RuntimeToolResult.fromJson(responseDataOrEnvelope(response));
+          }
+        },
+        RuntimeToolResult.empty(),
+        false);
+  }
+
+  private JsonNode responseDataOrEnvelope(JsonNode response) {
+    if (response == null || !response.isObject()) return JsonNodeFactory.instance.objectNode();
+    JsonNode data = response.get("data");
+    return data != null && data.isObject() ? data : response;
   }
 }

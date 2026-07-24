@@ -17,8 +17,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
+import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
@@ -425,8 +427,12 @@ class ChatSseCollaboratorsTest {
             mock(AgentIntegrationService.class), mock(PersonalContextBuilder.class), properties);
     Map<String, Object> extra = Collections.<String, Object>singletonMap("entrypoint", "chat.ask");
 
-    Map<String, Object> request =
+    RuntimeRunRequest runtimeRequest =
         factory.buildRuntimeManagedRequest("s1", "帮我找岗位", "job_buddy", extra, true);
+    Map<String, Object> request =
+        runtimeRequest.toJson().isEmpty()
+            ? Collections.<String, Object>emptyMap()
+            : new JsonCodec().toMap(runtimeRequest.toJson());
 
     assertEquals("s1", request.get("session_id"));
     assertEquals(Boolean.TRUE, request.get("stream"));

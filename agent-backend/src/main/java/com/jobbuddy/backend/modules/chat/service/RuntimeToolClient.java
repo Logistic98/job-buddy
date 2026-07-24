@@ -1,8 +1,9 @@
 package com.jobbuddy.backend.modules.chat.service;
 
-import java.util.Map;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 
 public interface RuntimeToolClient {
-  Map<String, Object> invoke(
-      String toolName, Map<String, Object> arguments, String sessionId, String workspaceDir);
+  RuntimeToolResult invoke(
+      String toolName, RuntimeToolArguments arguments, String sessionId, String workspaceDir);
 }

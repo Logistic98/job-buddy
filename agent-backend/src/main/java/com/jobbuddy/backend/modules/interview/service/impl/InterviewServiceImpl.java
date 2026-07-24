@@ -1,6 +1,8 @@
 package com.jobbuddy.backend.modules.interview.service.impl;
 
 import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.interview.dto.request.*;
 import com.jobbuddy.backend.modules.interview.dto.response.*;
@@ -207,10 +209,12 @@ public class InterviewServiceImpl implements InterviewService {
     arguments.put("requirements", requirements);
     arguments.put("source_url", sourceUrl);
     arguments.put("source_text", documentText);
-    Map<String, Object> toolResult =
-        agentIntegrationService.invokeRuntimeTool("interview_question_generate", arguments);
-    if (toolResult == null || toolResult.isEmpty())
+    RuntimeToolResult runtimeToolResult =
+        agentIntegrationService.invokeRuntimeTool(
+            "interview_question_generate", RuntimeToolArguments.fromMap(arguments, jsonCodec));
+    if (runtimeToolResult == null || runtimeToolResult.isEmpty())
       throw new IllegalStateException("智能生成服务暂不可用，请稍后重试");
+    Map<String, Object> toolResult = runtimeToolResult.toMap(jsonCodec);
     if (Boolean.FALSE.equals(toolResult.get("success"))) {
       String message = stringValue(toolResult.get("error"));
       throw new IllegalArgumentException(isBlank(message) ? "候选题生成失败，请调整资料后重试" : message);

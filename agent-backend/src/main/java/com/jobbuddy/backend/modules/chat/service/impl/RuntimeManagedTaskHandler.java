@@ -4,6 +4,9 @@ import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.toolStatus;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.firstPresent;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValue;
 
+import com.jobbuddy.backend.common.util.JsonCodec;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
+import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
@@ -16,6 +19,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** Runtime 托管任务链路：流式优先下发答案与推理增量，空产出时回退非流式托管调用， 并按流式中断/无产出/成功分别下发对应终态。 */
 class RuntimeManagedTaskHandler {
+  private static final JsonCodec JSON = new JsonCodec();
   private final ChatSseEventSender sender;
   private final AgentIntegrationService integrationService;
   private final RuntimeManagedRequestFactory requestFactory;
@@ -48,14 +52,14 @@ class RuntimeManagedTaskHandler {
 
     Map<String, Object> metadata =
         requestFactory.runtimeManagedMetadata(rawMessage, state, directive, intent);
-    Map<String, Object> request =
+    RuntimeRunRequest request =
         requestFactory.buildRuntimeManagedRequest(
             sessionId, rawMessage, "job-buddy", metadata, true);
     final StringBuilder buffer = new StringBuilder();
     final StringBuilder reasoningBuffer = new StringBuilder();
     final String assistantId =
         "assistant_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-    Map<String, Object> runtimeResult =
+    RuntimeRunResult streamResult =
         integrationService.runRuntimeStream(
             request,
             new java.util.function.Consumer<String>() {
@@ -83,6 +87,8 @@ class RuntimeManagedTaskHandler {
                 }
               }
             });
+    Map<String, Object> runtimeResult =
+        streamResult == null ? Collections.<String, Object>emptyMap() : streamResult.toMap(JSON);
 
     // runRuntimeStream 在收到 SSE error 事件时返回带 error 字段的 map，据此识别流式中断。
     String streamError = stringValue(firstPresent(runtimeResult, "error", "errorMessage"));
