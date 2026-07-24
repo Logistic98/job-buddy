@@ -9,7 +9,7 @@
 - LangGraph 编排：声明必需工具的任务使用状态图组织目标理解、上下文收集、Tool Search、Planner、预算、执行、全量观察、反思和结束判断；无工具纯生成任务使用受同等预算、Trace 和安全约束的 direct synthesis 快路径。
 - Workflow 注册与路由：启动时加载并校验 `config/workflows/`，按 Profile 与 entry capability 将只读流程元数据加入任务理解、directive 和 Trace；外部业务动作仍由声明的 Backend/BFF 执行。
 - 检查点：每个关键阶段写入 PostgreSQL 检查点，支持中断恢复和审计追踪；启用但未配置 PostgreSQL DSN 时明确告警并仅在本地内存兜底。持久化前删除原始消息、可重建的个人上下文及摘要副本，仅保留非个人上下文骨架并执行递归脱敏。
-- OpenAI 兼容模型：默认接入 DeepSeek v4 Pro，统一从 YAML 读取模型服务配置，支持完整 chat/completions URL、重试、超时和工具 Schema。
+- OpenAI 兼容模型：默认模型名为 `deepseek-chat`，统一从 YAML 读取模型服务配置，支持完整 chat/completions URL、重试、超时和工具 Schema。
 - Prompt Cache：Planner 将稳定系统提示和稳定排序的候选工具目录放在动态上下文之前，适配 DeepSeek 服务端基于公共前缀的自动缓存。
 - 权限安全：支持 allow/deny、只读工具、破坏性工具、高风险工具、独立 transcript 复核和 Shell allow/deny 规则。
 - 可观测：记录 run_start、plan_created、permission_check、tool_execute_end、observe、reflect、finalize 等 Trace 事件；澄清、预算、权限和失败终态保留明确的 status 与 stop_reason。
@@ -115,7 +115,7 @@ curl 'http://localhost:8010/v1/runtime/trace-events?run_id=run_xxx'
 llm_service:
   base_url: "${JOB_BUDDY_LLM_BASE_URL:https://api.deepseek.com/chat/completions}"
   api_key: "${JOB_BUDDY_LLM_API_KEY:}"
-  model_name: "${JOB_BUDDY_LLM_MODEL_NAME:deepseek-v4-pro}"
+  model_name: "${JOB_BUDDY_LLM_MODEL_NAME:deepseek-chat}"
   timeout_seconds: "${JOB_BUDDY_LLM_TIMEOUT_SECONDS:60}"
   prompt_cache_enabled: "${JOB_BUDDY_LLM_PROMPT_CACHE_ENABLED:true}"
   prompt_cache_strategy: "${JOB_BUDDY_LLM_PROMPT_CACHE_STRATEGY:stable-prefix}"
@@ -140,7 +140,7 @@ runtime:
 
 checkpoint:
   enabled: true
-  dir: ""  # PostgreSQL via AGENT_RUNTIME_DATABASE_URL / AGENT_MEMORY_DATABASE_URL
+  dir: ""  # PostgreSQL via AGENT_RUNTIME_DATABASE_URL
 
 permission:
   default_mode: "default"

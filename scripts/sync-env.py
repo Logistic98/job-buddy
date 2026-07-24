@@ -10,6 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / ".env.example"
 ACTUAL = ROOT / ".env"
+RENAMED_KEYS = {
+    "JOB_BUDDY_TOOL_SEARCH_ENABLED": "JOB_BUDDY_LLM_TOOL_SEARCH_ENABLED",
+}
 
 
 def _entries(path: Path) -> tuple[list[str], dict[str, str]]:
@@ -46,7 +49,12 @@ def _sync() -> None:
             output.append(raw)
             continue
         key = line.split("=", 1)[0].strip()
-        output.append(f"{key}={current.get(key, defaults[key])}")
+        value = current.get(key)
+        if value is None and key in RENAMED_KEYS:
+            value = current.get(RENAMED_KEYS[key])
+        if value is None and key == "AGENT_RUNTIME_DATABASE_URL":
+            value = current.get("AGENT_MEMORY_DATABASE_URL")
+        output.append(f"{key}={defaults[key] if value is None else value}")
     ACTUAL.write_text("\n".join(output) + "\n", encoding="utf-8")
     os.chmod(ACTUAL, 0o600)
 

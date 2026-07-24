@@ -73,6 +73,7 @@ services:
       context: ./agent-runtime
       args: *build-args
     environment:
+      AGENT_RUNTIME_DATABASE_URL: postgresql://${SPRING_DATASOURCE_USERNAME:-job_buddy}:${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD in .env}@postgres:5432/${POSTGRES_APP_DB:-job_buddy}
       AGENT_TOOL_URL: http://agent-tool:8040
       JOB_BUDDY_MEMORY_BASE_URL: http://agent-memory:8030
       JOB_BUDDY_SANDBOX_BASE_URL: http://agent-sandbox:8061
