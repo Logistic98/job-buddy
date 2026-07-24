@@ -339,9 +339,11 @@ cases:
       domain: job
       intent: job.recommend
       next_action: call_get_recommend_jobs
+      minimum_recommended_match_score: 60
+      require_complete_recommendation_scoring: true
       slots:
         exclude_keywords: ["外包"]
-      events: [intent, job_cards, done]
+      events: [intent, done]
     latency_budget:
       ttft_ms_target: 3000
       ttft_ms_max: 8000

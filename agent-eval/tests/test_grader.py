@@ -95,6 +95,285 @@ def test_grade_run_rejects_job_cards_that_bypass_strict_recommendation_gate():
     assert any(issue["code"] == "job_recommendations_pass_quality_gate" for issue in result["issues"])
 
 
+def test_grade_run_accepts_job_cards_meeting_default_sixty_point_gate():
+    run = {
+        "status": "success",
+        "answer": "已找到岗位。",
+        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.99},
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+        "job_cards": [
+            {
+                "securityId": "qualified-1",
+                "matchScore": 65,
+                "matchConfidence": "medium",
+                "matchRecommendation": "可尝试",
+            }
+        ],
+    }
+
+    result = grade_run(run, {"intent": "job.recommend", "domain": "job"})
+
+    assert not any(issue["code"] == "job_recommendations_pass_quality_gate" for issue in result["issues"])
+
+
+def test_grade_run_rejects_incomplete_job_scoring_even_when_no_cards_are_returned():
+    run = {
+        "status": "success",
+        "answer": "当前没有合适岗位。",
+        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.99},
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+        "tool_events": [
+            {
+                "id": "recommendation_quality_gate",
+                "status": "success",
+                "detail": {
+                    "requestedMatchCount": 23,
+                    "returnedMatchCount": 1,
+                    "missingMatchCount": 22,
+                    "qualifiedCount": 0,
+                    "rejectionReasons": {"未达到最低匹配分": 1},
+                },
+            }
+        ],
+        "job_cards": [],
+    }
+
+    result = grade_run(
+        run,
+        {
+            "intent": "job.recommend",
+            "domain": "job",
+            "require_complete_recommendation_scoring": True,
+        },
+    )
+
+    assert result["passed"] is False
+    assert any(issue["code"] == "job_recommendation_scoring_is_complete" for issue in result["issues"])
+    assert any(issue["code"] == "job_recommendation_funnel_is_conserved" for issue in result["issues"])
+
+
+def test_grade_run_rejects_self_reported_complete_scoring_when_funnel_loses_a_candidate():
+    run = {
+        "status": "success",
+        "answer": "累计评估 23 个候选。",
+        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.99},
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+        "tool_events": [
+            {
+                "id": "recommendation_quality_gate",
+                "status": "success",
+                "detail": {
+                    "requestedMatchCount": 23,
+                    "returnedMatchCount": 23,
+                    "missingMatchCount": 0,
+                    "qualifiedCount": 1,
+                    "rejectionReasons": {"未达到最低匹配分": 21},
+                },
+            }
+        ],
+        "job_cards": [
+            {
+                "securityId": "qualified-1",
+                "matchScore": 75,
+                "matchConfidence": "medium",
+                "matchRecommendation": "可尝试",
+            }
+        ],
+    }
+
+    result = grade_run(
+        run,
+        {
+            "intent": "job.recommend",
+            "domain": "job",
+            "require_complete_recommendation_scoring": True,
+        },
+    )
+
+    assert not any(issue["code"] == "job_recommendation_scoring_is_complete" for issue in result["issues"])
+    assert any(issue["code"] == "job_recommendation_funnel_is_conserved" for issue in result["issues"])
+
+
+def test_grade_run_accepts_conserved_twenty_three_candidate_recommendation_funnel():
+    run = {
+        "status": "success",
+        "answer": "累计评估 23 个候选，其中 2 个通过推荐门槛。",
+        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.99},
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+        "tool_events": [
+            {
+                "id": "recommendation_quality_gate",
+                "status": "success",
+                "detail": {
+                    "requestedMatchCount": 23,
+                    "returnedMatchCount": 23,
+                    "missingMatchCount": 0,
+                    "qualifiedCount": 2,
+                    "rejectionReasons": {
+                        "未达到最低匹配分": 18,
+                        "匹配置信度低": 2,
+                        "投递建议为不建议": 1,
+                    },
+                },
+            }
+        ],
+        "job_cards": [
+            {
+                "securityId": "qualified-1",
+                "matchScore": 75,
+                "matchConfidence": "medium",
+                "matchRecommendation": "可尝试",
+            },
+            {
+                "securityId": "qualified-2",
+                "matchScore": 82,
+                "matchConfidence": "medium",
+                "matchRecommendation": "推荐",
+            },
+        ],
+    }
+
+    result = grade_run(
+        run,
+        {
+            "intent": "job.recommend",
+            "domain": "job",
+            "minimum_recommended_match_score": 60,
+            "require_complete_recommendation_scoring": True,
+            "minimum_qualified_jobs": 1,
+        },
+    )
+
+    assert not any(issue["code"] == "job_recommendation_scoring_is_complete" for issue in result["issues"])
+    assert not any(issue["code"] == "job_recommendation_funnel_is_conserved" for issue in result["issues"])
+    assert not any(issue["code"] == "job_recommendations_pass_quality_gate" for issue in result["issues"])
+
+
+def test_grade_run_requires_qualified_card_for_deterministic_recommendation_case():
+    run = {
+        "status": "success",
+        "answer": "预筛完成。",
+        "directive": {"domain": "job", "intent": "job.recommend", "router": "llm", "confidence": 0.99},
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+        "tool_events": [
+            {
+                "id": "recommendation_quality_gate",
+                "status": "success",
+                "detail": {
+                    "requestedMatchCount": 3,
+                    "returnedMatchCount": 3,
+                    "missingMatchCount": 0,
+                    "qualifiedCount": 0,
+                    "rejectionReasons": {"未达到最低匹配分": 3},
+                },
+            }
+        ],
+        "job_cards": [],
+    }
+
+    result = grade_run(
+        run,
+        {
+            "intent": "job.recommend",
+            "domain": "job",
+            "require_complete_recommendation_scoring": True,
+            "minimum_qualified_jobs": 1,
+        },
+    )
+
+    assert not any(issue["code"] == "job_recommendation_scoring_is_complete" for issue in result["issues"])
+    assert any(issue["code"] == "job_recommendation_has_minimum_qualified_results" for issue in result["issues"])
+
+
+def test_grade_run_rejects_job_cards_repeated_from_previous_batch():
+    run = {
+        "status": "success",
+        "answer": "已为你换一批岗位。",
+        "directive": {
+            "domain": "job",
+            "intent": "job.recommend",
+            "router": "semantic_config_shortcut",
+            "confidence": 0.99,
+            "next_action": "call_get_recommend_jobs",
+        },
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+        "previous_job_cards": [{"securityId": "shown-1"}],
+        "job_cards": [
+            {
+                "securityId": "shown-1",
+                "matchScore": 82,
+                "matchConfidence": "medium",
+                "matchRecommendation": "推荐",
+            }
+        ],
+    }
+
+    result = grade_run(run, {"intent": "job.recommend", "domain": "job"})
+
+    assert result["passed"] is False
+    assert any(issue["code"] == "job_recommendations_do_not_repeat" for issue in result["issues"])
+
+
 def test_grade_run_accepts_conversation_shortcut_router():
     run = {
         "status": "success",

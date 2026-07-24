@@ -54,6 +54,14 @@ class FlywayPolicyTest(unittest.TestCase):
         )
         self.assertEqual([], errors)
 
+    def test_allows_transaction_local_migration_helper_tables(self):
+        errors = self.validate(
+            "CREATE TEMP TABLE migrated_role(role_id VARCHAR(64));\n"
+            "INSERT INTO migrated_role(role_id) SELECT role_id FROM rbac_role;",
+            name="V7_4_2__Update_authorization_tree.sql",
+        )
+        self.assertEqual([], errors)
+
     def test_rejects_unscoped_identity_data(self):
         for sql in (
             "INSERT INTO app_user(user_id) VALUES ('another-user');",

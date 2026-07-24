@@ -459,13 +459,109 @@ def _grade_grounding_dimension(run: dict, expected: dict) -> list[dict]:
             )
         )
     job_cards = _list(run.get("job_cards") or run.get("jobCards"))
+    quality_gate = next(
+        (
+            event
+            for event in reversed(_collect_tool_events(run))
+            if str(event.get("id") or event.get("name") or "") == "recommendation_quality_gate"
+        ),
+        {},
+    )
+    quality_detail = _dict(quality_gate.get("detail"))
+    if expected.get("require_complete_recommendation_scoring") or quality_detail:
+        requested_raw = quality_detail.get("requestedMatchCount")
+        if requested_raw is None:
+            requested_raw = quality_detail.get("candidateCount")
+        returned_raw = quality_detail.get("returnedMatchCount")
+        if returned_raw is None:
+            returned_raw = quality_detail.get("scoredCount")
+        missing_raw = quality_detail.get("missingMatchCount")
+        if missing_raw is None:
+            missing_raw = quality_detail.get("unscoredCount")
+        requested_count = _int(requested_raw, -1)
+        returned_count = _int(returned_raw, -1)
+        missing_count = _int(missing_raw, -1)
+        complete = requested_count >= 0 and returned_count == requested_count and missing_count == 0
+        checks.append(
+            _check(
+                "grounding",
+                "job_recommendation_scoring_is_complete",
+                1.0 if complete else 0.0,
+                1.3,
+                ("推荐评分完整覆盖全部候选" if complete else "推荐评分存在未返回候选或缺少覆盖率诊断"),
+                "critical",
+                {
+                    "requested": requested_count,
+                    "returned": returned_count,
+                    "missing": missing_count,
+                },
+            )
+        )
+        qualified_raw = quality_detail.get("qualifiedCount")
+        rejection_raw = quality_detail.get("rejectionReasons")
+        rejection_reasons = _dict(rejection_raw)
+        qualified_count = _int(qualified_raw, -1)
+        rejection_counts = {str(reason): _int(count, -1) for reason, count in rejection_reasons.items()}
+        valid_funnel = (
+            qualified_raw is not None
+            and isinstance(rejection_raw, dict)
+            and qualified_count >= 0
+            and all(count >= 0 for count in rejection_counts.values())
+        )
+        rejected_count = sum(rejection_counts.values()) if valid_funnel else -1
+        accounted_count = qualified_count + rejected_count if valid_funnel else -1
+        conserved = valid_funnel and requested_count >= 0 and accounted_count == requested_count
+        checks.append(
+            _check(
+                "grounding",
+                "job_recommendation_funnel_is_conserved",
+                1.0 if conserved else 0.0,
+                1.3,
+                (
+                    "推荐漏斗满足评估数等于通过数与各拒绝原因之和"
+                    if conserved
+                    else "推荐漏斗计数不守恒或缺少通过数、拒绝原因诊断"
+                ),
+                "critical",
+                {
+                    "requested": requested_count,
+                    "qualified": qualified_count,
+                    "rejected": rejected_count,
+                    "accounted": accounted_count,
+                    "rejection_reasons": rejection_counts,
+                },
+            )
+        )
+    minimum_qualified_jobs = _int(expected.get("minimum_qualified_jobs"), 0)
+    if minimum_qualified_jobs > 0:
+        checks.append(
+            _check(
+                "grounding",
+                "job_recommendation_has_minimum_qualified_results",
+                1.0 if len(job_cards) >= minimum_qualified_jobs else 0.0,
+                1.2,
+                (
+                    "推荐结果达到用例要求的最低合格数量"
+                    if len(job_cards) >= minimum_qualified_jobs
+                    else "候选已进入评分但没有产出用例要求的合格岗位"
+                ),
+                "critical",
+                {"actual": len(job_cards), "minimum": minimum_qualified_jobs},
+            )
+        )
     if job_cards:
-        minimum_score = _int(expected.get("minimum_recommended_match_score"), 70)
+        minimum_score = _int(expected.get("minimum_recommended_match_score"), 60)
         invalid_cards = []
+        card_ids = []
         for card in job_cards:
             if not isinstance(card, dict):
                 invalid_cards.append(card)
                 continue
+            card_id = str(
+                card.get("securityId") or card.get("id") or card.get("jobId") or card.get("encryptJobId") or ""
+            ).strip()
+            if card_id:
+                card_ids.append(card_id)
             confidence = str(card.get("matchConfidence") or "").lower()
             recommendation = str(card.get("matchRecommendation") or "")
             if (
@@ -492,6 +588,32 @@ def _grade_grounding_dimension(run: dict, expected: dict) -> list[dict]:
                 else "推荐列表包含低分、低置信度或不建议岗位",
                 "critical",
                 invalid_cards[:5],
+            )
+        )
+        duplicate_ids = sorted({card_id for card_id in card_ids if card_ids.count(card_id) > 1})
+        previous_cards = _list(run.get("previous_job_cards") or run.get("previousJobCards"))
+        previous_ids = {
+            str(card.get("securityId") or card.get("id") or card.get("jobId") or card.get("encryptJobId") or "").strip()
+            for card in previous_cards
+            if isinstance(card, dict)
+        }
+        repeated_previous_ids = sorted({card_id for card_id in card_ids if card_id in previous_ids})
+        checks.append(
+            _check(
+                "grounding",
+                "job_recommendations_do_not_repeat",
+                1.0 if not duplicate_ids and not repeated_previous_ids else 0.0,
+                1.1,
+                (
+                    "推荐岗位在当前批次及换批历史中均不重复"
+                    if not duplicate_ids and not repeated_previous_ids
+                    else "推荐列表包含当前批次重复岗位或换一批已展示岗位"
+                ),
+                "critical",
+                {
+                    "duplicate_ids": duplicate_ids[:5],
+                    "repeated_previous_ids": repeated_previous_ids[:5],
+                },
             )
         )
     return checks

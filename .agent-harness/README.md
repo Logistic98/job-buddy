@@ -68,7 +68,7 @@ python3 -m unittest discover -s .agent-harness/tests -p 'test_*.py'
 `check_flyway_migrations.py` 检查以下稳定约束：
 
 - 文件名符合 `V<major>_<minor>_<patch>__<English_description>.sql`，版本不重复。
-- 迁移中的 DML 只允许维护共享系统元数据或受控默认身份，用户私有业务数据必须通过受鉴权 API 写入。
+- 迁移中的 DML 只允许维护共享系统元数据、受控默认身份或同一迁移内声明的临时辅助表，用户私有业务数据必须通过受鉴权 API 写入。
 - 表结构演进只需追加合法的新版本迁移，不需要同步修改 Harness。
 
 Harness 不保存 SQL 内容哈希、迁移快照、当前最大版本或历史版本豁免。已部署数据库的不可变性由 Flyway schema history 的 checksum 在启动和部署时校验；仓库门禁只保留长期稳定的静态规则。
