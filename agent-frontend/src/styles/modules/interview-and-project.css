@@ -215,8 +215,8 @@
   min-height: 720px !important;
 }
 .resume-analysis-page .resume-doc-frame {
-  height: calc(100% + 44px) !important;
-  min-height: 764px !important;
+  height: calc(100% - 44px) !important;
+  min-height: 676px !important;
 }
 @media (max-width: 1360px) {
   .resume-analysis-page .resume-original-pane,

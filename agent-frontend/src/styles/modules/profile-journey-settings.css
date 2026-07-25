@@ -1067,6 +1067,9 @@
 .msg.assistant .bubble {
   padding: 16px 18px;
 }
+.msg.assistant.has-job-cards .bubble {
+  width: 78%;
+}
 .bubble .chat-markdown {
   white-space: normal;
   color: inherit;
@@ -1165,6 +1168,11 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+@media (max-width: 760px) {
+  .msg.assistant.has-job-cards .bubble {
+    width: calc(100% - 38px);
+  }
 }
 .chat-job-cards-head {
   display: flex;

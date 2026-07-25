@@ -48,6 +48,7 @@ export async function syncBossOnlineResume() {
 export async function uploadResume(file, sessionId) {
   const form = new FormData()
   form.append('file', file)
+  form.append('originalNameEncoded', encodeURIComponent(file.name))
   if (sessionId) form.append('sessionId', sessionId)
   const response = await apiFetch('/resume/upload', { method: 'POST', body: form })
   return parseApiResponse(response, '简历上传失败')

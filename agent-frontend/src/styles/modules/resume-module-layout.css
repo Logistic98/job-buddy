@@ -190,6 +190,10 @@ body > .modal-mask .resume-picker-modal {
   box-sizing: border-box !important;
   overflow: auto !important;
 }
+body > .modal-mask .resume-delete-modal {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
 body > .modal-mask .pdf-preview-modal {
   width: min(1120px, calc(100vw - 36px)) !important;
   height: calc(100vh - 36px) !important;
@@ -411,7 +415,7 @@ body > .modal-mask .pdf-preview-modal {
   display: block !important;
   width: 100% !important;
   max-width: 100% !important;
-  height: calc(100% + 44px) !important;
+  height: calc(100% - 44px) !important;
   min-height: 0 !important;
 }
 .resume-analysis-page .analysis-report-empty {

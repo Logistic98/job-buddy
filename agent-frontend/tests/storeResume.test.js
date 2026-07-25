@@ -138,6 +138,26 @@ describe('resume store loading', () => {
     expect(listResumes).toHaveBeenCalledTimes(1)
   })
 
+  it('ends the uploading state before post-upload reconciliation completes', async () => {
+    let resolveWorkspaceSave
+    uploadResume.mockResolvedValue({ resumeId: 'new', suffix: 'pdf', originalName: '中文简历.pdf' })
+    saveWorkspaceState.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveWorkspaceSave = resolve
+      }),
+    )
+    const store = useResumeStore()
+    const upload = store.upload({ name: '中文简历.pdf', type: 'application/pdf', size: 1024 })
+
+    await vi.waitFor(() => expect(store.current?.resumeId).toBe('new'))
+    expect(store.uploading).toBe(false)
+
+    resolveWorkspaceSave({})
+    listResumes.mockResolvedValue([{ resumeId: 'new', suffix: 'pdf', originalName: '中文简历.pdf' }])
+    getWorkspaceState.mockResolvedValue({ resumeId: 'new' })
+    await upload
+  })
+
   it('drops a late resume load after an authentication change', async () => {
     let resolveItems
     listResumes.mockReturnValue(

@@ -102,7 +102,7 @@
           </details>
           <article
             v-if="msg.role !== 'assistant' || assistantBubbleVisible(msg)"
-            :class="['msg', msg.role, { pending: msg.pending }]"
+            :class="['msg', msg.role, { pending: msg.pending, 'has-job-cards': msg.jobCards?.length }]"
           >
             <div class="avatar">{{ msg.role === 'user' ? '我' : '职' }}</div>
             <div class="bubble">
@@ -285,7 +285,7 @@ const recommendationExpandedKeys = ref(new Set())
 // 本次会话中最近一条流式生成的助手消息 id，完成后其过程面板仍默认展开。
 const lastStreamedAssistantId = ref('')
 const defaultWorkbenchCopy = {
-  title: '求职工作台',
+  title: '智能求职协同平台',
   description: '支持岗位推荐、简历分析、面试准备、笔试计划、项目深挖和求职进展梳理。',
   placeholder: '例如：筛选上海 Agent 与大模型应用开发 40-50K 岗位',
   quick_prompts: [

@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ResumeLibrary from '../src/components/ResumeLibrary.vue'
 import { useResumeStore } from '../src/stores/resume'
 
@@ -26,6 +26,47 @@ vi.mock('../src/api/workspace', () => ({
 describe('ResumeLibrary analysis report', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('keeps a white loading layer visible until the PDF viewer has painted', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0)
+      return 1
+    })
+    const resume = useResumeStore()
+    const current = {
+      resumeId: 'resume-preview',
+      originalName: '候选人简历.pdf',
+      suffix: 'pdf',
+      parsed: {},
+    }
+    resume.current = current
+    resume.items = [current]
+    resume.loaded = true
+
+    const wrapper = mount(ResumeLibrary)
+    await wrapper.vm.$nextTick()
+
+    const frame = wrapper.get('.resume-doc-frame')
+    expect(wrapper.get('.resume-pdf-loading').text()).toContain('正在加载原始 PDF')
+    expect(frame.classes()).not.toContain('ready')
+
+    await frame.trigger('load')
+    expect(wrapper.find('.resume-pdf-loading').exists()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(wrapper.find('.resume-pdf-loading').exists()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(wrapper.find('.resume-pdf-loading').exists()).toBe(false)
+    expect(frame.classes()).toContain('ready')
+    wrapper.unmount()
   })
 
   it('shows partial report content with a compact running status before completion', () => {

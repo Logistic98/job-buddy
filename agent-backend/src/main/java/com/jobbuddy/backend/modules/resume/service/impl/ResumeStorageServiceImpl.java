@@ -110,8 +110,14 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
 
   public ResumeRecord upload(MultipartFile file, String tenantId, String userId)
       throws IOException {
+    return upload(file, null, tenantId, userId);
+  }
+
+  @Override
+  public ResumeRecord upload(
+      MultipartFile file, String originalName, String tenantId, String userId) throws IOException {
     validateFile(file);
-    String original = file.getOriginalFilename() == null ? "resume" : file.getOriginalFilename();
+    String original = normalizedOriginalName(originalName, file.getOriginalFilename(), "resume");
     String suffix = ResumeAssetTokenSigner.extractSuffix(original);
     if (!ALLOWED_SUFFIXES.contains(suffix)) {
       throw new IllegalArgumentException("不支持的简历格式: " + suffix + ",仅支持 PDF");
@@ -646,6 +652,21 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
       throw new IllegalArgumentException(
           "简历文件超出大小限制: " + properties.getMaxResumeBytes() + " bytes");
     }
+  }
+
+  private String normalizedOriginalName(String preferred, String fallback, String defaultName) {
+    String candidate =
+        preferred == null || preferred.trim().isEmpty()
+            ? (fallback == null ? defaultName : fallback)
+            : preferred;
+    String normalized = candidate.replace('\\', '/');
+    int separator = normalized.lastIndexOf('/');
+    String fileName = (separator >= 0 ? normalized.substring(separator + 1) : normalized).trim();
+    if (fileName.isEmpty()) return defaultName;
+    if (fileName.codePoints().anyMatch(codePoint -> Character.isISOControl(codePoint))) {
+      throw new IllegalArgumentException("文件名包含非法控制字符");
+    }
+    return fileName;
   }
 
   private Map<String, Object> invokeRuntimeTool(

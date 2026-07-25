@@ -15,6 +15,9 @@ import org.springframework.web.multipart.MultipartFile;
 public interface ResumeStorageService {
   ResumeRecord upload(MultipartFile file, String tenantId, String userId) throws IOException;
 
+  ResumeRecord upload(MultipartFile file, String originalName, String tenantId, String userId)
+      throws IOException;
+
   ResumeAssetUploadResponse uploadAsset(MultipartFile file, String tenantId, String userId)
       throws IOException;
 

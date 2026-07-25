@@ -68,6 +68,7 @@ describe('ChatPanel job recommendation evidence', () => {
     ]
 
     const wrapper = mount(ChatPanel, { global: { plugins: [pinia] } })
+    expect(wrapper.get('.msg.assistant').classes()).toContain('has-job-cards')
     const card = wrapper.get('.chat-job-card')
     const actions = card.get('.chat-job-actions')
     const actionLabels = actions.findAll('button').map((button) => button.text())

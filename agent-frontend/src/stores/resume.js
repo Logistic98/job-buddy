@@ -310,10 +310,20 @@ export const useResumeStore = defineStore('resume', {
       const revision = this.lifecycleRevision
       this.uploading = true
       this.error = ''
+      let uploaded
       try {
-        const uploaded = await uploadResume(file, sessionId)
-        const uploadedId = uploaded?.resumeId
+        uploaded = await uploadResume(file, sessionId)
+      } catch (error) {
         if (revision !== this.lifecycleRevision) return null
+        this.error = error.message
+        throw error
+      } finally {
+        // 上传接口返回即恢复按钮；工作区持久化和列表对账不应继续占用“上传中”状态。
+        if (revision === this.lifecycleRevision) this.uploading = false
+      }
+      if (revision !== this.lifecycleRevision) return null
+      try {
+        const uploadedId = uploaded?.resumeId
         if (uploaded?.resumeId) {
           const index = this.items.findIndex((item) => item.resumeId === uploaded.resumeId)
           this.items =
@@ -335,11 +345,9 @@ export const useResumeStore = defineStore('resume', {
         }
       } catch (error) {
         if (revision !== this.lifecycleRevision) return null
-        this.error = error.message
-        throw error
-      } finally {
-        if (revision === this.lifecycleRevision) this.uploading = false
+        this.error = `简历已上传，但列表刷新失败：${error.message}`
       }
+      return uploaded
     },
   },
 })

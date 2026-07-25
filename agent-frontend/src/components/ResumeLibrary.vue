@@ -42,6 +42,10 @@
             </div>
           </div>
           <div v-else-if="canPreview(currentAnalysisResume)" class="resume-pdf-preview-shell">
+            <div v-if="pdfLoading" class="resume-pdf-loading refined-pdf-loading" role="status" aria-live="polite">
+              <span class="pdf-loading-spinner" aria-hidden="true"></span>
+              <span>正在加载原始 PDF</span>
+            </div>
             <iframe
               v-if="showPdfFrame"
               :key="currentAnalysisResume?.resumeId"
@@ -50,7 +54,7 @@
               :src="embeddedPreviewUrl(currentAnalysisResume)"
               title="PDF 简历预览"
               loading="eager"
-              @load="pdfLoading = false"
+              @load="handlePdfFrameLoad"
             ></iframe>
           </div>
           <div v-else class="word-preview-box">
@@ -235,7 +239,7 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, defineComponent, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getResume, resumeDownloadUrl, resumePreviewUrl, resumeThumbnailUrl } from '../api/resume'
 import ResumeAnalysisSummary from './ResumeAnalysisSummary.vue'
 import { useChatStore } from '../stores/chat'
@@ -307,8 +311,12 @@ const pickerDetails = ref({})
 const pickerDetailLoadingIds = ref(new Set())
 const scoreBreakdownExpanded = ref(false)
 let pickerLoadVersion = 0
+let pdfRevealTimer = null
 onMounted(() => {
   resume.load().catch(() => {})
+})
+onUnmounted(() => {
+  clearPdfRevealTimer()
 })
 const analysisResumes = computed(() =>
   resume.items
@@ -459,6 +467,18 @@ function previewUrl(item) {
 function embeddedPreviewUrl(item) {
   return item?.resumeId ? pdfViewerFitWidthUrl(resumePreviewUrl(item.resumeId)) : '#'
 }
+function clearPdfRevealTimer() {
+  if (pdfRevealTimer === null) return
+  window.clearTimeout(pdfRevealTimer)
+  pdfRevealTimer = null
+}
+function handlePdfFrameLoad() {
+  clearPdfRevealTimer()
+  pdfRevealTimer = window.setTimeout(() => {
+    pdfLoading.value = false
+    pdfRevealTimer = null
+  }, 5000)
+}
 function thumbnailUrl(item) {
   return item?.resumeId ? resumeThumbnailUrl(item.resumeId) : '#'
 }
@@ -476,6 +496,7 @@ async function runAnalysis() {
 watch(
   () => currentAnalysisResume.value?.resumeId,
   async () => {
+    clearPdfRevealTimer()
     scoreBreakdownExpanded.value = false
     const canShow = canPreview(currentAnalysisResume.value)
     pdfLoading.value = canShow

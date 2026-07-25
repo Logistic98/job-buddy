@@ -129,14 +129,35 @@
       </div>
 
       <div v-if="deleteModal.visible" class="modal-mask" @click.self="closeDeleteModal">
-        <div class="modal-card resume-delete-modal">
-          <button class="close" @click="closeDeleteModal">×</button>
-          <p class="eyebrow">Delete Resume</p>
-          <h2>删除简历</h2>
-          <p>确认删除简历「{{ deleteModal.item?.originalName || '当前简历' }}」？删除后不可恢复。</p>
-          <div class="modal-actions resume-tag-actions">
-            <button class="secondary-btn" @click="closeDeleteModal">取消</button>
-            <button class="danger-btn" @click="confirmRemoveResume">确认删除</button>
+        <div
+          class="modal-card resume-delete-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="resume-delete-title"
+          aria-describedby="resume-delete-description"
+        >
+          <button class="close" type="button" aria-label="关闭删除确认框" @click="closeDeleteModal">×</button>
+          <div class="resume-delete-heading">
+            <span class="resume-delete-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5" />
+              </svg>
+            </span>
+            <div>
+              <p class="eyebrow">Delete Resume</p>
+              <h2 id="resume-delete-title">删除简历</h2>
+            </div>
+          </div>
+          <div class="resume-delete-target">
+            <span>即将删除</span>
+            <strong :title="deleteModal.item?.originalName || '当前简历'">
+              {{ deleteModal.item?.originalName || '当前简历' }}
+            </strong>
+          </div>
+          <p id="resume-delete-description" class="resume-delete-description">删除后无法恢复，请确认是否继续。</p>
+          <div class="modal-actions resume-delete-actions">
+            <button class="secondary-btn" type="button" @click="closeDeleteModal">取消</button>
+            <button class="danger-btn" type="button" @click="confirmRemoveResume">确认删除</button>
           </div>
         </div>
       </div>

@@ -17,11 +17,10 @@ import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
@@ -46,8 +45,6 @@ import org.springframework.web.multipart.MultipartFile;
 @RequirePermission(PermissionCodes.RESUME_USE)
 @RequestMapping("/api/resume")
 public class ResumeController {
-  private static final Logger LOG = LoggerFactory.getLogger(ResumeController.class);
-
   private final ResumeStorageService resumeStorageService;
   private final AnalysisTaskService analysisTaskService;
 
@@ -131,31 +128,25 @@ public class ResumeController {
   }
 
   /**
-   * 上传并解析简历。
+   * 上传简历文件。
    *
    * @return 统一接口响应
    */
-  @Operation(summary = "上传并解析简历")
+  @Operation(summary = "上传简历文件")
   @PostMapping("/upload")
   public ApiResponse<ResumeSummaryResponse> upload(
       @RequestParam("file") MultipartFile file,
       HttpServletRequest request,
+      @RequestParam(value = "originalNameEncoded", required = false) String originalNameEncoded,
       @RequestParam(value = "sessionId", required = false) String sessionId)
       throws Exception {
     String tenantId = AuthenticatedUserContext.tenantId(request);
     String userId = AuthenticatedUserContext.userId(request);
-    ResumeRecord record = resumeStorageService.upload(file, tenantId, userId);
-    try {
-      record = resumeStorageService.parseSync(record.getResumeId(), sessionId, tenantId, userId);
-    } catch (RuntimeException e) {
-      LOG.warn(
-          "简历上传成功但同步解析失败 - resumeId: {}, tenantId: {}, userId: {}",
-          record.getResumeId(),
-          tenantId,
-          userId,
-          e);
-      record = resumeStorageService.get(record.getResumeId(), tenantId, userId);
-    }
+    String originalName =
+        originalNameEncoded == null
+            ? null
+            : URLDecoder.decode(originalNameEncoded, StandardCharsets.UTF_8);
+    ResumeRecord record = resumeStorageService.upload(file, originalName, tenantId, userId);
     return ApiResponse.success(resumeStorageService.summarize(record));
   }
 

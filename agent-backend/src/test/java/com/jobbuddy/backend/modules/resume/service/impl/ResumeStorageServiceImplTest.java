@@ -15,6 +15,7 @@ import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.RuntimeToolClient;
 import com.jobbuddy.backend.modules.resume.dto.response.ResumeProfileSummaryResponse;
+import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import com.jobbuddy.backend.modules.resume.repository.ResumeRecordRepository;
 import com.jobbuddy.backend.modules.resume.storage.ResumeObjectStorage;
 import java.util.Arrays;
@@ -97,6 +98,28 @@ class ResumeStorageServiceImplTest {
             () -> sizeLimitedService.upload(file, "tenant-a", "user-a"));
 
     assertEquals("简历文件超出大小限制: 4 bytes", error.getMessage());
+  }
+
+  @Test
+  void uploadPrefersExplicitUtf8OriginalNameOverMultipartHeaderName() throws Exception {
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "file", "????????-Java.pdf", "application/pdf", new byte[] {1, 2, 3, 4});
+
+    ResumeRecord record = service.upload(file, "示例候选人-Java开发-求职简历.pdf", "tenant-a", "user-a");
+
+    assertEquals("示例候选人-Java开发-求职简历.pdf", record.getOriginalName());
+    assertEquals("pdf", record.getSuffix());
+  }
+
+  @Test
+  void uploadRemovesClientPathFromExplicitOriginalName() throws Exception {
+    MockMultipartFile file =
+        new MockMultipartFile("file", "resume.pdf", "application/pdf", new byte[] {1, 2, 3, 4});
+
+    ResumeRecord record = service.upload(file, "C:\\fakepath\\中文简历.pdf", "tenant-a", "user-a");
+
+    assertEquals("中文简历.pdf", record.getOriginalName());
   }
 
   private RuntimeToolResult runtimeToolResult(Map<String, Object> value) {

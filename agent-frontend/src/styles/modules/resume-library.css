@@ -1114,33 +1114,153 @@
 }
 /* 简历删除确认弹窗 */
 .resume-delete-modal {
-  width: min(460px, 92vw);
-  padding: 26px !important;
+  width: min(480px, 92vw);
+  padding: 28px !important;
+  overflow-x: hidden !important;
+  border: 1px solid #f1d7d9 !important;
   border-radius: 24px !important;
-  border: 1px solid #ffe1e6 !important;
-  box-shadow: 0 32px 90px rgba(16, 24, 40, 0.22) !important;
+  box-shadow:
+    0 28px 80px rgba(16, 24, 40, 0.2),
+    0 8px 24px rgba(185, 28, 28, 0.08) !important;
+}
+.resume-delete-modal .close {
+  top: 16px;
+  right: 18px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #667085;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.resume-delete-modal .close:hover {
+  color: #344054;
+  background: #f2f4f7;
+}
+.resume-delete-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding-right: 42px;
+}
+.resume-delete-icon {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: #d92d20;
+  background: #fff1f3;
+  border: 1px solid #ffe4e8;
+  border-radius: 14px;
+}
+.resume-delete-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.resume-delete-heading .eyebrow {
+  margin: 0 0 4px;
+  color: #d92d20;
+  font-size: 11px;
+  letter-spacing: 0.14em;
 }
 .resume-delete-modal h2 {
-  margin: 6px 0 10px;
+  margin: 0;
   color: #101828;
+  font-size: 24px;
   letter-spacing: -0.02em;
 }
-.resume-delete-modal p:not(.eyebrow) {
+.resume-delete-target {
+  min-width: 0;
+  margin-top: 22px;
+  padding: 14px 16px;
+  overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid #eaecf0;
+  border-radius: 14px;
+}
+.resume-delete-target span {
+  display: block;
+  margin-bottom: 6px;
+  color: #98a2b3;
+  font-size: 12px;
+  font-weight: 700;
+}
+.resume-delete-target strong {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.resume-delete-modal .resume-delete-description {
+  margin: 12px 2px 0;
   color: #667085;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.resume-delete-actions {
+  gap: 12px;
+  margin-top: 24px;
+}
+.resume-delete-actions button {
+  min-width: 108px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.resume-delete-actions .secondary-btn:hover {
+  color: #344054;
+  background: #f8fafc;
+  border-color: #cfd8e6;
 }
 .resume-delete-modal .danger-btn {
-  height: 40px;
   border: 1px solid #f04438;
   background: #d92d20;
   color: #fff;
-  border-radius: 12px;
-  padding: 0 16px;
-  font-weight: 900;
+  box-shadow: 0 6px 14px rgba(217, 45, 32, 0.18);
 }
 .resume-delete-modal .danger-btn:hover {
   background: #b42318;
   border-color: #b42318;
+  box-shadow: 0 8px 18px rgba(180, 35, 24, 0.22);
+}
+.resume-delete-modal .close:focus-visible,
+.resume-delete-actions button:focus-visible {
+  outline: 3px solid rgba(49, 87, 255, 0.2);
+  outline-offset: 2px;
+}
+@media (max-width: 520px) {
+  .resume-delete-modal {
+    padding: 22px !important;
+  }
+  .resume-delete-heading {
+    align-items: flex-start;
+  }
+  .resume-delete-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .resume-delete-actions button {
+    min-width: 0;
+    width: 100%;
+  }
 }
 .reasoning-process .reasoning-text {
   margin: 8px 0 0;
