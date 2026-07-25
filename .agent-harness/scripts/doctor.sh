@@ -64,10 +64,17 @@ need_optional_cmd npm "Required for Vue frontend and sandbox-runtime dependencie
 need_java17
 need_optional_cmd mvn "Required for agent-backend verification: the repo has no mvnw wrapper, verify.sh/gate.sh fall back to global mvn."
 
-if [[ -d .git ]]; then
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   ok "git repository detected"
 else
   missing_msg "current directory is not a git repository"
+fi
+
+configured_hooks_path="$(git config --local --get core.hooksPath 2>/dev/null || true)"
+if [[ "$configured_hooks_path" == ".agent-harness/hooks" ]]; then
+  ok "repository Git hooks installed"
+else
+  warn_msg "repository Git hooks are not installed. Run ./.agent-harness/scripts/install-git-hooks.sh."
 fi
 
 if [[ -f CLAUDE.md ]]; then
@@ -76,7 +83,7 @@ else
   warn_msg "CLAUDE.md not found; agent runs will have less project context"
 fi
 
-for script in .agent-harness/scripts/verify.sh .agent-harness/scripts/evaluate.sh .agent-harness/scripts/gate.sh .agent-harness/scripts/check_flyway_migrations.py agent-backend/scripts/quality-gate.sh; do
+for script in .agent-harness/scripts/verify.sh .agent-harness/scripts/evaluate.sh .agent-harness/scripts/gate.sh .agent-harness/scripts/check_flyway_migrations.py .agent-harness/scripts/install-git-hooks.sh .agent-harness/hooks/pre-commit agent-backend/scripts/quality-gate.sh; do
   if [[ -x "$script" ]]; then
     ok "$script is executable"
   else

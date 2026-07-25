@@ -1,6 +1,6 @@
 # agent-backend
 
-`agent-backend` 是 `job-buddy` 的 Java 17 + Spring Boot 3 业务后端和 BFF/API 入口，负责求职工作台的业务 API、认证、文件与数据管理，并编排 `agent-runtime`、`agent-intent`、`agent-memory`、`agent-tool`、`agent-eval` 等服务。Boss 直聘能力由 `agent-tool` 的 `boss_browser` 工具提供，并由 Runtime 统一治理。
+`agent-backend` 是 `JobBuddy`（智能求职协同平台）的 Java 17 + Spring Boot 3 业务后端和 BFF/API 入口，负责业务 API、认证、文件与数据管理，并编排 `agent-runtime`、`agent-intent`、`agent-memory`、`agent-tool`、`agent-eval` 等服务。Boss 直聘能力由 `agent-tool` 的 `boss_browser` 工具提供，并由 Runtime 统一治理。
 
 ## 能力范围
 

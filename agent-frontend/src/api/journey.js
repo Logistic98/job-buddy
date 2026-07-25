@@ -5,15 +5,6 @@ export async function getJourneyTarget() {
   return parseApiResponse(response, '求职目标加载失败')
 }
 
-export async function saveJourneyTarget(payload) {
-  const response = await apiFetch('/journey/target', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  return parseApiResponse(response, '求职目标保存失败')
-}
-
 export async function listJourneyRecords(params = {}) {
   const query = new URLSearchParams()
   if (params.keyword) query.set('keyword', params.keyword)

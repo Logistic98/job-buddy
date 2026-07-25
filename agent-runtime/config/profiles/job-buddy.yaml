@@ -1,5 +1,5 @@
 id: job-buddy
-name: 求职工作台 Agent Profile
+name: 智能求职协同平台 Agent Profile
 domain: job
 directive_type: job_buddy_directive
 default_capability_id: open_domain.general_qa

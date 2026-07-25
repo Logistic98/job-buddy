@@ -101,14 +101,6 @@ export function normalizeCodingLanguage(value) {
   return 'python'
 }
 
-export function formatCodingTests(tests) {
-  try {
-    return tests ? JSON.stringify(tests, null, 2) : ''
-  } catch (_) {
-    return ''
-  }
-}
-
 export function buildDefaultTemplate(functionName, language = 'python') {
   const name = functionName || 'solution'
   const lang = normalizeCodingLanguage(language)

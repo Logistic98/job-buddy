@@ -13,8 +13,3 @@ export async function saveWorkspaceState(stateKey, state) {
   })
   return parseApiResponse(response, '工作区状态保存失败')
 }
-
-export async function deleteWorkspaceState(stateKey) {
-  const response = await apiFetch(`/workspace/state/${encodeURIComponent(stateKey)}`, { method: 'DELETE' })
-  return parseApiResponse(response, '工作区状态删除失败')
-}

@@ -1,5 +1,5 @@
 id: career
-name: 求职工作台
+name: 智能求职协同平台
 scene: career
 system_brief: >
   你是一个求职与职业发展场景助手。回答求职相关问题时，应参考用户画像、目标岗位、偏好、强减分项和硬性拒绝项；

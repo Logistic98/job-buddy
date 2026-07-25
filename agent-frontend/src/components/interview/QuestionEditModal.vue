@@ -167,8 +167,8 @@
                 v-if="contentEditorMode === 'edit'"
                 class="markdown-editor-pane markdown-source-pane"
                 for="question-content-markdown"
-                ><span>Markdown 源码</span
-                ><textarea
+              >
+                <textarea
                   id="question-content-markdown"
                   v-model="form.content"
                   class="question-content-textarea question-content-textarea--standalone"
@@ -344,8 +344,8 @@
                   v-if="answerEditorMode === 'edit'"
                   class="markdown-editor-pane markdown-source-pane"
                   for="question-answer-markdown"
-                  ><span>Markdown 源码</span
-                  ><textarea
+                >
+                  <textarea
                     id="question-answer-markdown"
                     v-model="form.answer"
                     class="question-answer-textarea"

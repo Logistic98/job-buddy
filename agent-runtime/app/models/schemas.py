@@ -304,9 +304,3 @@ class AgentRunResponse(BaseModel):
     metrics: Dict[str, Any] = Field(default_factory=dict)
     stop_reason: Optional[str] = None
     error: Optional[str] = None
-
-
-class APIResponse(BaseModel):
-    code: int = 200
-    message: str = "success"
-    data: Any = None

@@ -1,15 +1,6 @@
 import { apiFetch, parseApiResponse } from './http'
 import { streamSse } from './sse'
 
-export async function askAgent(payload) {
-  const response = await apiFetch('/chat/ask', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  return parseApiResponse(response, '请求失败')
-}
-
 export async function listSessions() {
   const response = await apiFetch('/chat/sessions')
   return (await parseApiResponse(response, '加载会话失败')) || []

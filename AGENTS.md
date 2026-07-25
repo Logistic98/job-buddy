@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-`job-buddy` 是面向求职场景的本地 Agent 工作台，采用 Vue 前端、Spring Boot 业务后端、Python Agent Runtime、agent-tool 工具服务，以及意图识别、评估、记忆和沙箱服务组成的多服务架构。系统支持 Boss 在线简历同步、简历管理、岗位收藏与详情加载、岗位和简历分析、对话式问答、求职旅程、面试题库、项目深挖、系统设置与记忆管理。Agent 执行、规划、工具治理和上下文能力由 agent-runtime 承载；Java 后端负责业务 API、认证、文件与数据管理及下游服务编排；Boss 直聘浏览器能力由 agent-tool 提供。
+`JobBuddy`（智能求职协同平台，仓库名 `job-buddy`）是面向求职场景的本地 Agent 应用，采用 Vue 前端、Spring Boot 业务后端、Python Agent Runtime、agent-tool 工具服务，以及意图识别、评估、记忆和沙箱服务组成的多服务架构。系统支持 Boss 在线简历同步、简历管理、岗位收藏与详情加载、岗位和简历分析、对话式问答、求职旅程、面试题库、项目深挖、系统设置与记忆管理。Agent 执行、规划、工具治理和上下文能力由 agent-runtime 承载；Java 后端负责业务 API、认证、文件与数据管理及下游服务编排；Boss 直聘浏览器能力由 agent-tool 提供。
 
 核心原则：
 

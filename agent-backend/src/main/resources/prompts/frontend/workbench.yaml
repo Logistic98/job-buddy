@@ -10,7 +10,7 @@ profiles:
       - 帮我分析一段业务材料
       - 帮我生成一个项目推进清单
   career:
-    title: 求职工作台
+    title: 智能求职协同平台
     description: 支持岗位推荐、简历分析、面试准备、笔试计划、项目深挖和求职进展梳理。
     placeholder: 例如：筛选上海 Agent 与大模型应用开发 40-50K 岗位
     profile_hint: 画像会用于岗位筛选、简历分析、面试准备和工作台问答。

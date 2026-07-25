@@ -119,6 +119,21 @@ run_node_module() {
     npm install --silent || fail "$module: npm install failed"
   fi
 
+  # Some developer npm mirrors do not implement the audit API. Keep the
+  # security signal deterministic by using the official registry explicitly,
+  # matching CI, and retry only to absorb transient registry failures.
+  local audit_registry="${NPM_AUDIT_REGISTRY:-https://registry.npmjs.org}"
+  local audit_attempt
+  for audit_attempt in 1 2 3; do
+    if npm audit --omit=dev --audit-level=high --registry="$audit_registry"; then
+      break
+    fi
+    if [[ "$audit_attempt" -eq 3 ]]; then
+      fail "$module: production dependency audit failed"
+    fi
+    sleep "$audit_attempt"
+  done
+
   if has_npm_script format:check; then
     npm run format:check --silent || fail "$module: npm run format:check failed"
   fi

@@ -1016,15 +1016,3 @@ class BossCliEngine:
             "login_redirect": False,
             "error_message": str(exc),
         }
-
-
-_engine: Optional[BossCliEngine] = None
-
-
-def get_engine(settings: Optional[Settings] = None) -> BossCliEngine:
-    global _engine
-    if _engine is None:
-        from app.tools.boss_browser.core.settings import get_settings
-
-        _engine = BossCliEngine(settings or get_settings())
-    return _engine

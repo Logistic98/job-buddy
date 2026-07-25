@@ -1,6 +1,6 @@
-# job-buddy
+# JobBuddy
 
-`job-buddy` 是面向求职场景的本地 Agent 工作台，采用 Vue 前端、Spring Boot 业务后端、Python Agent Runtime，以及意图识别、记忆、工具、评估和沙箱服务组成的多服务架构。
+`JobBuddy`（智能求职协同平台，仓库名 `job-buddy`）是面向求职场景的本地 Agent 应用，采用 Vue 前端、Spring Boot 业务后端、Python Agent Runtime，以及意图识别、记忆、工具、评估和沙箱服务组成的多服务架构。
 
 系统支持 Boss 登录与在线简历同步、简历管理、岗位收藏与详情加载、岗位和简历分析、对话式问答、求职旅程、面试题库、项目深挖、系统设置与记忆管理。`agent-runtime` 负责 Agent 执行、规划、工具治理、上下文、Trace 与 Checkpoint；Java Backend 负责业务 API、认证、文件和数据管理及下游服务编排；Boss 能力由 `agent-tool` 的 `boss_browser` 工具提供。
 
@@ -55,8 +55,6 @@ MySQL、Elasticsearch、Milvus、Kafka、Kubernetes 和 Jenkins 不属于项目�
 
 ## 环境准备
 
-当前本地验证环境为 JDK 17.0.6、Maven 3.8.6、Python 3.10.x + uv 0.10.x、Node.js 22.16.0 / npm 10.9.x。前端依赖 Vite 7，Node 版本需满足 `^20.19.0 || >=22.12.0`，推荐直接使用 Node.js 22.16+。
-
 - JDK 17+（项目编译目标为 Java 17 字节码；Docker 镜像使用 Temurin 17 构建/运行）
 - Maven 3.8+（仓库当前未提供 `mvnw`）
 - Python 3.10.x 与 `uv`（`agent-runtime` 锁定 Python 3.10.16，其余 Python 服务以各自 `pyproject.toml` 为准）
@@ -96,11 +94,9 @@ cp .env.example .env
 
 ## 数据库迁移规范
 
-后端使用 Flyway 管理数据库结构变更，脚本统一放在 `agent-backend/src/main/resources/db/migration/`。V1.0.0 至 V1.0.7 是按身份权限、简历存储、聊天 Agent、岗位旅程、面试、项目、分析平台和默认授权数据拆分的规范基线，只允许在全新空数据库执行；`baseline-on-migrate` 关闭，非空且没有 Flyway 历史记录的数据库失败关闭。该基线属于不可变资产，数据库变更只能追加高于 V1.0.7 的脚本，禁止修改、删除、重命名或复用版本号。文件名遵循 `V<major>_<minor>_<patch>__<English_description>.sql`。
+后端使用 Flyway 管理数据库结构变更，脚本统一放在 `agent-backend/src/main/resources/db/migration/`。已发布迁移属于不可变资产，数据库变更只能追加符合命名规则的新版本，禁止修改、删除、重命名、复用版本号或通过 repair、baseline 和手工覆盖绕过校验。
 
-Flyway 初始化共享租户、权限定义、角色、菜单、角色菜单目录，默认 `admin`、`user` 账号及其角色关联，并通过追加迁移维护平台级系统岗位黑名单；两个默认账号的初始密码均为 `12345678`，数据库只保存 BCrypt 哈希，管理员可在平台设置的用户管理中重置密码。项目经历、简历、岗位收藏、求职进展、聊天记录和认证状态等私有业务数据必须通过受鉴权 API 写入，禁止进入 Flyway 和 Git。除指定的默认身份种子迁移、门禁登记的 V1.0.9 默认身份状态迁移及 V1.0.8 `blacklist_item` 系统种子迁移外，新增迁移向私有业务表执行 `INSERT`、`UPDATE` 或 `DELETE` 会被质量门禁直接拒绝；系统黑名单同样禁止通过其他迁移插入、更新或删除。
-
-数据库由 Flyway 在空 Schema 中初始化，禁止使用 repair、baseline 或手工覆盖绕过版本校验。开发环境完成默认密码轮换后再设置 `JOB_BUDDY_ENVIRONMENT=production`；生产启动会拒绝仍使用默认密码的启用账号，并禁止关闭用户认证。
+Flyway 只维护结构、共享系统元数据和受控默认身份；简历、岗位、聊天、项目和认证状态等用户私有数据必须通过受鉴权 API 写入。生产启动会拒绝未轮换的默认身份密码和关闭用户认证的配置。完整规则以 `AGENTS.md` 和 [Harness Flyway 检查](.agent-harness/README.md#flyway-检查)为准。
 
 提交涉及数据库结构的改动前，先运行 Flyway 迁移校验：
 

@@ -21,12 +21,6 @@ export async function updateUser(userId, payload) {
     '更新用户失败',
   )
 }
-export async function replaceUserRoles(userId, roleIds) {
-  return parseApiResponse(
-    await apiFetch(`/admin/users/${encodeURIComponent(userId)}/roles`, jsonOptions('PUT', { roleIds })),
-    '更新用户角色失败',
-  )
-}
 export async function resetUserPassword(userId, password) {
   return parseApiResponse(
     await apiFetch(`/admin/users/${encodeURIComponent(userId)}/password`, jsonOptions('PUT', { password })),
@@ -47,12 +41,6 @@ export async function updateRole(roleId, payload) {
   return parseApiResponse(
     await apiFetch(`/admin/rbac/roles/${encodeURIComponent(roleId)}`, jsonOptions('PUT', payload)),
     '更新角色失败',
-  )
-}
-export async function replaceRoleMenus(roleId, menuIds) {
-  return parseApiResponse(
-    await apiFetch(`/admin/rbac/roles/${encodeURIComponent(roleId)}/menus`, jsonOptions('PUT', { menuIds })),
-    '更新角色菜单失败',
   )
 }
 export async function deleteRole(roleId) {

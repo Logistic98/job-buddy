@@ -5,32 +5,9 @@
 
 ## 目录
 
-```text
-.agent-harness/
-├── browser-validation.md
-├── goals/
-│   └── _template.md
-├── loops/
-│   ├── _template.md
-│   └── ci_health.md
-├── scripts/
-│   ├── check_flyway_migrations.py
-│   ├── doctor.sh
-│   ├── evaluate.sh
-│   ├── gate.sh
-│   ├── judge.sh
-│   ├── loop.sh
-│   ├── new_worktree.sh
-│   ├── pre-commit-hook.sh
-│   ├── run_goal.sh
-│   ├── status.sh
-│   └── verify.sh
-└── tests/
-    ├── test_check_flyway_migrations.py
-    ├── test_infrastructure_init.py
-    ├── test_start_all.py
-    └── test_stop_all.py
-```
+`scripts/` 保存验证、评估、Goal 和 Loop 执行入口，`tests/` 保存 Harness 自身回归测试，
+`goals/` 与 `loops/` 保存可执行任务定义，`browser-validation.md` 记录真实交互验证要求。
+具体文件由目录和脚本帮助自动发现，不在文档中维护第二份文件清单。
 
 运行产物写入 `.agent-harness/runs/`，默认保留 30 天且不提交 Git。
 
@@ -57,7 +34,7 @@
 python3 -m unittest discover -s .agent-harness/tests -p 'test_*.py'
 ```
 
-`verify.sh` 从顶层 `agent-*` 目录中的 `pom.xml`、`pyproject.toml` 或 `package.json` 自动发现模块，不维护第二份模块清单。Java 使用 Maven/Gradle，Python 使用 `uv`、Ruff 和 Pytest，前端使用 package scripts。全仓验证还会检查根目录环境文件位置、Shell 语法和 Compose 渲染。
+`verify.sh` 从顶层 `agent-*` 目录中的 `pom.xml`、`pyproject.toml` 或 `package.json` 自动发现模块，不维护第二份模块清单。Java 使用 Maven/Gradle，Python 使用 `uv`、Ruff 和 Pytest，前端使用 package scripts，并通过 npm 官方 Registry 审计生产依赖中的高危与严重漏洞。全仓验证还会检查根目录环境文件位置、Shell 语法和 Compose 渲染。
 
 `--quick` 对 Java 使用 `test` 而不是 `verify`。Python 和前端仍执行完整的格式、测试与构建命令，避免“快速模式”变成跳过质量检查。
 
@@ -123,14 +100,14 @@ cp .agent-harness/loops/_template.md .agent-harness/loops/<loop_name>.md
 
 浏览器验证至少记录访问地址、实际用户路径、观察结果和未覆盖原因。Boss 相关验证必须低频执行，出现验证码、访问异常或限速信号时立即停止。
 
-## 可选 pre-commit hook
+## 提交前检查
 
 ```bash
-ln -s ../../.agent-harness/scripts/pre-commit-hook.sh .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
+./.agent-harness/scripts/install-git-hooks.sh
 ```
 
-Hook 从 `verify.sh --list` 读取模块，并只验证当前暂存改动涉及的模块。它默认不安装，CI 的 `quality-gate.yml` 仍是最终门禁。
+安装脚本为当前 checkout 配置仓库内维护的 `pre-commit` Hook。每次提交先执行暂存区
+`git diff --check`，再从 `verify.sh --list` 读取并验证改动涉及的模块；修改 Harness、构建脚本或工作流等共享验证入口时执行全仓快速验证。前端验证包含与 CI 同源的生产依赖审计，因此高危漏洞会在提交前直接阻断。新 clone 或新 worktree 需要执行一次安装脚本，`doctor.sh` 会检查并提示安装状态；CI 的 `quality-gate.yml` 仍是最终门禁。
 
 ## 维护原则
 

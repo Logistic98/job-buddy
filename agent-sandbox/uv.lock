@@ -196,7 +196,6 @@ version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "httpx" },
     { name = "loguru" },
     { name = "pydantic" },
     { name = "uvicorn", extra = ["standard"] },
@@ -204,6 +203,7 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "pytest" },
     { name = "ruff" },
 ]
@@ -211,7 +211,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.110.0,<1.0.0" },
-    { name = "httpx", specifier = ">=0.25.0,<0.29.0" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.25.0,<0.29.0" },
     { name = "loguru", specifier = ">=0.7.2,<1.0.0" },
     { name = "pydantic", specifier = ">=2.5.0,<3.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0,<8.0.0" },
