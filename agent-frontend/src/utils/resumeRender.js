@@ -1,9 +1,14 @@
 // 简历 Markdown 渲染、图标 SVG 与打印 CSS：纯函数，供编辑器预览、PDF/HTML 导出共用。
 
+import katex from 'katex'
+import { loadMermaid } from './markdownFeatures'
+import { sanitizeResumeHtml } from './sanitizeHtml'
+
 export const MANAGED_RESUME_PHOTO_ALT = '证件照'
 const DOCUMENT_POSITION_FOLLOWING = 4
 const PHOTO_BASE_WIDTH = 94
 const PHOTO_BASE_HEIGHT = 120
+let resumeMermaidRenderSequence = 0
 
 export function renderResumeMarkdown(source) {
   const lines = String(source || '').split('\n')
@@ -13,6 +18,8 @@ export function renderResumeMarkdown(source) {
   let listIndex = 0
   let para = []
   let pendingLeftWrapper = false
+  let fencedBlock = null
+  let mathBlock = null
   const closePendingLeft = () => {
     if (pendingLeftWrapper) {
       html.push('</div>')
@@ -51,6 +58,47 @@ export function renderResumeMarkdown(source) {
   }
   for (const raw of lines) {
     const trimmed = raw.trim()
+    if (fencedBlock) {
+      if (
+        new RegExp(`^[ \\t]{0,3}${escapeRegExp(fencedBlock.marker[0])}{${fencedBlock.marker.length},}[ \\t]*$`).test(
+          raw,
+        )
+      ) {
+        beforeNormal()
+        html.push(renderResumeFencedBlock(fencedBlock.language, fencedBlock.lines.join('\n')))
+        fencedBlock = null
+      } else {
+        fencedBlock.lines.push(raw)
+      }
+      continue
+    }
+    if (mathBlock) {
+      if (trimmed === mathBlock.closing) {
+        beforeNormal()
+        html.push(renderResumeMath(mathBlock.lines.join('\n'), true))
+        mathBlock = null
+      } else {
+        mathBlock.lines.push(raw)
+      }
+      continue
+    }
+    const fenceStart = raw.match(/^[ \t]{0,3}(`{3,}|~{3,})[ \t]*([A-Za-z0-9_-]*)[ \t]*$/)
+    if (fenceStart) {
+      beforeNormal()
+      fencedBlock = { marker: fenceStart[1], language: fenceStart[2].toLowerCase(), lines: [] }
+      continue
+    }
+    if (trimmed === '$$' || trimmed === '\\[') {
+      beforeNormal()
+      mathBlock = { closing: trimmed === '$$' ? '$$' : '\\]', lines: [] }
+      continue
+    }
+    const singleLineMath = trimmed.match(/^\$\$(.+)\$\$$/) || trimmed.match(/^\\\[(.+)\\\]$/)
+    if (singleLineMath) {
+      beforeNormal()
+      html.push(renderResumeMath(singleLineMath[1], true))
+      continue
+    }
     if (!trimmed) {
       flushPara()
       continue
@@ -126,8 +174,56 @@ export function renderResumeMarkdown(source) {
   flushPara()
   closeList()
   closePendingLeft()
+  if (fencedBlock) html.push(renderResumeFencedBlock(fencedBlock.language, fencedBlock.lines.join('\n')))
+  if (mathBlock) html.push(renderResumeMath(mathBlock.lines.join('\n'), true))
   while (stack.length) closeContainer()
   return html.join('\n')
+}
+
+function renderResumeFencedBlock(language, source) {
+  if (language === 'mermaid') {
+    return `<figure class="resume-mermaid" data-mermaid-source="${escapeHtml(source)}"><pre class="resume-mermaid-fallback"><code>${escapeHtml(source)}</code></pre></figure>`
+  }
+  const languageClass = language ? ` class="language-${escapeHtml(language)}"` : ''
+  return `<pre class="resume-code-block"><code${languageClass}>${escapeHtml(source)}</code></pre>`
+}
+
+function renderResumeMath(source, displayMode) {
+  const expression = String(source || '').trim()
+  if (!expression) return ''
+  try {
+    return katex.renderToString(expression, {
+      displayMode,
+      throwOnError: false,
+      strict: 'warn',
+      trust: false,
+      output: 'htmlAndMathml',
+    })
+  } catch {
+    const tag = displayMode ? 'div' : 'span'
+    return `<${tag} class="resume-math-error">${escapeHtml(expression)}</${tag}>`
+  }
+}
+
+export async function renderResumeMermaid(root) {
+  if (!root?.querySelectorAll) return
+  const diagrams = Array.from(root.querySelectorAll('.resume-mermaid[data-mermaid-source]'))
+  await Promise.all(
+    diagrams.map(async (diagram) => {
+      const source = diagram.getAttribute('data-mermaid-source') || ''
+      if (!source.trim()) return
+      const renderId = `resume-mermaid-${Date.now()}-${resumeMermaidRenderSequence++}`
+      try {
+        const mermaid = await loadMermaid()
+        const result = await mermaid.render(renderId, source)
+        diagram.innerHTML = sanitizeResumeHtml(result?.svg || '')
+        diagram.classList.add('is-rendered')
+        diagram.removeAttribute('data-mermaid-source')
+      } catch {
+        diagram.classList.add('is-error')
+      }
+    }),
+  )
 }
 
 export function extractManagedResumePhoto(source) {
@@ -255,18 +351,36 @@ function photoMarkup(url, transform = {}, options = {}) {
 }
 
 export function inline(value) {
-  return escapeHtml(value)
+  const protectedTokens = []
+  const protect = (markup) => {
+    const token = `RESUMEPROTECTEDTOKEN${protectedTokens.length}END`
+    protectedTokens.push([token, markup])
+    return token
+  }
+  const protectedValue = String(value)
+    .replace(/`([^`\n]+?)`/g, (_, code) => protect(`<code>${escapeHtml(code)}</code>`))
+    .replace(/\\\((.+?)\\\)|(?<!\\)\$(?!\$)([^$\n]+?)(?<!\\)\$/g, (_, bracketMath, dollarMath) =>
+      protect(renderResumeMath(bracketMath || dollarMath, false)),
+    )
+  let rendered = escapeHtml(protectedValue)
     .replace(/!\[(.*?)\]\((.+?)\)/g, (_, alt, url) => {
       const safeUrl = sanitizeInlineUrl(decodeHtmlEntities(url), true)
       return safeUrl ? `<img class="resume-photo" alt="${alt}" src="${escapeHtml(safeUrl)}">` : alt
     })
-    .replace(/`([^`]+?)`/g, '<code>$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\[(.+?)\]\((.+?)\)/g, (_, label, url) => {
       const safeUrl = sanitizeInlineUrl(decodeHtmlEntities(url), false)
       return safeUrl ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label
     })
     .replace(/icon:([a-zA-Z0-9_-]+)/g, (_, name) => iconSvg(name))
+  protectedTokens.forEach(([token, markup]) => {
+    rendered = rendered.replace(token, markup)
+  })
+  return rendered
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function sanitizeInlineUrl(value, image) {
@@ -408,5 +522,5 @@ export function iconSvg(name) {
 }
 
 export function resumePrintCss() {
-  return `@page{size:A4;margin:0}html,body{margin:0;background:#fff;color:#111827;-webkit-print-color-adjust:exact;print-color-adjust:exact}.resume-paper{width:210mm;min-height:297mm;margin:0 auto;background:#fff;color:#111827;padding:14mm 16mm;box-sizing:border-box;font-size:12px;line-height:var(--resume-line-height,1.52);letter-spacing:.01em}.resume-paper.compact{font-size:11.2px;line-height:1.42;padding:12mm 15mm}.resume-paper h2{font-size:18px;margin:0 0 9px;border-bottom:2px solid #111827;padding-bottom:5px;line-height:1.25;break-after:avoid;page-break-after:avoid}.resume-paper h3{font-size:16px;margin:15px 0 7px;border-bottom:1.5px solid #111827;padding-bottom:4px;line-height:1.25;break-after:avoid;page-break-after:avoid}.resume-paper h4{font-size:13px;margin:10px 0 5px;line-height:1.32;break-after:avoid;page-break-after:avoid}.resume-paper p{margin:3px 0;line-height:inherit;break-inside:avoid;page-break-inside:avoid}.resume-paper .r-list{margin:4px 0 7px 0;break-inside:avoid;page-break-inside:avoid}.resume-paper .r-list-ol{padding-left:1.7em}.resume-paper .r-li{display:flex;align-items:flex-start;margin:2px 0;line-height:inherit;break-inside:avoid;page-break-inside:avoid}.resume-paper .r-li-marker{flex:0 0 1.6em;line-height:inherit;white-space:nowrap}.resume-paper .r-li-body{flex:1 1 auto;min-width:0;line-height:inherit}.lr-container{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:start;break-inside:avoid;page-break-inside:avoid}.left,.right{min-width:0}.right{text-align:right;white-space:nowrap;color:#5b6472}.resume-photo-frame{display:inline-block;position:relative;width:94px;height:120px;border-radius:3px;vertical-align:top;background:#f3f4f6}.resume-photo{width:100%;height:100%;object-fit:cover;border-radius:0;user-select:none;display:block}.resume-floating-photo{float:right;margin:0 0 8px 18px;text-align:right}.resume-icon-svg{display:inline-block;width:12px;height:12px;margin-right:5px;vertical-align:-1px;color:#111827;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.resume-icon-svg text{stroke:none}.resume-page-break-before{break-before:page;page-break-before:always}.resume-paper a{color:#111827;text-decoration:none}.resume-paper strong{font-weight:700}.resume-paper code{font-family:inherit;font-size:.84em;line-height:1.7;background:#f4f6fa;border:1px solid #e3e8f0;border-radius:5px;padding:1px 8px;margin:1px;color:#3f4a5a;white-space:nowrap;display:inline-block;vertical-align:1px}.theme-blue h2,.theme-blue h3{border-color:#2563eb}.theme-orange h2,.theme-orange h3{border-color:#f97316}@media print{body{margin:0;background:#fff}.resume-paper{box-shadow:none;margin:0;width:210mm;min-height:297mm}}`
+  return `@page{size:A4;margin:0}html,body{margin:0;background:#fff;color:#111827;-webkit-print-color-adjust:exact;print-color-adjust:exact}.resume-paper{width:210mm;min-height:297mm;margin:0 auto;background:#fff;color:#111827;padding:14mm 16mm;box-sizing:border-box;font-size:12px;line-height:var(--resume-line-height,1.52);letter-spacing:.01em}.resume-paper.compact{font-size:11.2px;line-height:1.42;padding:12mm 15mm}.resume-paper h2{font-size:18px;margin:0 0 9px;border-bottom:2px solid #111827;padding-bottom:5px;line-height:1.25;break-after:avoid;page-break-after:avoid}.resume-paper h3{font-size:16px;margin:15px 0 7px;border-bottom:1.5px solid #111827;padding-bottom:4px;line-height:1.25;break-after:avoid;page-break-after:avoid}.resume-paper h4{font-size:13px;margin:10px 0 5px;line-height:1.32;break-after:avoid;page-break-after:avoid}.resume-paper p{margin:3px 0;line-height:inherit;break-inside:avoid;page-break-inside:avoid}.resume-paper .r-list{margin:4px 0 7px 0;break-inside:avoid;page-break-inside:avoid}.resume-paper .r-list-ol{padding-left:1.7em}.resume-paper .r-li{display:flex;align-items:flex-start;margin:2px 0;line-height:inherit;break-inside:avoid;page-break-inside:avoid}.resume-paper .r-li-marker{flex:0 0 1.6em;line-height:inherit;white-space:nowrap}.resume-paper .r-li-body{flex:1 1 auto;min-width:0;line-height:inherit}.lr-container{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:start;break-inside:avoid;page-break-inside:avoid}.left,.right{min-width:0}.right{text-align:right;white-space:nowrap;color:#5b6472}.resume-photo-frame{display:inline-block;position:relative;width:94px;height:120px;border-radius:3px;vertical-align:top;background:#f3f4f6}.resume-photo{width:100%;height:100%;object-fit:cover;border-radius:0;user-select:none;display:block}.resume-floating-photo{float:right;margin:0 0 8px 18px;text-align:right}.resume-icon-svg{display:inline-block;width:12px;height:12px;margin-right:5px;vertical-align:-1px;color:#111827;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.resume-icon-svg text{stroke:none}.resume-page-break-before{break-before:page;page-break-before:always}.resume-paper a{color:#111827;text-decoration:none}.resume-paper strong{font-weight:700}.resume-paper code{font-family:inherit;font-size:.84em;line-height:1.7;background:#f4f6fa;border:1px solid #e3e8f0;border-radius:5px;padding:1px 8px;margin:1px;color:#3f4a5a;white-space:nowrap;display:inline-block;vertical-align:1px}.resume-paper .resume-code-block{margin:6px 0;padding:8px 10px;overflow:hidden;background:#f4f6fa;border:1px solid #e3e8f0;border-radius:6px;white-space:pre-wrap;break-inside:avoid;page-break-inside:avoid}.resume-paper .resume-code-block code{display:block;margin:0;padding:0;border:0;background:transparent;white-space:pre-wrap}.resume-paper .resume-mermaid{margin:8px 0;text-align:center;break-inside:avoid;page-break-inside:avoid}.resume-paper .resume-mermaid svg{display:block;max-width:100%;height:auto;margin:0 auto}.resume-paper .resume-mermaid.is-rendered .resume-mermaid-fallback{display:none}.resume-paper .resume-mermaid-fallback{padding:8px;text-align:left;white-space:pre-wrap;background:#f4f6fa;border:1px solid #e3e8f0;border-radius:6px}.resume-paper .katex-display{margin:8px 0;overflow:hidden;break-inside:avoid;page-break-inside:avoid}.resume-paper .resume-math-error{font-family:monospace;color:#b42318}.theme-blue h2,.theme-blue h3{border-color:#2563eb}.theme-orange h2,.theme-orange h3{border-color:#f97316}@media print{body{margin:0;background:#fff}.resume-paper{box-shadow:none;margin:0;width:210mm;min-height:297mm}}`
 }

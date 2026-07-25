@@ -16,6 +16,7 @@ import {
   extractManagedResumePhoto,
   photoTransformStyle,
   renderResumeMarkdown,
+  renderResumeMermaid,
   resumePrintCss,
   stripManagedResumePhoto,
 } from '../utils/resumeRender'
@@ -43,6 +44,7 @@ import {
 } from '../utils/resumePdf'
 import ResumeIconModal from '../components/resume-writer/ResumeIconModal.vue'
 import ResumePhotoModal from '../components/resume-writer/ResumePhotoModal.vue'
+import katexCss from 'katex/dist/katex.min.css?raw'
 
 export function useResumeWriterPage() {
   const WRITER_STATE_KEY = 'resume.writer'
@@ -157,12 +159,13 @@ export function useResumeWriterPage() {
     if (pageTimer) clearTimeout(pageTimer)
     pageTimer = setTimeout(() => nextTick(paginate), 220)
   }
-  function paginate() {
+  async function paginate() {
     const el = measureRef.value
     if (!el) {
       pages.value = [html.value]
       return
     }
+    await renderResumeMermaid(el)
     const rect = el.getBoundingClientRect()
     const pxPerMm = rect.width / 210
     if (!pxPerMm) {
@@ -792,7 +795,12 @@ export function useResumeWriterPage() {
         photoSettings.value,
       ),
     )
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtmlText(exportBaseName())}</title><style>${resumePrintCss()}
+    const renderRoot = document.createElement('article')
+    renderRoot.innerHTML = body
+    await renderResumeMermaid(renderRoot)
+    const renderedBody = sanitizeResumeHtml(renderRoot.innerHTML)
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtmlText(exportBaseName())}</title><style>${katexCss}
+${resumePrintCss()}
 
 /* 顶部操作按钮垂直居中 */
 .resume-clean-actions{
@@ -804,7 +812,7 @@ export function useResumeWriterPage() {
 .export-group button{
   align-self:center!important;
 }
-</style></head><body><article class="resume-paper ${currentTheme.value} ${onePage.value ? 'compact' : ''}" style="font-family:${fontFamily.value};font-size:${fontSize.value};line-height:${lineHeight.value};--resume-line-height:${lineHeight.value}">${body}</article></body></html>`
+</style></head><body><article class="resume-paper ${currentTheme.value} ${onePage.value ? 'compact' : ''}" style="font-family:${fontFamily.value};font-size:${fontSize.value};line-height:${lineHeight.value};--resume-line-height:${lineHeight.value}">${renderedBody}</article></body></html>`
   }
   function emptyProfile() {
     return { name: '', basic: '', contact: '', blog: '', position: '' }

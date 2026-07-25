@@ -4,6 +4,7 @@ import App from './App.vue'
 import router from './router'
 import { installBrowserAutocompleteSuppression } from './utils/browserAutocomplete'
 import 'markstream-vue/index.css'
+import 'katex/dist/katex.min.css'
 import './styles/main.css'
 
 installBrowserAutocompleteSuppression(document.querySelector('#app'))

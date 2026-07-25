@@ -111,12 +111,11 @@
                 <small class="typing-subtitle">{{ loadingSummary }}</small>
               </template>
               <template v-else-if="msg.role === 'assistant'">
-                <MarkdownRender
+                <MarkdownContent
                   class="chat-markdown"
                   custom-id="job-chat"
                   :content="normalizeAssistantMarkdown(msg.content || '')"
                   :final="isMessageFinal(msg)"
-                  html-policy="escape"
                   :max-live-nodes="0"
                   :batch-rendering="true"
                   :render-batch-size="16"
@@ -251,7 +250,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import MarkdownRender from 'markstream-vue'
+import MarkdownContent from './MarkdownContent.vue'
 import { useChatStore } from '../stores/chat'
 import { useJobStore } from '../stores/job'
 import { fetchJobDetail } from '../api/jobs'

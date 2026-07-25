@@ -34,6 +34,51 @@ describe('PracticeMarkdown', () => {
     wrapper.unmount()
   })
 
+  it('renders Mermaid fences as diagrams instead of ordinary code blocks', async () => {
+    const wrapper = await renderMarkdown(`\`\`\`mermaid
+graph LR
+    U[用户] --> FE[Vue 3 工作台]
+    FE --> BE[Spring Boot Backend]
+\`\`\``)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    await flushPromises()
+
+    expect(wrapper.find('[data-markstream-mermaid="1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-markstream-mermaid="1"] svg').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('graph LR')
+    wrapper.unmount()
+  })
+
+  it('renders inline and block LaTeX with KaTeX', async () => {
+    const wrapper = await renderMarkdown(
+      String.raw`行内公式 $E=mc^2$
+
+$$
+\sum_{i=1}^{n} i=\frac{n(n+1)}{2}
+$$`,
+    )
+
+    expect(wrapper.find('.katex').exists()).toBe(true)
+    expect(wrapper.find('.katex-display').exists()).toBe(true)
+    expect(wrapper.find('math annotation').text()).toContain('\\frac')
+    wrapper.unmount()
+  })
+
+  it('keeps Mermaid and LaTeX markers inside ordinary code fences as source text', async () => {
+    const wrapper = await renderMarkdown(`\`\`\`\`text
+\`\`\`mermaid
+graph LR
+$E=mc^2$
+\`\`\`
+\`\`\`\``)
+
+    expect(wrapper.find('[data-markstream-mermaid="1"]').exists()).toBe(false)
+    expect(wrapper.find('.katex').exists()).toBe(false)
+    expect(wrapper.find('pre code').text()).toContain('```mermaid')
+    expect(wrapper.find('pre code').text()).toContain('$E=mc^2$')
+    wrapper.unmount()
+  })
+
   it('treats a dash line after plain text as a thematic break instead of a setext heading', async () => {
     const wrapper = await renderMarkdown('一句话：这是普通正文。\n---')
 

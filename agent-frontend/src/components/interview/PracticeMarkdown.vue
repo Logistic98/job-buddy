@@ -1,13 +1,12 @@
 <template>
   <div ref="containerRef" class="practice-markdown-wrap" @click="handleCodeCopy">
-    <MarkdownRender
+    <MarkdownContent
       v-if="normalizedContent"
       :key="`${customId}-${normalizedContent.length}`"
       :class="['practice-markdown', { compact }]"
       :custom-id="customId"
       :content="normalizedContent"
       :final="true"
-      html-policy="escape"
       :max-live-nodes="0"
       :fade="false"
       :typewriter="false"
@@ -19,7 +18,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import MarkdownRender from 'markstream-vue'
+import MarkdownContent from '../MarkdownContent.vue'
 import { copyText } from '../../utils/clipboard'
 
 const props = defineProps({

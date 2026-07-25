@@ -1,15 +1,17 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   applyResumePhotoToHtml,
   extractManagedResumePhoto,
   photoTransformStyle,
   renderResumeMarkdown,
+  renderResumeMermaid,
   inline,
   escapeHtml,
   iconSvg,
   resumePrintCss,
   stripManagedResumePhoto,
 } from '../src/utils/resumeRender'
+import { loadMermaid } from '../src/utils/markdownFeatures'
 
 describe('escapeHtml', () => {
   it('escapes text and attribute delimiters', () => {
@@ -80,6 +82,45 @@ describe('renderResumeMarkdown', () => {
     expect(html).toContain('lr-container')
     expect(html).toContain('林澈')
     expect(html).toContain('https://example.com/p.png')
+  })
+
+  it('renders LaTeX and creates Mermaid placeholders for static export', () => {
+    const html = renderResumeMarkdown(
+      [
+        '行内公式 $E=mc^2$',
+        '',
+        '$$',
+        String.raw`\sum_{i=1}^{n} i=\frac{n(n+1)}{2}`,
+        '$$',
+        '',
+        '```mermaid',
+        'graph LR',
+        '    A[输入] --> B[输出]',
+        '```',
+      ].join('\n'),
+    )
+
+    expect(html).toContain('class="katex"')
+    expect(html).toContain('class="katex-display"')
+    expect(html).toContain('class="resume-mermaid"')
+    expect(html).toContain('data-mermaid-source=')
+  })
+
+  it('replaces a resume Mermaid placeholder with sanitized SVG', async () => {
+    const root = document.createElement('div')
+    root.innerHTML = renderResumeMarkdown('```mermaid\ngraph LR\nA --> B\n```')
+    const mermaid = await loadMermaid()
+    const renderSpy = vi
+      .spyOn(mermaid, 'render')
+      .mockResolvedValue({ svg: '<svg><text>架构图</text><script>alert(1)</script></svg>' })
+
+    await renderResumeMermaid(root)
+
+    expect(renderSpy).toHaveBeenCalledWith(expect.stringMatching(/^resume-mermaid-/), 'graph LR\nA --> B')
+    expect(root.querySelector('.resume-mermaid.is-rendered svg')).not.toBeNull()
+    expect(root.querySelector('.resume-mermaid script')).toBeNull()
+    expect(root.textContent).toContain('架构图')
+    renderSpy.mockRestore()
   })
 
   it('replaces icon tokens with inline svg', () => {

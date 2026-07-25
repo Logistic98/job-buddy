@@ -7,6 +7,8 @@ vi.mock('markstream-vue', () => ({
     props: ['content'],
     template: '<div class="markdown-stub">{{ content }}</div>',
   },
+  enableKatex: vi.fn(),
+  enableMermaid: vi.fn(),
 }))
 
 vi.mock('../src/api/chat', () => ({
