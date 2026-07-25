@@ -75,6 +75,7 @@ async def register_mcp_tools(registry: ToolRegistry, mcp_config: McpConfig) -> L
         return []
 
     registered: List[str] = []
+    # 先移除配置中已不存在的来源，避免旧工具继续暴露。
     active_sources = {f"mcp:{server_id}" for server_id in mcp_config.servers}
     for source in registry.source_ids("mcp:"):
         if source not in active_sources:
@@ -95,6 +96,7 @@ async def register_mcp_tools(registry: ToolRegistry, mcp_config: McpConfig) -> L
             logger.warning(f"MCP 服务连接失败，跳过注册：server={server_id}, url={server_cfg.url}, error={e}")
             continue
 
+        # 远端目录先完整暂存，通过冲突校验后再原子替换该来源。
         prefix = server_cfg.name_prefix or ""
         staged: List[BaseTool] = []
         for tool_def in tool_defs:

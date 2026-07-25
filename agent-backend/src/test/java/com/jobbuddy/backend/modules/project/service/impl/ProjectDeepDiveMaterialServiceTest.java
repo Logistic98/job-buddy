@@ -17,8 +17,16 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * 验证 ProjectDeepDiveMaterialService 的核心行为、异常路径与边界条件。
+ */
 class ProjectDeepDiveMaterialServiceTest {
 
+  /**
+   * 验证 ProjectDeepDiveMaterialService 中文件的文件解析与存储边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldUploadArbitraryBinaryFileWithoutFormatRestriction() throws Exception {
     ProjectDeepDiveRepository repository = mock(ProjectDeepDiveRepository.class);
@@ -52,6 +60,11 @@ class ProjectDeepDiveMaterialServiceTest {
     verify(storage).upload(file, String.valueOf(material.get("storagePath")), "application/zip");
   }
 
+  /**
+   * 验证 ProjectDeepDiveMaterialService 中文件的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldRejectEmptyAndOversizedFilesBeforeStorage() throws Exception {
     ProjectDeepDiveRepository repository = mock(ProjectDeepDiveRepository.class);
@@ -74,6 +87,9 @@ class ProjectDeepDiveMaterialServiceTest {
     verify(storage, never()).upload(org.mockito.ArgumentMatchers.any(), anyString(), anyString());
   }
 
+  /**
+   * 验证 ProjectDeepDiveMaterialService 的持久化与状态变更规则。
+   */
   @Test
   void shouldDeleteStoredObjectAndDatabaseRecord() {
     ProjectDeepDiveRepository repository = mock(ProjectDeepDiveRepository.class);

@@ -1,8 +1,11 @@
+"""执行用户 Python 代码并汇总测试结果。"""
+
 import json
 import sys
 
 
 def _stable(value):
+    """将结果序列化为可稳定比较的 JSON 文本。"""
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 

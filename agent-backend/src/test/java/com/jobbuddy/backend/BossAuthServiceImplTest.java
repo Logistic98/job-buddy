@@ -26,14 +26,23 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 BossAuthServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class BossAuthServiceImplTest {
   private static final JsonCodec JSON = new JsonCodec();
 
+  /**
+   * 清理请求级认证作用域。
+   */
   @AfterEach
   void clearScope() {
     AuthenticationScope.clear();
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 中凭据的输入校验与拒绝边界。
+   */
   @Test
   void loginStatusCheckFailureShouldNotMarkCredentialInvalid() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -50,6 +59,9 @@ class BossAuthServiceImplTest {
         .updateStatus(eq("jackwener/boss-cli"), eq("auth_required"), any(Map.class));
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 中用户的权限与租户隔离边界。
+   */
   @Test
   void authenticationCacheMustBeIsolatedByTenantAndUser() {
     BossCliService bossCli = mock(BossCliService.class);
@@ -69,6 +81,9 @@ class BossAuthServiceImplTest {
     verify(bossCli, times(2)).status();
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 的权限与租户隔离边界。
+   */
   @Test
   void qrStartMustPersistCurrentOwnerWithServerSideExpiry() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -95,6 +110,9 @@ class BossAuthServiceImplTest {
             any(Instant.class));
   }
 
+  /**
+   * 验证不同入口共享活动二维码会话。
+   */
   @Test
   void activeQrSessionShouldBeSharedAcrossEntryPoints() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -117,6 +135,9 @@ class BossAuthServiceImplTest {
     verify(bossCli, never()).qrStart();
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 中工具的权限与租户隔离边界。
+   */
   @Test
   void qrOwnerMismatchMustFailBeforePollingTool() {
     AuthenticationScope.set("tenant-b", "user-b");
@@ -129,6 +150,9 @@ class BossAuthServiceImplTest {
     verify(bossCli, never()).qrStatus(eq("qr-a"), any());
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 的权限与租户隔离边界。
+   */
   @Test
   void missingQrOwnerMustFailClosed() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -141,6 +165,9 @@ class BossAuthServiceImplTest {
     verify(bossCli, never()).qrStatus(eq("unknown"), any());
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 中凭据的权限与租户隔离边界。
+   */
   @Test
   void qrLoggedInMustPersistReturnedCredentialForExactOwner() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -171,6 +198,9 @@ class BossAuthServiceImplTest {
     verify(repository).deleteQrSession("tenant-a", "user-a", "qr-a");
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 中凭据的身份认证与会话边界。
+   */
   @Test
   void qrLoggedInWithoutCredentialMustNotCreateFakeLoginMarker() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -193,6 +223,9 @@ class BossAuthServiceImplTest {
             any(Map.class));
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 中工具的流式生命周期与中断边界。
+   */
   @Test
   void qrCancelMustDeleteSessionOnlyAfterToolCancellationSucceeds() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -208,6 +241,9 @@ class BossAuthServiceImplTest {
     verify(repository).deleteQrSession("tenant-a", "user-a", "qr-a");
   }
 
+  /**
+   * 验证 BossAuthServiceImpl 中会话的失败恢复、超时与降级边界。
+   */
   @Test
   void qrCancelFailureMustPreserveSessionForRetry() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -223,6 +259,14 @@ class BossAuthServiceImplTest {
     verify(repository, never()).deleteQrSession(any(), any(), any());
   }
 
+  /**
+   * 验证二维码属主。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param qrSessionId 二维码会话标识
+   * @return qr 属主
+   */
   private Map<String, Object> qrOwner(String tenantId, String userId, String qrSessionId) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("tenantId", tenantId);
@@ -234,6 +278,13 @@ class BossAuthServiceImplTest {
     return row;
   }
 
+  /**
+   * 验证状态。
+   *
+   * @param status 状态
+   * @param ok 是否成功
+   * @return 执行状态
+   */
   private BossCliStatusResult status(String status, boolean ok) {
     BossCliStatusResult data = new BossCliStatusResult();
     data.setOk(ok);
@@ -242,6 +293,12 @@ class BossAuthServiceImplTest {
     return data;
   }
 
+  /**
+   * 验证响应封装。
+   *
+   * @param data 数据
+   * @return 模拟下游响应
+   */
   private BossCliQrResult envelope(Map<String, Object> data) {
     BossCliQrResult envelope = new BossCliQrResult();
     envelope.setOk(true);

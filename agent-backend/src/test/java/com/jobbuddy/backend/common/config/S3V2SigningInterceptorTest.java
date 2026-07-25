@@ -11,11 +11,19 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 S3V2SigningInterceptor 的核心行为、异常路径与边界条件。
+ */
 class S3V2SigningInterceptorTest {
 
   private final S3V2SigningInterceptor interceptor =
       new S3V2SigningInterceptor("access-key", "secret-key");
 
+  /**
+   * 验证 S3V2SigningInterceptor 的持久化与状态变更规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void rewritesGetRequestFromV4ToV2() throws Exception {
     Request request =
@@ -34,6 +42,9 @@ class S3V2SigningInterceptorTest {
     assertNotEquals(request.header("Authorization"), signed.header("Authorization"));
   }
 
+  /**
+   * 验证 S3V2SigningInterceptor 的核心业务契约。
+   */
   @Test
   void includesSignedSubresourcesInCanonicalResource() {
     Request request =
@@ -45,6 +56,11 @@ class S3V2SigningInterceptorTest {
     assertEquals("/job-buddy?location", interceptor.canonicalResource(request));
   }
 
+  /**
+   * 验证 S3V2SigningInterceptor 的核心业务契约。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void preservesPutContentHeadersWhenCreatingV2Signature() throws Exception {
     Request request =

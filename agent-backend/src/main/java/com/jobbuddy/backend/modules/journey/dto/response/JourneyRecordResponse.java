@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载求职旅程记录响应数据。
+ */
 @Data
 public class JourneyRecordResponse {
   private String recordId;
@@ -32,6 +35,9 @@ public class JourneyRecordResponse {
   private Instant createdAt;
   private Instant updatedAt;
 
+  /**
+   * 定义标签。
+   */
   @Data
   public static class Tag {
     private String label;

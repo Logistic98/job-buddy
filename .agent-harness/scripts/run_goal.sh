@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Run a single /goal-style task with budget enforcement and independent judging.
+# 运行单个 Goal 任务，并执行预算约束和独立裁判。
 #
-# Usage:
+# 用法：
 #   run_goal.sh <goal_file> [--max-turns N] [--max-minutes M] [--no-judge] [--model MODEL]
 #
-# Reads optional metadata from goal front matter:
+# 读取 Goal 前置元数据中的可选字段：
 #   max_turns: <int>
 #   max_minutes: <int>
-#   max_diff_lines: <int, 0 = unlimited>
+#   max_diff_lines: <int, 0 表示不限>
 #   verify_cmd: <shell command>
 #   model: <claude model name>
 #
-# Environment:
-#   CLAUDE_MODEL            default model override
-#   CLAUDE_PERMISSION_MODE  headless permission mode, default acceptEdits
+# 环境变量：
+#   CLAUDE_MODEL            默认模型覆盖
+#   CLAUDE_PERMISSION_MODE  无头权限模式，默认 acceptEdits
 
 set -euo pipefail
 

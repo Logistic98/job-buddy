@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Show recent harness runs and their summary status.
+# 展示最近 Harness 运行及其摘要状态。
 #
-# Usage:
+# 用法：
 #   status.sh [limit]
 
 set -euo pipefail

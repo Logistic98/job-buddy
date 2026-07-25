@@ -5,10 +5,17 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** 用户在 Boss 导入弹窗中明确勾选的岗位快照。 */
+/**
+ * 用户在 Boss 导入弹窗中明确勾选的岗位快照。
+ */
 public class BossFavoriteImportRequest {
   private List<JsonNode> jobs = Collections.emptyList();
 
+  /**
+   * 获取岗位列表。
+   *
+   * @return 岗位列表
+   */
   public List<JsonNode> getJobs() {
     List<JsonNode> copies = new ArrayList<JsonNode>();
     for (JsonNode job : jobs) {
@@ -17,6 +24,11 @@ public class BossFavoriteImportRequest {
     return copies;
   }
 
+  /**
+   * 设置岗位列表。
+   *
+   * @param jobs 岗位列表
+   */
   public void setJobs(List<JsonNode> jobs) {
     this.jobs = jobs == null ? Collections.<JsonNode>emptyList() : new ArrayList<JsonNode>(jobs);
   }

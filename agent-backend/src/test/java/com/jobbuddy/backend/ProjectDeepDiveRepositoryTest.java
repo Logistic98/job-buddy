@@ -17,8 +17,14 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 ProjectDeepDiveRepository 的核心行为、异常路径与边界条件。
+ */
 class ProjectDeepDiveRepositoryTest {
 
+  /**
+   * 验证 ProjectDeepDiveRepository 中项目的数量、长度与分页边界。
+   */
   @Test
   void projectListShouldLoadOnlySummariesAndCounts() {
     ProjectDeepDiveMapper mapper = mock(ProjectDeepDiveMapper.class);
@@ -37,6 +43,9 @@ class ProjectDeepDiveRepositoryTest {
     verifyNoMoreInteractions(mapper);
   }
 
+  /**
+   * 验证 ProjectDeepDiveRepository 中题目的持久化与状态变更规则。
+   */
   @Test
   void saveQuestionShouldInsertAndTouchProject() {
     ProjectDeepDiveMapper mapper = mock(ProjectDeepDiveMapper.class);
@@ -54,6 +63,9 @@ class ProjectDeepDiveRepositoryTest {
     verifyNoMoreInteractions(mapper);
   }
 
+  /**
+   * 验证 ProjectDeepDiveRepository 中题目的权限与租户隔离边界。
+   */
   @Test
   void updateQuestionShouldScopeByTenantAndTouchProject() {
     ProjectDeepDiveMapper mapper = mock(ProjectDeepDiveMapper.class);
@@ -71,6 +83,9 @@ class ProjectDeepDiveRepositoryTest {
     verifyNoMoreInteractions(mapper);
   }
 
+  /**
+   * 验证 ProjectDeepDiveRepository 中题目的持久化与状态变更规则。
+   */
   @Test
   void deleteQuestionShouldRemoveAndTouchOwningProject() {
     ProjectDeepDiveMapper mapper = mock(ProjectDeepDiveMapper.class);
@@ -88,6 +103,9 @@ class ProjectDeepDiveRepositoryTest {
     verifyNoMoreInteractions(mapper);
   }
 
+  /**
+   * 验证 ProjectDeepDiveRepository 中题目的输入校验与拒绝边界。
+   */
   @Test
   void deleteQuestionShouldSkipTouchWhenQuestionMissing() {
     ProjectDeepDiveMapper mapper = mock(ProjectDeepDiveMapper.class);
@@ -101,6 +119,12 @@ class ProjectDeepDiveRepositoryTest {
     verifyNoMoreInteractions(mapper);
   }
 
+  /**
+   * 验证记录列表。
+   *
+   * @param projectIds 项目标识列表
+   * @return 测试数据行 s
+   */
   private List<Map<String, Object>> rows(String... projectIds) {
     List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
     for (String projectId : projectIds) {

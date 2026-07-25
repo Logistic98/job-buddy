@@ -13,10 +13,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
- * Populates the logging MDC with correlation identifiers so every log line emitted while handling a
- * request can be tied back to a request_id / session_id / operator_id. Correlation identifiers may
- * come from inbound headers, but operator_id is initialized as unknown here and replaced only after
- * authentication succeeds. Values are cleared after the request completes.
+ * 将关联标识写入日志 MDC，使请求日志可按 request_id、session_id 和 operator_id 追踪。
+ *
+ * <p>关联标识可来自请求头，但 operator_id 仅在鉴权成功后替换；请求结束时统一清理。
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -31,6 +30,15 @@ public class MdcContextFilter extends OncePerRequestFilter {
   private static final String HEADER_SESSION_ID = "X-Session-Id";
   private static final String HEADER_RUN_ID = "X-Run-Id";
 
+  /**
+   * 绑定请求日志上下文并执行过滤链。
+   *
+   * @param request 请求参数
+   * @param response 响应数据
+   * @param chain 过滤链
+   * @throws ServletException 处理失败时抛出
+   * @throws IOException 文件读写失败时抛出
+   */
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -61,6 +69,13 @@ public class MdcContextFilter extends OncePerRequestFilter {
     }
   }
 
+  /**
+   * 读取首个非空白文本。
+   *
+   * @param primary 主值
+   * @param fallback 降级
+   * @return 首个非空白文本
+   */
   private static String firstNonBlank(String primary, String fallback) {
     if (primary != null && !primary.trim().isEmpty()) return primary.trim();
     if (fallback != null && !fallback.trim().isEmpty()) return fallback.trim();

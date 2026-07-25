@@ -36,19 +36,31 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 JobRuntimeServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class JobRuntimeServiceImplTest {
   private static final JsonCodec JSON = new JsonCodec();
 
+  /**
+   * 绑定测试认证作用域。
+   */
   @BeforeEach
   void bindAuthenticationScope() {
     AuthenticationScope.set("tenant-a", "user-a");
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中认证的身份认证与会话边界。
+   */
   @AfterEach
   void clearAuthenticationScope() {
     AuthenticationScope.clear();
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
+   */
   @Test
   void recommendJobsFastShouldServeFirstPaintAndFlipFromSinglePagePoolWithoutExtraBossCalls() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -121,6 +133,9 @@ class JobRuntimeServiceImplTest {
         .rememberCurrentCredential(any(com.fasterxml.jackson.databind.JsonNode.class));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
+   */
   @Test
   void recommendJobsFastShouldTopUpOnePageWhenFilteringLeavesNoRecommendationReserve() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -172,6 +187,9 @@ class JobRuntimeServiceImplTest {
     verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), anyInt());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
+   */
   @Test
   void recommendJobsFastShouldUseSecondReservePageWhenPreviousPageAddsNoCandidates() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -223,6 +241,9 @@ class JobRuntimeServiceImplTest {
     verify(bossCliService, times(2)).searchJobsPage(any(IntentResult.class), anyInt());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
+   */
   @Test
   void recommendJobsFastShouldDropOffSalaryAndInternJobsWhenSalaryRangeGiven() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -298,6 +319,9 @@ class JobRuntimeServiceImplTest {
     assertTrue(!keptIds.contains("dayIntern"));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的输入校验与拒绝边界。
+   */
   @Test
   void recommendJobsFastShouldRejectUnsupportedSpecialtyFromProfileEvidence() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -343,6 +367,9 @@ class JobRuntimeServiceImplTest {
     assertEquals("fit", result.get(0).get("securityId"));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
+   */
   @Test
   void recommendJobsFastShouldUseRealSearch() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -383,6 +410,9 @@ class JobRuntimeServiceImplTest {
     verify(bossCliService).searchJobsFirstPage(any(IntentResult.class));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
+   */
   @Test
   void recommendJobsFastShouldOverfetchCandidatesAndNeverWrapConsumedRows() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -442,6 +472,9 @@ class JobRuntimeServiceImplTest {
     verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), anyInt());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中用户的权限与租户隔离边界。
+   */
   @Test
   void fastSearchCacheMustBeIsolatedByTenantAndUser() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -484,6 +517,9 @@ class JobRuntimeServiceImplTest {
     verify(bossCliService, times(2)).searchJobsFirstPage(any(IntentResult.class));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中工具的失败恢复、超时与降级边界。
+   */
   @Test
   void bossCandidatePoolTimeoutShouldExceedBoundedToolRetryBudget() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -503,6 +539,9 @@ class JobRuntimeServiceImplTest {
     assertTrue(service.bossCandidatePoolTimeoutSeconds() >= 50);
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中简历的检索、筛选与排序规则。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void matchResumeShouldKeepOnlyJobsMeetingMinimumRecommendedScore() {
@@ -537,6 +576,9 @@ class JobRuntimeServiceImplTest {
     assertFalse(Boolean.TRUE.equals(result.get("recommendation_threshold_relaxed")));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中简历的检索、筛选与排序规则。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void matchResumeShouldKeepHighestScoreWhenNoJobMeetsMinimum() {
@@ -569,6 +611,9 @@ class JobRuntimeServiceImplTest {
     assertTrue(String.valueOf(result.get("warnings")).contains("匹配度最高"));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中简历的检索、筛选与排序规则。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void matchResumeSectionsShouldNotInferConfidenceForNonEvidencePartialResult() {
@@ -608,6 +653,9 @@ class JobRuntimeServiceImplTest {
     assertFalse(matches.get(0).containsKey("evidence_count"));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位推荐的输入校验与拒绝边界。
+   */
   @Test
   void prequalifyRecommendationsShouldRejectLowScoreLowConfidenceAndNegativeAdvice() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -657,6 +705,9 @@ class JobRuntimeServiceImplTest {
             any());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的输入校验与拒绝边界。
+   */
   @Test
   void jobRecommendationResultShouldRejectUnaccountedOrNegativeRejections() {
     IllegalArgumentException unaccounted =
@@ -682,6 +733,9 @@ class JobRuntimeServiceImplTest {
     assertTrue(negative.getMessage().contains("拒绝原因计数"));
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位推荐的检索、筛选与排序规则。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void prequalifyRecommendationsShouldScoreAllTwentyThreeCandidatesAndConserveFunnel() {
@@ -747,6 +801,9 @@ class JobRuntimeServiceImplTest {
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void prequalifyRecommendationsShouldNotConsumeQualifiedJobsPastFinalDisplaySlot() {
@@ -810,6 +867,9 @@ class JobRuntimeServiceImplTest {
         result.getCandidateCount(), result.getQualifiedCount() + result.getRejectedCount());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位推荐的输入校验与拒绝边界。
+   */
   @Test
   void prequalifyRecommendationsShouldRetryIncompleteBatchWithoutCountingMissingRowsAsLowScore() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -850,6 +910,9 @@ class JobRuntimeServiceImplTest {
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位推荐的失败恢复、超时与降级边界。
+   */
   @Test
   void prequalifyRecommendationsShouldFailWhenSplitRetryIsStillIncomplete() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -887,6 +950,9 @@ class JobRuntimeServiceImplTest {
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位推荐的输入校验与拒绝边界。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void prequalifyRecommendationsShouldContinueBossSearchWhenInitialCandidatesAreRejected() {
@@ -954,6 +1020,9 @@ class JobRuntimeServiceImplTest {
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位推荐的检索、筛选与排序规则。
+   */
   @Test
   void prequalifyRecommendationsShouldContinueFromEmptyInitialBatchWithinBossPageDepth() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -1014,6 +1083,9 @@ class JobRuntimeServiceImplTest {
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中岗位推荐的检索、筛选与排序规则。
+   */
   @Test
   void prequalifyRecommendationsShouldStopEmptyContinuationAndReturnNoQualifiedWarning() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -1063,6 +1135,9 @@ class JobRuntimeServiceImplTest {
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
+  /**
+   * 验证 JobRuntimeServiceImpl 中简历的输入校验与拒绝边界。
+   */
   @Test
   void matchResumeShouldRejectFixtureEvidenceBeforeCallingRuntimeTool() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
@@ -1099,6 +1174,11 @@ class JobRuntimeServiceImplTest {
             any(String.class));
   }
 
+  /**
+   * 构造已解析简历数据。
+   *
+   * @return 解析结果
+   */
   private ResumeRecord parsedResume() {
     ResumeRecord resume = new ResumeRecord();
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();
@@ -1107,6 +1187,12 @@ class JobRuntimeServiceImplTest {
     return resume;
   }
 
+  /**
+   * 构造真实岗位测试数据。
+   *
+   * @param id 标识
+   * @return 真实岗位测试数据
+   */
   private Map<String, Object> realJob(String id) {
     Map<String, Object> job = new LinkedHashMap<String, Object>();
     job.put("securityId", id);
@@ -1116,6 +1202,13 @@ class JobRuntimeServiceImplTest {
     return job;
   }
 
+  /**
+   * 验证匹配记录。
+   *
+   * @param id 标识
+   * @param score 评分
+   * @return 匹配记录
+   */
   private Map<String, Object> matchRow(String id, int score) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("id", id);
@@ -1124,6 +1217,15 @@ class JobRuntimeServiceImplTest {
     return row;
   }
 
+  /**
+   * 验证推荐匹配。
+   *
+   * @param id 标识
+   * @param score 评分
+   * @param confidence 置信度
+   * @param recommendation 推荐
+   * @return recommendation 匹配
+   */
   private Map<String, Object> recommendationMatch(
       String id, int score, String confidence, String recommendation) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
@@ -1135,6 +1237,12 @@ class JobRuntimeServiceImplTest {
     return row;
   }
 
+  /**
+   * 验证运行时匹配。
+   *
+   * @param matches 匹配结果列表
+   * @return runtime 匹配
+   */
   private RuntimeToolResult runtimeMatch(Map<String, Object>... matches) {
     Map<String, Object> output = new LinkedHashMap<String, Object>();
     output.put("matches", java.util.Arrays.asList(matches));
@@ -1145,6 +1253,12 @@ class JobRuntimeServiceImplTest {
     return RuntimeToolResult.fromJson(JSON.toTree(result));
   }
 
+  /**
+   * 验证岗位列表。
+   *
+   * @param count 数量
+   * @return 测试岗位 s
+   */
   private List<Map<String, Object>> jobs(int count) {
     List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
     for (int i = 0; i < count; i++) {
@@ -1157,6 +1271,13 @@ class JobRuntimeServiceImplTest {
     return rows;
   }
 
+  /**
+   * 构造带统一前缀的岗位列表。
+   *
+   * @param prefix 名称前缀
+   * @param count 数量
+   * @return 测试岗位 sWithPrefix
+   */
   private List<Map<String, Object>> jobsWithPrefix(String prefix, int count) {
     List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
     for (int i = 0; i < count; i++) {
@@ -1165,6 +1286,14 @@ class JobRuntimeServiceImplTest {
     return rows;
   }
 
+  /**
+   * 验证岗位。
+   *
+   * @param securityId 安全标识
+   * @param jobName 岗位名称
+   * @param salaryDesc 薪资说明
+   * @return 测试岗位
+   */
   private Map<String, Object> job(String securityId, String jobName, String salaryDesc) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("securityId", securityId);
@@ -1173,6 +1302,15 @@ class JobRuntimeServiceImplTest {
     return row;
   }
 
+  /**
+   * 构造带薪资上下限的岗位。
+   *
+   * @param securityId 安全标识
+   * @param jobName 岗位名称
+   * @param lowSalary 最低薪资
+   * @param highSalary 最高薪资
+   * @return 测试岗位 WithSalaryBounds
+   */
   private Map<String, Object> jobWithSalaryBounds(
       String securityId, String jobName, int lowSalary, int highSalary) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();

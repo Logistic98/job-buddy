@@ -34,6 +34,13 @@ import {
   shouldShowExamOpening,
 } from '../utils/interviewForm'
 
+/**
+ * 编排题库维护、组卷练习、计时、答题与代码调试状态。
+ *
+ * @param {object} props 页面模式与初始参数
+ * @param {Function} emit 向父组件发送页面事件
+ * @returns 页面模板使用的响应式状态和操作方法
+ */
 export function useInterviewBankPage(props, emit) {
   const activeMode = computed(() => (props.mode === 'exam' ? 'exam' : 'bank'))
 

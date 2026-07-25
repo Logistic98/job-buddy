@@ -6,6 +6,9 @@ import java.time.Instant;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载面试题目响应数据。
+ */
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class InterviewQuestionResponse {
@@ -27,6 +30,9 @@ public class InterviewQuestionResponse {
   private Double score;
   private Integer displayOrder;
 
+  /**
+   * 定义标签。
+   */
   @Data
   public static class Tag {
     private String label;

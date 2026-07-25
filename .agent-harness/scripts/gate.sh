@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-# Quality gate for development handoff. It must pass before an agent reports a
-# task as completed.
+# 开发交付质量门；Agent 报告任务完成前必须通过。
 #
-# Usage:
-#   gate.sh                         # quick all-module tests + all evals
-#   gate.sh agent-backend --quick   # backend tests + backend evals
-#   gate.sh all --full              # full verify + all evals
-#   gate.sh agent-backend --no-eval # tests only, not recommended
+# 用法：
+#   gate.sh                         # 快速执行全部模块测试与评估
+#   gate.sh agent-backend --quick   # 执行 Backend 测试与评估
+#   gate.sh all --full              # 完整验证与全部评估
+#   gate.sh agent-backend --no-eval # 仅测试，不推荐
 
 set -euo pipefail
 
@@ -97,7 +96,7 @@ if [[ "$QUICK" -eq 1 ]]; then
 fi
 
 log "verify: ./.agent-harness/scripts/verify.sh ${verify_target[*]:-}"
-# ${arr[@]+...} keeps empty-array expansion safe under macOS bash 3.2 with set -u.
+# ${arr[@]+...} 保证 macOS Bash 3.2 在 set -u 下安全展开空数组。
 if ./.agent-harness/scripts/verify.sh ${verify_target[@]+"${verify_target[@]}"} > "$VERIFY_LOG" 2>&1; then
   log "verify passed"
 else

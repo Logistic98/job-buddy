@@ -1,4 +1,3 @@
-<!-- 高亮内容由 codeHighlight.js 完整转义后生成，仅插入受控 token span。 -->
 <!-- eslint-disable vue/no-v-html -->
 <template>
   <div class="code-highlight-editor" :data-language="normalizedLanguage">

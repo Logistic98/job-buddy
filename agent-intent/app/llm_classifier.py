@@ -41,6 +41,7 @@ def llm_enabled() -> bool:
 
 
 def classify_with_llm(text: str) -> Optional[IntentResult]:
+    # 模型分类是可选末级能力，缺少完整配置时直接降级到本地评分层。
     if not llm_enabled():
         return None
     base_url = os.getenv("AGENT_INTENT_LLM_BASE_URL", "").rstrip("/")
@@ -61,6 +62,7 @@ def classify_with_llm(text: str) -> Optional[IntentResult]:
         "temperature": 0,
     }
 
+    # 仅对网络瞬断和服务端错误重试，其他错误直接降级。
     for attempt in range(max_retries + 1):
         try:
             response = httpx.post(

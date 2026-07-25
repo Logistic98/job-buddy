@@ -1,3 +1,5 @@
+"""加载根目录环境文件，同时保持进程环境变量优先。"""
+
 import os
 from pathlib import Path
 

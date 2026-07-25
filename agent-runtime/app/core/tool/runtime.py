@@ -1,3 +1,5 @@
+"""提供受治理的工具调用与目录重载操作。"""
+
 import asyncio
 from typing import Optional
 
@@ -36,6 +38,7 @@ class ToolRuntime:
                 tool_call_id=call.id, tool_name=call.name, success=False, error=f"工具不存在: {call.name}"
             )
 
+        # 无预审结论时执行权限判定，并持久化本次判定供 Trace 使用。
         decision = permission_decision or await self.permission_service.check(tool.definition(), call, permission_mode)
         self.last_permission_record = PermissionRecord(
             tool_call_id=call.id,
@@ -58,6 +61,7 @@ class ToolRuntime:
         max_retries = tool.max_retries if tool.max_retries is not None else settings.config.tool_runtime.max_retries
         backoff = settings.config.tool_runtime.retry_backoff_seconds
         last_result: ToolResult = ToolResult(tool_call_id=call.id, tool_name=tool.name, success=False, error="未执行")
+        # 每次重试都重新进入工具安全包装，但不绕过既定权限结论。
         for attempt in range(max_retries + 1):
             if attempt > 0:
                 await asyncio.sleep(backoff * (2 ** (attempt - 1)))

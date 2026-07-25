@@ -23,11 +23,17 @@ public final class ChatSseSupport {
 
   public static final String SELECTED_JOB_CONTEXT_KEY = "_selected_job";
 
+  /**
+   * 创建对话 SSE 支持组件实例。
+   */
   private ChatSseSupport() {}
 
   /**
    * 判定一条用户消息是否值得写入长期记忆，并返回长期记忆类型；普通对话返回 null（只进短期记忆）。
    * 约束类（排除/不要/不考虑/约束）优先于偏好类（偏好/优先/目标/期望/希望/喜欢/倾向）。
+   *
+   * @param message 消息内容
+   * @return 记忆类型
    */
   public static String classifyMemoryType(String message) {
     String text = message == null ? "" : message;
@@ -43,7 +49,12 @@ public final class ChatSseSupport {
     return null;
   }
 
-  /** 与 ChatSessionStore 保持一致的记忆噪声判定：只按稳定标识字段 id/name 过滤，避免展示文案命中“记忆”导致误删。 */
+  /**
+   * 与 ChatSessionStore 保持一致的记忆噪声判定：只按稳定标识字段 id/name 过滤，避免展示文案命中“记忆”导致误删。
+   *
+   * @param event 事件名称
+   * @return 是否为记忆噪声事件
+   */
   public static boolean isMemoryNoiseEvent(Map<String, Object> event) {
     if (event == null) return false;
     StringBuilder builder = new StringBuilder();
@@ -57,6 +68,9 @@ public final class ChatSseSupport {
 
   /**
    * 工具事件累积到内存会话状态（按 id 合并、过滤记忆噪声步骤），供本轮答案落库与刷新后回看推理过程使用。 这里不直接写库，避免每个 tool_status 都触发一次 DB 写造成串行阻塞。
+   *
+   * @param state 状态
+   * @param event 事件名称
    */
   public static void accumulateToolEvent(ChatSessionState state, Map<String, Object> event) {
     if (state == null || event == null || event.get("id") == null) return;
@@ -75,6 +89,16 @@ public final class ChatSseSupport {
     state.toolEvents.add(event);
   }
 
+  /**
+   * 解析工具执行状态。
+   *
+   * @param id 标识
+   * @param title 标题
+   * @param status 状态
+   * @param summary 摘要
+   * @param detail 详情
+   * @return 工具执行状态
+   */
   public static Map<String, Object> toolStatus(
       String id, String title, String status, String summary, Object detail) {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
@@ -87,7 +111,13 @@ public final class ChatSseSupport {
     return data;
   }
 
-  /** 选中岗位分析：把岗位关键信息注入 Runtime 消息上下文，回答仍走常规问答持久化链路。 */
+  /**
+   * 选中岗位分析：把岗位关键信息注入 Runtime 消息上下文，回答仍走常规问答持久化链路。
+   *
+   * @param message 消息内容
+   * @param selectedJob 已选岗位
+   * @return 包含已选岗位的上下文
+   */
   public static String withSelectedJobContext(String message, Map<String, Object> selectedJob) {
     if (selectedJob == null || selectedJob.isEmpty()) return message;
     StringBuilder builder = new StringBuilder(message == null ? "" : message);
@@ -110,6 +140,14 @@ public final class ChatSseSupport {
     return builder.toString();
   }
 
+  /**
+   * 追加非空岗位字段。
+   *
+   * @param builder 构建器
+   * @param label 标签
+   * @param job 岗位
+   * @param keys 键列表
+   */
   private static void appendJobField(
       StringBuilder builder, String label, Map<String, Object> job, String... keys) {
     for (String key : keys) {
@@ -123,6 +161,12 @@ public final class ChatSseSupport {
     }
   }
 
+  /**
+   * 清理岗位字段文本。
+   *
+   * @param value 待处理值
+   * @return 清理后的岗位字段文本
+   */
   private static String cleanJobFieldText(Object value) {
     String raw =
         String.valueOf(value == null ? "" : value).replace("\r\n", "\n").replace('\r', '\n');
@@ -137,7 +181,12 @@ public final class ChatSseSupport {
     return builder.toString().trim();
   }
 
-  /** 把 agent-intent 预判结果整理为 runtime intent_hint 元数据，runtime 对未知元数据安全忽略。 */
+  /**
+   * 把 agent-intent 预判结果整理为 runtime intent_hint 元数据，runtime 对未知元数据安全忽略。
+   *
+   * @param preIntent 前置意图结果
+   * @return 意图提示
+   */
   public static Map<String, Object> intentHint(IntentResult preIntent) {
     if (preIntent == null) return Collections.emptyMap();
     Map<String, Object> hint = new LinkedHashMap<String, Object>();
@@ -152,6 +201,12 @@ public final class ChatSseSupport {
     return hint;
   }
 
+  /**
+   * 从运行时结果解析意图。
+   *
+   * @param directive 指令
+   * @return 意图结果
+   */
   @SuppressWarnings("unchecked")
   public static IntentResult intentFromRuntime(Map<String, Object> directive) {
     Object slots = directive.get("slots");
@@ -177,7 +232,14 @@ public final class ChatSseSupport {
     return intentResult;
   }
 
-  /** 同时按执行 action 与业务 intent 匹配处理器。 */
+  /**
+   * 同时按执行 action 与业务 intent 匹配处理器。
+   *
+   * @param action 执行动作
+   * @param intent 意图
+   * @param keys 键列表
+   * @return 是否匹配目标能力
+   */
   public static boolean matchesCapability(String action, IntentResult intent, String... keys) {
     String intentName = intent == null ? "" : stringValue(intent.getIntent());
     for (String key : keys) {
@@ -188,6 +250,13 @@ public final class ChatSseSupport {
     return false;
   }
 
+  /**
+   * 解析运行时指令动作。
+   *
+   * @param directive 指令
+   * @param intent 意图
+   * @return 指令动作
+   */
   public static String directiveAction(Map<String, Object> directive, IntentResult intent) {
     Object action = directive.get("next_action");
     String value = stringValue(action);
@@ -197,6 +266,14 @@ public final class ChatSseSupport {
         : stringValue(intent.getNextAction(), intent.getIntent());
   }
 
+  /**
+   * 解析用户手动指定的目标岗位。
+   *
+   * @param targetRole 目标角色
+   * @param targetDescription 目标描述
+   * @param slots 槽位
+   * @return 目标岗位列表
+   */
   public static List<Map<String, Object>> manualTargetJobs(
       String targetRole, String targetDescription, Map<String, Object> slots) {
     if (!hasSufficientUserProvidedJd(targetDescription)) return Collections.emptyList();
@@ -210,10 +287,22 @@ public final class ChatSseSupport {
     return Collections.singletonList(job);
   }
 
+  /**
+   * 判断是否存在足量用户提供的职位描述。
+   *
+   * @param targetDescription 目标描述
+   * @return 用户提供的岗位描述是否充分
+   */
   public static boolean hasSufficientUserProvidedJd(String targetDescription) {
     return stringValue(targetDescription).length() >= 30;
   }
 
+  /**
+   * 格式化岗位薪资文本。
+   *
+   * @param slots 槽位
+   * @return 薪资文本
+   */
   private static String salaryText(Map<String, Object> slots) {
     if (slots == null) return "";
     Object min = slots.get("salary_min_k");
@@ -223,6 +312,12 @@ public final class ChatSseSupport {
     return "";
   }
 
+  /**
+   * 压缩岗位匹配详情。
+   *
+   * @param match 匹配
+   * @return 精简匹配详情
+   */
   public static Map<String, Object> compactMatchDetail(Map<String, Object> match) {
     Map<String, Object> detail = new LinkedHashMap<String, Object>();
     Object matches = match == null ? null : match.get("matches");
@@ -232,6 +327,12 @@ public final class ChatSseSupport {
     return detail;
   }
 
+  /**
+   * 生成简历匹配摘要。
+   *
+   * @param match 匹配
+   * @return 简历匹配摘要
+   */
   public static String resumeMatchSummary(Map<String, Object> match) {
     Map<String, Object> row = firstMatch(match);
     if (!row.isEmpty()) {
@@ -257,7 +358,15 @@ public final class ChatSseSupport {
     return "简历匹配已完成，匹配详情已同步到当前岗位卡片。";
   }
 
-  /** 生成显式携带“当前简历 + 被引用岗位”的回答，避免正确路由后仍给用户造成丢失上下文的感知。 */
+  /**
+   * 生成显式携带“当前简历 + 被引用岗位”的回答，避免正确路由后仍给用户造成丢失上下文的感知。
+   *
+   * @param match 匹配结果
+   * @param resumeName 简历名称
+   * @param targetJob 目标岗位
+   * @param reusedPreviousJob 是否复用上一岗位
+   * @return 显式携带“当前简历 + 被引用岗位”的回答，避免正确路由后仍给用户造成丢失上下文的感知
+   */
   public static String resumeMatchSummary(
       Map<String, Object> match,
       String resumeName,
@@ -306,6 +415,12 @@ public final class ChatSseSupport {
     return builder.toString().trim();
   }
 
+  /**
+   * 生成已选岗位展示标签。
+   *
+   * @param job 岗位
+   * @return 岗位展示标签
+   */
   public static String selectedJobLabel(Map<String, Object> job) {
     if (job == null || job.isEmpty()) return "目标岗位";
     String name = stringValue(firstPresent(job, "jobName", "job_name", "title", "name"));
@@ -316,6 +431,12 @@ public final class ChatSseSupport {
     return company + " / " + name;
   }
 
+  /**
+   * 读取首个岗位匹配结果。
+   *
+   * @param match 匹配
+   * @return 首个岗位匹配结果
+   */
   @SuppressWarnings("unchecked")
   private static Map<String, Object> firstMatch(Map<String, Object> match) {
     Object matches = match == null ? null : match.get("matches");
@@ -328,6 +449,12 @@ public final class ChatSseSupport {
         : Collections.<String, Object>emptyMap();
   }
 
+  /**
+   * 读取列表中的首个非空文本。
+   *
+   * @param value 待处理值
+   * @return 首个非空文本
+   */
   private static String firstListText(Object value) {
     if (!(value instanceof List)) return "";
     for (Object item : (List<?>) value) {
@@ -337,6 +464,13 @@ public final class ChatSseSupport {
     return "";
   }
 
+  /**
+   * 追加非空摘要列表。
+   *
+   * @param builder 构建器
+   * @param label 标签
+   * @param value 待处理值
+   */
   private static void appendSummaryList(StringBuilder builder, String label, Object value) {
     if (!(value instanceof List)) return;
     List<?> rows = (List<?>) value;
@@ -351,7 +485,12 @@ public final class ChatSseSupport {
     for (String text : texts) builder.append("- ").append(text).append('\n');
   }
 
-  /** 仅归一普通说明文本的重复句末标点，不改写词内符号、版本号或 Markdown 结构。 */
+  /**
+   * 仅归一普通说明文本的重复句末标点，不改写词内符号、版本号或 Markdown 结构。
+   *
+   * @param value 输入值
+   * @return 规范化标点后的文本
+   */
   private static String normalizeProsePunctuation(String value) {
     String text = stringValue(value).trim();
     if (text.isEmpty()) return "";
@@ -364,11 +503,23 @@ public final class ChatSseSupport {
         .replaceAll("([。！？])\\.+", "$1");
   }
 
-  /** 列表负责表达分隔关系，因此移除条目自带的句末符号，避免与模板再次拼接产生“。。”或“。；”。 */
+  /**
+   * 列表负责表达分隔关系，因此移除条目自带的句末符号，避免与模板再次拼接产生“。。”或“。；”。
+   *
+   * @param value 输入值
+   * @return 移除末尾标点后的文本
+   */
   private static String stripTerminalPunctuation(String value) {
     return stringValue(value).trim().replaceFirst("[。！？；，、：,.!?;:]+$", "").trim();
   }
 
+  /**
+   * 生成通用简历匹配降级回答。
+   *
+   * @param resume 简历
+   * @param targetRole 目标角色
+   * @return 降级回答
+   */
   public static String fallbackGeneralResumeMatchAnswer(ResumeRecord resume, String targetRole) {
     String role = stringValue(targetRole, "目标岗位");
     return "当前缺少具体 JD，以下为基于“"
@@ -382,6 +533,12 @@ public final class ChatSseSupport {
         + " Java/Python 后端工程化。提供目标岗位 JD 后，可继续按真实职责逐条对照。";
   }
 
+  /**
+   * 汇总运行时执行结果。
+   *
+   * @param result 结果
+   * @return 执行结果摘要
+   */
   public static String summarizeRuntimeResult(Map<String, Object> result) {
     if (result == null || result.isEmpty()) return "空响应";
     Object error = firstPresent(result, "error", "message", "detail");

@@ -1,6 +1,4 @@
-// Pure DOM helpers that turn a measured resume article into print-page segment groups.
-// Extracted from ResumeWriter.vue so the pagination math can be unit-tested in isolation and
-// the component keeps only its reactive orchestration.
+// 将测量后的简历内容划分为打印页片段，分页计算可脱离组件独立测试。
 
 export function isHeadingSegment(segment) {
   return segment?.type === 'node' && /^H[2-4]$/.test(segment.node.tagName)
@@ -62,8 +60,7 @@ export function renderPageSegments(group) {
   return htmlParts.join('\n')
 }
 
-// Splits ordered page segments into page groups that fit within `usable` vertical space.
-// Keeps a trailing heading with the following block so section titles never end a page alone.
+// 按可用高度分组有序片段，并将页尾标题与后续内容绑定，避免标题单独占据页尾。
 export function groupSegmentsIntoPages(blocks, usable) {
   if (!blocks.length) return []
   const groups = []
@@ -78,6 +75,7 @@ export function groupSegmentsIntoPages(blocks, usable) {
     if (block.forced || block.bottom - startTop > usable) {
       const last = current[current.length - 1]
       let carry = null
+      // 普通分页时将页尾孤立标题带到下一页；强制分页保持原始边界。
       if (!block.forced && current.length > 1 && isHeadingSegment(last)) {
         current.pop()
         carry = last

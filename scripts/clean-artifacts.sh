@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 以 dry-run 为默认方式清理可再生成产物和过期运行日志。
+
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

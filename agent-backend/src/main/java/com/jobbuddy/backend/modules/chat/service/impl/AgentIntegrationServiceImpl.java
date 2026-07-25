@@ -24,6 +24,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * 实现 Backend 到 Agent Runtime 的有界 HTTP 与 SSE 调用。
+ *
+ * <p>内部身份随请求透传，传输故障由公共弹性策略分类；仅 Runtime 明确为可选时允许返回空结果。
+ */
 @Service
 public class AgentIntegrationServiceImpl implements AgentIntegrationService {
   private static final Logger log = LoggerFactory.getLogger(AgentIntegrationServiceImpl.class);
@@ -32,6 +37,14 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
   private final JsonCodec jsonCodec;
   private final ServiceResilience resilience;
 
+  /**
+   * 创建 Agent 集成服务实例。
+   *
+   * @param restTemplate HTTP 请求客户端
+   * @param properties 配置属性
+   * @param jsonCodec JSON 编解码器
+   * @param resilience 弹性策略
+   */
   public AgentIntegrationServiceImpl(
       RestTemplate restTemplate,
       AgentServiceProperties properties,
@@ -43,6 +56,12 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
     this.resilience = resilience;
   }
 
+  /**
+   * 执行 Runtime。
+   *
+   * @param request 请求对象
+   * @return 执行后的运行时
+   */
   public RuntimeRunResult runRuntime(RuntimeRunRequest request) {
     String baseUrl = runtimeBaseUrl();
     if (baseUrl.isEmpty()) return RuntimeRunResult.empty();
@@ -50,6 +69,13 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
     return postRuntimeRun(baseUrl + "/v1/agent/runs", runtimeRequest);
   }
 
+  /**
+   * 调用 Runtime 工具。
+   *
+   * @param toolName 工具名称
+   * @param arguments 工具参数
+   * @return Runtime 工具调用结果
+   */
   public RuntimeToolResult invokeRuntimeTool(String toolName, RuntimeToolArguments arguments) {
     String baseUrl = runtimeBaseUrl();
     if (baseUrl.isEmpty()) return RuntimeToolResult.empty();
@@ -64,13 +90,29 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
     return postRuntimeTool(baseUrl + "/v1/runtime/tools/" + normalizedName + "/invoke", request);
   }
 
+  /**
+   * 执行 Runtime 流式响应。
+   *
+   * @param request 请求对象
+   * @param onToken 令牌回调函数
+   * @return 执行后的运行时流式
+   */
   public RuntimeRunResult runRuntimeStream(RuntimeRunRequest request, Consumer<String> onToken) {
     return runRuntimeStream(request, onToken, null);
   }
 
+  /**
+   * 执行 Runtime 流式响应。
+   *
+   * @param request 请求对象
+   * @param onToken 令牌回调函数
+   * @param onReasoning 推理内容回调
+   * @return 执行后的运行时流式
+   */
   public RuntimeRunResult runRuntimeStream(
       RuntimeRunRequest request, Consumer<String> onToken, Consumer<String> onReasoning) {
     String baseUrl = runtimeBaseUrl();
+    // 未配置服务或熔断开启时直接降级，避免继续建立流式连接。
     if (baseUrl.isEmpty()) return RuntimeRunResult.empty();
     String url = baseUrl + "/v1/agent/runs/stream";
     if (resilience.isOpen("agent-runtime-stream")) {
@@ -119,6 +161,7 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
         resilience.recordFailure("agent-runtime-stream");
         return RuntimeRunResult.empty();
       }
+      // SSE 逐帧区分答案、推理、终态和错误事件。
       RuntimeRunResult doneData = RuntimeRunResult.empty();
       String currentEvent = "message";
       BufferedReader reader =
@@ -173,14 +216,31 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
     }
   }
 
+  /**
+   * 获取运行时服务地址。
+   *
+   * @return 运行时服务地址
+   */
   private String runtimeBaseUrl() {
     return properties.resolvedRuntimeUrl();
   }
 
+  /**
+   * 构建运行时执行请求。
+   *
+   * @param url 请求地址
+   * @param request 请求对象
+   * @return 运行时执行响应
+   */
   private RuntimeRunResult postRuntimeRun(final String url, final RuntimeRunRequest request) {
     return resilience.call(
         "agent-runtime",
         new java.util.function.Supplier<RuntimeRunResult>() {
+          /**
+           * 按标识读取数据。
+           *
+           * @return 查询结果
+           */
           public RuntimeRunResult get() {
             JsonNode response = restTemplate.postForObject(url, request.toJson(), JsonNode.class);
             return RuntimeRunResult.fromJson(responseDataOrEnvelope(response));
@@ -190,10 +250,22 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
         false);
   }
 
+  /**
+   * 构建运行时工具请求。
+   *
+   * @param url 请求地址
+   * @param request 请求对象
+   * @return 运行时工具响应
+   */
   private RuntimeToolResult postRuntimeTool(final String url, final ObjectNode request) {
     return resilience.call(
         "agent-runtime",
         new java.util.function.Supplier<RuntimeToolResult>() {
+          /**
+           * 按标识读取数据。
+           *
+           * @return 查询结果
+           */
           public RuntimeToolResult get() {
             JsonNode response = restTemplate.postForObject(url, request, JsonNode.class);
             return RuntimeToolResult.fromJson(responseDataOrEnvelope(response));
@@ -203,6 +275,12 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
         false);
   }
 
+  /**
+   * 提取响应数据或完整响应体。
+   *
+   * @param response 响应对象
+   * @return 响应数据或完整响应体
+   */
   private JsonNode responseDataOrEnvelope(JsonNode response) {
     if (response == null || !response.isObject()) return JsonNodeFactory.instance.objectNode();
     JsonNode data = response.get("data");

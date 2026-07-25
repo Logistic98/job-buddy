@@ -1,3 +1,5 @@
+"""提供有界的工作区文件与文本搜索工具。"""
+
 import fnmatch
 from pathlib import Path
 from typing import Any, Dict
@@ -7,6 +9,8 @@ from app.core.tool.base import BaseTool, ToolExecutionContext
 
 
 class GlobTool(BaseTool):
+    """在已校验工作区内按 Glob 返回有界文件列表。"""
+
     name = "glob"
     aliases = ["find_files"]
     search_hint = "按 glob 查找 文件"
@@ -36,6 +40,8 @@ class GlobTool(BaseTool):
 
 
 class GrepTool(BaseTool):
+    """在已校验工作区内返回有界文本匹配。"""
+
     name = "grep"
     aliases = ["search_text"]
     search_hint = "搜索 文本 内容"

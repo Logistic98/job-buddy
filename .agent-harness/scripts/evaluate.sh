@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
-# Run the repository's deterministic Agent evaluation suite.
+# 运行仓库确定性 Agent 评估套件。
 #
-# Module tests belong to verify.sh. This script intentionally does not keep a
-# second, hand-maintained list of selected tests for every module.
+# 模块测试由 verify.sh 管理；此脚本不维护第二份手工测试清单。
 #
-# Usage:
+# 用法：
 #   evaluate.sh
 #   evaluate.sh all
 #   evaluate.sh <module>

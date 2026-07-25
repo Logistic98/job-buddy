@@ -1,3 +1,5 @@
+"""加载并校验模型、工具、安全、记忆与可观测配置。"""
+
 from __future__ import annotations
 
 import os
@@ -51,7 +53,7 @@ class WebSearchConfig(BaseModel):
 
 
 class WebFetchConfig(BaseModel):
-    """Untrusted HTTP response budgets enforced before result serialization."""
+    """结果序列化前执行的不可信 HTTP 响应预算。"""
 
     max_wire_bytes: int = 512 * 1024
     max_decoded_bytes: int = 1024 * 1024
@@ -98,8 +100,7 @@ class PermissionConfig(BaseModel):
     """权限策略配置。"""
 
     default_mode: str = "default"
-    # AUTO/BYPASS are execution policies, not privileges supplied by an API caller.
-    # Deployments must opt in before request permission modes are honored.
+    # AUTO/BYPASS 是执行策略，不是 API 调用方提供的权限；部署端必须显式开启才接受请求权限模式。
     allow_auto_permission_mode: bool = False
     allow_bypass_permission_mode: bool = False
     allow_high_risk_in_default: bool = False

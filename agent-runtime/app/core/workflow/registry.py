@@ -1,3 +1,5 @@
+"""加载 Workflow，并按 Profile 与能力解析只读元数据。"""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -16,12 +16,24 @@ class ChatMemoryWriter {
   private final SystemSettingsService settingsService;
   private final Executor executor;
 
+  /**
+   * 创建对话记忆撰写器实例。
+   *
+   * @param settingsService 设置服务
+   * @param executor 执行器
+   */
   ChatMemoryWriter(SystemSettingsService settingsService, Executor executor) {
     this.settingsService = settingsService;
     this.executor = executor;
   }
 
-  /** 长期记忆写入涉及文件读写与同步锁，放到后台执行，避免阻塞首包与答案流式链路。 */
+  /**
+   * 长期记忆写入涉及文件读写与同步锁，放到后台执行，避免阻塞首包与答案流式链路。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param message 消息内容
+   */
   void captureLongTermMemoryAsync(
       final String tenantId, final String userId, final String message) {
     if (tenantId == null || tenantId.trim().isEmpty() || userId == null || userId.trim().isEmpty())
@@ -29,6 +41,9 @@ class ChatMemoryWriter {
     if (message == null || message.trim().isEmpty()) return;
     executor.execute(
         new Runnable() {
+          /**
+           * 从用户消息中异步提取并写入长期记忆。
+           */
           @Override
           public void run() {
             captureLongTermMemory(tenantId, userId, message);
@@ -36,6 +51,13 @@ class ChatMemoryWriter {
         });
   }
 
+  /**
+   * 提取并写入长期记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param message 消息内容
+   */
   private void captureLongTermMemory(String tenantId, String userId, String message) {
     if (message == null || message.trim().isEmpty()) return;
     String tier = classifyMemoryType(message);

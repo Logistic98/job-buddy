@@ -75,6 +75,7 @@ export async function fetchJobDetail(securityId, url) {
     })
     const text = await response.text()
     let json = null
+    // 手动解析响应以保留非 JSON 错误正文，便于定位上游异常。
     if (text) {
       try {
         json = JSON.parse(text)
@@ -83,6 +84,7 @@ export async function fetchJobDetail(securityId, url) {
       }
     }
     if (!json) throw new Error(`获取岗位详情失败: HTTP ${response.status}, 响应体为空`)
+    // 认证失效使用结构化标记交给页面触发扫码流程。
     if (json.code === 4001) {
       const error = new Error(json.message || 'Boss 直聘需要重新扫码登录')
       error.authRequired = true

@@ -26,8 +26,14 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 SystemSettingsMemory 的核心行为、异常路径与边界条件。
+ */
 class SystemSettingsMemoryTest {
 
+  /**
+   * 验证 SystemSettingsMemory 中记忆的核心业务契约。
+   */
   @Test
   void autoMemoryShouldStayDisabledByDefault() {
     AgentMemoryClient client = statefulClient();
@@ -39,6 +45,9 @@ class SystemSettingsMemoryTest {
     verify(client, never()).create(anyString(), anyString(), any(SystemMemoryRequest.class));
   }
 
+  /**
+   * 验证 SystemSettingsMemory 中记忆的去重与幂等边界。
+   */
   @Test
   void autoMemoryShouldPersistStableSignalsAndDedupeInAgentMemory() {
     AgentMemoryClient client = statefulClient();
@@ -54,6 +63,9 @@ class SystemSettingsMemoryTest {
     assertEquals("preference", items.get(1).getType());
   }
 
+  /**
+   * 验证 SystemSettingsMemory 中记忆的输入校验与拒绝边界。
+   */
   @Test
   void autoMemoryShouldRejectUnclassifiedTypesAndTinyContent() {
     AgentMemoryClient client = statefulClient();
@@ -65,6 +77,9 @@ class SystemSettingsMemoryTest {
     assertTrue(service.listMemories("tenant-a", "user-a").isEmpty());
   }
 
+  /**
+   * 验证 SystemSettingsMemory 中用户的权限与租户隔离边界。
+   */
   @Test
   void memoriesMustBeIsolatedAcrossTenantAndUserMatrix() {
     AgentMemoryClient client = statefulClient();
@@ -80,6 +95,9 @@ class SystemSettingsMemoryTest {
     assertTrue(service.listMemories("tenant-b", "user-a").isEmpty());
   }
 
+  /**
+   * 验证 SystemSettingsMemory 的去重与幂等边界。
+   */
   @Test
   void legacyPlatformSettingItemsAreMigratedOnce() {
     Map<String, String> stored = memoryEnabledState();
@@ -98,6 +116,9 @@ class SystemSettingsMemoryTest {
     verify(mapper).deleteSetting(anyString(), eq("memory"));
   }
 
+  /**
+   * 验证 SystemSettingsMemory 的失败恢复、超时与降级边界。
+   */
   @Test
   void failedLegacyMigrationKeepsTheSourceRecordForRetry() {
     SystemSettingsMapper mapper = statefulMapper(memoryEnabledState());
@@ -116,6 +137,13 @@ class SystemSettingsMemoryTest {
     verify(mapper, never()).deleteSetting(anyString(), eq("memory"));
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @param mapper 数据映射
+   * @param client 客户端
+   * @return 服务
+   */
   private SystemSettingsServiceImpl newService(
       SystemSettingsMapper mapper, AgentMemoryClient client) {
     AgentServiceProperties properties = new AgentServiceProperties();
@@ -123,6 +151,11 @@ class SystemSettingsMemoryTest {
     return new SystemSettingsServiceImpl(properties, new JobBuddyProperties(), mapper, client);
   }
 
+  /**
+   * 验证记忆启用状态状态。
+   *
+   * @return memoryEnabled 状态
+   */
   private Map<String, String> memoryEnabledState() {
     Map<String, String> stored = new LinkedHashMap<String, String>();
     stored.put(
@@ -132,6 +165,12 @@ class SystemSettingsMemoryTest {
     return stored;
   }
 
+  /**
+   * 构造可记录状态的数据访问替身。
+   *
+   * @param stored 已存储数据
+   * @return 测试会话状态 fulMapper
+   */
   private SystemSettingsMapper statefulMapper(final Map<String, String> stored) {
     SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
     when(mapper.listBlacklistItems()).thenReturn(Collections.<Map<String, Object>>emptyList());
@@ -165,6 +204,11 @@ class SystemSettingsMemoryTest {
     return mapper;
   }
 
+  /**
+   * 构造可记录状态的记忆客户端替身。
+   *
+   * @return 测试会话状态 ful 客户端
+   */
   private AgentMemoryClient statefulClient() {
     AgentMemoryClient client = mock(AgentMemoryClient.class);
     Map<String, List<SystemMemoryResponse>> stored =
@@ -203,10 +247,24 @@ class SystemSettingsMemoryTest {
     return client;
   }
 
+  /**
+   * 验证属主。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 测试资源所有者
+   */
   private String owner(Object tenantId, Object userId) {
     return String.valueOf(tenantId) + "\u0000" + String.valueOf(userId);
   }
 
+  /**
+   * 验证键。
+   *
+   * @param scope 作用域
+   * @param settingKey 设置键
+   * @return 业务键
+   */
   private String key(String scope, String settingKey) {
     return scope + "\u0000" + settingKey;
   }

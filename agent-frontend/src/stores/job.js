@@ -51,6 +51,7 @@ function stopFavoriteTaskSubscription(taskId) {
   favoriteTaskSubscriptions.delete(taskId)
 }
 
+// 管理岗位结果、收藏快照、详情加载与可恢复的异步分析任务订阅。
 export const useJobStore = defineStore('job', {
   state: () => ({
     jobs: [],
@@ -93,6 +94,7 @@ export const useJobStore = defineStore('job', {
       try {
         const rows = await listFavoriteJobs()
         if (revision !== this.lifecycleRevision) return []
+        // 只在请求期间没有本地收藏变更时覆盖列表，避免旧响应回滚乐观更新。
         if (mutationVersion === this.favoriteMutationVersion && this.favoriteMutationPendingCount === 0) {
           this.favorites = Array.isArray(rows) ? rows : []
           this.favoriteError = ''
@@ -120,6 +122,7 @@ export const useJobStore = defineStore('job', {
         favoritedAt: existing >= 0 ? this.favorites[existing].favoritedAt : new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
+      // 先更新本地列表提升交互响应，持久化失败时恢复完整快照。
       if (existing >= 0) this.favorites.splice(existing, 1, merged)
       else this.favorites.unshift(merged)
       this.favoriteMutationVersion += 1
@@ -319,6 +322,7 @@ export const useJobStore = defineStore('job', {
         if (!jobDescription(completed)) {
           this.detailErrors = { ...this.detailErrors, [key]: '未获取到职位描述，请稍后重试或打开 Boss 原岗位查看。' }
         } else if (wasFavorite) {
+          // 已收藏岗位需要同步完整职位描述，供后续分析复用。
           this.favoriteMutationVersion += 1
           this.favoriteMutationPendingCount += 1
           try {

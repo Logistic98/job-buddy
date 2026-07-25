@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Create an isolated git worktree for parallel agent work.
+# 为并行 Agent 工作创建隔离 Git Worktree。
 #
-# Usage:
+# 用法：
 #   new_worktree.sh <branch_name>
 #
-# Result:
-#   ../job-buddy-<sanitized-branch> with a fresh branch checked out.
+# 结果：
+#   ../job-buddy-<sanitized-branch>，并检出新分支。
 
 set -euo pipefail
 

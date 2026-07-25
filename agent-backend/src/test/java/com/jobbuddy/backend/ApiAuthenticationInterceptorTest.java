@@ -18,6 +18,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * 验证 ApiAuthenticationInterceptor 的核心业务契约。
+ */
 @SpringBootTest(
     classes = AgentBackendApplication.class,
     properties = {
@@ -39,6 +42,9 @@ class ApiAuthenticationInterceptorTest {
 
   @Autowired private JdbcTemplate jdbcTemplate;
 
+  /**
+   * 初始化测试所需依赖与认证上下文。
+   */
   @BeforeEach
   void setUp() {
     jdbcTemplate.update("DELETE FROM user_login_session");
@@ -75,6 +81,11 @@ class ApiAuthenticationInterceptorTest {
         Timestamp.from(Instant.now()));
   }
 
+  /**
+   * 验证 ApiAuthenticationInterceptor 的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void protectedApiRejectsAnonymousRequests() throws Exception {
     mockMvc
@@ -83,6 +94,11 @@ class ApiAuthenticationInterceptorTest {
         .andExpect(jsonPath("$.code").value(401));
   }
 
+  /**
+   * 验证 ApiAuthenticationInterceptor 的身份认证与会话边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void protectedApiAcceptsValidBearerToken() throws Exception {
     mockMvc
@@ -92,6 +108,11 @@ class ApiAuthenticationInterceptorTest {
         .andExpect(jsonPath("$.code").value(200));
   }
 
+  /**
+   * 验证 ApiAuthenticationInterceptor 中会话的身份认证与会话边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void protectedApiAcceptsValidSessionCookie() throws Exception {
     mockMvc
@@ -100,6 +121,11 @@ class ApiAuthenticationInterceptorTest {
         .andExpect(jsonPath("$.code").value(200));
   }
 
+  /**
+   * 验证 ApiAuthenticationInterceptor 中用户的权限与租户隔离边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void ordinaryUserWithoutPermissionIsForbiddenFromAdminAndBusinessApis() throws Exception {
     jdbcTemplate.update(
@@ -129,6 +155,11 @@ class ApiAuthenticationInterceptorTest {
         .andExpect(jsonPath("$.code").value(403));
   }
 
+  /**
+   * 验证 ApiAuthenticationInterceptor 的核心业务契约。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void publicHealthEndpointStaysAnonymous() throws Exception {
     mockMvc

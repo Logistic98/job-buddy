@@ -1,3 +1,5 @@
+"""提供用于连通性验证的低风险回显工具。"""
+
 from typing import Any, Dict
 
 from app.core.tool.base import BaseTool, ToolExecutionContext

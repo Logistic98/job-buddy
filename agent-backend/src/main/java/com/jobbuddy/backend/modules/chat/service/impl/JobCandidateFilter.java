@@ -5,14 +5,28 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/** Applies deterministic client-side exclusions, role compatibility, salary rules, and ranking. */
+/**
+ * 执行确定性排除、岗位兼容、薪资规则与排序。
+ */
 class JobCandidateFilter {
   private final SystemSettingsService settingsService;
 
+  /**
+   * 创建岗位候选岗位筛选器实例。
+   *
+   * @param settingsService 设置服务
+   */
   JobCandidateFilter(SystemSettingsService settingsService) {
     this.settingsService = settingsService;
   }
 
+  /**
+   * 应用岗位候选项筛选结果。
+   *
+   * @param rawJobs 原始岗位列表
+   * @param slots 候选槽位
+   * @return 应用结果
+   */
   List<Map<String, Object>> apply(List<Map<String, Object>> rawJobs, Map<String, Object> slots) {
     List<Map<String, Object>> jobs =
         rawJobs == null ? new ArrayList<Map<String, Object>>() : rawJobs;
@@ -23,6 +37,13 @@ class JobCandidateFilter {
     return sortByUserRequirement(jobs, slots);
   }
 
+  /**
+   * 执行客户端条件筛选。
+   *
+   * @param jobs 岗位列表
+   * @param slots 候选槽位
+   * @return 客户端过滤结果
+   */
   List<Map<String, Object>> clientFilter(
       List<Map<String, Object>> jobs, Map<String, Object> slots) {
     Object excludes = slots.get("reject_keywords");
@@ -47,6 +68,10 @@ class JobCandidateFilter {
   /**
    * 岗位族与专项能力硬过滤。大模型应用方向允许常规 Java/RAG/Agent 岗位，但岗位明确要求多模态、
    * 视觉、语音等专项能力而画像/简历没有对应证据时直接剔除，避免只因标题含“大模型”就进入推荐。
+   *
+   * @param jobs 岗位列表
+   * @param slots 候选槽位
+   * @return 岗位兼容性过滤结果
    */
   private List<Map<String, Object>> filterByRoleCompatibility(
       List<Map<String, Object>> jobs, Map<String, Object> slots) {
@@ -78,6 +103,13 @@ class JobCandidateFilter {
     return filtered;
   }
 
+  /**
+   * 判断是否要求不支持的专业。
+   *
+   * @param jobText 岗位文本
+   * @param capabilityText 能力描述文本
+   * @return 是否要求不支持的专业
+   */
   private boolean requiresUnsupportedSpecialty(String jobText, String capabilityText) {
     String[][] groups = {
       {"多模态", "视觉", "图像", "语音", "音频", "视频", "cv", "clip", "blip", "stable diffusion"},
@@ -91,6 +123,12 @@ class JobCandidateFilter {
     return false;
   }
 
+  /**
+   * 计算最低要求年限。
+   *
+   * @param job 岗位
+   * @return 最低经验年限
+   */
   private Integer minimumRequiredYears(Map<String, Object> job) {
     String text = stringValue(firstPresent(job, "jobExperience", "experience", "experienceName"));
     if (text.isEmpty() || text.contains("不限") || text.contains("应届")) return null;
@@ -99,6 +137,13 @@ class JobCandidateFilter {
     return matcher.find() ? Integer.valueOf(matcher.group(1)) : null;
   }
 
+  /**
+   * 判断是否包含任一目标值。
+   *
+   * @param text 文本
+   * @param values 输入值列表
+   * @return 是否包含任一目标值
+   */
   private boolean containsAny(String text, String... values) {
     String source = text == null ? "" : text.toLowerCase();
     for (String value : values) {
@@ -107,6 +152,13 @@ class JobCandidateFilter {
     return false;
   }
 
+  /**
+   * 按用户要求排序。
+   *
+   * @param jobs 岗位列表
+   * @param slots 候选槽位
+   * @return 按用户要求排序后的岗位列表
+   */
   List<Map<String, Object>> sortByUserRequirement(
       List<Map<String, Object>> jobs, final Map<String, Object> slots) {
     if (jobs == null || jobs.isEmpty())
@@ -114,6 +166,13 @@ class JobCandidateFilter {
     List<Map<String, Object>> sorted = new ArrayList<Map<String, Object>>(jobs);
     sorted.sort(
         new java.util.Comparator<Map<String, Object>>() {
+          /**
+           * 按岗位要求评分降序比较候选项。
+           *
+           * @param a 左侧值
+           * @param b 右侧值
+           * @return 比较结果
+           */
           @Override
           public int compare(Map<String, Object> a, Map<String, Object> b) {
             return Integer.compare(requirementScore(b, slots), requirementScore(a, slots));
@@ -122,6 +181,13 @@ class JobCandidateFilter {
     return sorted;
   }
 
+  /**
+   * 计算岗位要求评分。
+   *
+   * @param job 岗位
+   * @param slots 候选槽位
+   * @return 岗位要求得分
+   */
   private int requirementScore(Map<String, Object> job, Map<String, Object> slots) {
     String text = String.valueOf(job).toLowerCase();
     String title = stringValue(firstPresent(job, "jobName", "title", "name")).toLowerCase();
@@ -158,6 +224,12 @@ class JobCandidateFilter {
     return score;
   }
 
+  /**
+   * 拆分检索词。
+   *
+   * @param value 输入值
+   * @return 拆分后的词元列表
+   */
   private List<String> splitTokens(String value) {
     List<String> tokens = new ArrayList<String>();
     String lower = value == null ? "" : value.toLowerCase().trim();
@@ -169,6 +241,14 @@ class JobCandidateFilter {
     return tokens;
   }
 
+  /**
+   * 计算薪资区间重叠度。
+   *
+   * @param job 岗位
+   * @param minSalary 最小薪资
+   * @param maxSalary 最大薪资
+   * @return 薪资范围重叠度
+   */
   private boolean salaryOverlap(Map<String, Object> job, Integer minSalary, Integer maxSalary) {
     if (minSalary == null && maxSalary == null) return false;
     int[] range = monthlySalaryRangeK(job);
@@ -182,6 +262,10 @@ class JobCandidateFilter {
    * 薪资硬过滤：仅在用户显式给出 salary_min_k 或 salary_max_k 时启用。丢弃可解析为月薪区间但与期望
    * 区间完全不重叠的岗位、以"元/天/日/时"计价的日结时薪岗与标题或薪资命中"实习"的实习岗；对"面议"
    * 或真正无法解析薪资的岗位保留，交由排序按其它信号决定位置，避免把信息缺失误判为不符合条件。
+   *
+   * @param jobs 岗位列表
+   * @param slots 候选槽位
+   * @return 薪资过滤结果
    */
   private List<Map<String, Object>> filterBySalary(
       List<Map<String, Object>> jobs, Map<String, Object> slots) {
@@ -214,6 +298,14 @@ class JobCandidateFilter {
     return filtered;
   }
 
+  /**
+   * 判断薪资范围是否匹配。
+   *
+   * @param range 薪资范围
+   * @param minSalary 最小薪资
+   * @param maxSalary 最大薪资
+   * @return 薪资范围是否匹配是否成立
+   */
   private boolean salaryRangeMatches(int[] range, Integer minSalary, Integer maxSalary) {
     if (range == null) return false;
     if (minSalary != null && maxSalary != null) {
@@ -229,6 +321,12 @@ class JobCandidateFilter {
     return maxSalary == null || range[0] <= maxSalary;
   }
 
+  /**
+   * 获取薪资文本。
+   *
+   * @param job 岗位
+   * @return 薪资文本
+   */
   private String salaryText(Map<String, Object> job) {
     return stringValue(
         firstPresent(
@@ -245,7 +343,12 @@ class JobCandidateFilter {
             "compensation"));
   }
 
-  /** 优先解析展示薪资，字段缺失时回退到 Boss 结构化最低/最高薪资。返回值统一为月薪 K 区间。 */
+  /**
+   * 优先解析展示薪资，字段缺失时回退到 Boss 结构化最低/最高薪资。返回值统一为月薪 K 区间。
+   *
+   * @param job 岗位
+   * @return 千元单位月薪范围
+   */
   private int[] monthlySalaryRangeK(Map<String, Object> job) {
     int[] textRange = parseMonthlyRangeK(salaryText(job));
     if (textRange != null) return textRange;
@@ -278,8 +381,11 @@ class JobCandidateFilter {
   }
 
   /**
-   * 解析月薪区间并统一为 K。支持 15-20K、15K-20K、8000-12000元/月及 Boss 返回的无单位四位数元制区间；
+   * 解析月薪区间并统一为 K。支持 15-20K、15K-20K、8000-12000 元/月及 Boss 返回的无单位四位数元制区间；
    * 不把三位及以下的无单位数字当薪资，避免将其它编号误识别为月薪。
+   *
+   * @param salary 薪资
+   * @return 月薪区间并统一为 K。支持 15-20K、15K-20K、8000-12000 元/月及 Boss 返回的无单位四位数元制区间；
    */
   private int[] parseMonthlyRangeK(String salary) {
     if (salary == null || salary.trim().isEmpty()) return null;
@@ -325,6 +431,12 @@ class JobCandidateFilter {
     return null;
   }
 
+  /**
+   * 计算薪资数值数量。
+   *
+   * @param value 输入值
+   * @return 千元单位薪资值
+   */
   private Double salaryNumberK(Object value) {
     if (value == null) return null;
     java.util.regex.Matcher matcher =
@@ -336,12 +448,25 @@ class JobCandidateFilter {
     return number >= 1000 ? Double.valueOf(number / 1000.0) : Double.valueOf(number);
   }
 
+  /**
+   * 规范化千元薪资区间。
+   *
+   * @param first 第一个候选值
+   * @param second 第二个候选值
+   * @return 规范化后的千元薪资区间
+   */
   private int[] normalizedRangeK(double first, double second) {
     double low = Math.min(first, second);
     double high = Math.max(first, second);
     return new int[] {(int) Math.floor(low), (int) Math.ceil(high)};
   }
 
+  /**
+   * 转换为整数。
+   *
+   * @param value 输入值
+   * @return 转换后的整数
+   */
   private Integer toInteger(Object value) {
     if (value == null) return null;
     try {
@@ -351,6 +476,13 @@ class JobCandidateFilter {
     }
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param map 数据映射
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private Object firstPresent(Map<String, Object> map, String... keys) {
     if (map == null) return null;
     for (String key : keys) {
@@ -360,6 +492,12 @@ class JobCandidateFilter {
     return null;
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String stringValue(Object value) {
     return value == null ? "" : String.valueOf(value);
   }

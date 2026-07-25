@@ -11,10 +11,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 /**
- * Prevents a production deployment from accepting the public bootstrap password.
+ * 阻止生产部署继续接受公开的引导密码。
  *
- * <p>Released Flyway migrations remain immutable. Operators rotate the accounts through the
- * existing user-management API; development keeps the documented bootstrap login unchanged.
+ * <p>已发布 Flyway 迁移保持不可变；生产账号通过用户管理接口轮换，开发环境保留文档化引导登录。
  */
 @Component
 public class ProductionDefaultCredentialGuard implements ApplicationRunner {
@@ -25,12 +24,23 @@ public class ProductionDefaultCredentialGuard implements ApplicationRunner {
   private final JobBuddyProperties properties;
   private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
+  /**
+   * 创建生产环境默认凭据守卫实例。
+   *
+   * @param repository 存储访问
+   * @param properties 配置属性
+   */
   public ProductionDefaultCredentialGuard(
       UserAuthRepository repository, JobBuddyProperties properties) {
     this.repository = repository;
     this.properties = properties;
   }
 
+  /**
+   * 在应用启动时校验生产环境默认账号的凭据安全性。
+   *
+   * @param args 调用参数
+   */
   @Override
   public void run(ApplicationArguments args) {
     if (!isProduction()) return;
@@ -47,6 +57,11 @@ public class ProductionDefaultCredentialGuard implements ApplicationRunner {
     }
   }
 
+  /**
+   * 判断当前配置是否为生产环境。
+   *
+   * @return 是否为生产环境
+   */
   private boolean isProduction() {
     String environment =
         String.valueOf(properties.getEnvironment()).trim().toLowerCase(Locale.ROOT);

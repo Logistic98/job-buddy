@@ -40,6 +40,14 @@ public class InterviewCodeRunner {
   private final AgentServiceProperties properties;
   private final ServiceResilience resilience;
 
+  /**
+   * 创建面试编码运行器实例。
+   *
+   * @param objectMapper JSON 对象映射器
+   * @param restTemplate HTTP 请求客户端
+   * @param properties 配置属性
+   * @param resilience 弹性策略
+   */
   public InterviewCodeRunner(
       ObjectMapper objectMapper,
       RestTemplate restTemplate,
@@ -51,6 +59,12 @@ public class InterviewCodeRunner {
     this.resilience = resilience;
   }
 
+  /**
+   * 在沙箱中执行代码并返回结构化结果。
+   *
+   * @param payload 请求载荷
+   * @return 执行结果
+   */
   public Map<String, Object> run(Map<String, Object> payload) {
     try {
       return runInSandbox(normalizeRequest(payload));
@@ -59,6 +73,13 @@ public class InterviewCodeRunner {
     }
   }
 
+  /**
+   * 规范化请求。
+   *
+   * @param payload 请求载荷
+   * @return 规范化后的请求
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private ExecutionRequest normalizeRequest(Map<String, Object> payload) throws IOException {
     Map<String, Object> safePayload =
         payload == null ? Collections.<String, Object>emptyMap() : payload;
@@ -78,6 +99,13 @@ public class InterviewCodeRunner {
     return new ExecutionRequest(language, source, functionName, tests);
   }
 
+  /**
+   * 在沙箱中执行代码。
+   *
+   * @param request 请求对象
+   * @return 执行结果：在沙箱
+   * @throws Exception 执行失败时抛出
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> runInSandbox(ExecutionRequest request) throws Exception {
     Map<String, Object> body = new LinkedHashMap<String, Object>();
@@ -110,6 +138,13 @@ public class InterviewCodeRunner {
     return parseSandboxResponse(response);
   }
 
+  /**
+   * 解析沙箱响应。
+   *
+   * @param response 响应对象
+   * @return 沙箱响应
+   * @throws Exception 执行失败时抛出
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> parseSandboxResponse(Map<String, Object> response) throws Exception {
     if (response == null) return failure("agent-sandbox 返回空响应");
@@ -129,6 +164,13 @@ public class InterviewCodeRunner {
     return result;
   }
 
+  /**
+   * 构建沙箱编排脚本。
+   *
+   * @param request 请求对象
+   * @return 沙箱编排脚本
+   * @throws Exception 执行失败时抛出
+   */
   private String buildSandboxOrchestrator(ExecutionRequest request) throws Exception {
     String childCode = request.source();
     String runnerCode = "";
@@ -151,11 +193,26 @@ public class InterviewCodeRunner {
         .replace("__TIMEOUT_SECONDS__", String.valueOf(CHILD_TIMEOUT_SECONDS));
   }
 
+  /**
+   * 渲染函数执行模板。
+   *
+   * @param templateName 模板名称
+   * @param functionName 目标函数名
+   * @return 渲染后的函数模板
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private String renderFunctionTemplate(String templateName, String functionName)
       throws IOException {
     return loadTemplate(templateName).replace(FUNCTION_NAME_PLACEHOLDER, functionName);
   }
 
+  /**
+   * 加载模板。
+   *
+   * @param templateName 模板名称
+   * @return 模板文本
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private String loadTemplate(String templateName) throws IOException {
     String path = TEMPLATE_ROOT + templateName;
     try (InputStream input = InterviewCodeRunner.class.getResourceAsStream(path)) {
@@ -164,6 +221,11 @@ public class InterviewCodeRunner {
     }
   }
 
+  /**
+   * 构建沙箱策略。
+   *
+   * @return 沙箱策略
+   */
   private Map<String, Object> sandboxPolicy() {
     Map<String, Object> network = new LinkedHashMap<String, Object>();
     network.put("allowedDomains", Collections.emptyList());
@@ -183,6 +245,11 @@ public class InterviewCodeRunner {
     return policy;
   }
 
+  /**
+   * 构建沙箱执行选项。
+   *
+   * @return 沙箱选项
+   */
   private Map<String, Object> sandboxOptions() {
     Map<String, Object> options = new LinkedHashMap<String, Object>();
     options.put("timeout", Integer.valueOf(SANDBOX_TIMEOUT_SECONDS));
@@ -190,6 +257,12 @@ public class InterviewCodeRunner {
     return options;
   }
 
+  /**
+   * 规范化测试用例。
+   *
+   * @param testsValue 测试用例数据
+   * @return 规范化后的测试用例
+   */
   @SuppressWarnings("unchecked")
   private List<Map<String, Object>> normalizeTests(Object testsValue) {
     List<Map<String, Object>> tests = new ArrayList<Map<String, Object>>();
@@ -202,6 +275,12 @@ public class InterviewCodeRunner {
     return tests;
   }
 
+  /**
+   * 规范化函数名称。
+   *
+   * @param value 输入值
+   * @return 规范化后的函数名称
+   */
   private String normalizeFunctionName(String value) {
     String functionName = value == null || value.trim().isEmpty() ? "solution" : value.trim();
     if (!functionName.matches("[A-Za-z_$][A-Za-z0-9_$]*")) {
@@ -210,19 +289,43 @@ public class InterviewCodeRunner {
     return functionName;
   }
 
+  /**
+   * 获取沙箱服务地址。
+   *
+   * @return 沙箱服务地址
+   */
   private String sandboxBaseUrl() {
     return properties == null ? "" : properties.resolvedSandboxUrl();
   }
 
+  /**
+   * 获取 JSON 字符串。
+   *
+   * @param value 输入值
+   * @return JSON 字符串
+   * @throws Exception 执行失败时抛出
+   */
   private String jsonString(String value) throws Exception {
     return objectMapper.writeValueAsString(value == null ? "" : value);
   }
 
+  /**
+   * 执行 Base64 编码。
+   *
+   * @param value 输入值
+   * @return Base64 文本
+   */
   private String base64(String value) {
     return Base64.getEncoder()
         .encodeToString((value == null ? "" : value).getBytes(StandardCharsets.UTF_8));
   }
 
+  /**
+   * 获取失败结果。
+   *
+   * @param message 消息内容
+   * @return 失败结果
+   */
   private Map<String, Object> failure(String message) {
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("passed", Boolean.FALSE);
@@ -231,6 +334,13 @@ public class InterviewCodeRunner {
     return result;
   }
 
+  /**
+   * 获取整数值。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 整数值
+   */
   private int intValue(Object value, int fallback) {
     if (value instanceof Number) return ((Number) value).intValue();
     if (value == null) return fallback;
@@ -241,6 +351,13 @@ public class InterviewCodeRunner {
     }
   }
 
+  /**
+   * 获取首行文本。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 首行文本
+   */
   private String firstLine(String value, String fallback) {
     if (value == null || value.trim().isEmpty()) return fallback;
     String text = value.trim();
@@ -248,6 +365,12 @@ public class InterviewCodeRunner {
     return newline >= 0 ? text.substring(0, newline) : text;
   }
 
+  /**
+   * 获取最后一行非空文本。
+   *
+   * @param value 输入值
+   * @return 最后一行非空文本
+   */
   private String lastNonEmptyLine(String value) {
     if (value == null) return null;
     String[] lines = value.split("\\r?\\n");
@@ -257,19 +380,38 @@ public class InterviewCodeRunner {
     return null;
   }
 
+  /**
+   * 压缩文本内容。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 压缩结果
+   */
   private String compact(String value, String fallback) {
     if (value == null || value.trim().isEmpty()) return fallback;
     String text = value.trim().replace('\n', ' ').replace('\r', ' ');
     return text.length() > 500 ? text.substring(0, 500) : text;
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String stringValue(Object value) {
     return value == null ? null : String.valueOf(value);
   }
 
+  /**
+   * 承载执行请求参数。
+   */
   private record ExecutionRequest(
       Language language, String source, String functionName, List<Map<String, Object>> tests) {}
 
+  /**
+   * 定义语言配置。
+   */
   private enum Language {
     PYTHON("python", "python-harness.py.tpl"),
     JAVA("java", null),
@@ -278,19 +420,41 @@ public class InterviewCodeRunner {
     private final String id;
     private final String harnessTemplate;
 
+    /**
+     * 创建语言配置实例。
+     *
+     * @param id 标识
+     * @param harnessTemplate 执行器模板
+     */
     Language(String id, String harnessTemplate) {
       this.id = id;
       this.harnessTemplate = harnessTemplate;
     }
 
+    /**
+     * 获取标识。
+     *
+     * @return 标识
+     */
     String id() {
       return id;
     }
 
+    /**
+     * 构建代码评测模板。
+     *
+     * @return 执行器模板
+     */
     String harnessTemplate() {
       return harnessTemplate;
     }
 
+    /**
+     * 获取来源。
+     *
+     * @param value 输入值
+     * @return 来源
+     */
     static Language from(String value) {
       String language = value == null ? "" : value.trim().toLowerCase();
       if ("py".equals(language) || "python".equals(language) || "python3".equals(language)) {

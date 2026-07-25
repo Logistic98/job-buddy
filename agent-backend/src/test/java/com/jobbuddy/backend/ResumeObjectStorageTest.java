@@ -17,8 +17,16 @@ import java.io.IOException;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
+/**
+ * 验证 ResumeObjectStorage 的核心行为、异常路径与边界条件。
+ */
 class ResumeObjectStorageTest {
 
+  /**
+   * 验证 ResumeObjectStorage 的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void initShouldCreateBucketWhenMissing() throws Exception {
     JobBuddyProperties properties = new JobBuddyProperties();
@@ -32,6 +40,11 @@ class ResumeObjectStorageTest {
     verify(minioClient).makeBucket(any(MakeBucketArgs.class));
   }
 
+  /**
+   * 验证 ResumeObjectStorage 的核心业务契约。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void initShouldKeepExistingBucket() throws Exception {
     JobBuddyProperties properties = new JobBuddyProperties();
@@ -45,6 +58,11 @@ class ResumeObjectStorageTest {
     verify(minioClient, never()).makeBucket(any(MakeBucketArgs.class));
   }
 
+  /**
+   * 验证 ResumeObjectStorage 的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void uploadShouldFailWithoutCreatingLocalBusinessCopyWhenMinioFails() throws Exception {
     JobBuddyProperties properties = new JobBuddyProperties();

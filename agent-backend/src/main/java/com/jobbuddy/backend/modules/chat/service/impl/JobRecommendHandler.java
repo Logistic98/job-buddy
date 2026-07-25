@@ -18,7 +18,9 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** 岗位推荐链路：Boss 岗位搜索、卡片下发与岗位消息持久化（普通推荐追加、换一批替换最近岗位消息）。 */
+/**
+ * 岗位推荐链路：Boss 岗位搜索、卡片下发与岗位消息持久化（普通推荐追加、换一批替换最近岗位消息）。
+ */
 class JobRecommendHandler {
   private static final String CANDIDATE_OFFSET_SLOT = "candidate_offset";
 
@@ -29,6 +31,16 @@ class JobRecommendHandler {
   private final CurrentResumeLoader resumeLoader;
   private final JobBuddyProperties properties;
 
+  /**
+   * 创建岗位推荐处理器实例。
+   *
+   * @param sender SSE 事件发送器
+   * @param persistence 持久化协调器
+   * @param jobRuntimeService 岗位运行时服务
+   * @param personalContextBuilder 个人上下文构建器
+   * @param resumeLoader 简历加载器
+   * @param properties 配置属性
+   */
   JobRecommendHandler(
       ChatSseEventSender sender,
       ChatPersistenceCoordinator persistence,
@@ -44,7 +56,12 @@ class JobRecommendHandler {
     this.properties = properties;
   }
 
-  /** 读取上一轮检索条件中的候选池页码，缺省或非法时视为第 1 批，供换一批确定性翻页递增使用。 */
+  /**
+   * 读取上一轮检索条件中的候选池页码，缺省或非法时视为第 1 批，供换一批确定性翻页递增使用。
+   *
+   * @param slots 候选槽位
+   * @return 当前 Boss 页码
+   */
   int currentBossPage(Map<String, Object> slots) {
     if (slots == null) return 1;
     Object value = slots.get("boss_page");
@@ -59,11 +76,30 @@ class JobRecommendHandler {
     return 1;
   }
 
+  /**
+   * 处理已选岗位分析。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param intent 意图
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void handle(SseEmitter emitter, String sessionId, ChatSessionState state, IntentResult intent)
       throws IOException {
     handle(emitter, sessionId, state, intent, false, "");
   }
 
+  /**
+   * 处理已选岗位分析。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param intent 意图
+   * @param replaceLatestJobTurn 是否替换最近岗位轮次
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void handle(
       SseEmitter emitter,
       String sessionId,
@@ -74,6 +110,17 @@ class JobRecommendHandler {
     handle(emitter, sessionId, state, intent, replaceLatestJobTurn, "");
   }
 
+  /**
+   * 处理已选岗位分析。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param intent 意图
+   * @param replaceLatestJobTurn 是否替换最近岗位轮次
+   * @param rawMessage 原始消息
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void handle(
       SseEmitter emitter,
       String sessionId,
@@ -277,6 +324,12 @@ class JobRecommendHandler {
     persistence.saveStateAsync(state);
   }
 
+  /**
+   * 获取当前候选项偏移量。
+   *
+   * @param slots 候选槽位
+   * @return 当前候选项偏移量
+   */
   private int currentCandidateOffset(Map<String, Object> slots) {
     if (slots != null && slots.containsKey(CANDIDATE_OFFSET_SLOT)) {
       Object value = slots.get(CANDIDATE_OFFSET_SLOT);

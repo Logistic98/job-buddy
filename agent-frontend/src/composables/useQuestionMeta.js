@@ -1,4 +1,4 @@
-// Question-bank metadata shared by the bank panel and practice desk.
+// 题库面板与练习台共享的题库元数据。
 
 import { computed, reactive } from 'vue'
 import { getQuestionMeta } from '../api/interview'

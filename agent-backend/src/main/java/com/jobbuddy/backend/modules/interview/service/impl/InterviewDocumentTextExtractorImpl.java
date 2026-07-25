@@ -20,7 +20,9 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 提取 AI 出题参考资料中的纯文本。文件只在当前请求内读取，不进行持久化。 */
+/**
+ * 提取 AI 出题参考资料中的纯文本。文件只在当前请求内读取，不进行持久化。
+ */
 @Service
 public class InterviewDocumentTextExtractorImpl implements InterviewDocumentTextExtractor {
   public static final long MAX_FILE_SIZE_BYTES = 10L * 1024L * 1024L;
@@ -41,6 +43,12 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
           "json", Set.of("application/json", "text/json"),
           "csv", Set.of("text/csv", "application/csv"));
 
+  /**
+   * 提取文档文本。
+   *
+   * @param file 上传文件
+   * @return 提取结果
+   */
   @Override
   public InterviewDocumentExtractResponse extract(MultipartFile file) {
     validateFile(file);
@@ -73,6 +81,11 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
         truncated);
   }
 
+  /**
+   * 校验文件。
+   *
+   * @param file 上传文件
+   */
   private void validateFile(MultipartFile file) {
     if (file == null || file.isEmpty() || file.getSize() <= 0) {
       throw new IllegalArgumentException("上传文档不能为空");
@@ -87,6 +100,13 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     }
   }
 
+  /**
+   * 提取文本。
+   *
+   * @param extension 文件扩展名
+   * @param content 内容
+   * @return 文本
+   */
   private String extractText(String extension, byte[] content) {
     try {
       switch (extension) {
@@ -106,6 +126,13 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     }
   }
 
+  /**
+   * 提取 PDF 文档文本。
+   *
+   * @param content 内容
+   * @return  PDF 文档文本
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private String extractPdf(byte[] content) throws IOException {
     try (PDDocument document = PDDocument.load(content)) {
       if (document.isEncrypted()) throw new IllegalArgumentException("暂不支持加密 PDF，请解除密码后重试");
@@ -113,6 +140,13 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     }
   }
 
+  /**
+   * 提取 DOC 文档文本。
+   *
+   * @param content 内容
+   * @return  DOC 文档文本
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private String extractDoc(byte[] content) throws IOException {
     try (HWPFDocument document = new HWPFDocument(new ByteArrayInputStream(content));
         WordExtractor extractor = new WordExtractor(document)) {
@@ -120,6 +154,13 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     }
   }
 
+  /**
+   * 提取 DOCX 文档文本。
+   *
+   * @param content 内容
+   * @return  DOCX 文档文本
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private String extractDocx(byte[] content) throws IOException {
     try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(content));
         XWPFWordExtractor extractor = new XWPFWordExtractor(document)) {
@@ -127,6 +168,12 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     }
   }
 
+  /**
+   * 按 UTF-8 解码文本。
+   *
+   * @param content 内容
+   * @return UTF-8 解码文本
+   */
   private String decodeUtf8(byte[] content) {
     int offset =
         content.length >= 3
@@ -147,6 +194,12 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     }
   }
 
+  /**
+   * 校验内容类型。
+   *
+   * @param extension 文件扩展名
+   * @param contentType 内容类型
+   */
   private void validateContentType(String extension, String contentType) {
     if (GENERIC_CONTENT_TYPES.contains(contentType)) return;
     if (isTextExtension(extension) && contentType.startsWith("text/")) return;
@@ -155,6 +208,12 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     throw new IllegalArgumentException("文件类型与扩展名不匹配，请重新选择文档");
   }
 
+  /**
+   * 校验资源令牌签名。
+   *
+   * @param extension 文件扩展名
+   * @param content 内容
+   */
   private void validateSignature(String extension, byte[] content) {
     if ("pdf".equals(extension) && !startsWith(content, new int[] {0x25, 0x50, 0x44, 0x46, 0x2D})) {
       throw new IllegalArgumentException("PDF 文件格式无效或已损坏");
@@ -171,6 +230,13 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     }
   }
 
+  /**
+   * 判断文件内容是否以指定签名字节开头。
+   *
+   * @param content 内容
+   * @param signature 文件签名字节
+   * @return 文件内容是否以指定签名字节开头是否成立
+   */
   private boolean startsWith(byte[] content, int[] signature) {
     if (content.length < signature.length) return false;
     for (int index = 0; index < signature.length; index++) {
@@ -179,6 +245,12 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     return true;
   }
 
+  /**
+   * 规范化文本。
+   *
+   * @param text 文本
+   * @return 规范化后的文本
+   */
   private String normalizeText(String text) {
     if (text == null) return "";
     String normalized = text.replace("\r\n", "\n").replace('\r', '\n').replace('\u000B', '\n');
@@ -190,6 +262,12 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     return safe.toString().replaceAll("[\\t ]+\\n", "\n").replaceAll("\\n{3,}", "\n\n").trim();
   }
 
+  /**
+   * 格式化错误消息。
+   *
+   * @param extension 文件扩展名
+   * @return 格式化后的错误消息
+   */
   private String formatErrorMessage(String extension) {
     if ("pdf".equals(extension)) return "PDF 解析失败，请确认文件未加密且内容完整";
     if ("doc".equals(extension) || "docx".equals(extension)) {
@@ -198,10 +276,22 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     return "文档读取失败，请重新选择文件";
   }
 
+  /**
+   * 判断是否为文本文件扩展名。
+   *
+   * @param extension 文件扩展名
+   * @return 是否为文本文件扩展名
+   */
   private boolean isTextExtension(String extension) {
     return Set.of("txt", "md", "markdown", "json", "csv").contains(extension);
   }
 
+  /**
+   * 规范化内容类型。
+   *
+   * @param contentType 内容类型
+   * @return 规范化后的内容类型
+   */
   private String normalizeContentType(String contentType) {
     if (contentType == null) return "";
     int separator = contentType.indexOf(';');
@@ -209,6 +299,12 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     return value.trim().toLowerCase(Locale.ROOT);
   }
 
+  /**
+   * 获取安全数据文件名称。
+   *
+   * @param fileName 文件名称
+   * @return 安全数据文件名称
+   */
   private String safeFileName(String fileName) {
     if (fileName == null || fileName.trim().isEmpty()) return "document";
     String normalized = fileName.replace('\\', '/');
@@ -216,6 +312,12 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
     return (separator >= 0 ? normalized.substring(separator + 1) : normalized).trim();
   }
 
+  /**
+   * 提取文件扩展名。
+   *
+   * @param fileName 文件名称
+   * @return 文件扩展名
+   */
   private String extension(String fileName) {
     int separator = fileName.lastIndexOf('.');
     return separator < 0 ? "" : fileName.substring(separator + 1).toLowerCase(Locale.ROOT);

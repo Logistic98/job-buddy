@@ -12,6 +12,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * 验证 AgentFlowTraceContract 中运行时的并发隔离与一致性边界。
+ */
 @SpringBootTest(
     classes = AgentBackendApplication.class,
     properties = {
@@ -28,6 +31,11 @@ import org.springframework.test.web.servlet.MockMvc;
 class AgentFlowTraceContractTest {
   @Autowired private MockMvc mockMvc;
 
+  /**
+   * 验证 AgentFlowTraceContract 中运行时的并发隔离与一致性边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void synchronousAskShouldExposeRuntimeProxyTraceOnly() throws Exception {
     mockMvc

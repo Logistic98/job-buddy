@@ -1,5 +1,4 @@
-// Countdown timer for practice exams. Owns the interval lifecycle and remaining-seconds state;
-// the caller supplies an onExpire callback that fires once when the countdown reaches zero.
+// 模拟练习倒计时，管理定时器生命周期和剩余秒数；归零时只触发一次调用方回调。
 
 import { computed, ref } from 'vue'
 import { formatRemainingTime } from '../utils/interviewBank'

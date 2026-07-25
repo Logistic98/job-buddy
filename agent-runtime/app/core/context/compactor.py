@@ -1,3 +1,5 @@
+"""将早期观察压缩为保留关键决策的任务状态快照。"""
+
 from __future__ import annotations
 
 import json
@@ -83,6 +85,7 @@ class ContextCompactor:
         decisions: List[str] = list(previous.get("decisions") or [])
         seen_changes = {(item.get("tool"), item.get("summary")) for item in changes}
         seen_failures = {(item.get("tool"), item.get("error")) for item in failures}
+        # 仅从真实工具结果提取变更与失败，并跨轮次去重。
         for result in state.get("tool_results") or []:
             metadata = getattr(result, "metadata", None) or {}
             if metadata.get("synthetic"):
@@ -105,6 +108,7 @@ class ContextCompactor:
                 if key not in seen_failures:
                     failures.append(entry)
                     seen_failures.add(key)
+        # 计划目标沉淀为决策，当前工具或最终答案用于恢复下一步。
         plan = state.get("plan")
         for step in getattr(plan, "steps", None) or []:
             goal = str(getattr(step, "goal", "") or "")

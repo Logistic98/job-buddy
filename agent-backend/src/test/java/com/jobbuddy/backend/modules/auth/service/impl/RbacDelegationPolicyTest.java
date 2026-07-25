@@ -18,8 +18,14 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 RbacDelegationPolicy 的核心行为、异常路径与边界条件。
+ */
 class RbacDelegationPolicyTest {
 
+  /**
+   * 验证 RbacDelegationPolicy 中角色的权限与租户隔离边界。
+   */
   @Test
   void assignableRolesLoadPermissionsInBatches() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -51,6 +57,9 @@ class RbacDelegationPolicyTest {
             org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
   }
 
+  /**
+   * 验证 RbacDelegationPolicy 中角色的权限与租户隔离边界。
+   */
   @Test
   void platformAdministratorCanAssignProtectedAdministratorRole() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -73,6 +82,9 @@ class RbacDelegationPolicyTest {
     assertEquals(List.of("role-admin", "role-user"), assignable);
   }
 
+  /**
+   * 验证 RbacDelegationPolicy 中菜单的权限与租户隔离边界。
+   */
   @Test
   void assignableMenusReadPermissionDefinitionsOnce() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -93,6 +105,9 @@ class RbacDelegationPolicyTest {
     verify(users, times(1)).listPermissionDefinitions();
   }
 
+  /**
+   * 验证 RbacDelegationPolicy 中角色的权限与租户隔离边界。
+   */
   @Test
   void cannotAssignRoleWithPermissionActorDoesNotOwn() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -115,6 +130,9 @@ class RbacDelegationPolicyTest {
                 List.of("role-manager")));
   }
 
+  /**
+   * 验证 RbacDelegationPolicy 的输入校验与拒绝边界。
+   */
   @Test
   void cannotResetSelfOrPeerPasswordButCanResetStrictlyLowerAccount() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -135,6 +153,9 @@ class RbacDelegationPolicyTest {
     assertDoesNotThrow(() -> policy.validatePasswordReset("tenant-a", actor, "lower"));
   }
 
+  /**
+   * 验证 RbacDelegationPolicy 中权限的权限与租户隔离边界。
+   */
   @Test
   void platformAdministratorCanDelegateOwnedProtectedPermission() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -156,6 +177,13 @@ class RbacDelegationPolicyTest {
                 List.of("platform-role")));
   }
 
+  /**
+   * 验证操作人。
+   *
+   * @param userId 用户标识
+   * @param permissions 权限列表
+   * @return 测试操作用户
+   */
   private AuthenticatedUser actor(String userId, Set<String> permissions) {
     AuthenticatedUser actor = new AuthenticatedUser();
     actor.setUserId(userId);
@@ -164,6 +192,13 @@ class RbacDelegationPolicyTest {
     return actor;
   }
 
+  /**
+   * 验证权限。
+   *
+   * @param code 编码
+   * @param grantable 可授予权限集合
+   * @return 测试权限
+   */
   private Map<String, Object> permission(String code, boolean grantable) {
     return Map.of("permissionCode", code, "grantable", grantable);
   }

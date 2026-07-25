@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packages the repository source while honoring the root .gitignore rules.
+# 按根目录 .gitignore 规则打包仓库源码。
 
 set -euo pipefail
 
@@ -7,8 +7,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_NAME="$(basename "$REPO_ROOT")"
 GITIGNORE_FILE="$REPO_ROOT/.gitignore"
 
-# These arrays are the default rule overrides. They can also be extended with
-# repeated --extra-ignore and --remove-ignore command-line options.
+# 默认规则覆盖项，可通过重复传入 --extra-ignore 和 --remove-ignore 扩展。
 EXTRA_IGNORE_PATTERNS=(
   ".git"
 )
@@ -146,9 +145,8 @@ done
 cp "$COMBINED_IGNORE_FILE" "$RULES_ROOT/.gitignore"
 git -C "$RULES_ROOT" init -q
 
-# ls-files applies ignore rules to untracked files. The second pass through
-# check-ignore --no-index also applies the composed rules to tracked files, so
-# configurable extra-ignore patterns behave consistently for the whole archive.
+# ls-files 对未跟踪文件应用忽略规则；check-ignore --no-index 再处理已跟踪文件，
+# 确保附加忽略规则对整个归档一致生效。
 set +e
 git -C "$REPO_ROOT" ls-files \
   --cached \
@@ -169,7 +167,7 @@ set -e
   echo "failed to enumerate repository files" >&2
   exit 1
 }
-# check-ignore returns 1 when no input path is ignored.
+# 没有路径命中忽略规则时，check-ignore 返回 1。
 [[ "${PIPELINE_STATUSES[1]}" -eq 0 || "${PIPELINE_STATUSES[1]}" -eq 1 ]] || {
   echo "failed to evaluate archive ignore rules" >&2
   exit 1
@@ -180,14 +178,13 @@ while IFS= read -r -d '' rule_source \
   && IFS= read -r -d '' rule_line \
   && IFS= read -r -d '' matched_pattern \
   && IFS= read -r -d '' relative_path; do
-  # An empty pattern means no rule matched. A leading ! is the configured
-  # negation that removes the path from ignore handling.
+# 空规则表示未命中；前导 ! 表示取消忽略。
   [[ -z "$matched_pattern" || "$matched_pattern" == \!* ]] || continue
 
   source_path="$REPO_ROOT/$relative_path"
   destination_path="$STAGING_ROOT/$relative_path"
 
-  # A tracked file may have been deleted from the working tree.
+# 已跟踪文件可能已从工作区删除。
   [[ -e "$source_path" || -L "$source_path" ]] || continue
   if [[ -d "$source_path" && ! -L "$source_path" ]]; then
     echo "unsupported Git directory entry (possible submodule): $relative_path" >&2

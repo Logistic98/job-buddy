@@ -40,12 +40,12 @@ graph LR
     U[用户] --> FE[Vue 3 工作台]
     FE --> BE[Spring Boot Backend]
 \`\`\``)
-    await new Promise((resolve) => setTimeout(resolve, 400))
-    await flushPromises()
+    await expect
+      .poll(() => wrapper.find('[data-markstream-mermaid="1"]').attributes('data-markstream-mode'), { timeout: 5000 })
+      .toBe('preview')
 
-    expect(wrapper.find('[data-markstream-mermaid="1"]').exists()).toBe(true)
-    expect(wrapper.find('[data-markstream-mermaid="1"] svg').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('graph LR')
+    const mermaidBlock = wrapper.find('[data-markstream-mermaid="1"]')
+    expect(mermaidBlock.find('[data-mermaid-wrapper] svg').exists()).toBe(true)
     wrapper.unmount()
   })
 

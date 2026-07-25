@@ -1,3 +1,5 @@
+"""提供 Runtime 存活检查接口。"""
+
 from fastapi import APIRouter
 
 from app.api.responses import success

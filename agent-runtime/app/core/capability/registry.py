@@ -1,3 +1,5 @@
+"""加载能力 Profile，并为任务解析稳定的能力候选。"""
+
 from __future__ import annotations
 
 from pathlib import Path

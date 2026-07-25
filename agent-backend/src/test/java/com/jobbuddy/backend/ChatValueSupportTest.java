@@ -10,8 +10,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 ChatValueSupport 的核心行为、异常路径与边界条件。
+ */
 class ChatValueSupportTest {
 
+  /**
+   * 验证 ChatValueSupport 的输入校验与拒绝边界。
+   */
   @Test
   void firstPresentShouldReturnFirstNonBlankValue() {
     Map<String, Object> map = new LinkedHashMap<String, Object>();
@@ -22,6 +28,9 @@ class ChatValueSupportTest {
     assertNull(ChatValueSupport.firstPresent(null, "a"));
   }
 
+  /**
+   * 验证 ChatValueSupport 的失败恢复、超时与降级边界。
+   */
   @Test
   void stringValueShouldTrimAndFallback() {
     assertEquals("x", ChatValueSupport.stringValue("  x  "));
@@ -30,6 +39,9 @@ class ChatValueSupportTest {
     assertEquals("y", ChatValueSupport.stringValue(" y ", "fallback"));
   }
 
+  /**
+   * 验证 ChatValueSupport 的失败恢复、超时与降级边界。
+   */
   @Test
   void errorMessageShouldExtractNestedMessageAndFallbackForEmptyObjects() {
     Map<String, Object> nested = new LinkedHashMap<String, Object>();
@@ -42,6 +54,9 @@ class ChatValueSupportTest {
     assertEquals("fallback", ChatValueSupport.errorMessage(new RuntimeException(), "fallback"));
   }
 
+  /**
+   * 验证 ChatValueSupport 的失败恢复、超时与降级边界。
+   */
   @Test
   void doubleValueShouldParseNumbersAndFallback() {
     assertEquals(1.5, ChatValueSupport.doubleValue("1.5", 0), 1e-9);
@@ -49,6 +64,9 @@ class ChatValueSupportTest {
     assertEquals(9.0, ChatValueSupport.doubleValue("abc", 9), 1e-9);
   }
 
+  /**
+   * 验证 ChatValueSupport 的失败恢复、超时与降级边界。
+   */
   @Test
   void booleanValueShouldParseTokensAndFallback() {
     assertTrue(ChatValueSupport.booleanValue("true", false));
@@ -57,6 +75,9 @@ class ChatValueSupportTest {
     assertTrue(ChatValueSupport.booleanValue("unknown", true));
   }
 
+  /**
+   * 验证 ChatValueSupport 的数量、长度与分页边界。
+   */
   @Test
   void truncateShouldLimitLength() {
     assertEquals("ab...", ChatValueSupport.truncate("abcdef", 2));

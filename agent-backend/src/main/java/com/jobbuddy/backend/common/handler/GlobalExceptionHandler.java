@@ -22,17 +22,32 @@ import org.springframework.web.context.request.async.AsyncRequestNotUsableExcept
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+/**
+ * 将 Controller 异常转换为平台统一响应。
+ *
+ * <p>流式请求由自身生命周期发送终态；此处只处理尚可写入普通 HTTP 响应的异常。
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
   private static final Logger LOG = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
   private final JsonCodec jsonCodec;
 
+  /**
+   * 创建全局异常处理器实例。
+   *
+   * @param jsonCodec JSON 编解码器
+   */
   public GlobalExceptionHandler(JsonCodec jsonCodec) {
     this.jsonCodec = jsonCodec;
   }
 
-  /** Boss 直聘登录态缺失：返回 4001，并将字段不稳定的登录引导数据保留为明确 JSON 边界。 */
+  /**
+   * Boss 直聘登录态缺失：返回 4001，并将字段不稳定的登录引导数据保留为明确 JSON 边界。
+   *
+   * @param exception 异常
+   * @return Boss 认证错误响应
+   */
   @ExceptionHandler(BossAuthRequiredException.class)
   @ResponseStatus(HttpStatus.OK)
   public ApiResponse<JsonNode> handleBossAuthRequired(BossAuthRequiredException exception) {
@@ -42,6 +57,13 @@ public class GlobalExceptionHandler {
         jsonCodec.toTree(exception.getAuthData()));
   }
 
+  /**
+   * 处理岗位分析。
+   *
+   * @param exception 异常
+   * @param request 请求参数
+   * @return 处理岗位分析
+   */
   @ExceptionHandler(JobAnalysisException.class)
   @ResponseStatus(HttpStatus.BAD_GATEWAY)
   public ApiResponse<Void> handleJobAnalysis(
@@ -54,6 +76,12 @@ public class GlobalExceptionHandler {
     return ApiResponse.error(ErrorCode.DEPENDENCY_FAILURE.getCode(), exception.getMessage());
   }
 
+  /**
+   * 处理参数校验异常。
+   *
+   * @param exception 异常
+   * @return 参数校验错误响应
+   */
   @ExceptionHandler(MethodArgumentNotValidException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   public ApiResponse<Void> handleValidation(MethodArgumentNotValidException exception) {
@@ -65,12 +93,25 @@ public class GlobalExceptionHandler {
     return ApiResponse.error(ErrorCode.BAD_REQUEST.getCode(), message);
   }
 
+  /**
+   * 处理无效凭据。
+   *
+   * @param exception 异常
+   * @return 无效凭据错误响应
+   */
   @ExceptionHandler(InvalidCredentialsException.class)
   @ResponseStatus(HttpStatus.UNAUTHORIZED)
   public ApiResponse<Void> handleInvalidCredentials(InvalidCredentialsException exception) {
     return ApiResponse.error(HttpStatus.UNAUTHORIZED.value(), exception.getMessage());
   }
 
+  /**
+   * 处理登录比例上限。
+   *
+   * @param exception 异常
+   * @param response 响应数据
+   * @return 处理登录比例上限
+   */
   @ExceptionHandler(LoginRateLimitException.class)
   @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
   public ApiResponse<Void> handleLoginRateLimit(
@@ -79,12 +120,25 @@ public class GlobalExceptionHandler {
     return ApiResponse.error(HttpStatus.TOO_MANY_REQUESTS.value(), exception.getMessage());
   }
 
+  /**
+   * 处理访问拒绝。
+   *
+   * @param exception 异常
+   * @return 无权限错误响应
+   */
   @ExceptionHandler(AuthorizationDeniedException.class)
   @ResponseStatus(HttpStatus.FORBIDDEN)
   public ApiResponse<Void> handleAccessDenied(AuthorizationDeniedException exception) {
     return ApiResponse.error(HttpStatus.FORBIDDEN.value(), exception.getMessage());
   }
 
+  /**
+   * 处理对话流式响应被拒绝。
+   *
+   * @param exception 异常
+   * @param response 响应数据
+   * @return 处理对话流式响应被拒绝
+   */
   @ExceptionHandler(ChatStreamRejectedException.class)
   @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
   public ApiResponse<Void> handleChatStreamRejected(
@@ -93,7 +147,12 @@ public class GlobalExceptionHandler {
     return ApiResponse.error(HttpStatus.SERVICE_UNAVAILABLE.value(), exception.getMessage());
   }
 
-  /** 非法入参属于客户端错误：统一返回 400 与真实校验文案，避免落到兜底分支被当成 500。 */
+  /**
+   * 非法入参属于客户端错误：统一返回 400 与真实校验文案，避免落到兜底分支被当成 500。
+   *
+   * @param exception 异常
+   * @return 参数错误响应
+   */
   @ExceptionHandler(IllegalArgumentException.class)
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   public ApiResponse<Void> handleIllegalArgument(IllegalArgumentException exception) {
@@ -103,7 +162,13 @@ public class GlobalExceptionHandler {
         message == null || message.trim().isEmpty() ? ErrorCode.BAD_REQUEST.getMessage() : message);
   }
 
-  /** 静态资源或接口不存在属于普通 404，不应按服务端异常记录 ERROR 堆栈。 */
+  /**
+   * 静态资源或接口不存在属于普通 404，不应按服务端异常记录 ERROR 堆栈。
+   *
+   * @param exception 异常
+   * @param request 请求对象
+   * @return 资源不存在响应
+   */
   @ExceptionHandler(NoResourceFoundException.class)
   @ResponseStatus(HttpStatus.NOT_FOUND)
   public ApiResponse<Void> handleNoResourceFound(
@@ -115,6 +180,9 @@ public class GlobalExceptionHandler {
   /**
    * SSE 客户端刷新、切换会话或主动取消后，容器可能上抛 AsyncRequestNotUsableException。 响应已经是 text/event-stream
    * 且通常已经提交，此时不能再返回 ApiResponse，否则会触发 HttpMessageNotWritableException 并形成第二段级联堆栈。
+   *
+   * @param exception 异常
+   * @param request 请求对象
    */
   @ExceptionHandler(AsyncRequestNotUsableException.class)
   public void handleAsyncClientDisconnect(
@@ -129,6 +197,9 @@ public class GlobalExceptionHandler {
   /**
    * SSE 总生命周期超时后响应通常已经提交，不能再由兜底异常处理器写入 JSON。保持无响应体， 避免在 text/event-stream 上触发
    * HttpMessageNotWritableException。
+   *
+   * @param exception 异常
+   * @param request 请求对象
    */
   @ExceptionHandler(AsyncRequestTimeoutException.class)
   public void handleAsyncRequestTimeout(
@@ -140,7 +211,13 @@ public class GlobalExceptionHandler {
         exception.getMessage());
   }
 
-  /** 兜底异常：原始堆栈/SQL 错误只落服务端日志，对外仅返回稳定的友好文案，避免把数据库连接、栈信息等内部细节泄露给前端。 */
+  /**
+   * 兜底异常：原始堆栈/SQL 错误只落服务端日志，对外仅返回稳定的友好文案，避免把数据库连接、栈信息等内部细节泄露给前端。
+   *
+   * @param exception 异常
+   * @param request 请求对象
+   * @return 统一错误响应
+   */
   @ExceptionHandler(Exception.class)
   @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
   public ApiResponse<Void> handleException(Exception exception, HttpServletRequest request) {

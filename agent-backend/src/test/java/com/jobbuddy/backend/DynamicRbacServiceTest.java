@@ -20,7 +20,13 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 DynamicRbacService 的核心行为、异常路径与边界条件。
+ */
 class DynamicRbacServiceTest {
+  /**
+   * 验证 DynamicRbacService 中角色的主要成功路径。
+   */
   @Test
   void listRolesLoadsMenuAssignmentsWithOneBatchQuery() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -44,6 +50,9 @@ class DynamicRbacServiceTest {
             org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
   }
 
+  /**
+   * 验证 DynamicRbacService 中用户的权限与租户隔离边界。
+   */
   @Test
   void rejectsCrossTenantRolesWhenReplacingUserRoles() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -58,6 +67,9 @@ class DynamicRbacServiceTest {
     verify(mapper, never()).deleteUserRoles("tenant-a", "user-a");
   }
 
+  /**
+   * 验证 DynamicRbacService 中菜单的输入校验与拒绝边界。
+   */
   @Test
   void rejectsMenuParentCycle() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -90,6 +102,9 @@ class DynamicRbacServiceTest {
             org.mockito.ArgumentMatchers.any());
   }
 
+  /**
+   * 验证 DynamicRbacService 中角色的核心业务契约。
+   */
   @Test
   void roleMenuAssignmentAutomaticallyIncludesParentMenus() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -118,6 +133,9 @@ class DynamicRbacServiceTest {
             org.mockito.ArgumentMatchers.any());
   }
 
+  /**
+   * 验证 DynamicRbacService 中菜单的安全保护边界。
+   */
   @Test
   void rejectsUnsafeExternalMenuUrls() {
     DynamicRbacService service =
@@ -130,6 +148,9 @@ class DynamicRbacServiceTest {
         IllegalArgumentException.class, () -> service.createMenu("tenant-a", actor(), request));
   }
 
+  /**
+   * 验证 DynamicRbacService 中权限的权限与租户隔离边界。
+   */
   @Test
   void rejectsStandaloneActionPermissionNodes() {
     DynamicRbacService service =
@@ -142,6 +163,9 @@ class DynamicRbacServiceTest {
         IllegalArgumentException.class, () -> service.createMenu("tenant-a", actor(), request));
   }
 
+  /**
+   * 验证 DynamicRbacService 中角色的输入校验与拒绝边界。
+   */
   @Test
   void rejectsDeletingReferencedRole() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -156,6 +180,9 @@ class DynamicRbacServiceTest {
     verify(mapper, never()).deleteRole("tenant-a", "role-a");
   }
 
+  /**
+   * 验证 DynamicRbacService 的数量、长度与分页边界。
+   */
   @Test
   void protectsLastEffectiveManagementAccount() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -166,6 +193,12 @@ class DynamicRbacServiceTest {
     assertThrows(IllegalArgumentException.class, () -> service.protectManagementAccess("tenant-a"));
   }
 
+  /**
+   * 验证请求。
+   *
+   * @param parentId 父级标识
+   * @return 测试请求
+   */
   private RbacMenuRequest request(String parentId) {
     RbacMenuRequest request = new RbacMenuRequest();
     request.setParentId(parentId);
@@ -177,6 +210,13 @@ class DynamicRbacServiceTest {
     return request;
   }
 
+  /**
+   * 验证菜单。
+   *
+   * @param id 标识
+   * @param parent 父级
+   * @return 测试菜单
+   */
   private Map<String, Object> menu(String id, String parent) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("menuId", id);
@@ -186,6 +226,12 @@ class DynamicRbacServiceTest {
     return row;
   }
 
+  /**
+   * 验证角色。
+   *
+   * @param id 标识
+   * @return 消息角色
+   */
   private Map<String, Object> role(String id) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("roleId", id);
@@ -193,6 +239,11 @@ class DynamicRbacServiceTest {
     return row;
   }
 
+  /**
+   * 验证操作人。
+   *
+   * @return 测试操作用户
+   */
   private AuthenticatedUser actor() {
     AuthenticatedUser actor = new AuthenticatedUser();
     actor.setUserId("manager-a");

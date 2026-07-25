@@ -3,6 +3,9 @@ package com.jobbuddy.backend.modules.journey.dto.response;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载求职旅程分析响应数据。
+ */
 @Data
 public class JourneyAnalysisResponse {
   private String summary;
@@ -15,6 +18,9 @@ public class JourneyAnalysisResponse {
   private String followUpMessage;
   private String generatedAt;
 
+  /**
+   * 定义统计指标。
+   */
   @Data
   public static class Metrics {
     private Integer total;
@@ -28,6 +34,9 @@ public class JourneyAnalysisResponse {
     private String topDomain;
   }
 
+  /**
+   * 定义评分分组。
+   */
   @Data
   public static class ScoreGroup {
     private String key;

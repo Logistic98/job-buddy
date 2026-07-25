@@ -5,14 +5,27 @@ import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import com.jobbuddy.backend.modules.resume.service.ResumeParsedContent;
 import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 
-/** 当前简历加载：按会话状态读取当前简历，未解析时先同步解析，供各分析链路共用。 */
+/**
+ * 当前简历加载：按会话状态读取当前简历，未解析时先同步解析，供各分析链路共用。
+ */
 class CurrentResumeLoader {
   private final ResumeStorageService resumeStorageService;
 
+  /**
+   * 创建当前简历加载器实例。
+   *
+   * @param resumeStorageService 简历存储服务
+   */
   CurrentResumeLoader(ResumeStorageService resumeStorageService) {
     this.resumeStorageService = resumeStorageService;
   }
 
+  /**
+   * 加载当前简历。
+   *
+   * @param state 状态
+   * @return 当前简历
+   */
   ResumeRecord loadCurrentResume(ChatSessionState state) {
     if (state == null || state.resumeId == null || state.resumeId.trim().isEmpty()) return null;
     ResumeRecord record = resumeStorageService.get(state.resumeId);

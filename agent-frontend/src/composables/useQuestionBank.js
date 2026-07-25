@@ -1,6 +1,5 @@
-// Question-bank list state for the bank panel: paging, filtering, row selection, batch update,
-// deletion dialog flow and manual-practice creation. Pure list orchestration around the
-// interview API; modal editing lives in QuestionEditModal and metadata in useQuestionMeta.
+// 题库面板列表状态：分页、筛选、选择、批量更新、删除确认和手工练习。
+// 本模块只编排列表；弹窗编辑和元数据分别由 QuestionEditModal、useQuestionMeta 管理。
 
 import { computed, reactive, ref } from 'vue'
 import { batchQuestions, createRandomExam, deleteQuestion, listQuestions } from '../api/interview'

@@ -739,6 +739,7 @@ async function saveRecord() {
   addTag()
   error.value = ''
   try {
+    // 对不同阶段共用的记录字段执行统一边界校验。
     validateLength(form.company, '企业名称', { max: 120 })
     validateLength(form.positionName, '岗位名称', { max: 120 })
     for (const [key, label, max] of [
@@ -769,6 +770,7 @@ async function saveRecord() {
   savingRecord.value = true
   const payload = { ...form, tags: [...form.tags] }
   try {
+    // 根据记录标识区分新增与编辑，保存后统一刷新服务端排序结果。
     const saved = editing.recordId
       ? await updateJourneyRecord(editing.recordId, payload)
       : await createJourneyRecord(payload)

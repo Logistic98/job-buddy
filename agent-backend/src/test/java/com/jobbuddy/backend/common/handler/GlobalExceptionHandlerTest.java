@@ -24,8 +24,16 @@ import org.springframework.web.context.request.async.AsyncRequestTimeoutExceptio
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+/**
+ * 验证 GlobalExceptionHandler 的核心行为、异常路径与边界条件。
+ */
 class GlobalExceptionHandlerTest {
 
+  /**
+   * 验证 GlobalExceptionHandler 中流式响应的流式生命周期与中断边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void asyncClientDisconnectShouldNotBeConvertedToJsonForEventStream() throws Exception {
     MockMvc mockMvc =
@@ -39,6 +47,11 @@ class GlobalExceptionHandlerTest {
         .andExpect(content().string(""));
   }
 
+  /**
+   * 验证 GlobalExceptionHandler 中流式响应的失败恢复、超时与降级边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void asyncRequestTimeoutShouldNotBeConvertedToJsonForEventStream() throws Exception {
     MockMvc mockMvc =
@@ -52,6 +65,11 @@ class GlobalExceptionHandlerTest {
         .andExpect(content().string(""));
   }
 
+  /**
+   * 验证 GlobalExceptionHandler 中岗位的失败恢复、超时与降级边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void jobAnalysisFailureShouldReturnActionableDependencyError() throws Exception {
     MockMvc mockMvc =
@@ -66,6 +84,11 @@ class GlobalExceptionHandlerTest {
         .andExpect(jsonPath("$.message").value("岗位匹配服务执行失败，请稍后重试"));
   }
 
+  /**
+   * 验证 GlobalExceptionHandler 的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void missingStaticResourceShouldReturn404WithoutInternalError() throws Exception {
     MockMvc mockMvc =
@@ -79,6 +102,11 @@ class GlobalExceptionHandlerTest {
         .andExpect(jsonPath("$.code").value(404));
   }
 
+  /**
+   * 验证 GlobalExceptionHandler 中认证的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void bossAuthRequiredShouldPreserveDynamicDataAsJsonObject() throws Exception {
     MockMvc mockMvc =
@@ -95,33 +123,64 @@ class GlobalExceptionHandlerTest {
         .andExpect(jsonPath("$.data.login.qrSessionId").value("qr-1"));
   }
 
+  /**
+   * 验证处理器。
+   *
+   * @return 待测试处理器
+   */
   private GlobalExceptionHandler handler() {
     return new GlobalExceptionHandler(new JsonCodec());
   }
 
+  /**
+   * 验证连接断开流式响应的行为与边界。
+   */
   @RestController
   static class DisconnectingStreamController {
+    /**
+     * 验证流式响应。
+     *
+     * @return 订阅
+     * @throws AsyncRequestNotUsableException 处理失败时抛出
+     */
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     SseEmitter stream() throws AsyncRequestNotUsableException {
       throw new AsyncRequestNotUsableException(
           "Servlet container error notification for disconnected client");
     }
 
+    /**
+     * 验证流式响应超时。
+     *
+     * @return 订阅超时
+     * @throws AsyncRequestTimeoutException 处理失败时抛出
+     */
     @PostMapping(value = "/stream-timeout", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     SseEmitter streamTimeout() throws AsyncRequestTimeoutException {
       throw new AsyncRequestTimeoutException();
     }
 
+    /**
+     * 验证岗位分析。
+     */
     @PostMapping("/job-analysis")
     void jobAnalysis() {
       throw new JobAnalysisException("岗位匹配服务执行失败，请稍后重试");
     }
 
+    /**
+     * 验证 GlobalExceptionHandler 的输入校验与拒绝边界。
+     *
+     * @throws NoResourceFoundException 处理失败时抛出
+     */
     @GetMapping("/missing-resource")
     void missingResource() throws NoResourceFoundException {
       throw new NoResourceFoundException(HttpMethod.GET, "missing-resource");
     }
 
+    /**
+     * 验证 GlobalExceptionHandler 中认证的输入校验与拒绝边界。
+     */
     @GetMapping("/boss-auth-required")
     void bossAuthRequired() {
       Map<String, Object> login = new LinkedHashMap<String, Object>();

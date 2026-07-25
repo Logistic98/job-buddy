@@ -24,8 +24,14 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+/**
+ * 验证 UserLoginServiceCache 的核心行为、异常路径与边界条件。
+ */
 class UserLoginServiceCacheTest {
 
+  /**
+   * 验证 UserLoginServiceCache 中用户的权限与租户隔离边界。
+   */
   @Test
   void loginUsesGlobalUsernameAndLoadsDynamicRbacContext() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -46,6 +52,9 @@ class UserLoginServiceCacheTest {
     verify(repository).findPermissions("admin");
   }
 
+  /**
+   * 验证 UserLoginServiceCache 中登录的持久化与状态变更规则。
+   */
   @Test
   void loginAcceptsFlywaySeededDefaultPassword() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -67,6 +76,9 @@ class UserLoginServiceCacheTest {
             org.mockito.ArgumentMatchers.any(Instant.class));
   }
 
+  /**
+   * 验证 UserLoginServiceCache 中记忆的去重与幂等边界。
+   */
   @Test
   void repeatedTokenValidationShouldUseShortLivedMemoryCache() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -82,6 +94,9 @@ class UserLoginServiceCacheTest {
     verify(repository, never()).deleteExpiredSessions();
   }
 
+  /**
+   * 验证 UserLoginServiceCache 中缓存的缓存一致性规则。
+   */
   @Test
   void logoutShouldEvictCachedSessionImmediately() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -96,6 +111,11 @@ class UserLoginServiceCacheTest {
     verify(repository).deleteSession("token-2");
   }
 
+  /**
+   * 验证用户记录。
+   *
+   * @return 当前认证用户 Row
+   */
   private Map<String, Object> userRow() {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("userId", "admin");
@@ -107,6 +127,11 @@ class UserLoginServiceCacheTest {
     return row;
   }
 
+  /**
+   * 验证登录守卫。
+   *
+   * @return 登录尝试守卫
+   */
   @SuppressWarnings("unchecked")
   private LoginAttemptGuard loginGuard() {
     ObjectProvider<StringRedisTemplate> provider = mock(ObjectProvider.class);

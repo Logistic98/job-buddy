@@ -18,10 +18,21 @@ import org.springframework.stereotype.Service;
 public class IntentServiceImpl implements IntentService {
   private final IntentClient intentClient;
 
+  /**
+   * 创建意图服务实例。
+   *
+   * @param intentClient 意图客户端
+   */
   public IntentServiceImpl(IntentClient intentClient) {
     this.intentClient = intentClient;
   }
 
+  /**
+   * 识别用户意图。
+   *
+   * @param message 消息内容
+   * @return 分类结果
+   */
   public IntentResult classify(String message) {
     IntentResult result = intentClient.classify(message);
     if (result != null) {
@@ -30,7 +41,12 @@ public class IntentServiceImpl implements IntentService {
     return classifyLocally(message);
   }
 
-  /** 本地规则降级分类：仅在 agent-intent 不可用时使用，保证预分类链路可用。 secondary 中携带降级标记，便于上游与观测识别降级路径。 */
+  /**
+   * 本地规则降级分类：仅在 agent-intent 不可用时使用，保证预分类链路可用。 secondary 中携带降级标记，便于上游与观测识别降级路径。
+   *
+   * @param message 消息内容
+   * @return 本地分类结果
+   */
   private IntentResult classifyLocally(String message) {
     String text = message == null ? "" : message.trim();
     List<String> secondary = Collections.singletonList("intent_service_unavailable_local_fallback");
@@ -57,6 +73,13 @@ public class IntentServiceImpl implements IntentService {
     return result;
   }
 
+  /**
+   * 判断是否包含任一目标值。
+   *
+   * @param text 文本
+   * @param keywords 关键词列表
+   * @return 是否包含任一目标值
+   */
   private boolean containsAny(String text, String... keywords) {
     for (String keyword : keywords) {
       if (text.contains(keyword)) return true;

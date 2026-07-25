@@ -1,3 +1,5 @@
+"""定义工具执行请求、结果与结构化错误模型。"""
+
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field

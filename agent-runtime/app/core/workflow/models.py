@@ -1,3 +1,5 @@
+"""定义 Workflow 元数据，不执行其中声明的外部业务动作。"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional

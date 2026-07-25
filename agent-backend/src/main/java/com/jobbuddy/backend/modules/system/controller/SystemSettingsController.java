@@ -25,7 +25,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 系统设置接口，提供平台设置和长期记忆管理能力。 */
+/**
+ * 系统设置接口，提供平台设置和长期记忆管理能力。
+ */
 @Tag(name = "系统设置接口")
 @RestController
 @RequirePermission(PermissionCodes.PLATFORM_MANAGE)
@@ -33,6 +35,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class SystemSettingsController {
   private final SystemSettingsService systemSettingsService;
 
+  /**
+   * 创建系统设置接口实例。
+   *
+   * @param systemSettingsService 系统设置服务
+   */
   public SystemSettingsController(SystemSettingsService systemSettingsService) {
     this.systemSettingsService = systemSettingsService;
   }
@@ -62,6 +69,7 @@ public class SystemSettingsController {
   /**
    * 保存系统设置。
    *
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "保存系统设置")
@@ -85,6 +93,7 @@ public class SystemSettingsController {
   /**
    * 查询记忆列表。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询记忆列表")
@@ -98,6 +107,8 @@ public class SystemSettingsController {
   /**
    * 新增记忆。
    *
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "新增记忆")
@@ -114,6 +125,8 @@ public class SystemSettingsController {
   /**
    * 删除记忆。
    *
+   * @param memoryId 记忆标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "删除记忆")
@@ -130,6 +143,7 @@ public class SystemSettingsController {
   /**
    * 清空记忆。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "清空记忆")

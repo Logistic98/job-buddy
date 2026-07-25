@@ -13,7 +13,9 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** 将本轮显式条件、求职画像和当前简历合并为可复用的岗位推荐槽位。 */
+/**
+ * 将本轮显式条件、求职画像和当前简历合并为可复用的岗位推荐槽位。
+ */
 public final class JobRecommendationCriteriaBuilder {
   private static final Pattern K_RANGE =
       Pattern.compile(
@@ -26,10 +28,22 @@ public final class JobRecommendationCriteriaBuilder {
   private static final Pattern K_MIN =
       Pattern.compile("(\\d{1,3}(?:\\.\\d+)?)\\s*(?:k|千)\\s*(?:以上|起)", Pattern.CASE_INSENSITIVE);
 
+  /**
+   * 创建岗位推荐筛选条件构建器实例。
+   */
   private JobRecommendationCriteriaBuilder() {}
 
+  /**
+   * 补充岗位推荐条件。
+   *
+   * @param intent 意图
+   * @param context 上下文
+   * @param rawMessage 原始消息
+   * @return 补全
+   */
   public static IntentResult enrich(
       IntentResult intent, PersonalContext context, String rawMessage) {
+    // 先复制意图槽位，避免补全条件时修改上游分类结果。
     Map<String, Object> slots =
         intent == null || intent.getSlots() == null
             ? new LinkedHashMap<String, Object>()
@@ -40,6 +54,7 @@ public final class JobRecommendationCriteriaBuilder {
     Map<String, Object> expectations =
         firstMap(profile, "job_expectations", "expectations", "jobIntentions", "job_intentions");
 
+    // 岗位与城市按“显式槽位、求职期望、当前简历、画像”顺序补全。
     String role = stringValue(slots.get("role"));
     if (role.isEmpty()) {
       role = firstString(expectations, "position", "positionName", "target_roles");
@@ -53,6 +68,7 @@ public final class JobRecommendationCriteriaBuilder {
       if (!city.isEmpty()) slots.put("city", city);
     }
 
+    // 关键词集合分为正向、硬排除和软排除，分别用于召回与过滤。
     Set<String> includes = values(slots.get("include_keywords"));
     includes.addAll(values(profile.get("skills")));
     includes.addAll(values(resume.get("skills")));
@@ -80,6 +96,7 @@ public final class JobRecommendationCriteriaBuilder {
     if (years == null) years = firstInteger(resume, "years_experience", "yearsExperience");
     if (years != null && years >= 0) slots.put("candidate_years_experience", years);
 
+    // 薪资优先采用用户本轮表达，其次复用既有槽位和画像期望。
     boolean existingSalary = slots.get("salary_min_k") != null || slots.get("salary_max_k") != null;
     int[] parsedSalary = parseSalaryRangeK(rawMessage);
     if (parsedSalary == null && !existingSalary) {
@@ -100,6 +117,7 @@ public final class JobRecommendationCriteriaBuilder {
     slots.put("profile_context_used", context != null && !profile.isEmpty());
     slots.put("resume_context_used", context != null && !resume.isEmpty());
 
+    // 没有上游意图时构造默认推荐意图，否则保留原有路由元数据。
     if (intent == null) {
       return new IntentResult(
           "job",
@@ -126,6 +144,12 @@ public final class JobRecommendationCriteriaBuilder {
     return enriched;
   }
 
+  /**
+   * 解析薪资范围数量。
+   *
+   * @param value 输入值
+   * @return 薪资范围数量
+   */
   public static int[] parseSalaryRangeK(String value) {
     String text = stringValue(value).toLowerCase().replace("，", "").replace(",", "");
     if (text.isEmpty()) return null;
@@ -143,6 +167,14 @@ public final class JobRecommendationCriteriaBuilder {
     return null;
   }
 
+  /**
+   * 获取范围数量。
+   *
+   * @param first 第一个候选值
+   * @param second 第二个候选值
+   * @param multiplier 退避倍数
+   * @return 范围数量
+   */
   private static int[] rangeK(String first, String second, double multiplier) {
     double left = Double.parseDouble(first) * multiplier;
     double right = Double.parseDouble(second) * multiplier;
@@ -151,6 +183,13 @@ public final class JobRecommendationCriteriaBuilder {
     };
   }
 
+  /**
+   * 获取首个映射。
+   *
+   * @param source 源数据
+   * @param keys 键列表
+   * @return 首个映射
+   */
   private static Map<String, Object> firstMap(Map<String, Object> source, String... keys) {
     if (source == null) return Collections.emptyMap();
     for (String key : keys) {
@@ -164,6 +203,13 @@ public final class JobRecommendationCriteriaBuilder {
     return Collections.emptyMap();
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param source 源数据
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private static Object firstPresent(Map<String, Object> source, String... keys) {
     if (source == null) return null;
     for (String key : keys) {
@@ -173,10 +219,24 @@ public final class JobRecommendationCriteriaBuilder {
     return null;
   }
 
+  /**
+   * 获取首个字符串。
+   *
+   * @param source 源数据
+   * @param keys 键列表
+   * @return 首个字符串
+   */
   private static String firstString(Map<String, Object> source, String... keys) {
     return stringValue(firstPresent(source, keys));
   }
 
+  /**
+   * 获取首个整数。
+   *
+   * @param source 源数据
+   * @param keys 键列表
+   * @return 首个整数
+   */
   private static Integer firstInteger(Map<String, Object> source, String... keys) {
     Object value = firstPresent(source, keys);
     if (value instanceof Number) return ((Number) value).intValue();
@@ -184,6 +244,12 @@ public final class JobRecommendationCriteriaBuilder {
     return matcher.find() ? Integer.valueOf(matcher.group()) : null;
   }
 
+  /**
+   * 提取有效字段值。
+   *
+   * @param value 输入值
+   * @return 有效字段值
+   */
   private static Set<String> values(Object value) {
     Set<String> result = new LinkedHashSet<String>();
     if (value instanceof Collection) {
@@ -194,6 +260,12 @@ public final class JobRecommendationCriteriaBuilder {
     return result;
   }
 
+  /**
+   * 新增值。
+   *
+   * @param result 执行结果
+   * @param value 输入值
+   */
   private static void addValue(Set<String> result, Object value) {
     String text = stringValue(value);
     if (text.isEmpty() || "[]".equals(text) || "{}".equals(text)) return;
@@ -203,6 +275,14 @@ public final class JobRecommendationCriteriaBuilder {
     }
   }
 
+  /**
+   * 写入列表。
+   *
+   * @param slots 候选槽位
+   * @param key 业务键
+   * @param values 输入值列表
+   * @param limit 数量上限
+   */
   private static void putList(
       Map<String, Object> slots, String key, Set<String> values, int limit) {
     if (values.isEmpty()) return;
@@ -210,6 +290,12 @@ public final class JobRecommendationCriteriaBuilder {
     slots.put(key, result.subList(0, Math.min(result.size(), limit)));
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private static String stringValue(Object value) {
     return value == null ? "" : String.valueOf(value).trim();
   }

@@ -1,3 +1,5 @@
+"""按稳定路径加载 Prompt 资产并缓存文件内容。"""
+
 from __future__ import annotations
 
 import re
@@ -25,6 +27,7 @@ class PromptTemplateLoader:
         return fallback.strip()
 
     def render(self, template: str, variables: Dict[str, Any]) -> str:
+
         def replace(match: re.Match[str]) -> str:
             key = match.group(1).strip()
             value = variables.get(key, "")

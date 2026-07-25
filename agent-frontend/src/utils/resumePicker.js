@@ -32,6 +32,7 @@ export function resumePickerSkills(item) {
 export function resumePickerSummary(item, loading = false) {
   if (loading) return '正在加载简历摘要…'
   const parsed = item?.parsed || {}
+  // 优先使用明确摘要字段，兼容不同解析版本的字段命名。
   const explicit = firstText(parsed, [
     'summary',
     'personal_advantage',
@@ -46,6 +47,7 @@ export function resumePickerSummary(item, loading = false) {
   ])
   if (explicit) return truncate(explicit)
 
+  // 缺少摘要时按经验、方向、技能组合可读概览。
   const years = firstText(parsed, ['years_experience', 'yearsExperience', 'work_years', 'workYears'])
   const direction = firstText(parsed, [
     'current_title',
@@ -62,6 +64,7 @@ export function resumePickerSummary(item, loading = false) {
   if (skills.length) parts.push(`核心技能：${skills.join('、')}`)
   if (parts.length) return truncate(parts.join('；'))
 
+  // 最后从经历正文提取首段内容，仍为空时按解析状态返回提示。
   const workRows = parsed.work_experiences || parsed.workExperiences || parsed.experiences || []
   const projectRows = parsed.project_experiences || parsed.projectExperiences || parsed.projects || []
   const detail = [...(Array.isArray(workRows) ? workRows : []), ...(Array.isArray(projectRows) ? projectRows : [])]

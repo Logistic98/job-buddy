@@ -1,3 +1,5 @@
+"""构建 LangGraph 状态机及其受治理执行节点。"""
+
 import asyncio
 import time
 from typing import Dict, List, Literal, Optional
@@ -479,6 +481,7 @@ class AgentGraphBuilder:
             return state
         results = state.get("tool_results", [])
         consumed = set(state.get("observed_tool_call_ids") or [])
+        # 只消费本轮真实且未观察过的结果，防止恢复执行时重复写入观察。
         fresh_results = [
             item for item in results if not item.metadata.get("synthetic") and item.tool_call_id not in consumed
         ]
@@ -490,6 +493,7 @@ class AgentGraphBuilder:
             consumed.add(result.tool_call_id)
         state["observed_tool_call_ids"] = list(consumed)
 
+        # 观察写入后按预算压缩上下文，并把压缩事实记录到 Trace。
         compaction_report = self.context_compactor.maybe_compact(state)
         if compaction_report:
             await self.trace_recorder.record(
@@ -532,6 +536,7 @@ class AgentGraphBuilder:
         result_by_call = {item.tool_call_id: item for item in current_results}
         plan = state.get("plan")
         step_updates = []
+        # 将工具结果回写到关联计划步骤，权限拒绝单独标记为阻塞。
         if plan:
             step_by_id = {step.id: step for step in plan.steps}
             for call in selected_calls:
@@ -556,6 +561,7 @@ class AgentGraphBuilder:
                     }
                 )
 
+        # 决策优先级固定为人工确认、终止、重规划和重试。
         if state.get("status") == RuntimeStatus.NEED_CONFIRM.value:
             decision = "need_confirm"
         elif state.get("should_stop"):
@@ -595,6 +601,7 @@ class AgentGraphBuilder:
         task = state.get("task_understanding")
         directive = state.get("directive")
         plan = state.get("plan")
+        # 先按停止原因归一化终态，预算和权限边界暂停，执行故障失败。
         if task and task.risk_flags.safety_blocked:
             state["status"] = RuntimeStatus.PAUSED.value
             state["stop_reason"] = StopReason.SAFETY_BLOCKED.value
@@ -620,6 +627,7 @@ class AgentGraphBuilder:
         } and state.get("status") in {None, RuntimeStatus.RUNNING.value}:
             state["status"] = RuntimeStatus.FAIL.value
 
+        # 已生成答案优先保留；否则按澄清、指令、计划和观察的顺序构造响应。
         if not state.get("answer"):
             if task and task.clarification.needed:
                 state["answer"] = task.clarification.question or "需要进一步澄清。"
@@ -674,6 +682,7 @@ class AgentGraphBuilder:
 
     def _validate_plan_dependencies(self, plan: AgentPlan, calls: List[ToolCall]) -> Optional[str]:
         step_by_id: Dict[str, object] = {}
+        # 先校验标识唯一性和直接引用，再通过深度优先遍历检测环。
         for step in plan.steps:
             if step.id in step_by_id:
                 return f"步骤 ID 重复: {step.id}"

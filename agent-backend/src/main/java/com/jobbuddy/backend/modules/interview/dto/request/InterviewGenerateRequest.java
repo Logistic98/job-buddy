@@ -2,6 +2,9 @@ package com.jobbuddy.backend.modules.interview.dto.request;
 
 import lombok.Data;
 
+/**
+ * 承载面试生成请求参数。
+ */
 @Data
 public class InterviewGenerateRequest {
   private String topic;

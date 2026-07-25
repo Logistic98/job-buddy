@@ -38,6 +38,7 @@ def test_memory_search_requires_query():
 
 
 def test_memory_search_handles_unavailable_service(monkeypatch):
+
     def raise_connect(*args, **kwargs):
         raise httpx.ConnectError("connection refused")
 
@@ -49,6 +50,7 @@ def test_memory_search_handles_unavailable_service(monkeypatch):
 
 
 def test_memory_search_success(monkeypatch):
+
     class FakeResponse:
         def raise_for_status(self):
             return None
@@ -69,6 +71,7 @@ def test_sandbox_execute_requires_command():
 
 
 def test_sandbox_execute_success(monkeypatch):
+
     class FakeResponse:
         def raise_for_status(self):
             return None
@@ -83,6 +86,7 @@ def test_sandbox_execute_success(monkeypatch):
 
 
 def test_sandbox_execute_command_failure(monkeypatch):
+
     class FakeResponse:
         def raise_for_status(self):
             return None

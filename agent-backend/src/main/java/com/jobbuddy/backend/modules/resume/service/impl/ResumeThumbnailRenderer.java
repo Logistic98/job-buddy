@@ -12,9 +12,18 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.rendering.ImageType;
 import org.apache.pdfbox.rendering.PDFRenderer;
 
-/** 简历缩略图渲染：负责 PDF 首页渲染缩放和非 PDF 占位图绘制。 */
+/**
+ * 简历缩略图渲染：负责 PDF 首页渲染缩放和非 PDF 占位图绘制。
+ */
 class ResumeThumbnailRenderer {
 
+  /**
+   * 渲染 PDF 首个分页。
+   *
+   * @param pdfFile PDF 文件
+   * @return PDF 首页图像
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   byte[] renderPdfFirstPage(Path pdfFile) throws IOException {
     PDDocument document = PDDocument.load(pdfFile.toFile());
     try {
@@ -45,6 +54,12 @@ class ResumeThumbnailRenderer {
     }
   }
 
+  /**
+   * 生成占位缩略图。
+   *
+   * @param record 记录
+   * @return 占位缩略图
+   */
   byte[] placeholderThumbnail(ResumeRecord record) {
     int width = 260;
     int height = 340;

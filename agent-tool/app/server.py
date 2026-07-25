@@ -1,3 +1,5 @@
+"""提供工具目录与租户感知的执行接口。"""
+
 import time
 from uuid import uuid4
 
@@ -46,6 +48,7 @@ def execute_tool(
     x_operator_id: str | None = Header(default=None),
 ) -> dict:
     trace_id = request.trace_id or f"tool_{uuid4().hex[:12]}"
+    # 执行前依次校验注册信息、风险确认和执行器绑定，失败时不触达工具实现。
     definition = get_tool(name)
     if definition is None:
         result = ToolResult(
@@ -97,6 +100,7 @@ def execute_tool(
     logger.info(f"执行工具: tool_name={name}, operation={operation}, trace_id={trace_id}")
     try:
         arguments = dict(request.arguments)
+        # 租户与操作人只能取自内部认证头，不接受调用载荷伪造所有者身份。
         if name == "boss_browser":
             tenant_id = (x_tenant_id or "").strip()
             operator_id = (x_operator_id or "").strip()
@@ -128,6 +132,7 @@ def execute_tool(
                 suggested_action="查看 agent-tool 日志定位异常原因后重试",
             ),
         )
+    # 所有执行结果统一映射为 HTTP 状态码和工具响应信封。
     code = _response_code(result)
     elapsed_ms = int((time.monotonic() - started_at) * 1000)
     logger.info(

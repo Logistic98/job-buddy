@@ -513,6 +513,7 @@ async function toggleChatJd(item, idx) {
     return
   }
   if (!chatJobFullJd(item)) {
+    // 仅在展开且本地缺少正文时访问 Boss，降低无效外部请求。
     if (jdLoadingKeys.value.has(key)) return
     const securityId = item.securityId || item.security_id || item.encryptJobId || item.encrypt_job_id || ''
     const detailUrl = originalUrl(item)
@@ -537,6 +538,7 @@ async function toggleChatJd(item, idx) {
       jdLoadingKeys.value.delete(key)
       jdLoadingKeys.value = new Set(jdLoadingKeys.value)
     }
+    // 外部接口成功但未返回正文时保持折叠，并向用户给出可恢复提示。
     if (!chatJobFullJd(item)) {
       jdErrorMap.value = { ...jdErrorMap.value, [key]: '未获取到职位描述，请稍后重试或打开 Boss 原岗位查看。' }
       return

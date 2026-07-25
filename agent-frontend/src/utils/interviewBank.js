@@ -1,6 +1,4 @@
-// Pure, side-effect-free helpers for the interview question bank. Extracted from InterviewBank.vue
-// so tag parsing, coding-template generation and formatting can be unit-tested in isolation while
-// the component keeps only its reactive state and API orchestration.
+// 面试题库的无副作用辅助函数，便于独立测试标签解析、代码模板与格式化逻辑。
 
 export const codingLanguageOptions = [
   { value: 'python', label: 'Python' },

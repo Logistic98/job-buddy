@@ -14,10 +14,14 @@ _DEFAULT_QUESTION = "您的问题信息不足，请补充想要达成的目标�
 
 
 def clarify_confidence_threshold() -> float:
+    """读取低置信澄清阈值。"""
+
     return float(os.getenv("AGENT_INTENT_CLARIFY_CONFIDENCE_THRESHOLD", str(_DEFAULT_THRESHOLD)))
 
 
 def apply_clarification_gate(result: IntentResult) -> IntentResult:
+    """将低置信非高风险结果改写为明确澄清请求。"""
+
     if result.risk == "high":
         return result
     if result.confidence >= clarify_confidence_threshold():

@@ -151,6 +151,7 @@ async def test_executor_restores_latest_checkpoint_state(checkpoint_store):
 
 @pytest.mark.asyncio
 async def test_executor_saves_runtime_error_checkpoint(checkpoint_store):
+
     class FailingGraph:
         async def ainvoke(self, state):
             raise RuntimeError("boom")

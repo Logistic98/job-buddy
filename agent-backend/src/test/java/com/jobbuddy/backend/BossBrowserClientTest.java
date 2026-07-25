@@ -18,8 +18,14 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * 验证 BossBrowserClient 的核心行为、异常路径与边界条件。
+ */
 class BossBrowserClientTest {
 
+  /**
+   * 验证 BossBrowserClient 中工具的检索、筛选与排序规则。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void postSearchShouldInvokeRuntimeBossBrowserTool() {
@@ -64,6 +70,9 @@ class BossBrowserClientTest {
     assertEquals(request, arguments.get("payload"));
   }
 
+  /**
+   * 验证 BossBrowserClient 中凭据的身份认证与会话边界。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void requestShouldInjectCredentialFromCanonicalProvider() {
@@ -103,6 +112,9 @@ class BossBrowserClientTest {
     verify(repository).findByProvider("jackwener/boss-cli");
   }
 
+  /**
+   * 验证 BossBrowserClient 中工具的失败恢复、超时与降级边界。
+   */
   @Test
   void runtimeToolFailureShouldReturnOldEnvelopeShape() {
     RestTemplate restTemplate = mock(RestTemplate.class);

@@ -24,15 +24,26 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * 验证 RuntimeToolClient 的核心行为、异常路径与边界条件。
+ */
 class RuntimeToolClientTest {
   private static final JsonCodec JSON = new JsonCodec();
 
+  /**
+   * 验证配置属性。
+   *
+   * @return 测试配置
+   */
   private AgentServiceProperties properties() {
     AgentServiceProperties properties = new AgentServiceProperties();
     properties.setRuntimeUrl("http://runtime.local");
     return properties;
   }
 
+  /**
+   * 验证 RuntimeToolClient 中工具的主要成功路径。
+   */
   @Test
   void invokeReturnsToolDataOnSuccess() {
     AgentServiceProperties properties = properties();
@@ -72,6 +83,9 @@ class RuntimeToolClientTest {
         ((Map<String, Object>) resultMap.get("future_tool_field")).get("version"));
   }
 
+  /**
+   * 验证 RuntimeToolClient 的失败恢复、超时与降级边界。
+   */
   @Test
   void invokeRethrowsAndFeedsCircuitOnFailure() {
     AgentServiceProperties properties = properties();
@@ -89,6 +103,9 @@ class RuntimeToolClientTest {
     assertTrue(resilience.isOpen("agent-runtime-tool"));
   }
 
+  /**
+   * 验证 RuntimeToolClient 的输入校验与拒绝边界。
+   */
   @Test
   void invokeFastFailsWhenCircuitOpen() {
     AgentServiceProperties properties = properties();

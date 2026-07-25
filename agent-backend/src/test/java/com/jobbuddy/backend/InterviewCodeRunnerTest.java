@@ -24,7 +24,13 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * 验证 InterviewCodeRunner 的核心行为、异常路径与边界条件。
+ */
 class InterviewCodeRunnerTest {
+  /**
+   * 验证 InterviewCodeRunner 的核心业务契约。
+   */
   @Test
   void shouldDelegateCodeExecutionToAgentSandbox() {
     ObjectMapper objectMapper = new ObjectMapper();
@@ -79,6 +85,9 @@ class InterviewCodeRunnerTest {
     assertTrue(body.containsKey("options"));
   }
 
+  /**
+   * 验证 InterviewCodeRunner 的核心业务契约。
+   */
   @Test
   void shouldRenderReadableJavaRunnerTemplate() {
     ObjectMapper objectMapper = new ObjectMapper();
@@ -110,6 +119,9 @@ class InterviewCodeRunnerTest {
     assertFalse(javaRunner.contains("__FUNCTION_NAME__"));
   }
 
+  /**
+   * 验证 InterviewCodeRunner 的核心业务契约。
+   */
   @Test
   void shouldAddDefaultFieldsWhenSandboxResultOmitsThem() {
     ObjectMapper objectMapper = new ObjectMapper();
@@ -132,6 +144,9 @@ class InterviewCodeRunnerTest {
     assertEquals("completed", result.get("message"));
   }
 
+  /**
+   * 验证 InterviewCodeRunner 的输入校验与拒绝边界。
+   */
   @Test
   void shouldRejectOversizedSourceBeforeCallingSandbox() {
     ObjectMapper objectMapper = new ObjectMapper();
@@ -155,6 +170,13 @@ class InterviewCodeRunnerTest {
     assertTrue(String.valueOf(result.get("message")).contains("128KB"));
   }
 
+  /**
+   * 验证有效载荷。
+   *
+   * @param language 语言
+   * @param source 源数据
+   * @return 有效的代码执行载荷
+   */
   private Map<String, Object> validPayload(String language, String source) {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
     payload.put("language", language);
@@ -168,10 +190,23 @@ class InterviewCodeRunnerTest {
     return payload;
   }
 
+  /**
+   * 解码脚本中嵌入的子进程代码。
+   *
+   * @param orchestrator 编排器
+   * @return 解码结果
+   */
   private String decodeEmbeddedChildCode(String orchestrator) {
     return decodeEmbeddedCode(orchestrator, "CODE_B64");
   }
 
+  /**
+   * 解码脚本中嵌入的执行代码。
+   *
+   * @param orchestrator 编排器
+   * @param variableName 变量名称
+   * @return 解码结果
+   */
   private String decodeEmbeddedCode(String orchestrator, String variableName) {
     Matcher matcher =
         Pattern.compile(Pattern.quote(variableName) + " = \\\"([^\\\"]+)\\\"")

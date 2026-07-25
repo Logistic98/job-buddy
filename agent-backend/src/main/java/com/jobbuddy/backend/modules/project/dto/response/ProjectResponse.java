@@ -5,6 +5,9 @@ import java.time.Instant;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载项目响应数据。
+ */
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ProjectResponse {

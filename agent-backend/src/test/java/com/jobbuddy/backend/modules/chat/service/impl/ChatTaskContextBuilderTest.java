@@ -13,8 +13,14 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 ChatTaskContextBuilder 的核心行为、异常路径与边界条件。
+ */
 class ChatTaskContextBuilderTest {
 
+  /**
+   * 验证 ChatTaskContextBuilder 的去重与幂等边界。
+   */
   @Test
   void shouldCarryRecentDialogueAndAppendCurrentMessageExactlyOnce() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -37,6 +43,9 @@ class ChatTaskContextBuilderTest {
         1, messages.stream().filter(item -> "现在这个6年的简历呢".equals(item.get("content"))).count());
   }
 
+  /**
+   * 验证 ChatTaskContextBuilder 的输入校验与拒绝边界。
+   */
   @Test
   void shouldLimitHistoryAndIgnoreUnsupportedOrBlankMessages() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -57,6 +66,9 @@ class ChatTaskContextBuilderTest {
     assertTrue(messages.stream().noneMatch(item -> "system".equals(item.get("role"))));
   }
 
+  /**
+   * 验证 ChatTaskContextBuilder 的输入校验与拒绝边界。
+   */
   @Test
   void shouldDegradeToCurrentMessageWhenHistoryCannotBeRead() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -71,6 +83,11 @@ class ChatTaskContextBuilderTest {
     assertEquals("现在这份简历呢", messages.get(0).get("content"));
   }
 
+  /**
+   * 验证状态。
+   *
+   * @return 测试会话状态
+   */
   private ChatSessionState state() {
     ChatSessionState state = new ChatSessionState();
     state.tenantId = "tenant-a";
@@ -79,6 +96,13 @@ class ChatTaskContextBuilderTest {
     return state;
   }
 
+  /**
+   * 验证消息。
+   *
+   * @param role 角色
+   * @param content 内容
+   * @return 测试消息
+   */
   private ChatMessageResponse message(String role, String content) {
     ChatMessageResponse response = new ChatMessageResponse();
     response.setRole(role);

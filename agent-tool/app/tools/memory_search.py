@@ -17,6 +17,9 @@ _DEFAULT_TIMEOUT = 5.0
 
 
 def run_memory_search(arguments: Dict[str, Any], trace_id: str = None) -> ToolResult:
+    """以租户和操作者身份调用记忆检索，并执行一次瞬时故障重试。"""
+
+    # 请求参数和可信身份分别构造，禁止由查询内容覆盖租户边界。
     query = str(arguments.get("query", "")).strip()
     if not query:
         return ToolResult(
@@ -46,6 +49,7 @@ def run_memory_search(arguments: Dict[str, Any], trace_id: str = None) -> ToolRe
     if token:
         headers["X-Internal-Service-Token"] = token
 
+    # 仅对网络瞬时故障重试一次，业务与协议错误直接返回。
     max_attempts = 2
     try:
         for attempt in range(1, max_attempts + 1):

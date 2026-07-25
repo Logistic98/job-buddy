@@ -46,9 +46,14 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** SSE 主链路协作类单元测试：覆盖事件下发的取消检查与"先推前端、再异步落库"顺序、 持久化协调器的顺序落库与降级回退、Runtime 托管请求组装以及记忆分层写入。 */
+/**
+ * 验证 ChatSseCollaborators 的核心行为、异常路径与边界条件。
+ */
 class ChatSseCollaboratorsTest {
 
+  /**
+   * 验证 ChatSseCollaborators 中简历的去重与幂等边界。
+   */
   @Test
   void authReplayShouldKeepResumeRematchIntent() {
     ChatSessionState state = new ChatSessionState();
@@ -66,6 +71,9 @@ class ChatSseCollaboratorsTest {
     assertFalse(ChatSseServiceImpl.shouldResumeSelectedJobMatchAfterAuth(request, state));
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中岗位的持久化与状态变更规则。
+   */
   @Test
   void jobRecommendationShouldPersistResolvedSlotsBeforeRequestingAuthentication() {
     ChatSseEventSender sender = mock(ChatSseEventSender.class);
@@ -119,6 +127,11 @@ class ChatSseCollaboratorsTest {
     verify(persistence).saveStateAsync(state);
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中岗位的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void jobRecommendationShouldPersistClearedStateWhenQualityGateErrorCannotBeSent()
       throws Exception {
@@ -189,6 +202,11 @@ class ChatSseCollaboratorsTest {
     verify(persistence).saveStateAsync(state);
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中岗位的检索、筛选与排序规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void jobRecommendationShouldReportAllSearchCandidatesBeforeQualityGateFiltering()
       throws Exception {
@@ -284,6 +302,9 @@ class ChatSseCollaboratorsTest {
 
   // ---- ChatSseEventSender ----
 
+  /**
+   * 验证 ChatSseCollaborators 的流式生命周期与中断边界。
+   */
   @Test
   void sendShouldAbortWhenConnectionCancelled() {
     ConcurrentMap<SseEmitter, AtomicBoolean> cancelled =
@@ -295,6 +316,9 @@ class ChatSseCollaboratorsTest {
     assertThrows(IOException.class, () -> sender.send(emitter, "message", "data"));
   }
 
+  /**
+   * 验证 ChatSseCollaborators 的失败恢复、超时与降级边界。
+   */
   @Test
   void clientDisconnectClassifierShouldRecognizeContainerAndSocketErrors() {
     assertTrue(
@@ -305,6 +329,11 @@ class ChatSseCollaboratorsTest {
             new IOException("write failed", new IOException("Broken pipe"))));
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中工具的流式生命周期与中断边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void sendAssistantShouldSnapshotToolEventsAndPersistAsync() throws Exception {
     ChatPersistenceCoordinator persistence = mock(ChatPersistenceCoordinator.class);
@@ -327,6 +356,11 @@ class ChatSseCollaboratorsTest {
     verify(persistence).saveStateAsync(state);
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中工具的持久化与状态变更规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void sendToolStatusShouldAccumulateEventWithoutPersisting() throws Exception {
     ChatPersistenceCoordinator persistence = mock(ChatPersistenceCoordinator.class);
@@ -345,6 +379,12 @@ class ChatSseCollaboratorsTest {
 
   // ---- ChatPersistenceCoordinator ----
 
+  /**
+   * 验证 ChatSseCollaborators 的流式生命周期与中断边界。
+   *
+   * @param store 存储
+   * @return 对话持久化协调器
+   */
   private ChatPersistenceCoordinator newCoordinator(ChatSessionStore store) {
     return new ChatPersistenceCoordinator(
         store,
@@ -355,6 +395,9 @@ class ChatSseCollaboratorsTest {
         });
   }
 
+  /**
+   * 验证 ChatSseCollaborators 的流式生命周期与中断边界。
+   */
   @Test
   void appendMessageAsyncShouldFlushInOrder() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -368,6 +411,9 @@ class ChatSseCollaboratorsTest {
     coordinator.shutdown();
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中岗位的输入校验与拒绝边界。
+   */
   @Test
   void replaceLatestJobMessageShouldFallBackToAppendWhenMissing() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -385,6 +431,9 @@ class ChatSseCollaboratorsTest {
     coordinator.shutdown();
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中岗位的核心业务契约。
+   */
   @Test
   void replaceLatestJobMessageShouldNotAppendWhenReplaced() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -400,6 +449,9 @@ class ChatSseCollaboratorsTest {
     coordinator.shutdown();
   }
 
+  /**
+   * 验证 ChatSseCollaborators 的失败恢复、超时与降级边界。
+   */
   @Test
   void persistFailureShouldNotBreakSubsequentTasks() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -416,6 +468,9 @@ class ChatSseCollaboratorsTest {
 
   // ---- RuntimeManagedRequestFactory ----
 
+  /**
+   * 验证 ChatSseCollaborators 中运行时的数据转换与协议契约。
+   */
   @Test
   void buildRuntimeManagedRequestShouldCarryBudgetAndMetadata() {
     JobBuddyProperties properties = new JobBuddyProperties();
@@ -448,6 +503,9 @@ class ChatSseCollaboratorsTest {
     assertEquals("chat.ask", metadata.get("entrypoint"));
   }
 
+  /**
+   * 验证 ChatSseCollaborators 的失败恢复、超时与降级边界。
+   */
   @Test
   void buildPersonalContextShouldDegradeToEmptyOnFailure() {
     PersonalContextBuilder builder = mock(PersonalContextBuilder.class);
@@ -463,6 +521,9 @@ class ChatSseCollaboratorsTest {
     assertTrue(context.isEmpty());
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中简历的核心业务契约。
+   */
   @Test
   void buildUnderstandingContextShouldKeepReferencesWithoutFullResumeOrJd() {
     PersonalContextBuilder builder = mock(PersonalContextBuilder.class);
@@ -511,6 +572,9 @@ class ChatSseCollaboratorsTest {
     assertEquals(Boolean.TRUE, ((Map<?, ?>) jobRefs.get(0)).get("has_job_description"));
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中运行时的数据转换与协议契约。
+   */
   @Test
   void runtimeManagedMetadataShouldToleranteNullState() {
     RuntimeManagedRequestFactory factory =
@@ -530,12 +594,20 @@ class ChatSseCollaboratorsTest {
 
   private static final Executor DIRECT =
       new Executor() {
+        /**
+         * 验证执行。
+         *
+         * @param command 待执行命令
+         */
         @Override
         public void execute(Runnable command) {
           command.run();
         }
       };
 
+  /**
+   * 验证 ChatSseCollaborators 中记忆的持久化与状态变更规则。
+   */
   @Test
   void memoryWriterShouldPersistOnlyLongTermSignals() {
     SystemSettingsService settings = mock(SystemSettingsService.class);
@@ -549,6 +621,9 @@ class ChatSseCollaboratorsTest {
         .writeLocalMemory(eq("tenant-a"), eq("user-a"), eq("preference"), anyString(), anyString());
   }
 
+  /**
+   * 验证 ChatSseCollaborators 中记忆的失败恢复、超时与降级边界。
+   */
   @Test
   void memoryWriteFailureShouldNotPropagate() {
     SystemSettingsService settings = mock(SystemSettingsService.class);

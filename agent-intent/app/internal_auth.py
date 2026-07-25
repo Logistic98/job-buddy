@@ -1,4 +1,4 @@
-"""Internal service authentication for FastAPI services."""
+"""FastAPI 内部服务鉴权。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def install_internal_auth(app: FastAPI, exempt_paths: set[str] | None = None) -> None:
+    """安装共享令牌鉴权中间件；生产环境缺少令牌时拒绝启动。"""
+
     token = os.environ.get(_TOKEN_ENV_VAR, "").strip()
     environment = os.environ.get(_ENVIRONMENT_ENV_VAR, "development").strip().lower()
     if not token and environment in _PRODUCTION_ENVIRONMENTS:

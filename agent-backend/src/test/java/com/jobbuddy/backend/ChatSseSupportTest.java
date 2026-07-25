@@ -14,8 +14,14 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 ChatSseSupport 的核心行为、异常路径与边界条件。
+ */
 class ChatSseSupportTest {
 
+  /**
+   * 验证 ChatSseSupport 中记忆的核心业务契约。
+   */
   @Test
   void classifyMemoryTypeShouldPreferConstraintThenPreference() {
     assertEquals("constraint", ChatSseSupport.classifyMemoryType("排除外包岗位，偏好大厂"));
@@ -27,6 +33,9 @@ class ChatSseSupportTest {
     assertNull(ChatSseSupport.classifyMemoryType(null));
   }
 
+  /**
+   * 验证 ChatSseSupport 中记忆的检索、筛选与排序规则。
+   */
   @Test
   void isMemoryNoiseEventShouldMatchOnlyIdAndName() {
     Map<String, Object> noise = new LinkedHashMap<String, Object>();
@@ -38,6 +47,9 @@ class ChatSseSupportTest {
     assertFalse(ChatSseSupport.isMemoryNoiseEvent(safe));
   }
 
+  /**
+   * 验证 ChatSseSupport 中工具的核心业务契约。
+   */
   @Test
   void accumulateToolEventShouldMergeByIdAndDropNoise() {
     ChatSessionState state = new ChatSessionState();
@@ -56,6 +68,9 @@ class ChatSseSupportTest {
     assertEquals("success", state.toolEvents.get(0).get("status"));
   }
 
+  /**
+   * 验证 ChatSseSupport 中岗位的核心业务契约。
+   */
   @Test
   void withSelectedJobContextShouldAppendKnownFields() {
     Map<String, Object> job = new LinkedHashMap<String, Object>();
@@ -67,6 +82,9 @@ class ChatSseSupportTest {
     assertEquals("原文", ChatSseSupport.withSelectedJobContext("原文", null));
   }
 
+  /**
+   * 验证 ChatSseSupport 中运行时的输入校验与拒绝边界。
+   */
   @Test
   void intentFromRuntimeShouldDefaultMissingFields() {
     Map<String, Object> directive = new LinkedHashMap<String, Object>();
@@ -82,6 +100,9 @@ class ChatSseSupportTest {
     assertEquals("clarify", intent.getNextAction());
   }
 
+  /**
+   * 验证 ChatSseSupport 中运行时的核心业务契约。
+   */
   @Test
   void intentHintShouldPreserveRouterForRuntimeObservability() {
     IntentResult intent =
@@ -98,6 +119,9 @@ class ChatSseSupportTest {
     assertEquals("llm", ChatSseSupport.intentHint(intent).get("router"));
   }
 
+  /**
+   * 验证 ChatSseSupport 的检索、筛选与排序规则。
+   */
   @Test
   void matchesCapabilityShouldCompareActionAndIntent() {
     IntentResult intent =
@@ -117,6 +141,9 @@ class ChatSseSupportTest {
     assertFalse(ChatSseSupport.matchesCapability("other", intent, "resume.match"));
   }
 
+  /**
+   * 验证 ChatSseSupport 的失败恢复、超时与降级边界。
+   */
   @Test
   void directiveActionShouldFallBackToIntent() {
     Map<String, Object> directive = new LinkedHashMap<String, Object>();
@@ -137,6 +164,9 @@ class ChatSseSupportTest {
         ChatSseSupport.directiveAction(new LinkedHashMap<String, Object>(), intent));
   }
 
+  /**
+   * 验证 ChatSseSupport 中岗位的核心业务契约。
+   */
   @Test
   void manualTargetJobsShouldRequireSufficientJd() {
     assertTrue(ChatSseSupport.manualTargetJobs("后端", "短描述", null).isEmpty());
@@ -147,6 +177,9 @@ class ChatSseSupportTest {
     assertEquals("user_provided_jd", jobs.get(0).get("source"));
   }
 
+  /**
+   * 验证 ChatSseSupport 中简历的检索、筛选与排序规则。
+   */
   @Test
   void resumeMatchSummaryShouldReadTopScore() {
     Map<String, Object> top = new LinkedHashMap<String, Object>();
@@ -170,6 +203,9 @@ class ChatSseSupportTest {
         ChatSseSupport.resumeMatchSummary(new LinkedHashMap<String, Object>()));
   }
 
+  /**
+   * 验证 ChatSseSupport 中简历的检索、筛选与排序规则。
+   */
   @Test
   void resumeMatchSummaryShouldExposeResolvedResumeAndSelectedJob() {
     Map<String, Object> top = new LinkedHashMap<String, Object>();
@@ -199,6 +235,9 @@ class ChatSseSupportTest {
     assertFalse(summary.contains("经验。\n"));
   }
 
+  /**
+   * 验证 ChatSseSupport 中运行时的失败恢复、超时与降级边界。
+   */
   @Test
   void summarizeRuntimeResultShouldPreferError() {
     Map<String, Object> result = new LinkedHashMap<String, Object>();

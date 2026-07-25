@@ -6,8 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.jobbuddy.backend.modules.chat.exception.ChatStreamRejectedException;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 ChatStreamAdmissionController 的核心行为、异常路径与边界条件。
+ */
 class ChatStreamAdmissionControllerTest {
 
+  /**
+   * 验证 ChatStreamAdmissionController 中用户的权限与租户隔离边界。
+   */
   @Test
   void enforcesUserTenantAndGlobalLimitsAndReleasesIdempotently() {
     ChatStreamAdmissionController admission = new ChatStreamAdmissionController(3, 2, 1);
@@ -29,6 +35,9 @@ class ChatStreamAdmissionControllerTest {
     assertEquals(0, admission.activeGlobal());
   }
 
+  /**
+   * 验证 ChatStreamAdmissionController 中认证的输入校验与拒绝边界。
+   */
   @Test
   void failsClosedWhenAuthenticatedIdentityIsMissing() {
     ChatStreamAdmissionController admission = new ChatStreamAdmissionController(3, 2, 1);

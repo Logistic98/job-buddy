@@ -18,8 +18,16 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * 验证 IntentClient 的核心行为、异常路径与边界条件。
+ */
 class IntentClientTest {
 
+  /**
+   * 构造测试配置属性。
+   *
+   * @return 测试配置
+   */
   private AgentServiceProperties props() {
     AgentServiceProperties p = new AgentServiceProperties();
     p.setIntentUrl("http://intent.local");
@@ -30,6 +38,9 @@ class IntentClientTest {
     return p;
   }
 
+  /**
+   * 验证 IntentClient 的数据转换与协议契约。
+   */
   @Test
   void shouldMapAgentIntentResponseToIntentResult() {
     AgentServiceProperties properties = props();
@@ -62,6 +73,9 @@ class IntentClientTest {
     server.verify();
   }
 
+  /**
+   * 验证 IntentClient 的输入校验与拒绝边界。
+   */
   @Test
   void shouldReturnNullWhenAgentIntentFails() {
     AgentServiceProperties properties = props();
@@ -81,6 +95,9 @@ class IntentClientTest {
     assertNull(result);
   }
 
+  /**
+   * 验证 IntentClient 的输入校验与拒绝边界。
+   */
   @Test
   void shouldReturnNullWhenIntentUrlMissing() {
     AgentServiceProperties properties = props();
@@ -93,6 +110,9 @@ class IntentClientTest {
     assertNull(client.classify("任意消息"));
   }
 
+  /**
+   * 验证 IntentClient 的输入校验与拒绝边界。
+   */
   @Test
   void shouldReturnNullWhenUnifiedResponseCodeFails() {
     AgentServiceProperties properties = props();
@@ -111,6 +131,9 @@ class IntentClientTest {
     assertNull(client.classify("任意消息"));
   }
 
+  /**
+   * 验证 IntentClient 的输入校验与拒绝边界。
+   */
   @Test
   void shouldReturnNullWhenDataMissing() {
     AgentServiceProperties properties = props();

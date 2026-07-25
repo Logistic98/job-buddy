@@ -9,7 +9,9 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 提供无需认证的应用存活状态检查。 */
+/**
+ * 提供无需认证的应用存活状态检查。
+ */
 @Tag(name = "健康检查接口", description = "检查 agent-backend 是否可以正常响应请求")
 @RestController
 @RequestMapping("/api")

@@ -14,22 +14,46 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.stereotype.Component;
 
+/**
+ * 计算认证操作者可委派的角色、菜单与权限子集。
+ *
+ * <p>操作者不能授予自身没有或被标记为不可委派的权限。
+ */
 @Component
 public class RbacDelegationPolicy {
   private final RbacMapper mapper;
   private final UserAuthRepository userRepository;
 
+  /**
+   * 创建 RBAC 委派策略实例。
+   *
+   * @param mapper 数据映射
+   * @param userRepository 用户存储访问
+   */
   public RbacDelegationPolicy(RbacMapper mapper, UserAuthRepository userRepository) {
     this.mapper = mapper;
     this.userRepository = userRepository;
   }
 
+  /**
+   * 校验并获取操作人租户。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   */
   public void requireActorTenant(String tenantId, AuthenticatedUser actor) {
     if (actor == null || actor.getTenantId() == null || !actor.getTenantId().equals(tenantId)) {
       throw new AuthorizationDeniedException("操作者不属于当前租户");
     }
   }
 
+  /**
+   * 获取可分配角色标识。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @return 可分配角色标识
+   */
   public List<String> assignableRoleIds(String tenantId, AuthenticatedUser actor) {
     requireActorTenant(tenantId, actor);
     Map<String, Set<String>> rolePermissions = new LinkedHashMap<String, Set<String>>();
@@ -52,6 +76,13 @@ public class RbacDelegationPolicy {
     return result;
   }
 
+  /**
+   * 获取可分配菜单标识。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @return 可分配菜单标识
+   */
   public List<String> assignableMenuIds(String tenantId, AuthenticatedUser actor) {
     requireActorTenant(tenantId, actor);
     Map<String, Boolean> definitions = permissionDefinitions();
@@ -65,6 +96,13 @@ public class RbacDelegationPolicy {
     return result;
   }
 
+  /**
+   * 获取可分配权限编码。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @return 可分配权限编码
+   */
   public Set<String> assignablePermissionCodes(String tenantId, AuthenticatedUser actor) {
     requireActorTenant(tenantId, actor);
     Set<String> result = new LinkedHashSet<String>();
@@ -77,6 +115,14 @@ public class RbacDelegationPolicy {
     return result;
   }
 
+  /**
+   * 校验角色菜单变更。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param currentMenuIds 当前菜单标识列表
+   * @param requestedMenuIds 申请分配的菜单标识
+   */
   public void validateRoleMenuChange(
       String tenantId,
       AuthenticatedUser actor,
@@ -97,6 +143,14 @@ public class RbacDelegationPolicy {
     }
   }
 
+  /**
+   * 校验菜单权限变更。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param currentPermission 当前权限
+   * @param requestedPermission 申请的权限
+   */
   public void validateMenuPermissionChange(
       String tenantId,
       AuthenticatedUser actor,
@@ -116,6 +170,14 @@ public class RbacDelegationPolicy {
     }
   }
 
+  /**
+   * 校验用户角色变更。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param targetUserId 目标用户标识
+   * @param requestedRoleIds 申请分配的角色标识
+   */
   public void validateUserRoleChange(
       String tenantId,
       AuthenticatedUser actor,
@@ -136,6 +198,13 @@ public class RbacDelegationPolicy {
     }
   }
 
+  /**
+   * 校验密码重置请求。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param targetUserId 目标用户标识
+   */
   public void validatePasswordReset(String tenantId, AuthenticatedUser actor, String targetUserId) {
     requireActorTenant(tenantId, actor);
     Map<String, Boolean> definitions = permissionDefinitions();
@@ -149,6 +218,14 @@ public class RbacDelegationPolicy {
     }
   }
 
+  /**
+   * 判断是否可管理目标对象。
+   *
+   * @param actor 操作人
+   * @param targetPermissions 目标权限集合
+   * @param definitions 能力定义列表
+   * @return 是否可管理目标对象
+   */
   private boolean canManageTarget(
       AuthenticatedUser actor, Set<String> targetPermissions, Map<String, Boolean> definitions) {
     if (containsNonGrantable(targetPermissions, definitions)) {
@@ -159,6 +236,14 @@ public class RbacDelegationPolicy {
         && !actorPermissions.equals(targetPermissions);
   }
 
+  /**
+   * 判断是否可分配指定权限。
+   *
+   * @param actor 操作人
+   * @param requestedPermissions 申请的权限集合
+   * @param definitions 能力定义列表
+   * @return 是否可分配指定权限
+   */
   private boolean canAssignPermissions(
       AuthenticatedUser actor, Set<String> requestedPermissions, Map<String, Boolean> definitions) {
     for (String permission : requestedPermissions) {
@@ -169,16 +254,37 @@ public class RbacDelegationPolicy {
     return true;
   }
 
+  /**
+   * 判断是否可授予指定权限。
+   *
+   * @param actor 操作人
+   * @param permission 权限
+   * @param definitions 能力定义列表
+   * @return 是否可授予指定权限
+   */
   private boolean canGrantPermission(
       AuthenticatedUser actor, String permission, Map<String, Boolean> definitions) {
     return safePermissions(actor).contains(permission)
         && (isGrantable(permission, definitions) || isPlatformActor(actor));
   }
 
+  /**
+   * 判断是否为平台级操作人。
+   *
+   * @param actor 操作人
+   * @return 是否为平台级操作人
+   */
   private boolean isPlatformActor(AuthenticatedUser actor) {
     return actor != null && actor.hasPermission(PermissionCodes.PLATFORM_MANAGE);
   }
 
+  /**
+   * 判断是否包含不可授予权限。
+   *
+   * @param permissions 权限集合
+   * @param definitions 能力定义列表
+   * @return 是否包含不可授予权限
+   */
   private boolean containsNonGrantable(Set<String> permissions, Map<String, Boolean> definitions) {
     for (String permission : permissions) {
       if (!isGrantable(permission, definitions)) {
@@ -188,11 +294,23 @@ public class RbacDelegationPolicy {
     return false;
   }
 
+  /**
+   * 判断权限是否可授予。
+   *
+   * @param permission 权限
+   * @param definitions 能力定义列表
+   * @return 权限是否可授予是否成立
+   */
   private boolean isGrantable(String permission, Map<String, Boolean> definitions) {
     Boolean value = definitions.get(permission);
     return Boolean.TRUE.equals(value);
   }
 
+  /**
+   * 获取权限定义列表。
+   *
+   * @return 权限定义列表
+   */
   private Map<String, Boolean> permissionDefinitions() {
     Map<String, Boolean> result = new LinkedHashMap<String, Boolean>();
     for (Map<String, Object> row : userRepository.listPermissionDefinitions()) {
@@ -201,6 +319,13 @@ public class RbacDelegationPolicy {
     return result;
   }
 
+  /**
+   * 查询角色拥有的权限。
+   *
+   * @param tenantId 租户标识
+   * @param roleIds 角色标识列表
+   * @return 角色拥有的权限
+   */
   private Set<String> permissionsForRoles(String tenantId, List<String> roleIds) {
     Set<String> result = new LinkedHashSet<String>();
     for (String roleId : roleIds) {
@@ -209,10 +334,24 @@ public class RbacDelegationPolicy {
     return result;
   }
 
+  /**
+   * 查询角色拥有的权限。
+   *
+   * @param tenantId 租户标识
+   * @param roleId 角色标识
+   * @return 角色拥有的权限
+   */
   private Set<String> permissionsForRole(String tenantId, String roleId) {
     return permissionsForMenus(tenantId, mapper.findRoleMenuIds(tenantId, roleId));
   }
 
+  /**
+   * 查询访问菜单所需的权限。
+   *
+   * @param tenantId 租户标识
+   * @param menuIds 菜单标识列表
+   * @return 访问菜单所需的权限
+   */
   private Set<String> permissionsForMenus(String tenantId, List<String> menuIds) {
     Set<String> result = new LinkedHashSet<String>();
     for (String menuId : menuIds == null ? Collections.<String>emptyList() : menuIds) {
@@ -228,12 +367,24 @@ public class RbacDelegationPolicy {
     return result;
   }
 
+  /**
+   * 获取安全数据权限。
+   *
+   * @param actor 操作人
+   * @return 安全数据权限
+   */
   private Set<String> safePermissions(AuthenticatedUser actor) {
     return actor == null || actor.getPermissions() == null
         ? Collections.<String>emptySet()
         : new LinkedHashSet<String>(actor.getPermissions());
   }
 
+  /**
+   * 获取文本。
+   *
+   * @param value 输入值
+   * @return 文本内容
+   */
   private String text(Object value) {
     return value == null ? "" : String.valueOf(value).trim();
   }

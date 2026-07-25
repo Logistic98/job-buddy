@@ -18,8 +18,7 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 /**
- * Bounds login attempts and concurrent password hashes. Redis is authoritative across instances;
- * the bounded local map preserves protection during a Redis outage.
+ * 限制登录尝试与并发密码哈希。Redis 负责跨实例状态，本地有界映射在 Redis 故障时维持保护。
  */
 @Component
 public class LoginAttemptGuard {
@@ -46,6 +45,11 @@ public class LoginAttemptGuard {
       new ConcurrentHashMap<String, LocalWindow>();
   private final AtomicBoolean fallbackWarningLogged = new AtomicBoolean(false);
 
+  /**
+   * 创建登录尝试守卫实例。
+   *
+   * @param redisProvider Redis 提供器
+   */
   @Autowired
   public LoginAttemptGuard(ObjectProvider<StringRedisTemplate> redisProvider) {
     this(
@@ -57,6 +61,16 @@ public class LoginAttemptGuard {
         MAX_CONCURRENT_PASSWORD_HASHES);
   }
 
+  /**
+   * 创建登录尝试守卫实例。
+   *
+   * @param redis Redis 操作客户端
+   * @param clock 时钟
+   * @param rateWindowSeconds 限速窗口秒数
+   * @param maxAttemptsPerAccount 单账号最大尝试次数
+   * @param maxAttemptsPerSource 单来源最大尝试次数
+   * @param maxConcurrentPasswordHashes 最大并发密码哈希数
+   */
   LoginAttemptGuard(
       StringRedisTemplate redis,
       Clock clock,
@@ -72,6 +86,13 @@ public class LoginAttemptGuard {
     this.passwordHashBudget = new Semaphore(Math.max(1, maxConcurrentPasswordHashes), true);
   }
 
+  /**
+   * 申请流式响应执行许可。
+   *
+   * @param account 登录账号
+   * @param source 源数据
+   * @return 并发许可
+   */
   public AttemptLease acquire(String account, String source) {
     long windowMillis = rateWindowSeconds * 1_000L;
     long accountCount = increment("account", normalizeAccount(account), windowMillis);
@@ -85,6 +106,11 @@ public class LoginAttemptGuard {
     return new AttemptLease(passwordHashBudget);
   }
 
+  /**
+   * 记录成功结果。
+   *
+   * @param account 登录账号
+   */
   public void recordSuccess(String account) {
     String key = key("account", normalizeAccount(account));
     localWindows.remove(key);
@@ -97,6 +123,14 @@ public class LoginAttemptGuard {
     }
   }
 
+  /**
+   * 增加登录失败计数。
+   *
+   * @param dimension 统计维度
+   * @param value 输入值
+   * @param windowMillis 时间窗口毫秒数
+   * @return 递增后的值
+   */
   private long increment(String dimension, String value, long windowMillis) {
     String key = key(dimension, value);
     if (redis != null) {
@@ -112,6 +146,13 @@ public class LoginAttemptGuard {
     return incrementLocal(key, windowMillis);
   }
 
+  /**
+   * 增加本地失败计数。
+   *
+   * @param key 业务键
+   * @param windowMillis 时间窗口毫秒数
+   * @return 本地递增后的值
+   */
   private long incrementLocal(String key, long windowMillis) {
     long now = clock.millis();
     if (localWindows.size() >= LOCAL_MAX_KEYS) {
@@ -132,25 +173,55 @@ public class LoginAttemptGuard {
     return value.count;
   }
 
+  /**
+   * 记录登录限流降级结果。
+   *
+   * @param exception 异常
+   */
   private void logFallback(RuntimeException exception) {
     if (fallbackWarningLogged.compareAndSet(false, true)) {
       LOG.warn("登录限流 Redis 不可用，已切换到进程内有界保护: {}", exception.getClass().getSimpleName());
     }
   }
 
+  /**
+   * 获取键。
+   *
+   * @param dimension 统计维度
+   * @param value 输入值
+   * @return 业务键
+   */
   private String key(String dimension, String value) {
     return "job-buddy:auth:login:" + dimension + ":" + sha256(value);
   }
 
+  /**
+   * 规范化登录账号。
+   *
+   * @param value 输入值
+   * @return 规范化后的登录账号
+   */
   private String normalizeAccount(String value) {
     return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
   }
 
+  /**
+   * 规范化来源。
+   *
+   * @param value 输入值
+   * @return 规范化后的来源
+   */
   private String normalizeSource(String value) {
     String normalized = value == null ? "" : value.trim();
     return normalized.isEmpty() ? "unknown" : normalized;
   }
 
+  /**
+   * 计算 SHA-256 摘要。
+   *
+   * @param value 输入值
+   * @return SHA-256 摘要
+   */
   private String sha256(String value) {
     try {
       byte[] digest =
@@ -161,24 +232,44 @@ public class LoginAttemptGuard {
     }
   }
 
+  /**
+   * 定义尝试许可凭证。
+   */
   static final class AttemptLease implements AutoCloseable {
     private final Semaphore semaphore;
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
+    /**
+     * 创建尝试许可凭证实例。
+     *
+     * @param semaphore 并发信号量
+     */
     private AttemptLease(Semaphore semaphore) {
       this.semaphore = semaphore;
     }
 
+    /**
+     * 关闭当前资源。
+     */
     @Override
     public void close() {
       if (closed.compareAndSet(false, true)) semaphore.release();
     }
   }
 
+  /**
+   * 定义本地窗口。
+   */
   private static final class LocalWindow {
     private final long count;
     private final long expiresAtMillis;
 
+    /**
+     * 创建本地窗口实例。
+     *
+     * @param count 数量
+     * @param expiresAtMillis 过期时间毫秒数
+     */
     private LocalWindow(long count, long expiresAtMillis) {
       this.count = count;
       this.expiresAtMillis = expiresAtMillis;

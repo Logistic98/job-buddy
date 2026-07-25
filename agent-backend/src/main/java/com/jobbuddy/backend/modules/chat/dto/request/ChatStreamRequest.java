@@ -6,6 +6,9 @@ import jakarta.validation.constraints.Size;
 import java.util.Map;
 import lombok.Data;
 
+/**
+ * 承载对话流式响应请求参数。
+ */
 @Data
 public class ChatStreamRequest {
   @NotBlank(message = "消息不能为空")

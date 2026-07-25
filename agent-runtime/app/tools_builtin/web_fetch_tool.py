@@ -1,3 +1,5 @@
+"""按 DNS 固定、重定向校验与解压预算抓取公网 HTTP 资源。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -71,6 +73,7 @@ class _PinnedResolver(AbstractResolver):
 
 
 async def _resolve_host_addresses(hostname: str, port: int) -> set[str]:
+
     def resolve() -> set[str]:
         rows = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
         return {str(row[4][0]) for row in rows}
@@ -151,6 +154,7 @@ async def _read_bounded_body(response: aiohttp.ClientResponse) -> tuple[bytes, i
     output = bytearray()
     wire_bytes = 0
     decoded_bytes = 0
+    # 同时限制传输量、解码量和压缩扩张比，防止压缩炸弹。
     async for chunk in response.content.iter_chunked(config.chunk_bytes):
         wire_bytes += len(chunk)
         if wire_bytes > config.max_wire_bytes:
@@ -166,6 +170,7 @@ async def _read_bounded_body(response: aiohttp.ClientResponse) -> tuple[bytes, i
             raise ValueError(f"Web 响应压缩扩张比例超过 {config.max_expansion_ratio}")
         output.extend(decoded)
 
+    # 流结束后刷新解压器尾部，并再次执行解码总量校验。
     if decoder is not None:
         try:
             tail = decoder.flush()
@@ -231,6 +236,8 @@ async def _request_once(target: ResolvedHttpTarget, timeout_seconds: int) -> Fet
 
 
 class WebFetchTool(BaseTool):
+    """在保持 SSRF、重定向、大小与解压约束下抓取公网 URL。"""
+
     name = "web_fetch"
     aliases = ["fetch_url"]
     search_hint = "抓取 URL HTTP 内容"

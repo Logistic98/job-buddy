@@ -6,7 +6,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** 岗位推荐严格质量门结果，包含最终岗位和不含敏感正文的候选漏斗摘要。 */
+/**
+ * 岗位推荐严格质量门结果，包含最终岗位和不含敏感正文的候选漏斗摘要。
+ */
 public class JobRecommendationResult {
   private final List<Map<String, Object>> jobs;
   private final int candidateCount;
@@ -15,6 +17,14 @@ public class JobRecommendationResult {
   private final Map<String, Integer> rejectionReasons;
   private final List<String> warnings;
 
+  /**
+   * 创建岗位推荐结果实例。
+   *
+   * @param jobs 岗位列表
+   * @param candidateCount 候选岗位数量
+   * @param rejectionReasons 拒绝原因
+   * @param warnings 警告列表
+   */
   public JobRecommendationResult(
       List<Map<String, Object>> jobs,
       int candidateCount,
@@ -42,30 +52,66 @@ public class JobRecommendationResult {
         warnings == null ? Collections.<String>emptyList() : new ArrayList<String>(warnings);
   }
 
+  /**
+   * 获取岗位。
+   *
+   * @return 岗位
+   */
   public List<Map<String, Object>> getJobs() {
     return copyJobs(jobs);
   }
 
+  /**
+   * 获取候选项数量。
+   *
+   * @return 候选项数量
+   */
   public int getCandidateCount() {
     return candidateCount;
   }
 
+  /**
+   * 获取合格候选数量。
+   *
+   * @return 合格候选数量
+   */
   public int getQualifiedCount() {
     return qualifiedCount;
   }
 
+  /**
+   * 获取被拒候选数量。
+   *
+   * @return 被拒候选数量
+   */
   public int getRejectedCount() {
     return rejectedCount;
   }
 
+  /**
+   * 获取拒绝原因。
+   *
+   * @return 拒绝原因
+   */
   public Map<String, Integer> getRejectionReasons() {
     return new LinkedHashMap<String, Integer>(rejectionReasons);
   }
 
+  /**
+   * 获取警告列表。
+   *
+   * @return 警告列表
+   */
   public List<String> getWarnings() {
     return new ArrayList<String>(warnings);
   }
 
+  /**
+   * 复制岗位。
+   *
+   * @param source 源数据
+   * @return 岗位列表副本
+   */
   private static List<Map<String, Object>> copyJobs(List<Map<String, Object>> source) {
     List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
     if (source == null) return result;
@@ -75,6 +121,12 @@ public class JobRecommendationResult {
     return result;
   }
 
+  /**
+   * 复制拒绝原因。
+   *
+   * @param source 源数据
+   * @return 拒绝原因副本
+   */
   private static Map<String, Integer> copyRejectionReasons(Map<String, Integer> source) {
     if (source == null || source.isEmpty()) return Collections.<String, Integer>emptyMap();
     Map<String, Integer> result = new LinkedHashMap<String, Integer>();
@@ -88,6 +140,12 @@ public class JobRecommendationResult {
     return result;
   }
 
+  /**
+   * 汇总拒绝数量。
+   *
+   * @param rejectionReasons 拒绝原因计数
+   * @return 拒绝总数
+   */
   private static int sumRejections(Map<String, Integer> rejectionReasons) {
     int total = 0;
     for (Integer count : rejectionReasons.values()) {

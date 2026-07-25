@@ -39,14 +39,31 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** SSE 生命周期行为测试：验证连接关闭（超时/客户端断开）后后台任务及时终止并清理取消标记， 以及异常路径结束后不会在取消标记表中残留条目（防内存泄漏）。 */
+/**
+ * 验证 ChatSseLifecycle 的核心行为、异常路径与边界条件。
+ */
 class ChatSseLifecycleTest {
 
+  /**
+   * 验证新建服务。
+   *
+   * @param intentService 意图服务
+   * @param integrationService 集成服务
+   * @return 服务
+   */
   private ChatSseServiceImpl newService(
       IntentService intentService, AgentIntegrationService integrationService) {
     return newService(mock(ChatSessionStore.class), intentService, integrationService);
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @param sessionStore 会话存储
+   * @param intentService 意图服务
+   * @param integrationService 集成服务
+   * @return 服务
+   */
   private ChatSseServiceImpl newService(
       ChatSessionStore sessionStore,
       IntentService intentService,
@@ -55,6 +72,15 @@ class ChatSseLifecycleTest {
         sessionStore, intentService, integrationService, new AgentServiceProperties());
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @param sessionStore 会话存储
+   * @param intentService 意图服务
+   * @param integrationService 集成服务
+   * @param agentServiceProperties Agent 服务配置属性
+   * @return 服务
+   */
   private ChatSseServiceImpl newService(
       ChatSessionStore sessionStore,
       IntentService intentService,
@@ -81,6 +107,13 @@ class ChatSseLifecycleTest {
         new ChatStreamAdmissionController(agentServiceProperties));
   }
 
+  /**
+   * 构造已取消状态映射。
+   *
+   * @param service 服务
+   * @return 已取消状态映射
+   * @throws Exception 处理失败时抛出
+   */
   @SuppressWarnings("unchecked")
   private ConcurrentMap<SseEmitter, AtomicBoolean> cancelledMap(ChatSseServiceImpl service)
       throws Exception {
@@ -89,6 +122,15 @@ class ChatSseLifecycleTest {
     return (ConcurrentMap<SseEmitter, AtomicBoolean>) field.get(service);
   }
 
+  /**
+   * 等待 SSE 发送器从注册表移除。
+   *
+   * @param map 数据映射
+   * @param emitter SSE 事件发送器
+   * @param timeoutMillis 超时毫秒数
+   * @return 会话是否已从活动任务中移除
+   * @throws InterruptedException 等待过程被中断时抛出
+   */
   private boolean waitUntilRemoved(
       ConcurrentMap<SseEmitter, AtomicBoolean> map, SseEmitter emitter, long timeoutMillis)
       throws InterruptedException {
@@ -100,6 +142,11 @@ class ChatSseLifecycleTest {
     return !map.containsKey(emitter);
   }
 
+  /**
+   * 验证 ChatSseLifecycle 中流式响应的失败恢复、超时与降级边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void streamUsesConfiguredSessionLifecycleTimeout() throws Exception {
     AgentServiceProperties properties = new AgentServiceProperties();
@@ -126,6 +173,11 @@ class ChatSseLifecycleTest {
     service.shutdownExecutors();
   }
 
+  /**
+   * 验证 ChatSseLifecycle 中运行时的失败恢复、超时与降级边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void streamKeepsRuntimeReadTimeoutMarginWhenItExceedsSessionTimeout() throws Exception {
     AgentServiceProperties properties = new AgentServiceProperties();
@@ -152,6 +204,11 @@ class ChatSseLifecycleTest {
     service.shutdownExecutors();
   }
 
+  /**
+   * 验证 ChatSseLifecycle 中用户的流式生命周期与中断边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void userMessageIsQueuedBeforeTaskUnderstandingCanBeInterrupted() throws Exception {
     CountDownLatch entered = new CountDownLatch(1);
@@ -189,6 +246,11 @@ class ChatSseLifecycleTest {
     service.shutdownExecutors();
   }
 
+  /**
+   * 验证 ChatSseLifecycle 的去重与幂等边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void duplicateTurnIdMustPersistAndExecuteOnlyOnce() throws Exception {
     CountDownLatch entered = new CountDownLatch(1);
@@ -239,6 +301,11 @@ class ChatSseLifecycleTest {
     service.shutdownExecutors();
   }
 
+  /**
+   * 验证 ChatSseLifecycle 中流式响应的流式生命周期与中断边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void streamStopsPromptlyAfterConnectionClosed() throws Exception {
     CountDownLatch entered = new CountDownLatch(1);
@@ -280,6 +347,11 @@ class ChatSseLifecycleTest {
     assertTrue(waitUntilRemoved(map, emitter, 3000), "连接关闭后后台任务应及时终止并清理取消标记");
   }
 
+  /**
+   * 验证 ChatSseLifecycle 中流式响应的失败恢复、超时与降级边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void streamCleansUpAfterErrorPath() throws Exception {
     IntentService intentService = mock(IntentService.class);

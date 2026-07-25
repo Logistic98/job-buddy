@@ -40,7 +40,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 面试题库接口，提供题目管理、题目生成、考试创建和考试提交能力。 */
+/**
+ * 面试题库接口，提供题目管理、题目生成、考试创建和考试提交能力。
+ */
 @Tag(name = "面试题库接口")
 @RestController
 @RequirePermission(PermissionCodes.PRACTICE_USE)
@@ -49,6 +51,12 @@ public class InterviewController {
   private final InterviewService interviewService;
   private final InterviewDocumentTextExtractor documentTextExtractor;
 
+  /**
+   * 创建面试接口实例。
+   *
+   * @param interviewService 面试服务
+   * @param documentTextExtractor 文档文本提取器
+   */
   public InterviewController(
       InterviewService interviewService, InterviewDocumentTextExtractor documentTextExtractor) {
     this.interviewService = interviewService;
@@ -58,6 +66,12 @@ public class InterviewController {
   /**
    * 分页查询面试题。
    *
+   * @param keyword 关键词
+   * @param bankType 题库类型
+   * @param category 题目分类
+   * @param difficulty 难度
+   * @param page 页码
+   * @param size 数量
    * @return 统一接口响应
    */
   @Operation(summary = "分页查询面试题")
@@ -76,6 +90,7 @@ public class InterviewController {
   /**
    * 查询题库元数据。
    *
+   * @param bankType 题库类型
    * @return 统一接口响应
    */
   @Operation(summary = "查询题库元数据")
@@ -88,6 +103,7 @@ public class InterviewController {
   /**
    * 创建面试题。
    *
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "创建面试题")
@@ -100,6 +116,7 @@ public class InterviewController {
   /**
    * 批量导入面试题。
    *
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "批量导入面试题")
@@ -112,6 +129,7 @@ public class InterviewController {
   /**
    * 提取 AI 出题参考资料中的纯文本。
    *
+   * @param file 上传文件
    * @return 统一接口响应
    */
   @Operation(summary = "提取 AI 出题参考资料文本")
@@ -124,6 +142,7 @@ public class InterviewController {
   /**
    * 生成面试题。
    *
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "生成面试题")
@@ -136,6 +155,7 @@ public class InterviewController {
   /**
    * 批量处理面试题。
    *
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "批量处理面试题")
@@ -148,6 +168,8 @@ public class InterviewController {
   /**
    * 更新面试题。
    *
+   * @param questionId 题目标识
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "更新面试题")
@@ -160,6 +182,7 @@ public class InterviewController {
   /**
    * 删除面试题。
    *
+   * @param questionId 题目标识
    * @return 统一接口响应
    */
   @Operation(summary = "删除面试题")
@@ -172,6 +195,7 @@ public class InterviewController {
   /**
    * 运行编程题样例。
    *
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "运行编程题样例")
@@ -184,6 +208,7 @@ public class InterviewController {
   /**
    * 查询考试列表。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询考试列表")
@@ -197,6 +222,8 @@ public class InterviewController {
   /**
    * 创建随机考试。
    *
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "创建随机考试")
@@ -213,6 +240,8 @@ public class InterviewController {
   /**
    * 查询考试详情。
    *
+   * @param examId 考试标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询考试详情")
@@ -229,6 +258,9 @@ public class InterviewController {
   /**
    * 提交考试答案。
    *
+   * @param examId 考试标识
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "提交考试答案")

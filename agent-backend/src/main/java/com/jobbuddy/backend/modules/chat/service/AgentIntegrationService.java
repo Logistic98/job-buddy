@@ -6,10 +6,25 @@ import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
 import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import java.util.function.Consumer;
 
+/**
+ * 定义 Agent 集成服务契约。
+ */
 public interface AgentIntegrationService {
+  /**
+   * 执行 Runtime。
+   *
+   * @param request 请求对象
+   * @return 执行后的运行时
+   */
   RuntimeRunResult runRuntime(RuntimeRunRequest request);
 
-  /** Directly invokes a named read-only Runtime tool and returns the normalized ToolResult data. */
+  /**
+   * 直接调用指定只读 Runtime 工具并返回标准化 ToolResult 数据。
+   *
+   * @param toolName 工具名称
+   * @param arguments 工具参数
+   * @return Runtime 工具调用结果
+   */
   RuntimeToolResult invokeRuntimeTool(String toolName, RuntimeToolArguments arguments);
 
   /**

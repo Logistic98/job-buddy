@@ -44,7 +44,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-/** 项目深挖接口，提供项目、项目材料和项目面试题生成能力。 */
+/**
+ * 项目深挖接口，提供项目、项目材料和项目面试题生成能力。
+ */
 @Tag(name = "项目深挖接口")
 @RestController
 @RequirePermission(PermissionCodes.PROJECT_USE)
@@ -52,6 +54,11 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 public class ProjectDeepDiveController {
   private final ProjectDeepDiveService service;
 
+  /**
+   * 创建项目深度分析接口实例。
+   *
+   * @param service 服务
+   */
   public ProjectDeepDiveController(ProjectDeepDiveService service) {
     this.service = service;
   }
@@ -59,6 +66,7 @@ public class ProjectDeepDiveController {
   /**
    * 查询项目列表。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询项目列表")
@@ -72,6 +80,8 @@ public class ProjectDeepDiveController {
   /**
    * 查询项目完整详情，材料与问题仅在进入项目后按需加载。
    *
+   * @param projectId 项目标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询项目详情")
@@ -88,6 +98,8 @@ public class ProjectDeepDiveController {
   /**
    * 创建项目。
    *
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "创建项目")
@@ -105,6 +117,9 @@ public class ProjectDeepDiveController {
   /**
    * 更新项目。
    *
+   * @param projectId 项目标识
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "更新项目")
@@ -124,6 +139,8 @@ public class ProjectDeepDiveController {
   /**
    * 删除项目。
    *
+   * @param projectId 项目标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "删除项目")
@@ -140,7 +157,11 @@ public class ProjectDeepDiveController {
   /**
    * 新增项目材料。
    *
+   * @param projectId 项目标识
+   * @param file 上传文件
+   * @param request 请求对象
    * @return 统一接口响应
+   * @throws Exception 执行失败时抛出
    */
   @Operation(summary = "上传项目文件")
   @PostMapping(
@@ -159,7 +180,13 @@ public class ProjectDeepDiveController {
             file));
   }
 
-  /** 下载单个项目文件。 */
+  /**
+   * 下载单个项目文件。
+   *
+   * @param materialId 材料标识
+   * @param request 请求对象
+   * @return 材料文件
+   */
   @Operation(summary = "下载项目文件")
   @GetMapping("/materials/{materialId}/file")
   public ResponseEntity<Resource> materialFile(
@@ -179,7 +206,13 @@ public class ProjectDeepDiveController {
         .body(new InputStreamResource(file.inputStream()));
   }
 
-  /** 将选中的项目文件流式打包为 ZIP 下载。 */
+  /**
+   * 将选中的项目文件流式打包为 ZIP 下载。
+   *
+   * @param materialIds 材料标识列表
+   * @param request 请求对象
+   * @return 材料文件列表
+   */
   @Operation(summary = "批量下载项目文件")
   @GetMapping(value = "/materials/batch-file", produces = "application/zip")
   public ResponseEntity<StreamingResponseBody> batchMaterialFiles(
@@ -216,6 +249,8 @@ public class ProjectDeepDiveController {
   /**
    * 删除项目材料。
    *
+   * @param materialId 材料标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "删除项目材料")
@@ -232,6 +267,9 @@ public class ProjectDeepDiveController {
   /**
    * 手动新增项目问题。
    *
+   * @param projectId 项目标识
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "新增项目问题")
@@ -251,6 +289,9 @@ public class ProjectDeepDiveController {
   /**
    * 编辑项目问题，编辑后的问题在重新生成时保留。
    *
+   * @param questionId 题目标识
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "编辑项目问题")
@@ -270,6 +311,8 @@ public class ProjectDeepDiveController {
   /**
    * 删除项目问题。
    *
+   * @param questionId 题目标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "删除项目问题")
@@ -286,6 +329,9 @@ public class ProjectDeepDiveController {
   /**
    * 生成项目面试题。
    *
+   * @param projectId 项目标识
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "生成项目面试题")
@@ -305,6 +351,9 @@ public class ProjectDeepDiveController {
   /**
    * 将用户审核并选择的候选问题添加到项目题库。
    *
+   * @param projectId 项目标识
+   * @param payload 请求载荷
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "导入项目问题候选")
@@ -321,6 +370,12 @@ public class ProjectDeepDiveController {
             payload));
   }
 
+  /**
+   * 规范化材料标识列表。
+   *
+   * @param materialIds 材料标识列表
+   * @return 规范化后的材料标识列表
+   */
   private List<String> normalizeMaterialIds(List<String> materialIds) {
     LinkedHashSet<String> uniqueIds = new LinkedHashSet<String>();
     if (materialIds != null) {
@@ -333,6 +388,13 @@ public class ProjectDeepDiveController {
     return new ArrayList<String>(uniqueIds);
   }
 
+  /**
+   * 生成唯一 ZIP 条目名称。
+   *
+   * @param fileName 文件名称
+   * @param usedNames 已占用名称集合
+   * @return 唯一 ZIP 条目名称
+   */
   private String uniqueZipEntryName(String fileName, Set<String> usedNames) {
     String normalized = fileName == null ? "" : fileName.replace('\\', '/');
     normalized = normalized.substring(normalized.lastIndexOf('/') + 1).replace("\u0000", "").trim();
@@ -348,6 +410,12 @@ public class ProjectDeepDiveController {
     return candidate;
   }
 
+  /**
+   * 解析媒体类型。
+   *
+   * @param contentType 内容类型
+   * @return 媒体类型
+   */
   private MediaType mediaType(String contentType) {
     try {
       return MediaType.parseMediaType(

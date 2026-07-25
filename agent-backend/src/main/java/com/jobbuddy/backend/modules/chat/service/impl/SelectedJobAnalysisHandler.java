@@ -10,12 +10,21 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** 选中岗位分析入口：先把列表卡片补全为可复用岗位上下文，再委托简历匹配链路执行统一的证据型分析。 */
+/**
+ * 选中岗位分析入口：先把列表卡片补全为可复用岗位上下文，再委托简历匹配链路执行统一的证据型分析。
+ */
 class SelectedJobAnalysisHandler {
   private final ChatSseEventSender sender;
   private final SelectedJobContextResolver contextResolver;
   private final ResumeFlowHandler resumeFlowHandler;
 
+  /**
+   * 创建已选岗位分析处理器实例。
+   *
+   * @param sender SSE 事件发送器
+   * @param contextResolver 上下文解析器
+   * @param resumeFlowHandler 简历流程处理器
+   */
   SelectedJobAnalysisHandler(
       ChatSseEventSender sender,
       SelectedJobContextResolver contextResolver,
@@ -25,6 +34,16 @@ class SelectedJobAnalysisHandler {
     this.resumeFlowHandler = resumeFlowHandler;
   }
 
+  /**
+   * 处理已选岗位分析。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param rawMessage 原始消息
+   * @param selectedJob 已选岗位
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void handle(
       SseEmitter emitter,
       String sessionId,
@@ -33,6 +52,7 @@ class SelectedJobAnalysisHandler {
       Map<String, Object> selectedJob)
       throws IOException {
     Map<String, Object> initialContext = contextResolver.compact(selectedJob);
+    // 岗位匹配必须同时具备已选简历和可核验岗位上下文。
     if (state == null || state.resumeId == null || state.resumeId.trim().isEmpty()) {
       sender.sendAssistant(
           emitter,
@@ -52,11 +72,13 @@ class SelectedJobAnalysisHandler {
         toolStatus(
             "selected_job_context", "读取选中岗位上下文", "running", "正在确认当前岗位并按需加载完整职位描述。", startDetail));
 
+    // 优先从会话候选池恢复完整岗位，必要时由解析器加载详情。
     SelectedJobContextResolver.Resolution resolution =
         contextResolver.resolve(selectedJob, state == null ? null : state.jobs);
     Map<String, Object> selectedJobContext = resolution.getJob();
     rememberSelectedJob(state, selectedJobContext);
 
+    // 完整 JD 缺失时明确拒绝精确评分，避免凭岗位名称生成伪证据。
     if (!contextResolver.hasSufficientDescription(selectedJobContext)) {
       Map<String, Object> detail = new LinkedHashMap<String, Object>();
       detail.put("job", selectedJobContext);
@@ -106,6 +128,12 @@ class SelectedJobAnalysisHandler {
         emitter, sessionId, state, rawMessage, selectedJobContext);
   }
 
+  /**
+   * 记录已选项岗位。
+   *
+   * @param state 状态
+   * @param selectedJobContext 已选岗位上下文
+   */
   private void rememberSelectedJob(ChatSessionState state, Map<String, Object> selectedJobContext) {
     if (state == null) return;
     state.lastSlots =
@@ -115,6 +143,12 @@ class SelectedJobAnalysisHandler {
     state.lastSlots.put(SELECTED_JOB_CONTEXT_KEY, selectedJobContext);
   }
 
+  /**
+   * 生成警告消息后缀。
+   *
+   * @param warning 警告信息
+   * @return 警告消息后缀
+   */
   private String warningSuffix(String warning) {
     return warning == null || warning.trim().isEmpty() ? "" : "（" + warning.trim() + "）";
   }

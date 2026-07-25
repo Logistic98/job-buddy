@@ -13,6 +13,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * 验证 ChatController 的核心业务契约。
+ */
 @SpringBootTest(
     classes = AgentBackendApplication.class,
     properties = {
@@ -29,6 +32,11 @@ import org.springframework.test.web.servlet.MockMvc;
 class ChatControllerTest {
   @Autowired private MockMvc mockMvc;
 
+  /**
+   * 验证 ChatController 的核心业务契约。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void healthShouldReturnUp() throws Exception {
     mockMvc
@@ -38,6 +46,11 @@ class ChatControllerTest {
         .andExpect(jsonPath("$.data.status").value("UP"));
   }
 
+  /**
+   * 验证 ChatController 中运行时的核心业务契约。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void askShouldProxyRuntimeInsteadOfRunningJavaAgentCore() throws Exception {
     mockMvc
@@ -52,6 +65,11 @@ class ChatControllerTest {
         .andExpect(jsonPath("$.data.trace.length()", greaterThanOrEqualTo(1)));
   }
 
+  /**
+   * 验证 ChatController 中流式响应的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void streamShouldRejectBlankMessageBeforeStartingSse() throws Exception {
     mockMvc

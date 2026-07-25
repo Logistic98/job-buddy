@@ -22,8 +22,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * 验证 AgentMemoryClient 的核心行为、异常路径与边界条件。
+ */
 class AgentMemoryClientTest {
 
+  /**
+   * 验证 AgentMemoryClient 的数据转换与协议契约。
+   */
   @Test
   void listUsesOwnedLongTermScopeAndMapsMetadata() {
     RestTemplate restTemplate = new RestTemplate();
@@ -50,6 +56,9 @@ class AgentMemoryClientTest {
     server.verify();
   }
 
+  /**
+   * 验证 AgentMemoryClient 的持久化与状态变更规则。
+   */
   @Test
   void createWritesLongTermMetadata() {
     RestTemplate restTemplate = new RestTemplate();
@@ -78,6 +87,9 @@ class AgentMemoryClientTest {
     server.verify();
   }
 
+  /**
+   * 验证 AgentMemoryClient 的失败恢复、超时与降级边界。
+   */
   @Test
   void listRetriesOneTransientFailureWithoutMaskingTheResult() {
     RestTemplate restTemplate = new RestTemplate();
@@ -95,6 +107,9 @@ class AgentMemoryClientTest {
     server.verify();
   }
 
+  /**
+   * 验证 AgentMemoryClient 的失败恢复、超时与降级边界。
+   */
   @Test
   void createDoesNotRetryAnAmbiguousWriteFailure() {
     RestTemplate restTemplate = new RestTemplate();
@@ -112,6 +127,9 @@ class AgentMemoryClientTest {
     server.verify();
   }
 
+  /**
+   * 验证 AgentMemoryClient 的失败恢复、超时与降级边界。
+   */
   @Test
   void deterministicClientErrorDoesNotRetryOrOpenTheAvailabilityCircuit() {
     RestTemplate restTemplate = new RestTemplate();
@@ -130,11 +148,22 @@ class AgentMemoryClientTest {
     assertEquals(false, resilience.isOpen("agent-memory"));
   }
 
+  /**
+   * 验证客户端。
+   *
+   * @param restTemplate HTTP 请求客户端
+   * @return Agent 记忆客户端
+   */
   private AgentMemoryClient client(RestTemplate restTemplate) {
     AgentServiceProperties properties = properties();
     return new AgentMemoryClient(restTemplate, properties, new ServiceResilience(properties));
   }
 
+  /**
+   * 验证配置属性。
+   *
+   * @return 测试配置
+   */
   private AgentServiceProperties properties() {
     AgentServiceProperties properties = new AgentServiceProperties();
     properties.setMemoryUrl("http://127.0.0.1:8030");

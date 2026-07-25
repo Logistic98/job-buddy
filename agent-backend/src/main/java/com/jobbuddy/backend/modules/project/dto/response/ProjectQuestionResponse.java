@@ -3,6 +3,9 @@ package com.jobbuddy.backend.modules.project.dto.response;
 import java.time.Instant;
 import lombok.Data;
 
+/**
+ * 承载项目题目响应数据。
+ */
 @Data
 public class ProjectQuestionResponse {
   private String questionId;

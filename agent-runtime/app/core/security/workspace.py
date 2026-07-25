@@ -1,10 +1,12 @@
+"""校验 Runtime 文件工具的工作区路径边界。"""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 
 def is_within_workspace(path: Path, workspace: Path) -> bool:
-    """Return whether a resolved path is inside the resolved workspace."""
+    """判断解析后的路径是否位于工作区内。"""
     try:
         path.resolve().relative_to(workspace.resolve())
         return True
@@ -13,6 +15,8 @@ def is_within_workspace(path: Path, workspace: Path) -> bool:
 
 
 def resolve_workspace_path(raw_path: str, workspace_dir: str) -> Path:
+    """解析工作区路径并拒绝目录逃逸。"""
+
     workspace = Path(workspace_dir).expanduser().resolve()
     path = Path(raw_path).expanduser()
     if not path.is_absolute():

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 仅停止经 PID、命令和工作目录确认属于本仓库的服务进程。
+
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

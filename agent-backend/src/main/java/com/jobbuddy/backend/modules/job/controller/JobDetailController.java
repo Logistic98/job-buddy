@@ -25,6 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class JobDetailController {
   private final BossCliService bossCliService;
 
+  /**
+   * 创建岗位详情接口实例。
+   *
+   * @param bossCliService Boss CLI 服务
+   */
   public JobDetailController(BossCliService bossCliService) {
     this.bossCliService = bossCliService;
   }
@@ -32,6 +37,8 @@ public class JobDetailController {
   /**
    * 按 securityId 与原始链接懒加载岗位详情。
    *
+   * @param securityId Boss 岗位安全标识
+   * @param url 请求地址
    * @return 统一接口响应，未登录时由全局异常处理器返回 4001 与登录引导数据
    */
   @Operation(summary = "懒加载岗位详情")
@@ -48,6 +55,12 @@ public class JobDetailController {
     }
   }
 
+  /**
+   * 构建详情错误消息。
+   *
+   * @param exception 异常
+   * @return 详情错误消息
+   */
   private String detailErrorMessage(RuntimeException exception) {
     String message =
         exception == null || exception.getMessage() == null ? "" : exception.getMessage().trim();

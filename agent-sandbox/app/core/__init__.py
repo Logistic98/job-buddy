@@ -1,4 +1,4 @@
-"""Core sandbox runtime primitives."""
+"""沙箱 Runtime 核心原语。"""
 
 from .config import FilesystemConfig, NetworkConfig, SandboxRuntimeConfig, default_config, workspace_only_config
 from .exceptions import SandboxCommandNotFoundError, SandboxProcessError, SandboxRuntimeError

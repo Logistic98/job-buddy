@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Generic loop executor. Designed for cron / GitHub Actions triggering.
-# Reads a loop spec file with YAML-like front matter and runs the embedded task once.
+# 通用 Loop 执行器，供 cron 或 GitHub Actions 触发。
+# 读取带类 YAML 前置元数据的 Loop 规范，并执行一次正文任务。
 #
-# Usage:
+# 用法：
 #   loop.sh <loop_file>
 
 set -euo pipefail

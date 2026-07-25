@@ -104,6 +104,7 @@ class McpClient:
 
         is_error = bool(getattr(result, "isError", False))
         structured = getattr(result, "structuredContent", None)
+        # 结构化结果优先，并在进入上下文前执行深度、节点和字节预算校验。
         if structured is not None:
             self._validate_result_value(structured, "MCP structuredContent")
             return {"is_error": is_error, "structured": structured, "text": None}
@@ -114,6 +115,7 @@ class McpClient:
         text_chunks: List[str] = []
         raw_items: List[Dict[str, Any]] = []
         result_bytes = 0
+        # 文本与非文本内容分别归一化，但共享总结果字节上限。
         for item in contents:
             item_type = getattr(item, "type", None)
             if item_type == "text":

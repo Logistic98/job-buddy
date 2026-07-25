@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 按依赖顺序启动全部服务，并只协调属于本仓库的端口进程。
+
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -48,8 +50,7 @@ start_service() {
     rm -f "$pid_file"
   fi
 
-  # Reconcile immediately before launch so a repository process started after
-  # stop-all cannot win the port race. External listeners remain protected.
+  # 启动前再次协调端口，防止 stop-all 后新启动的仓库进程抢占端口；外部监听器仍受保护。
   if ! stop_repository_listeners "$name" "$port"; then
     return 1
   fi
@@ -122,8 +123,7 @@ start_all_services() {
   local backend_health="http://127.0.0.1:${BACKEND_PORT:-8080}/actuator/health"
   local frontend_health="http://127.0.0.1:${FRONTEND_PORT:-5173}/"
 
-  # Backend owns the shared database schema. It must complete Flyway migrations
-  # before agent-memory creates its agent_memory_* tables in the same schema.
+  # Backend 管理共享 Schema，必须先完成 Flyway，再由 agent-memory 创建自身数据表。
   start_service "agent-sandbox" "$ROOT_DIR/agent-sandbox/scripts/start.sh" "$sandbox_health" "${SANDBOX_PORT:-8061}" "PORT=${SANDBOX_PORT:-8061}" || return 1
   wait_for_http "agent-sandbox" "$sandbox_health" "${SANDBOX_PORT:-8061}" || return 1
   start_service "agent-backend" "$ROOT_DIR/agent-backend/scripts/start.sh" "$backend_health" "${BACKEND_PORT:-8080}" \

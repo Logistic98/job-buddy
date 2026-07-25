@@ -42,6 +42,7 @@ function mergeResumeAnalysisResult(current, incoming) {
   }
 }
 
+// 管理当前简历选择、画像、上传同步与可恢复的异步分析任务。
 export const useResumeStore = defineStore('resume', {
   state: () => ({
     current: null,
@@ -79,6 +80,7 @@ export const useResumeStore = defineStore('resume', {
       this.loading = true
       let request
       request = (async () => {
+        // 并行读取简历列表与上次选择，减少首次加载等待时间。
         const [items, selection] = await Promise.all([listResumes(), getWorkspaceState(CURRENT_RESUME_STATE)])
         if (revision !== this.lifecycleRevision) return []
         this.items = Array.isArray(items)
@@ -88,6 +90,7 @@ export const useResumeStore = defineStore('resume', {
         this.current = saved || this.items[0] || null
         if (this.current && !saved) await this.persistCurrent()
         if (this.current?.resumeId) {
+          // 先补全当前简历详情，再异步恢复历史分析，避免阻塞列表展示。
           await this.hydrateCurrent(this.current.resumeId, revision)
           if (revision !== this.lifecycleRevision) return []
           this.restoreAnalysis(this.current.resumeId, revision).catch(() => {})

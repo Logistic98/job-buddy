@@ -3,6 +3,9 @@ package com.jobbuddy.backend.modules.interview.dto.request;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载面试考试请求参数。
+ */
 @Data
 public class InterviewExamRequest {
   private List<String> questionIds;
@@ -16,6 +19,9 @@ public class InterviewExamRequest {
   private Integer durationMinutes;
   private Boolean showAnswer;
 
+  /**
+   * 定义规则。
+   */
   @Data
   public static class Rule {
     private Integer count;

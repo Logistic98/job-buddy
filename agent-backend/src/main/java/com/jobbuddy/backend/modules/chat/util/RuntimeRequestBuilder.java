@@ -18,6 +18,13 @@ public final class RuntimeRequestBuilder {
   private final Map<String, Object> payload = new LinkedHashMap<String, Object>();
   private final Map<String, Object> metadata = new LinkedHashMap<String, Object>();
 
+  /**
+   * 创建运行时请求构建器实例。
+   *
+   * @param sessionId 会话标识
+   * @param userMessage 用户消息
+   * @param entrypoint 入口
+   */
   private RuntimeRequestBuilder(String sessionId, String userMessage, String entrypoint) {
     List<Map<String, Object>> messages = new ArrayList<Map<String, Object>>();
     Map<String, Object> user = new LinkedHashMap<String, Object>();
@@ -32,11 +39,28 @@ public final class RuntimeRequestBuilder {
     metadata.put("entrypoint", entrypoint);
   }
 
+  /**
+   * 根据入口类型创建运行时请求构建器。
+   *
+   * @param sessionId 会话标识
+   * @param userMessage 用户消息
+   * @param entrypoint 入口
+   * @return 运行时请求构建器
+   */
   public static RuntimeRequestBuilder forEntrypoint(
       String sessionId, String userMessage, String entrypoint) {
     return new RuntimeRequestBuilder(sessionId, userMessage, entrypoint);
   }
 
+  /**
+   * 构造运行时预算。
+   *
+   * @param maxTurns 最大轮次
+   * @param maxToolCalls 最大工具调用次数
+   * @param maxFailures 最大失败次数
+   * @param maxTokens 最大令牌数
+   * @return 运行时预算
+   */
   public RuntimeRequestBuilder budget(
       int maxTurns, int maxToolCalls, int maxFailures, int maxTokens) {
     Map<String, Object> budget = new LinkedHashMap<String, Object>();
@@ -48,7 +72,12 @@ public final class RuntimeRequestBuilder {
     return this;
   }
 
-  /** 替换默认的单条用户消息，用于需要近期对话完成指代解析和查询重写的入口。 */
+  /**
+   * 替换默认的单条用户消息，用于需要近期对话完成指代解析和查询重写的入口。
+   *
+   * @param messages 消息列表
+   * @return 消息列表
+   */
   public RuntimeRequestBuilder messages(List<Map<String, Object>> messages) {
     if (messages == null || messages.isEmpty()) return this;
     List<Map<String, Object>> snapshot = new ArrayList<Map<String, Object>>();
@@ -59,11 +88,23 @@ public final class RuntimeRequestBuilder {
     return this;
   }
 
+  /**
+   * 读取扩展元数据。
+   *
+   * @param key 键
+   * @param value 待处理值
+   * @return 扩展元数据
+   */
   public RuntimeRequestBuilder metadata(String key, Object value) {
     metadata.put(key, value);
     return this;
   }
 
+  /**
+   * 构建运行时请求构建器。
+   *
+   * @return 运行时请求
+   */
   public RuntimeRunRequest build() {
     payload.put("metadata", metadata);
     return RuntimeRunRequest.fromPayload(payload, JSON);
@@ -72,6 +113,9 @@ public final class RuntimeRequestBuilder {
   /**
    * 从 runtime 返回结果中提取 job_buddy_directive，优先 tool_results 中的 directive 输出， 其次顶层 directive
    * 字段。返回可变副本，调用方可安全追加字段。
+   *
+   * @param runtimeResult 运行时结果
+   * @return 运行时指令
    */
   @SuppressWarnings("unchecked")
   public static Map<String, Object> extractDirective(Map<String, Object> runtimeResult) {

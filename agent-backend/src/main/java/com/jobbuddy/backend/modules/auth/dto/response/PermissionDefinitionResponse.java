@@ -4,7 +4,9 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
-/** 可绑定到动态菜单的权限定义。 */
+/**
+ * 可绑定到动态菜单的权限定义。
+ */
 @Data
 @AllArgsConstructor
 @Schema(description = "权限定义")

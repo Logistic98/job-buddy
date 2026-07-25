@@ -1,3 +1,5 @@
+"""编排沙箱子进程并转发结构化执行结果。"""
+
 import base64
 import json
 import os
@@ -13,25 +15,30 @@ TIMEOUT_SECONDS = __TIMEOUT_SECONDS__
 
 
 def decode(value):
+    """解码模板注入的 Base64 文本。"""
     return base64.b64decode(value.encode("ascii")).decode("utf-8")
 
 
 def emit(payload):
+    """输出最终结果并终止编排进程。"""
     print(json.dumps(payload, ensure_ascii=False))
     sys.exit(0)
 
 
 def first_line(value, fallback):
+    """提取错误首行，无有效文本时返回兜底消息。"""
     text = (value or "").strip()
     return text.splitlines()[0] if text else fallback
 
 
 def write(path, content):
+    """以 UTF-8 编码写入沙箱工作文件。"""
     with open(path, "w", encoding="utf-8") as file:
         file.write(content)
 
 
 def parse_child(process):
+    """校验并转发子进程输出的最后一条 JSON 结果。"""
     if process.returncode != 0:
         emit(
             {

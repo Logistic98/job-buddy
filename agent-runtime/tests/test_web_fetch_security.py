@@ -33,6 +33,7 @@ async def test_web_fetch_rejects_private_and_credential_urls(fresh_registry, too
 
 @pytest.mark.asyncio
 async def test_web_fetch_rejects_dns_name_resolving_private(monkeypatch):
+
     async def private_dns(_hostname, _port):
         return {"192.168.10.5"}
 
@@ -43,6 +44,7 @@ async def test_web_fetch_rejects_dns_name_resolving_private(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_web_fetch_revalidates_redirect_target(fresh_registry, tool_context, monkeypatch):
+
     async def public_dns(_hostname, _port):
         return {"93.184.216.34"}
 

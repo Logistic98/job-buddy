@@ -1,3 +1,5 @@
+"""定义单次受治理 Agent 运行所携带的 LangGraph 状态。"""
+
 from typing import Any, Dict, List, Optional, TypedDict
 
 from app.models.schemas import (

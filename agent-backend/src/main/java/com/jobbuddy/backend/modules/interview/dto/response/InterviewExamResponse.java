@@ -6,6 +6,9 @@ import java.time.Instant;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载面试考试响应数据。
+ */
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class InterviewExamResponse {

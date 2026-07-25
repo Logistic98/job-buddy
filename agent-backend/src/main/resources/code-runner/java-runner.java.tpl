@@ -2,7 +2,16 @@ import java.io.*;
 import java.lang.reflect.*;
 import java.util.*;
 
+/**
+ * 提供 Java 代码入口解析、参数转换和结果比较能力。
+ */
 public class Runner {
+  /**
+   * 逐项执行测试用例并输出结构化结果。
+   *
+   * @param args 命令行参数
+   * @throws Exception 输入解析或反射调用失败时抛出
+   */
   public static void main(String[] args) throws Exception {
     String input = read();
     Object tests = new Parser(input).parse();
@@ -37,6 +46,13 @@ public class Runner {
     System.out.println(Json.write(output));
   }
 
+  /**
+   * 根据模板指定的方法名反射调用用户代码。
+   *
+   * @param argsValue 用例参数
+   * @return 用户方法返回值
+   * @throws Exception 未找到入口或反射调用失败时抛出
+   */
   static Object invoke(Object argsValue) throws Exception {
     List args = argsValue instanceof List ? (List) argsValue : new ArrayList();
     Solution solution = new Solution();
@@ -62,6 +78,13 @@ public class Runner {
     return target.invoke(solution, values);
   }
 
+  /**
+   * 将 JSON 值转换为用户方法声明的参数类型。
+   *
+   * @param value 原始参数值
+   * @param targetType 目标参数类型
+   * @return 转换后的参数值
+   */
   static Object convert(Object value, Class targetType) {
     if (value == null) return null;
     if (targetType == Object.class) return value;
@@ -86,6 +109,13 @@ public class Runner {
     return value;
   }
 
+  /**
+   * 深度比较数组、集合、映射和基础值。
+   *
+   * @param left 实际值
+   * @param right 期望值
+   * @return 两个值是否等价
+   */
   static boolean equalsValue(Object left, Object right) {
     if (left == right) return true;
     if (left == null || right == null) return false;
@@ -115,6 +145,12 @@ public class Runner {
     return left.equals(right);
   }
 
+  /**
+   * 将任意 Java 数组转换为列表。
+   *
+   * @param array Java 数组
+   * @return 数组元素列表
+   */
   static List toList(Object array) {
     List list = new ArrayList();
     int length = Array.getLength(array);
@@ -122,6 +158,12 @@ public class Runner {
     return list;
   }
 
+  /**
+   * 读取标准输入中的完整测试数据。
+   *
+   * @return 输入文本
+   * @throws Exception 读取失败时抛出
+   */
   static String read() throws Exception {
     BufferedReader reader =
         new BufferedReader(new InputStreamReader(System.in, "UTF-8"));
@@ -131,7 +173,16 @@ public class Runner {
     return content.toString();
   }
 
+  /**
+   * 提供最小化 JSON 序列化能力。
+   */
   static class Json {
+    /**
+     * 将支持的 Java 值序列化为 JSON。
+     *
+     * @param value 待序列化值
+     * @return JSON 文本
+     */
     static String write(Object value) {
       if (value == null) return "null";
       if (value instanceof String) {
@@ -169,27 +220,53 @@ public class Runner {
     }
   }
 
+  /**
+   * 解析测试用例使用的最小 JSON 子集。
+   */
   static class Parser {
     String source;
     int index;
 
+    /**
+     * 创建 JSON 解析器。
+     *
+     * @param source JSON 文本
+     */
     Parser(String source) {
       this.source = source == null ? "" : source;
     }
 
+    /**
+     * 解析完整 JSON 输入。
+     *
+     * @return 解析结果
+     */
     Object parse() {
       skipWhitespace();
       return value();
     }
 
+    /**
+     * 跳过当前位置后的连续空白字符。
+     */
     void skipWhitespace() {
       while (index < source.length() && Character.isWhitespace(source.charAt(index))) index++;
     }
 
+    /**
+     * 获取当前位置字符。
+     *
+     * @return 当前字符
+     */
     char current() {
       return source.charAt(index);
     }
 
+    /**
+     * 按首字符分派并解析单个 JSON 值。
+     *
+     * @return JSON 值
+     */
     Object value() {
       skipWhitespace();
       char current = current();
@@ -211,6 +288,11 @@ public class Runner {
       return number();
     }
 
+    /**
+     * 解析 JSON 对象。
+     *
+     * @return 键值映射
+     */
     Map object() {
       Map result = new LinkedHashMap();
       index++;
@@ -231,6 +313,11 @@ public class Runner {
       return result;
     }
 
+    /**
+     * 解析 JSON 数组。
+     *
+     * @return 元素列表
+     */
     List array() {
       List result = new ArrayList();
       index++;
@@ -247,6 +334,11 @@ public class Runner {
       return result;
     }
 
+    /**
+     * 解析 JSON 字符串及基础转义字符。
+     *
+     * @return 解码后的字符串
+     */
     String string() {
       StringBuilder result = new StringBuilder();
       index++;
@@ -267,6 +359,11 @@ public class Runner {
       return result.toString();
     }
 
+    /**
+     * 解析整数或浮点数。
+     *
+     * @return 数值
+     */
     Number number() {
       int start = index;
       while (index < source.length() && "-+.0123456789eE".indexOf(current()) >= 0) index++;

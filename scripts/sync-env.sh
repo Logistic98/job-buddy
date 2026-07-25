@@ -1,4 +1,5 @@
 #!/bin/sh
+# 校验根目录 .env 与 .env.example 的键集合，并可安全补齐缺失项。
 
 set -eu
 

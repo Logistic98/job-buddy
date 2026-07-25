@@ -15,16 +15,31 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+/**
+ * 实现画像上下文业务能力。
+ */
 @Service
 public class ProfileContextServiceImpl implements ProfileContextService {
   private static final Logger log = LoggerFactory.getLogger(ProfileContextServiceImpl.class);
   private final ResumeStorageService resumeStorageService;
   private final JsonCodec jsonCodec = new JsonCodec();
 
+  /**
+   * 创建画像上下文服务实例。
+   *
+   * @param resumeStorageService 简历存储服务
+   */
   public ProfileContextServiceImpl(ResumeStorageService resumeStorageService) {
     this.resumeStorageService = resumeStorageService;
   }
 
+  /**
+   * 获取当前画像上下文。
+   *
+   * @param userId 用户标识
+   * @param resumeId 简历标识
+   * @return 当前画像上下文
+   */
   @Override
   public UserProfileContext current(String userId, String resumeId) {
     Map<String, Object> profile = new LinkedHashMap<String, Object>();
@@ -55,6 +70,12 @@ public class ProfileContextServiceImpl implements ProfileContextService {
     return new UserProfileContext(profile, summarize(profile));
   }
 
+  /**
+   * 生成画像上下文摘要。
+   *
+   * @param profile 画像
+   * @return 摘要文本
+   */
   private String summarize(Map<String, Object> profile) {
     if (profile == null || profile.isEmpty()) return "";
     List<String> parts = new ArrayList<String>();
@@ -83,12 +104,25 @@ public class ProfileContextServiceImpl implements ProfileContextService {
     return join(parts);
   }
 
+  /**
+   * 转换为映射。
+   *
+   * @param value 输入值
+   * @return 转换后的键值映射
+   */
   private Map<String, Object> asMap(Object value) {
     return value instanceof Map
         ? (Map<String, Object>) value
         : Collections.<String, Object>emptyMap();
   }
 
+  /**
+   * 获取首个映射。
+   *
+   * @param map 数据映射
+   * @param keys 键列表
+   * @return 首个映射
+   */
   private Map<String, Object> firstMap(Map<String, Object> map, String... keys) {
     for (String key : keys) {
       Object value = map == null ? null : map.get(key);
@@ -102,6 +136,13 @@ public class ProfileContextServiceImpl implements ProfileContextService {
     return Collections.emptyMap();
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param map 数据映射
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private Object firstPresent(Map<String, Object> map, String... keys) {
     if (map == null) return null;
     for (String key : keys) {
@@ -111,6 +152,13 @@ public class ProfileContextServiceImpl implements ProfileContextService {
     return null;
   }
 
+  /**
+   * 新增画像上下文。
+   *
+   * @param parts 文本片段列表
+   * @param label 展示标签
+   * @param value 输入值
+   */
   private void add(List<String> parts, String label, Object value) {
     if (value == null) return;
     String text = String.valueOf(value).trim();
@@ -118,17 +166,36 @@ public class ProfileContextServiceImpl implements ProfileContextService {
       parts.add(label + "：" + truncate(text, 120));
   }
 
+  /**
+   * 按长度截断文本。
+   *
+   * @param value 输入值
+   * @param limit 数量上限
+   * @return 截断
+   */
   private String truncate(String value, int limit) {
     if (value == null || value.length() <= limit) return value;
     return value.substring(0, limit) + "...";
   }
 
+  /**
+   * 生成精简消息。
+   *
+   * @param error 异常
+   * @return 精简消息
+   */
   private String conciseMessage(Throwable error) {
     if (error == null || error.getMessage() == null || error.getMessage().trim().isEmpty())
       return "unknown";
     return truncate(error.getMessage().trim().replace('\n', ' ').replace('\r', ' '), 160);
   }
 
+  /**
+   * 拼接非空文本。
+   *
+   * @param parts 文本片段列表
+   * @return 拼接文本
+   */
   private String join(List<String> parts) {
     return String.join("；", parts);
   }

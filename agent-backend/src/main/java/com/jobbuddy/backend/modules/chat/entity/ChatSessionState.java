@@ -4,6 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 定义对话会话状态。
+ */
 public class ChatSessionState {
   public String tenantId;
   public String userId;

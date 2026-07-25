@@ -1,3 +1,5 @@
+"""通过沙箱执行命令，宿主机执行仅限显式开启的开发环境。"""
+
 import asyncio
 import os
 from pathlib import Path
@@ -13,6 +15,8 @@ _SENSITIVE_DENY_READ = ["~/.ssh", "~/.aws", "~/.config/gcloud", "~/.kube"]
 
 
 class ShellTool(BaseTool):
+    """将高风险命令送入沙箱，隔离不可用时失败关闭。"""
+
     name = "shell_exec"
     aliases = ["bash", "shell"]
     search_hint = "执行 shell 命令 诊断"
@@ -86,6 +90,7 @@ class ShellTool(BaseTool):
             headers["X-Internal-Service-Token"] = token
         body = None
         last_error = None
+        # 仅对短暂网络或服务端故障重试，明确的客户端错误直接终止。
         async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             for attempt in range(2):
                 if attempt:
@@ -106,6 +111,7 @@ class ShellTool(BaseTool):
                 except ValueError as exc:
                     last_error = exc
                     break
+        # 沙箱不可用时保持失败关闭，禁止把命令降级到宿主机执行。
         if body is None and last_error is not None:
             if isinstance(last_error, httpx.TimeoutException):
                 raise RuntimeError(

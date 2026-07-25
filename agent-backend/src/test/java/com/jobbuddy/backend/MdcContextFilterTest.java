@@ -17,10 +17,19 @@ import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+/**
+ * 验证 MdcContextFilter 的核心行为、异常路径与边界条件。
+ */
 class MdcContextFilterTest {
 
   private final MdcContextFilter filter = new MdcContextFilter();
 
+  /**
+   * 验证 MdcContextFilter 的核心业务契约。
+   *
+   * @throws ServletException 处理失败时抛出
+   * @throws IOException 文件读写失败时抛出
+   */
   @Test
   void populatesMdcFromHeadersAndEchoesRequestId() throws ServletException, IOException {
     MockHttpServletRequest request = new MockHttpServletRequest();
@@ -45,6 +54,12 @@ class MdcContextFilterTest {
     assertEquals("req-123", response.getHeader("X-Request-Id"));
   }
 
+  /**
+   * 验证 MdcContextFilter 的输入校验与拒绝边界。
+   *
+   * @throws ServletException 处理失败时抛出
+   * @throws IOException 文件读写失败时抛出
+   */
   @Test
   void generatesRequestIdAndDefaultsWhenHeadersMissing() throws ServletException, IOException {
     MockHttpServletRequest request = new MockHttpServletRequest();
@@ -64,6 +79,12 @@ class MdcContextFilterTest {
     assertEquals("-", captured.get(MdcContextFilter.SESSION_ID));
   }
 
+  /**
+   * 验证 MdcContextFilter 的核心业务契约。
+   *
+   * @throws ServletException 处理失败时抛出
+   * @throws IOException 文件读写失败时抛出
+   */
   @Test
   void clearsMdcAfterRequest() throws ServletException, IOException {
     MockHttpServletRequest request = new MockHttpServletRequest();

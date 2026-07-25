@@ -22,8 +22,14 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
+/**
+ * 验证 ProjectDeepDiveMaterialController 的核心行为、异常路径与边界条件。
+ */
 class ProjectDeepDiveMaterialControllerTest {
 
+  /**
+   * 验证 ProjectDeepDiveMaterialController 中认证的身份认证与会话边界。
+   */
   @Test
   void shouldReturnAttachmentResponseWithAuthorizedFileName() {
     ProjectDeepDiveService service = mock(ProjectDeepDiveService.class);
@@ -46,6 +52,11 @@ class ProjectDeepDiveMaterialControllerTest {
     verify(service).openMaterial("tenant-1", "user-1", "material-1");
   }
 
+  /**
+   * 验证 ProjectDeepDiveMaterialController 中材料的去重与幂等边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldStreamSelectedMaterialsAsZipAndKeepDuplicateNames() throws Exception {
     ProjectDeepDiveService service = mock(ProjectDeepDiveService.class);
@@ -79,6 +90,11 @@ class ProjectDeepDiveMaterialControllerTest {
     verify(service).openMaterial("tenant-1", "user-1", "material-2");
   }
 
+  /**
+   * 构造带认证身份的模拟请求。
+   *
+   * @return 带认证上下文的测试请求
+   */
   private HttpServletRequest authenticatedRequest() {
     HttpServletRequest request = mock(HttpServletRequest.class);
     AuthenticatedUser user = new AuthenticatedUser("user-1", "tester", "Tester", "user");

@@ -1,3 +1,5 @@
+"""在校验后的 Runtime 工作区内执行有界文本替换。"""
+
 from pathlib import Path
 from typing import Any, Dict
 

@@ -5,7 +5,9 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.Data;
 
-/** 租户角色及其菜单授权信息。 */
+/**
+ * 租户角色及其菜单授权信息。
+ */
 @Data
 @Schema(description = "租户角色")
 public class RbacRoleResponse {

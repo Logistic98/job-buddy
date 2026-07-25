@@ -19,6 +19,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+/**
+ * 校验哈希凭据并管理有时效的不透明会话令牌。
+ *
+ * <p>失败登录受限流保护；会话查询实时重建角色、权限和菜单，不信任令牌携带的授权状态。
+ */
 @Service
 public class UserLoginServiceImpl implements UserLoginService {
   private static final long SESSION_CACHE_SECONDS = 60L;
@@ -32,12 +37,26 @@ public class UserLoginServiceImpl implements UserLoginService {
   private final LoginAttemptGuard loginAttemptGuard;
   private final String dummyPasswordHash;
 
+  /**
+   * 创建用户登录服务实例。
+   *
+   * @param repository 存储访问
+   * @param loginAttemptGuard 登录尝试守卫
+   */
   public UserLoginServiceImpl(UserAuthRepository repository, LoginAttemptGuard loginAttemptGuard) {
     this.repository = repository;
     this.loginAttemptGuard = loginAttemptGuard;
     this.dummyPasswordHash = passwordEncoder.encode("job-buddy-dummy-password");
   }
 
+  /**
+   * 执行用户登录。
+   *
+   * @param username 用户名
+   * @param password 密码
+   * @param source 源数据
+   * @return 登录结果
+   */
   @Override
   public LoginResponse login(String username, String password, String source) {
     String safeUsername = username == null ? "" : username.trim();
@@ -58,6 +77,12 @@ public class UserLoginServiceImpl implements UserLoginService {
     }
   }
 
+  /**
+   * 创建会话。
+   *
+   * @param user 用户
+   * @return 创建后的会话
+   */
   private LoginResponse createSession(Map<String, Object> user) {
     repository.deleteExpiredSessions();
     String token = newToken();
@@ -72,6 +97,12 @@ public class UserLoginServiceImpl implements UserLoginService {
     return result;
   }
 
+  /**
+   * 获取当前用户。
+   *
+   * @param token 认证令牌
+   * @return 当前用户
+   */
   @Override
   public AuthenticatedUser currentUser(String token) {
     if (token == null || token.trim().isEmpty()) return null;
@@ -92,6 +123,11 @@ public class UserLoginServiceImpl implements UserLoginService {
     return authenticatedUser;
   }
 
+  /**
+   * 执行用户退出登录。
+   *
+   * @param token 认证令牌
+   */
   @Override
   public void logout(String token) {
     if (token == null || token.trim().isEmpty()) return;
@@ -100,6 +136,11 @@ public class UserLoginServiceImpl implements UserLoginService {
     repository.deleteSession(safeToken);
   }
 
+  /**
+   * 使用户会话失效。
+   *
+   * @param userId 用户标识
+   */
   @Override
   public void invalidateUserSessions(String userId) {
     if (userId == null || userId.trim().isEmpty()) return;
@@ -107,6 +148,13 @@ public class UserLoginServiceImpl implements UserLoginService {
     repository.deleteSessionsByUserId(userId);
   }
 
+  /**
+   * 处理缓存会话。
+   *
+   * @param token 认证令牌
+   * @param user 用户
+   * @param expiresAt 过期时间
+   */
   private void cacheSession(String token, AuthenticatedUser user, Instant expiresAt) {
     Instant cacheUntil = Instant.now().plus(SESSION_CACHE_SECONDS, ChronoUnit.SECONDS);
     if (expiresAt != null && expiresAt.isBefore(cacheUntil)) cacheUntil = expiresAt;
@@ -118,20 +166,41 @@ public class UserLoginServiceImpl implements UserLoginService {
     sessionCache.put(token, new CachedSession(user, cacheUntil));
   }
 
+  /**
+   * 定义缓存会话。
+   */
   private static final class CachedSession {
     private final AuthenticatedUser user;
     private final Instant cacheUntil;
 
+    /**
+     * 创建缓存会话实例。
+     *
+     * @param user 用户
+     * @param cacheUntil 缓存截止时间
+     */
     private CachedSession(AuthenticatedUser user, Instant cacheUntil) {
       this.user = user;
       this.cacheUntil = cacheUntil;
     }
 
+    /**
+     * 判断会话在指定时刻是否有效。
+     *
+     * @param now 当前时间
+     * @return 会话在指定时刻是否有效是否成立
+     */
     private boolean isUsableAt(Instant now) {
       return user != null && cacheUntil != null && cacheUntil.isAfter(now);
     }
   }
 
+  /**
+   * 构建脱敏用户信息。
+   *
+   * @param user 用户
+   * @return 公开用户信息
+   */
   private AuthenticatedUser publicUser(Map<String, Object> user) {
     String userId = stringOrNull(user.get("userId"));
     return new AuthenticatedUser(
@@ -146,6 +215,12 @@ public class UserLoginServiceImpl implements UserLoginService {
         authenticatedMenus(repository.findMenus(userId)));
   }
 
+  /**
+   * 获取已认证菜单。
+   *
+   * @param rows 查询行列表
+   * @return 已认证菜单
+   */
   private List<AuthenticatedMenu> authenticatedMenus(List<Map<String, Object>> rows) {
     List<AuthenticatedMenu> result = new ArrayList<AuthenticatedMenu>();
     for (Map<String, Object> row : rows) {
@@ -168,10 +243,21 @@ public class UserLoginServiceImpl implements UserLoginService {
     return result;
   }
 
+  /**
+   * 获取字符串或空值。
+   *
+   * @param value 输入值
+   * @return 字符串或空值
+   */
   private String stringOrNull(Object value) {
     return value == null ? null : String.valueOf(value);
   }
 
+  /**
+   * 生成令牌。
+   *
+   * @return 令牌
+   */
   private String newToken() {
     byte[] bytes = new byte[32];
     secureRandom.nextBytes(bytes);
@@ -180,6 +266,12 @@ public class UserLoginServiceImpl implements UserLoginService {
     return builder.toString();
   }
 
+  /**
+   * 转换为时间点。
+   *
+   * @param value 输入值
+   * @return 转换后的时间点
+   */
   private Instant toInstant(Object value) {
     if (value instanceof Instant) return (Instant) value;
     if (value instanceof java.sql.Timestamp) return ((java.sql.Timestamp) value).toInstant();

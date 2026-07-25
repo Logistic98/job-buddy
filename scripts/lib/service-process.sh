@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 提供仓库服务进程归属、端口协调和安全终止辅助函数。
 
 if [[ "${JOB_BUDDY_SERVICE_PROCESS_LIB_LOADED:-0}" == "1" ]]; then
   return 0

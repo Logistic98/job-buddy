@@ -7,12 +7,22 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/**
+ * 配置 Web。
+ */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
   private final ApiAuthenticationInterceptor apiAuthenticationInterceptor;
   private final ApiAuthorizationInterceptor apiAuthorizationInterceptor;
   private final JobBuddyProperties properties;
 
+  /**
+   * 创建 Web 配置实例。
+   *
+   * @param apiAuthenticationInterceptor API 认证拦截器
+   * @param apiAuthorizationInterceptor API 授权拦截器
+   * @param properties 配置属性
+   */
   public WebConfig(
       ApiAuthenticationInterceptor apiAuthenticationInterceptor,
       ApiAuthorizationInterceptor apiAuthorizationInterceptor,
@@ -22,6 +32,11 @@ public class WebConfig implements WebMvcConfigurer {
     this.properties = properties;
   }
 
+  /**
+   * 添加 CORS 映射。
+   *
+   * @param registry 注册表
+   */
   @Override
   public void addCorsMappings(CorsRegistry registry) {
     registry
@@ -32,6 +47,11 @@ public class WebConfig implements WebMvcConfigurer {
         .allowCredentials(true);
   }
 
+  /**
+   * 添加拦截器。
+   *
+   * @param registry 注册表
+   */
   @Override
   public void addInterceptors(InterceptorRegistry registry) {
     registry.addInterceptor(apiAuthenticationInterceptor).addPathPatterns("/api/**").order(0);

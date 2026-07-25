@@ -38,6 +38,11 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * 持久化分析状态、调度有界后台任务并提供可恢复 SSE 快照。
+ *
+ * <p>每次读取和订阅均校验属主；线程池拒绝、显式取消和应用关闭都会写入持久化终态。
+ */
 @Service
 public class AnalysisTaskServiceImpl implements AnalysisTaskService {
   public static final String TYPE_RESUME = "resume";
@@ -70,6 +75,14 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
   private final ConcurrentMap<String, FutureTask<Void>> taskFutures =
       new ConcurrentHashMap<String, FutureTask<Void>>();
 
+  /**
+   * 创建分析任务服务实例。
+   *
+   * @param mapper 数据映射
+   * @param jsonCodec JSON 编解码器
+   * @param resumeStorageService 简历存储服务
+   * @param jobFavoriteService 收藏岗位服务
+   */
   public AnalysisTaskServiceImpl(
       AnalysisTaskMapper mapper,
       JsonCodec jsonCodec,
@@ -81,6 +94,15 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     this.jobFavoriteService = jobFavoriteService;
   }
 
+  /**
+   * 启动简历。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param resumeId 简历标识
+   * @param sessionId 会话标识
+   * @return 启动后的简历
+   */
   @Override
   public AnalysisTaskResponse startResume(
       String tenantId, String userId, String resumeId, String sessionId) {
@@ -90,6 +112,15 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     return createOrReuse(tenantId, userId, TYPE_RESUME, resumeId, request);
   }
 
+  /**
+   * 启动收藏岗位分析。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param command 业务命令
+   * @param resumeId 简历标识
+   * @return 启动后的收藏岗位岗位
+   */
   @Override
   public AnalysisTaskResponse startFavoriteJob(
       String tenantId, String userId, JobFavoriteSaveCommand command, String resumeId) {
@@ -101,6 +132,14 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     return createOrReuse(tenantId, userId, TYPE_FAVORITE_JOB, resourceKey, request);
   }
 
+  /**
+   * 获取当前用户所属资源。
+   *
+   * @param taskId 任务标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 当前用户所属资源
+   */
   @Override
   public AnalysisTaskResponse getOwned(String taskId, String tenantId, String userId) {
     AnalysisTask task = mapper.findOwned(taskId, tenantId, userId);
@@ -108,6 +147,14 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     return AnalysisTaskResponse.from(task, jsonCodec);
   }
 
+  /**
+   * 取消分析任务。
+   *
+   * @param taskId 任务标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 取消结果
+   */
   @Override
   public AnalysisTaskResponse cancel(String taskId, String tenantId, String userId) {
     AnalysisTask owned = mapper.findOwned(taskId, tenantId, userId);
@@ -119,6 +166,15 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     return AnalysisTaskResponse.from(mapper.findOwned(taskId, tenantId, userId), jsonCodec);
   }
 
+  /**
+   * 查询最新。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param taskType 任务类型
+   * @param resourceKey 资源键
+   * @return 最新
+   */
   @Override
   public AnalysisTaskResponse findLatest(
       String tenantId, String userId, String taskType, String resourceKey) {
@@ -128,6 +184,14 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
         mapper.findLatest(tenantId, userId, taskType, resourceKey), jsonCodec);
   }
 
+  /**
+   * 建立分析任务流式响应。
+   *
+   * @param taskId 任务标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return SSE 事件流
+   */
   @Override
   public SseEmitter stream(String taskId, String tenantId, String userId) {
     AnalysisTask owned = mapper.findOwned(taskId, tenantId, userId);
@@ -141,6 +205,9 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     return emitter;
   }
 
+  /**
+   * 恢复任务。
+   */
   @EventListener(ApplicationReadyEvent.class)
   public void recoverTasks() {
     try {
@@ -152,12 +219,25 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     }
   }
 
+  /**
+   * 关闭分析任务。
+   */
   @PreDestroy
   public void shutdown() {
     taskExecutor.shutdownNow();
     streamExecutor.shutdownNow();
   }
 
+  /**
+   * 创建或复用资源。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param type 类型
+   * @param resourceKey 资源键
+   * @param request 请求对象
+   * @return 创建后的或复用资源
+   */
   private AnalysisTaskResponse createOrReuse(
       String tenantId, String userId, String type, String resourceKey, Object request) {
     AnalysisTask active = mapper.findActive(tenantId, userId, type, resourceKey);
@@ -183,9 +263,17 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     return AnalysisTaskResponse.from(mapper.findById(task.getTaskId()), jsonCodec);
   }
 
+  /**
+   * 提交分析任务。
+   *
+   * @param taskId 任务标识
+   */
   private void submit(String taskId) {
     FutureTask<Void> future =
         new FutureTask<Void>(withInheritedMdc(() -> execute(taskId)), null) {
+          /**
+           * 处理 SSE 完成事件。
+           */
           @Override
           protected void done() {
             taskFutures.remove(taskId, this);
@@ -200,6 +288,11 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     }
   }
 
+  /**
+   * 执行分析任务。
+   *
+   * @param taskId 任务标识
+   */
   private void execute(String taskId) {
     AnalysisTask task = mapper.findById(taskId);
     if (task == null || task.isTerminal()) return;
@@ -263,6 +356,14 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     }
   }
 
+  /**
+   * 建立分析任务 SSE 流。
+   *
+   * @param taskId 任务标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param emitter SSE 事件发送器
+   */
   private void streamLoop(String taskId, String tenantId, String userId, SseEmitter emitter) {
     boolean contextBound = false;
     long lastVersion = Long.MIN_VALUE;
@@ -315,6 +416,12 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     }
   }
 
+  /**
+   * 发布增量分析结果。
+   *
+   * @param taskId 任务标识
+   * @param partial 部分分析结果
+   */
   private void publishPartial(String taskId, AnalysisPartialResult partial) {
     if (Thread.currentThread().isInterrupted()
         || mapper.updatePartialResult(
@@ -328,11 +435,23 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     }
   }
 
+  /**
+   * 判断任务是否请求取消。
+   *
+   * @param taskId 任务标识
+   * @return 任务是否请求取消是否成立
+   */
   private boolean isCancellationRequested(String taskId) {
     AnalysisTask current = mapper.findById(taskId);
     return current != null && "cancelled".equals(current.getStatus());
   }
 
+  /**
+   * 包装继承 MDC 上下文的任务。
+   *
+   * @param task 任务
+   * @return 继承 MDC 的任务包装器
+   */
   private Runnable withInheritedMdc(Runnable task) {
     final Map<String, String> parentContext = copyCurrentMdc();
     return () -> {
@@ -361,6 +480,13 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     };
   }
 
+  /**
+   * 绑定任务 MDC 上下文。
+   *
+   * @param task 任务
+   * @param actor 操作人
+   * @param requestId 请求标识
+   */
   private void bindTaskMdcContext(AnalysisTask task, String actor, String requestId) {
     if (task == null) return;
     String safeRequestId = safeText(requestId);
@@ -384,21 +510,45 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     MDC.put("actor", actor == null ? "analysis-worker" : actor);
   }
 
+  /**
+   * 复制当前 MDC 上下文。
+   *
+   * @return 当前 MDC 副本
+   */
   private Map<String, String> copyCurrentMdc() {
     Map<String, String> context = MDC.getCopyOfContextMap();
     return context == null ? null : new LinkedHashMap<>(context);
   }
 
+  /**
+   * 发送分析任务。
+   *
+   * @param emitter SSE 事件发送器
+   * @param event 事件名称
+   * @param data 业务数据
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private void send(SseEmitter emitter, String event, Object data) throws IOException {
     emitter.send(SseEmitter.event().name(event).data(data));
   }
 
+  /**
+   * 校验类型。
+   *
+   * @param taskType 任务类型
+   */
   private void validateType(String taskType) {
     if (!TYPE_RESUME.equals(taskType) && !TYPE_FAVORITE_JOB.equals(taskType)) {
       throw new IllegalArgumentException("不支持的分析任务类型");
     }
   }
 
+  /**
+   * 获取岗位键。
+   *
+   * @param item 数据项
+   * @return 岗位键
+   */
   private String jobKey(JsonNode item) {
     for (String key :
         new String[] {"jobKey", "favoriteKey", "securityId", "id", "jobId", "encryptJobId"}) {
@@ -408,34 +558,77 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
     return "";
   }
 
+  /**
+   * 获取文本。
+   *
+   * @param object JSON 对象
+   * @param field 字段名称
+   * @return 文本内容
+   */
   private String text(JsonNode object, String field) {
     if (object == null || object.isNull()) return "";
     JsonNode value = object.get(field);
     return value == null || value.isNull() ? "" : value.asText().trim();
   }
 
+  /**
+   * 将可空值转换为首尾去空白的字符串。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String string(Object value) {
     return value == null ? "" : String.valueOf(value).trim();
   }
 
+  /**
+   * 获取安全数据文本。
+   *
+   * @param value 输入值
+   * @return 安全数据文本
+   */
   private String safeText(Object value) {
     String text = string(value);
     return text == null || text.isBlank() ? null : text;
   }
 
+  /**
+   * 校验并获取文本。
+   *
+   * @param value 输入值
+   * @param message 消息内容
+   */
   private void requireText(String value, String message) {
     if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException(message);
   }
 
+  /**
+   * 获取安全数据消息。
+   *
+   * @param error 异常
+   * @return 安全数据消息
+   */
   private String safeMessage(Throwable error) {
     String message = error == null ? "分析失败" : error.getMessage();
     return message == null || message.trim().isEmpty() ? "分析失败，请稍后重试" : message;
   }
 
+  /**
+   * 承载简历任务请求参数。
+   */
   private record ResumeTaskRequest(String resumeId, String sessionId) {}
 
+  /**
+   * 承载收藏岗位岗位任务请求参数。
+   */
   private record FavoriteJobTaskRequest(JsonNode job, String resumeId) {}
 
+  /**
+   * 创建具名线程工厂。
+   *
+   * @param prefix 名称前缀
+   * @return 创建后的具名线程工厂
+   */
   private static ThreadFactory namedFactory(final String prefix) {
     final AtomicInteger sequence = new AtomicInteger();
     return runnable -> {

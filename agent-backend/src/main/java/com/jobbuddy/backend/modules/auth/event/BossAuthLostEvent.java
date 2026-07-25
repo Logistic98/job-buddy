@@ -9,10 +9,20 @@ package com.jobbuddy.backend.modules.auth.event;
 public class BossAuthLostEvent {
   private final String source;
 
+  /**
+   * 创建 Boss 认证失效事件实例。
+   *
+   * @param source 源数据
+   */
   public BossAuthLostEvent(String source) {
     this.source = source == null ? "boss_auth_lost" : source;
   }
 
+  /**
+   * 获取来源。
+   *
+   * @return 来源
+   */
   public String getSource() {
     return source;
   }

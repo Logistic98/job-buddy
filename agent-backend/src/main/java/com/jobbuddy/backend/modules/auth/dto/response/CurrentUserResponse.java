@@ -6,6 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载当前用户响应数据。
+ */
 @Data
 public class CurrentUserResponse {
   private String userId;
@@ -18,6 +21,12 @@ public class CurrentUserResponse {
   private List<String> permissions = new ArrayList<String>();
   private List<AuthenticatedMenu> menus = new ArrayList<AuthenticatedMenu>();
 
+  /**
+   * 根据源数据创建对象。
+   *
+   * @param user 用户
+   * @return 创建后的对象
+   */
   public static CurrentUserResponse from(AuthenticatedUser user) {
     CurrentUserResponse response = new CurrentUserResponse();
     response.setUserId(user.getUserId());

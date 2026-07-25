@@ -28,9 +28,15 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+/**
+ * 验证 ProjectDeepDiveServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class ProjectDeepDiveServiceImplTest {
   private static final JsonCodec JSON = new JsonCodec();
 
+  /**
+   * 验证 ProjectDeepDiveServiceImpl 中项目的持久化与状态变更规则。
+   */
   @Test
   void saveProjectShouldPersistExtendedOverviewFields() {
     ProjectDeepDiveRepository repository = mock(ProjectDeepDiveRepository.class);
@@ -72,6 +78,9 @@ class ProjectDeepDiveServiceImplTest {
     verify(repository).findProject("tenant-1", "user-1", "p1");
   }
 
+  /**
+   * 验证 ProjectDeepDiveServiceImpl 中项目的输入校验与拒绝边界。
+   */
   @Test
   void saveProjectShouldDefaultMissingBasicInformationFields() {
     ProjectDeepDiveRepository repository = mock(ProjectDeepDiveRepository.class);
@@ -92,6 +101,9 @@ class ProjectDeepDiveServiceImplTest {
     assertEquals("", saved.get("projectStatus"));
   }
 
+  /**
+   * 验证 ProjectDeepDiveServiceImpl 中题目的持久化与状态变更规则。
+   */
   @Test
   void generateQuestionsShouldReturnCandidatesWithoutPersistingThem() {
     ProjectDeepDiveRepository repository = mock(ProjectDeepDiveRepository.class);
@@ -117,6 +129,9 @@ class ProjectDeepDiveServiceImplTest {
     verify(repository, never()).replaceQuestions(anyString(), anyString(), anyString(), anyList());
   }
 
+  /**
+   * 验证 ProjectDeepDiveServiceImpl 中题目的输入校验与拒绝边界。
+   */
   @Test
   void generateQuestionsShouldRejectOversizedRequirements() {
     ProjectDeepDiveRepository repository = mock(ProjectDeepDiveRepository.class);
@@ -135,6 +150,9 @@ class ProjectDeepDiveServiceImplTest {
     assertEquals("生成要求不能超过 1000 个字符", error.getMessage());
   }
 
+  /**
+   * 验证 ProjectDeepDiveServiceImpl 中题目的持久化与状态变更规则。
+   */
   @Test
   void importQuestionsShouldPersistOnlyReviewedCandidates() {
     ProjectDeepDiveRepository repository = mock(ProjectDeepDiveRepository.class);

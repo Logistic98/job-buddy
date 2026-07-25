@@ -32,6 +32,9 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+/**
+ * 验证 InterviewServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class InterviewServiceImplTest {
   private static final JsonCodec JSON = new JsonCodec();
 
@@ -42,6 +45,9 @@ class InterviewServiceImplTest {
   private final InterviewServiceImpl service =
       new InterviewServiceImpl(repository, codeRunner, JSON, agentIntegrationService);
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的数量、长度与分页边界。
+   */
   @Test
   void pageQuestionsShouldClampPageAndSizeAndComputePages() {
     when(repository.countQuestions(null, null, null, null)).thenReturn(45);
@@ -59,6 +65,9 @@ class InterviewServiceImplTest {
     assertEquals(Integer.valueOf(1), result.get("pages"));
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的数量、长度与分页边界。
+   */
   @Test
   void pageQuestionsShouldUseDefaultsAndCeilTotalPages() {
     when(repository.countQuestions(null, null, null, null)).thenReturn(41);
@@ -72,6 +81,9 @@ class InterviewServiceImplTest {
     assertEquals(Integer.valueOf(3), result.get("pages"));
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的输入校验与拒绝边界。
+   */
   @Test
   void saveQuestionShouldRejectMissingTitle() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -81,6 +93,9 @@ class InterviewServiceImplTest {
         assertThrows(
             IllegalArgumentException.class,
             new org.junit.jupiter.api.function.Executable() {
+              /**
+               * 验证执行。
+               */
               public void execute() {
                 service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null);
               }
@@ -88,6 +103,9 @@ class InterviewServiceImplTest {
     assertEquals("题目标题不能为空", error.getMessage());
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的持久化与状态变更规则。
+   */
   @Test
   void saveQuestionShouldNormalizeCodingBankTypeAndForceQuestionType() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -119,6 +137,9 @@ class InterviewServiceImplTest {
     assertTrue(String.valueOf(saved.get("questionId")).startsWith("iq_"));
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的输入校验与拒绝边界。
+   */
   @Test
   void saveQuestionShouldRejectCodingQuestionWithEmptyTests() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -141,6 +162,9 @@ class InterviewServiceImplTest {
     assertEquals("codingMeta.tests 至少需要 1 条测试用例", error.getMessage());
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的持久化与状态变更规则。
+   */
   @Test
   void generateAlgorithmQuestionsShouldReturnReviewCandidatesWithoutPersistence() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -189,6 +213,9 @@ class InterviewServiceImplTest {
     verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的题目生成与作答判定规则。
+   */
   @Test
   void generateQaQuestionsShouldAcceptRequirementsAsTheOnlySource() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -233,6 +260,9 @@ class InterviewServiceImplTest {
     verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的失败恢复、超时与降级边界。
+   */
   @Test
   void generateAlgorithmQuestionsShouldSurfaceRuntimeFailure() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -260,6 +290,9 @@ class InterviewServiceImplTest {
     verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的输入校验与拒绝边界。
+   */
   @Test
   void saveQuestionShouldRejectNonArrayCodingTests() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -283,6 +316,9 @@ class InterviewServiceImplTest {
     assertEquals("codingMeta.tests 必须是数组", error.getMessage());
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的输入校验与拒绝边界。
+   */
   @Test
   void saveQuestionShouldRejectCodingQuestionWithoutStructuredTests() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -299,6 +335,9 @@ class InterviewServiceImplTest {
     assertEquals("算法题必须维护 codingMeta 字段", error.getMessage());
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的输入校验与拒绝边界。
+   */
   @Test
   void batchQuestionsShouldRejectEmptyIdsAndEmptyFields() {
     Map<String, Object> noIds = new LinkedHashMap<String, Object>();
@@ -306,6 +345,9 @@ class InterviewServiceImplTest {
     assertThrows(
         IllegalArgumentException.class,
         new org.junit.jupiter.api.function.Executable() {
+          /**
+           * 验证执行。
+           */
           public void execute() {
             service.batchQuestions(JSON.convert(noIds, InterviewBatchRequest.class));
           }
@@ -317,12 +359,18 @@ class InterviewServiceImplTest {
     assertThrows(
         IllegalArgumentException.class,
         new org.junit.jupiter.api.function.Executable() {
+          /**
+           * 验证执行。
+           */
           public void execute() {
             service.batchQuestions(JSON.convert(noFields, InterviewBatchRequest.class));
           }
         });
   }
 
+  /**
+   * 验证 InterviewServiceImpl 的输入校验与拒绝边界。
+   */
   @Test
   void batchDeleteShouldFilterBlankIdsAndReportCount() {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
@@ -337,6 +385,9 @@ class InterviewServiceImplTest {
     assertEquals("delete", result.get("action"));
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中题目的检索、筛选与排序规则。
+   */
   @Test
   void submitExamShouldScoreChoiceAndCodingQuestions() {
     Map<String, Object> exam = new LinkedHashMap<String, Object>();
@@ -366,6 +417,9 @@ class InterviewServiceImplTest {
     verify(repository).finishExam(eq("e1"), eq(2), eq(100.0));
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中考试的输入校验与拒绝边界。
+   */
   @Test
   void submitExamShouldScoreZeroForWrongAndMissingCodingResult() {
     Map<String, Object> exam = new LinkedHashMap<String, Object>();
@@ -390,6 +444,9 @@ class InterviewServiceImplTest {
     verify(repository).finishExam(eq("e1"), eq(1), eq(0.0));
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中考试的题目生成与作答判定规则。
+   */
   @Test
   void submitExamShouldPassShortAnswerWhenKeySegmentsCovered() {
     Map<String, Object> exam = new LinkedHashMap<String, Object>();
@@ -411,22 +468,42 @@ class InterviewServiceImplTest {
     verify(repository).finishExam(eq("e1"), anyInt(), anyDouble());
   }
 
+  /**
+   * 验证 InterviewServiceImpl 中考试的输入校验与拒绝边界。
+   */
   @Test
   void getExamShouldFailFastWhenExamMissing() {
     when(repository.findExam("tenant-1", "user-1", "missing")).thenReturn(null);
     assertThrows(
         IllegalArgumentException.class,
         new org.junit.jupiter.api.function.Executable() {
+          /**
+           * 验证执行。
+           */
           public void execute() {
             service.getExam("tenant-1", "user-1", "missing");
           }
         });
   }
 
+  /**
+   * 验证运行时工具结果。
+   *
+   * @param value 待处理值
+   * @return runtime 工具 Result
+   */
   private RuntimeToolResult runtimeToolResult(Map<String, Object> value) {
     return RuntimeToolResult.fromJson(JSON.toTree(value));
   }
 
+  /**
+   * 验证题目。
+   *
+   * @param id 标识
+   * @param questionType 题目类型
+   * @param answer 答案
+   * @return 测试题目
+   */
   private Map<String, Object> question(String id, String questionType, String answer) {
     Map<String, Object> question = new LinkedHashMap<String, Object>();
     question.put("questionId", id);

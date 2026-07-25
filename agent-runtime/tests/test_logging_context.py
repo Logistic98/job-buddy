@@ -4,6 +4,7 @@ from app.core.common.logging import _LOG_FORMAT, setup_logging
 
 
 def _capture_sink(records: list):
+
     def sink(message):
         records.append(str(message))
 

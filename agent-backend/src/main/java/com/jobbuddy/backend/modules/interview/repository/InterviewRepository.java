@@ -15,10 +15,9 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Repository;
 
 /**
- * Repository adapter for interview questions and mock exams.
+ * 面试题与模拟试卷的仓储适配器。
  *
- * <p>The mapper works with database-oriented fields such as {@code tagsJson}; this class normalizes
- * those fields into API-friendly structures before returning data to services.
+ * <p>Mapper 使用 {@code tagsJson} 等数据库字段，本类在返回 Service 前将其规范为 API 结构。
  */
 @Repository
 public class InterviewRepository {
@@ -28,20 +27,54 @@ public class InterviewRepository {
   private final InterviewMapper mapper;
   private final JsonCodec jsonCodec;
 
+  /**
+   * 创建面试存储访问实例。
+   *
+   * @param mapper 数据映射
+   * @param jsonCodec JSON 编解码器
+   */
   public InterviewRepository(InterviewMapper mapper, JsonCodec jsonCodec) {
     this.mapper = mapper;
     this.jsonCodec = jsonCodec;
   }
 
+  /**
+   * 查询题目列表。
+   *
+   * @param keyword 关键词
+   * @param category 分类
+   * @return 题目列表
+   */
   public List<Map<String, Object>> listQuestions(String keyword, String category) {
     return listQuestions(keyword, null, category, null, 1, 200);
   }
 
+  /**
+   * 查询题目列表。
+   *
+   * @param keyword 关键词
+   * @param bankType 题库类型
+   * @param category 分类
+   * @param page 分页
+   * @param size 大小
+   * @return 题目列表
+   */
   public List<Map<String, Object>> listQuestions(
       String keyword, String bankType, String category, int page, int size) {
     return listQuestions(keyword, bankType, category, null, page, size);
   }
 
+  /**
+   * 查询题目列表。
+   *
+   * @param keyword 关键词
+   * @param bankType 题库类型
+   * @param category 分类
+   * @param difficulty 难度
+   * @param page 分页
+   * @param size 大小
+   * @return 题目列表
+   */
   public List<Map<String, Object>> listQuestions(
       String keyword, String bankType, String category, String difficulty, int page, int size) {
     int normalizedSize = Math.max(1, Math.min(size, 100));
@@ -60,18 +93,50 @@ public class InterviewRepository {
     return rows;
   }
 
+  /**
+   * 统计题目列表。
+   *
+   * @param keyword 关键词
+   * @param category 分类
+   * @return 统计数量
+   */
   public int countQuestions(String keyword, String category) {
     return countQuestions(keyword, null, category, null);
   }
 
+  /**
+   * 统计题目列表。
+   *
+   * @param keyword 关键词
+   * @param bankType 题库类型
+   * @param category 分类
+   * @param difficulty 难度
+   * @return 统计数量
+   */
   public int countQuestions(String keyword, String bankType, String category, String difficulty) {
     return mapper.countQuestions(like(keyword), trim(bankType), trim(category), trim(difficulty));
   }
 
+  /**
+   * 查找启用状态。
+   *
+   * @param category 分类
+   * @param difficulty 难度
+   * @return 启用状态
+   */
   public List<Map<String, Object>> findEnabled(String category, String difficulty) {
     return findEnabled(null, category, difficulty, null);
   }
 
+  /**
+   * 查找启用状态。
+   *
+   * @param bankType 题库类型
+   * @param category 分类
+   * @param difficulty 难度
+   * @param questionType 题目类型
+   * @return 启用状态
+   */
   public List<Map<String, Object>> findEnabled(
       String bankType, String category, String difficulty, String questionType) {
     List<Map<String, Object>> rows =
@@ -82,6 +147,12 @@ public class InterviewRepository {
     return rows;
   }
 
+  /**
+   * 构造题目元数据。
+   *
+   * @param bankType 题库类型
+   * @return 题目元数据
+   */
   public Map<String, Object> questionMeta(String bankType) {
     Map<String, Object> meta = new LinkedHashMap<String, Object>();
     meta.put("bankTypes", mapper.listBankTypes());
@@ -91,10 +162,21 @@ public class InterviewRepository {
     return meta;
   }
 
+  /**
+   * 查找题目。
+   *
+   * @param questionId 题目标识
+   * @return 题目
+   */
   public Map<String, Object> findQuestion(String questionId) {
     return hydrateQuestion(mapper.findQuestion(questionId));
   }
 
+  /**
+   * 保存题目。
+   *
+   * @param question 题目
+   */
   public void saveQuestion(Map<String, Object> question) {
     question.put("tagsJson", jsonCodec.toJson(question.get("tags")));
     question.put("codingMetaJson", jsonCodec.toJson(question.get("codingMeta")));
@@ -108,10 +190,20 @@ public class InterviewRepository {
     }
   }
 
+  /**
+   * 删除题目。
+   *
+   * @param questionId 题目标识
+   */
   public void deleteQuestion(String questionId) {
     mapper.softDeleteQuestion(questionId, Timestamp.from(Instant.now()));
   }
 
+  /**
+   * 批量删除题目。
+   *
+   * @param questionIds 题目标识列表
+   */
   public void batchDeleteQuestions(List<String> questionIds) {
     Timestamp now = Timestamp.from(Instant.now());
     for (String questionId : questionIds) {
@@ -119,6 +211,12 @@ public class InterviewRepository {
     }
   }
 
+  /**
+   * 批量更新题目。
+   *
+   * @param questionIds 题目标识列表
+   * @param fields 待更新字段
+   */
   public void batchUpdateQuestions(List<String> questionIds, Map<String, Object> fields) {
     Timestamp now = Timestamp.from(Instant.now());
     for (String questionId : questionIds) {
@@ -134,6 +232,17 @@ public class InterviewRepository {
     }
   }
 
+  /**
+   * 创建考试。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 考试标识
+   * @param title 标题
+   * @param durationMinutes 时长分钟
+   * @param strategy 抽题策略
+   * @param questions 题目列表
+   */
   public void createExam(
       String tenantId,
       String userId,
@@ -165,14 +274,37 @@ public class InterviewRepository {
     }
   }
 
+  /**
+   * 查找考试。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 考试标识
+   * @return 考试
+   */
   public Map<String, Object> findExam(String tenantId, String userId, String examId) {
     return hydrateOwnedExam(mapper.findExam(tenantId, userId, examId), examId);
   }
 
+  /**
+   * 查询待更新的考试记录。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 考试标识
+   * @return 待更新的考试记录
+   */
   public Map<String, Object> findExamForUpdate(String tenantId, String userId, String examId) {
     return hydrateOwnedExam(mapper.findExamForUpdate(tenantId, userId, examId), examId);
   }
 
+  /**
+   * 补全所属考试。
+   *
+   * @param exam 考试
+   * @param examId 考试标识
+   * @return 补全后的记录
+   */
   private Map<String, Object> hydrateOwnedExam(Map<String, Object> exam, String examId) {
     if (exam == null) return null;
     hydrateExam(exam);
@@ -180,6 +312,13 @@ public class InterviewRepository {
     return exam;
   }
 
+  /**
+   * 查询考试记录。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 考试列表
+   */
   public List<Map<String, Object>> listExams(String tenantId, String userId) {
     List<Map<String, Object>> rows = mapper.listExams(tenantId, userId);
     for (Map<String, Object> row : rows) {
@@ -188,6 +327,12 @@ public class InterviewRepository {
     return rows;
   }
 
+  /**
+   * 查询考试题目列表。
+   *
+   * @param examId 考试标识
+   * @return 考试题目列表
+   */
   public List<Map<String, Object>> examQuestions(String examId) {
     List<Map<String, Object>> rows = mapper.examQuestions(examId);
     for (Map<String, Object> row : rows) {
@@ -196,15 +341,37 @@ public class InterviewRepository {
     return rows;
   }
 
+  /**
+   * 保存考试答案。
+   *
+   * @param examId 考试标识
+   * @param questionId 题目标识
+   * @param answer 答案
+   * @param correct 是否回答正确
+   * @param score 评分
+   */
   public void saveExamAnswer(
       String examId, String questionId, String answer, boolean correct, double score) {
     mapper.saveExamAnswer(examId, questionId, answer, correct, score);
   }
 
+  /**
+   * 完成考试并写入提交结果。
+   *
+   * @param examId 考试标识
+   * @param answeredCount 已答题数量
+   * @param score 评分
+   */
   public void finishExam(String examId, int answeredCount, double score) {
     mapper.finishExam(examId, answeredCount, score, Timestamp.from(Instant.now()));
   }
 
+  /**
+   * 补全题目。
+   *
+   * @param item 数据项
+   * @return 补全后的记录
+   */
   private Map<String, Object> hydrateQuestion(Map<String, Object> item) {
     if (item == null) {
       return null;
@@ -224,6 +391,12 @@ public class InterviewRepository {
     return item;
   }
 
+  /**
+   * 规范化标签列表。
+   *
+   * @param raw 原始数据
+   * @return 规范化标签列表
+   */
   private List<Map<String, Object>> normalizeTags(List<Map<String, Object>> raw) {
     List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
     if (raw == null) {
@@ -251,6 +424,12 @@ public class InterviewRepository {
     return result;
   }
 
+  /**
+   * 清理题目标签文本。
+   *
+   * @param value 待处理值
+   * @return 清理后的标签文本
+   */
   private String cleanTagText(String value) {
     if (value == null) {
       return "";
@@ -267,6 +446,11 @@ public class InterviewRepository {
         .trim();
   }
 
+  /**
+   * 补全考试。
+   *
+   * @param exam 考试
+   */
   private void hydrateExam(Map<String, Object> exam) {
     if (exam == null) {
       return;
@@ -284,14 +468,32 @@ public class InterviewRepository {
     exam.put("remainingSeconds", Long.valueOf(remaining));
   }
 
+  /**
+   * 裁剪文本首尾空白。
+   *
+   * @param value 待处理值
+   * @return 裁剪后的文本
+   */
   private String trim(String value) {
     return value == null || value.trim().isEmpty() ? null : value.trim();
   }
 
+  /**
+   * 构造模糊匹配表达式。
+   *
+   * @param value 待处理值
+   * @return 模糊匹配表达式
+   */
   private String like(String value) {
     return value == null || value.trim().isEmpty() ? null : "%" + value.trim().toLowerCase() + "%";
   }
 
+  /**
+   * 将输入转换为字符串。
+   *
+   * @param value 待处理值
+   * @return 字符串值
+   */
   private String string(Object value) {
     if (value == null) {
       return null;
@@ -307,6 +509,12 @@ public class InterviewRepository {
     return String.valueOf(value);
   }
 
+  /**
+   * 规范化时间。
+   *
+   * @param item 数据项
+   * @param key 键
+   */
   private void normalizeTime(Map<String, Object> item, String key) {
     Object value = item.get(key);
     if (value instanceof Timestamp) {

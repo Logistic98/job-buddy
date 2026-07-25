@@ -1,3 +1,6 @@
+/**
+ * 将结果序列化为可稳定比较的 JSON 文本。
+ */
 function stable(value) {
   return JSON.stringify(value)
 }

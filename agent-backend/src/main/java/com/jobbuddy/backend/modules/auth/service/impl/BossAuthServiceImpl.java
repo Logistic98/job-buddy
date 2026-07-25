@@ -20,6 +20,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+/**
+ * 协调二维码会话、加密凭据持久化与短期认证缓存。
+ *
+ * <p>凭据仅从内存注入 Tool 请求，不写本地凭据目录；登录失效事件同时清除缓存和持久化状态。
+ */
 @Service
 public class BossAuthServiceImpl implements BossAuthService {
   private static final long DEFAULT_AUTH_CACHE_TTL_MILLIS = 5 * 60 * 1000L;
@@ -32,12 +37,23 @@ public class BossAuthServiceImpl implements BossAuthService {
   private final Map<String, Object> authStatusLocks = new ConcurrentHashMap<String, Object>();
   private final JsonCodec jsonCodec = new JsonCodec();
 
+  /**
+   * 创建 Boss 认证服务实例。
+   *
+   * @param bossCliService Boss CLI 服务
+   * @param authStateRepository 认证状态存储访问
+   */
   public BossAuthServiceImpl(
       BossCliService bossCliService, AuthStateRepository authStateRepository) {
     this.bossCliService = bossCliService;
     this.authStateRepository = authStateRepository;
   }
 
+  /**
+   * 获取登录引导信息。
+   *
+   * @return 登录引导信息
+   */
   public BossLoginStatusResponse loginPrompt() {
     Map<String, Object> prompt = new LinkedHashMap<String, Object>();
     prompt.put("authRequired", true);
@@ -46,6 +62,12 @@ public class BossAuthServiceImpl implements BossAuthService {
     return jsonCodec.convert(prompt, BossLoginStatusResponse.class);
   }
 
+  /**
+   * 启动二维码登录。
+   *
+   * @param sessionId 会话标识
+   * @return 启动后的二维码登录
+   */
   public BossLoginQrResponse startQrLogin(String sessionId) {
     if (isLoggedIn(sessionId))
       return jsonCodec.convert(loggedInResponse(true, "Boss 登录态有效。"), BossLoginQrResponse.class);
@@ -85,6 +107,13 @@ public class BossAuthServiceImpl implements BossAuthService {
     return jsonCodec.convert(response, BossLoginQrResponse.class);
   }
 
+  /**
+   * 获取登录状态。
+   *
+   * @param sessionId 会话标识
+   * @param qrSessionIdOverride 指定的二维码会话标识
+   * @return 登录状态
+   */
   public BossLoginStatusResponse loginStatus(String sessionId, String qrSessionIdOverride) {
     if (isCachedAuthenticated())
       return jsonCodec.convert(
@@ -98,6 +127,13 @@ public class BossAuthServiceImpl implements BossAuthService {
     return jsonCodec.convert(validateLoginState(false), BossLoginStatusResponse.class);
   }
 
+  /**
+   * 取消登录。
+   *
+   * @param sessionId 会话标识
+   * @param qrSessionIdOverride 指定的二维码会话标识
+   * @return 登录取消结果
+   */
   public BossLoginCancelResponse cancelLogin(String sessionId, String qrSessionIdOverride) {
     String qrSessionId = trimToNull(qrSessionIdOverride);
     if (qrSessionId == null) qrSessionId = qrSessionIdForOwner();
@@ -112,14 +148,21 @@ public class BossAuthServiceImpl implements BossAuthService {
     return response;
   }
 
+  /**
+   * 判断是否已登录。
+   *
+   * @param sessionId 会话标识
+   * @return 是否已登录
+   */
   public boolean isLoggedIn(String sessionId) {
     if (isCachedAuthenticated()) return true;
     return isStatusAuthenticated(validateLoginState(false));
   }
 
   /**
-   * Search/detail success only refreshes the current owner's status; the existing encrypted
-   * credential is preserved.
+   * 搜索或详情成功只刷新当前属主状态，保留已有加密凭据。
+   *
+   * @param source 源数据
    */
   public void rememberCurrentCredential(JsonNode source) {
     markAuthenticated();
@@ -127,22 +170,43 @@ public class BossAuthServiceImpl implements BossAuthService {
         BossAuthProviders.STORAGE_PROVIDER, "logged_in", metadata(source));
   }
 
+  /**
+   * 标记登录凭据失效。
+   *
+   * @param source 源数据
+   */
   public void markLoginInvalid(JsonNode source) {
     clearAuthenticatedCache("auth_required");
     authStateRepository.updateStatus(
         BossAuthProviders.STORAGE_PROVIDER, "auth_required", metadata(source));
   }
 
+  /**
+   * 处理 Boss 认证失效。
+   *
+   * @param event 事件名称
+   */
   @EventListener
   public void onBossAuthLost(BossAuthLostEvent event) {
     clearAuthenticatedCache("auth_required");
   }
 
+  /**
+   * 校验并获取登录或异常。
+   *
+   * @param sessionId 会话标识
+   */
   public void requireLoginOrThrow(String sessionId) {
     if (isLoggedIn(sessionId)) return;
     throw new BossAuthRequiredException("Boss 直聘未登录，请先完成二维码登录。", jsonCodec.toMap(loginPrompt()));
   }
 
+  /**
+   * 获取二维码登录状态。
+   *
+   * @param qrSessionId 二维码会话标识
+   * @return 二维码登录状态
+   */
   private Map<String, Object> qrLoginStatus(String qrSessionId) {
     Map<String, Object> qrSession = requireQrOwner(qrSessionId);
     Map<String, Object> result =
@@ -200,6 +264,12 @@ public class BossAuthServiceImpl implements BossAuthService {
     return response;
   }
 
+  /**
+   * 校验登录状态。
+   *
+   * @param force 是否强制执行
+   * @return 校验后的登录状态
+   */
   private Map<String, Object> validateLoginState(boolean force) {
     if (!force && isCachedAuthenticated()) return loggedInResponse(true, "Boss 登录态缓存有效。");
     String owner = scopeKey();
@@ -221,12 +291,23 @@ public class BossAuthServiceImpl implements BossAuthService {
     }
   }
 
+  /**
+   * 获取二维码会话标识用于属主。
+   *
+   * @return 二维码会话标识用于属主
+   */
   private String qrSessionIdForOwner() {
     Map<String, Object> row =
         authStateRepository.findActiveQrSession(currentTenantId(), currentUserId());
     return row == null ? null : trimToNull(stringValue(row.get("qrSessionId")));
   }
 
+  /**
+   * 校验并获取二维码属主。
+   *
+   * @param qrSessionId 二维码会话标识
+   * @return 校验后的并获取二维码属主
+   */
   private Map<String, Object> requireQrOwner(String qrSessionId) {
     Map<String, Object> owner = authStateRepository.findQrSession(qrSessionId);
     if (owner == null) throw new IllegalArgumentException("Boss 登录会话不存在或已过期");
@@ -242,16 +323,33 @@ public class BossAuthServiceImpl implements BossAuthService {
     return owner;
   }
 
+  /**
+   * 校验并获取工具会话令牌。
+   *
+   * @param session 会话
+   * @return 校验后的并获取工具会话令牌
+   */
   private String requiredToolSessionToken(Map<String, Object> session) {
     String value = trimToNull(stringValue(session.get("toolSessionToken")));
     if (value == null) throw new IllegalStateException("Boss 登录会话缺少工具状态令牌");
     return value;
   }
 
+  /**
+   * 获取整数值。
+   *
+   * @param value 输入值
+   * @return 整数值
+   */
   private int intValue(Object value) {
     return value instanceof Number ? ((Number) value).intValue() : 0;
   }
 
+  /**
+   * 判断缓存凭据是否有效。
+   *
+   * @return 缓存凭据是否有效是否成立
+   */
   private boolean isCachedAuthenticated() {
     AuthCacheEntry entry = authCache.get(scopeKey());
     if (entry == null
@@ -263,17 +361,32 @@ public class BossAuthServiceImpl implements BossAuthService {
     return true;
   }
 
+  /**
+   * 标记已认证用户。
+   */
   private void markAuthenticated() {
     long now = System.currentTimeMillis();
     authCache.put(scopeKey(), new AuthCacheEntry(true, now, now, "logged_in"));
   }
 
+  /**
+   * 清理已认证用户缓存。
+   *
+   * @param status 状态
+   */
   private void clearAuthenticatedCache(String status) {
     long now = System.currentTimeMillis();
     authCache.put(
         scopeKey(), new AuthCacheEntry(false, 0L, now, status == null ? "auth_required" : status));
   }
 
+  /**
+   * 构建已登录响应。
+   *
+   * @param cached 缓存数据
+   * @param message 消息内容
+   * @return 已登录响应
+   */
   private Map<String, Object> loggedInResponse(boolean cached, String message) {
     AuthCacheEntry entry = authCache.get(scopeKey());
     Map<String, Object> response = new LinkedHashMap<String, Object>();
@@ -293,6 +406,12 @@ public class BossAuthServiceImpl implements BossAuthService {
     return response;
   }
 
+  /**
+   * 获取元数据。
+   *
+   * @param sourceValue 源值
+   * @return 元数据
+   */
   private Map<String, Object> metadata(Object sourceValue) {
     Map<String, Object> source = jsonCodec.toMap(sourceValue);
     AuthCacheEntry entry = authCache.get(scopeKey());
@@ -315,11 +434,23 @@ public class BossAuthServiceImpl implements BossAuthService {
     return metadata;
   }
 
+  /**
+   * 转换为映射。
+   *
+   * @param value 输入值
+   * @return 转换后的键值映射
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> asMap(Object value) {
     return value instanceof Map ? (Map<String, Object>) value : new LinkedHashMap<String, Object>();
   }
 
+  /**
+   * 判断状态已认证用户。
+   *
+   * @param status 状态
+   * @return 用户是否已认证
+   */
   private boolean isStatusAuthenticated(Map<String, Object> status) {
     if (status == null || status.isEmpty()) return false;
     if (Boolean.TRUE.equals(status.get("ok")) || Boolean.TRUE.equals(status.get("authenticated")))
@@ -333,6 +464,12 @@ public class BossAuthServiceImpl implements BossAuthService {
     return "logged_in".equals(String.valueOf(status.get("status")));
   }
 
+  /**
+   * 判断是否为状态检查失败。
+   *
+   * @param status 状态
+   * @return 是否为状态检查失败
+   */
   private boolean isStatusCheckFailure(Map<String, Object> status) {
     return status == null
         || status.isEmpty()
@@ -340,6 +477,12 @@ public class BossAuthServiceImpl implements BossAuthService {
         || status.get("error") != null;
   }
 
+  /**
+   * 转换为时间点。
+   *
+   * @param value 输入值
+   * @return 转换后的时间点
+   */
   private Instant toInstant(Object value) {
     if (value instanceof Instant) return (Instant) value;
     if (value instanceof java.sql.Timestamp) return ((java.sql.Timestamp) value).toInstant();
@@ -352,6 +495,11 @@ public class BossAuthServiceImpl implements BossAuthService {
     }
   }
 
+  /**
+   * 获取认证缓存有效期毫秒数。
+   *
+   * @return 认证缓存有效期毫秒数
+   */
   private long authCacheTtlMillis() {
     String value = System.getenv("BOSS_AUTH_STATUS_CACHE_TTL_MS");
     if (value != null && !value.trim().isEmpty()) {
@@ -364,6 +512,11 @@ public class BossAuthServiceImpl implements BossAuthService {
     return DEFAULT_AUTH_CACHE_TTL_MILLIS;
   }
 
+  /**
+   * 获取当前租户标识。
+   *
+   * @return 当前租户标识
+   */
   private String currentTenantId() {
     String value = AuthenticationScope.tenantId();
     if (value == null || value.trim().isEmpty())
@@ -371,6 +524,11 @@ public class BossAuthServiceImpl implements BossAuthService {
     return value.trim();
   }
 
+  /**
+   * 获取当前用户标识。
+   *
+   * @return 当前用户标识
+   */
   private String currentUserId() {
     String value = AuthenticationScope.userId();
     if (value == null || value.trim().isEmpty())
@@ -378,24 +536,52 @@ public class BossAuthServiceImpl implements BossAuthService {
     return value.trim();
   }
 
+  /**
+   * 获取作用域键。
+   *
+   * @return 作用域键
+   */
   private String scopeKey() {
     return currentTenantId() + "\u0000" + currentUserId();
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String stringValue(Object value) {
     return value == null ? null : String.valueOf(value);
   }
 
+  /**
+   * 裁剪目标空值。
+   *
+   * @param value 输入值
+   * @return 规范化文本
+   */
   private String trimToNull(String value) {
     return value == null || value.trim().isEmpty() ? null : value.trim();
   }
 
+  /**
+   * 定义认证缓存条目。
+   */
   private static final class AuthCacheEntry {
     private final boolean authenticated;
     private final long authenticatedAt;
     private final long validatedAt;
     private final String status;
 
+    /**
+     * 创建认证缓存条目实例。
+     *
+     * @param authenticated 是否已认证
+     * @param authenticatedAt 认证时间
+     * @param validatedAt 校验时间
+     * @param status 状态
+     */
     private AuthCacheEntry(
         boolean authenticated, long authenticatedAt, long validatedAt, String status) {
       this.authenticated = authenticated;

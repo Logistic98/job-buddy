@@ -20,18 +20,35 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 
+/**
+ * 将非流式聊天入口适配为 Runtime 运行契约和展示响应。
+ *
+ * <p>此路径不实现第二套 Agent Loop，只转译 Runtime 指令、计划与 Trace 摘要。
+ */
 @Service
 public class AgentFlowServiceImpl implements AgentFlowService {
   private static final JsonCodec JSON = new JsonCodec();
   private final AgentIntegrationService integrationService;
   private final JobBuddyProperties properties;
 
+  /**
+   * 创建 Agent 流程服务实例。
+   *
+   * @param integrationService 集成服务
+   * @param properties 配置属性
+   */
   public AgentFlowServiceImpl(
       AgentIntegrationService integrationService, JobBuddyProperties properties) {
     this.integrationService = integrationService;
     this.properties = properties;
   }
 
+  /**
+   * 生成 Agent 流程答复。
+   *
+   * @param request 请求对象
+   * @return  Agent 流程答复
+   */
   public ChatResponse answer(ChatRequest request) {
     String sessionId =
         request.getSessionId() == null || request.getSessionId().trim().isEmpty()
@@ -67,6 +84,13 @@ public class AgentFlowServiceImpl implements AgentFlowService {
         Instant.now());
   }
 
+  /**
+   * 构建 Runtime 请求。
+   *
+   * @param sessionId 会话标识
+   * @param request 请求对象
+   * @return 运行时请求
+   */
   private RuntimeRunRequest buildRuntimeRequest(String sessionId, ChatRequest request) {
     return RuntimeRequestBuilder.forEntrypoint(sessionId, request.getMessage(), "chat.ask")
         .budget(
@@ -77,6 +101,12 @@ public class AgentFlowServiceImpl implements AgentFlowService {
         .build();
   }
 
+  /**
+   * 提取运行时意图。
+   *
+   * @param runtimeResult 运行时结果
+   * @return 运行时意图
+   */
   private IntentResult intentFromRuntime(Map<String, Object> runtimeResult) {
     Map<String, Object> directive = firstDirective(runtimeResult);
     Object slots = directive.get("slots");
@@ -105,6 +135,13 @@ public class AgentFlowServiceImpl implements AgentFlowService {
     return intentResult;
   }
 
+  /**
+   * 解析执行模式。
+   *
+   * @param runtimeResult 运行时结果
+   * @param intent 意图
+   * @return 执行模式
+   */
   private String executionMode(Map<String, Object> runtimeResult, IntentResult intent) {
     Object plan = runtimeResult == null ? null : runtimeResult.get("plan");
     if (plan instanceof Map) {
@@ -115,6 +152,12 @@ public class AgentFlowServiceImpl implements AgentFlowService {
     return "runtime_proxy";
   }
 
+  /**
+   * 获取 Runtime 返回的计划来源。
+   *
+   * @param runtimeResult 运行时结果
+   * @return 计划来源 Runtime
+   */
   private List<String> planFromRuntime(Map<String, Object> runtimeResult) {
     List<String> planRows = new ArrayList<String>();
     Object plan = runtimeResult == null ? null : runtimeResult.get("plan");
@@ -129,6 +172,12 @@ public class AgentFlowServiceImpl implements AgentFlowService {
     return planRows;
   }
 
+  /**
+   * 从运行时结果提取 Trace 步骤。
+   *
+   * @param runtimeResult 运行时结果
+   * @return 运行时 Trace 列表
+   */
   private List<TraceStep> traceFromRuntime(Map<String, Object> runtimeResult) {
     List<TraceStep> trace = new ArrayList<TraceStep>();
     Object logs = runtimeResult == null ? null : runtimeResult.get("logs");
@@ -165,10 +214,23 @@ public class AgentFlowServiceImpl implements AgentFlowService {
     return trace;
   }
 
+  /**
+   * 获取首条有效指令。
+   *
+   * @param runtimeResult 运行时结果
+   * @return 首条有效指令
+   */
   private Map<String, Object> firstDirective(Map<String, Object> runtimeResult) {
     return RuntimeRequestBuilder.extractDirective(runtimeResult);
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param map 数据映射
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private Object firstPresent(Map<String, Object> map, String... keys) {
     if (map == null) return null;
     for (String key : keys) {
@@ -178,15 +240,35 @@ public class AgentFlowServiceImpl implements AgentFlowService {
     return null;
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String stringValue(Object value) {
     return value == null ? "" : String.valueOf(value).trim();
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 字符串值
+   */
   private String stringValue(Object value, String fallback) {
     String text = stringValue(value);
     return text.isEmpty() ? fallback : text;
   }
 
+  /**
+   * 解析双精度数值。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 双精度数值
+   */
   private double doubleValue(Object value, double fallback) {
     if (value instanceof Number) return ((Number) value).doubleValue();
     try {
@@ -196,6 +278,13 @@ public class AgentFlowServiceImpl implements AgentFlowService {
     }
   }
 
+  /**
+   * 获取布尔值。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 布尔值
+   */
   private boolean booleanValue(Object value, boolean fallback) {
     if (value instanceof Boolean) return ((Boolean) value).booleanValue();
     String text = stringValue(value).toLowerCase(java.util.Locale.ROOT);

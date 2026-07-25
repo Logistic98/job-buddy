@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# 汇总仓库服务进程、端口、健康检查与日志位置。
+
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

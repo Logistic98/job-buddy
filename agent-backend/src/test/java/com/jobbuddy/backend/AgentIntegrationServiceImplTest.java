@@ -26,6 +26,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * 验证 AgentIntegrationServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class AgentIntegrationServiceImplTest {
 
   private HttpServer server;
@@ -36,6 +39,11 @@ class AgentIntegrationServiceImplTest {
   private final AtomicReference<String> receivedStreamBody = new AtomicReference<String>();
   private final AtomicReference<String> receivedToolBody = new AtomicReference<String>();
 
+  /**
+   * 初始化测试所需依赖与认证上下文。
+   *
+   * @throws IOException 文件读写失败时抛出
+   */
   @BeforeEach
   void setUp() throws IOException {
     server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -94,11 +102,17 @@ class AgentIntegrationServiceImplTest {
     baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
   }
 
+  /**
+   * 清理测试创建的资源与上下文。
+   */
   @AfterEach
   void tearDown() {
     server.stop(0);
   }
 
+  /**
+   * 验证 AgentIntegrationServiceImpl 中运行时的流式生命周期与中断边界。
+   */
   @Test
   void runtimeStreamShouldSendInternalServiceTokenWhenConfigured() {
     AgentServiceProperties properties = new AgentServiceProperties();
@@ -130,6 +144,9 @@ class AgentIntegrationServiceImplTest {
         Integer.valueOf(1), ((Map<String, Object>) toolResults.get(0).get("data")).get("count"));
   }
 
+  /**
+   * 验证 AgentIntegrationServiceImpl 中运行时的数据转换与协议契约。
+   */
   @Test
   void runtimeHttpShouldUseSnakeCaseAndPreserveUnknownResponseFields() {
     AgentServiceProperties properties = new AgentServiceProperties();
@@ -155,6 +172,9 @@ class AgentIntegrationServiceImplTest {
         Boolean.TRUE, ((Map<String, Object>) resultMap.get("future_run_field")).get("enabled"));
   }
 
+  /**
+   * 验证 AgentIntegrationServiceImpl 中工具的核心业务契约。
+   */
   @Test
   void shouldInvokeNamedRuntimeTool() {
     AgentServiceProperties properties = new AgentServiceProperties();

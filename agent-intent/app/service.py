@@ -18,6 +18,8 @@ _ENGINEERING_KEYWORDS = ["代码", "实现", "开发", "修复", "重构", "work
 
 
 def classify_intent(message: str) -> IntentResult:
+    """执行分层意图分类，并统一应用低置信澄清门。"""
+
     # 出口统一过澄清门：任何一层给出的低置信结果都被兜住，高风险结果不降级。
     return apply_clarification_gate(_classify_intent(message))
 

@@ -1,8 +1,6 @@
-// 统一的富文本/简历 HTML 清洗：用 DOMPurify 去除 script、事件处理器等可执行内容，
-// 仅保留排版所需的标签、class 与 style，供 v-html 渲染前调用，避免简历 Markdown 中
-// 透传的原始 HTML（含 AI 生成或在线简历同步内容）成为 XSS 注入面。
 import DOMPurify from 'dompurify'
 
+// 统一清洗富文本和简历 HTML，避免外部内容成为 XSS 注入面。
 export function sanitizeResumeHtml(html) {
   const input = String(html || '')
   // SSR/构建期无 DOM 时使用保守文本输出，绝不返回未清洗 HTML。

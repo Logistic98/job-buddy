@@ -1,3 +1,5 @@
+"""定义意图分类请求与结构化结果模型。"""
+
 from typing import Any, Dict
 
 from pydantic import BaseModel, Field

@@ -177,11 +177,13 @@ async function loadPage(targetPage, forceRefresh = false) {
   notice.value = ''
   try {
     const result = (await listBossFavoriteJobs(targetPage, forceRefresh)) || {}
+    // 丢弃弹窗关闭或新请求启动后返回的旧响应。
     if (sequence !== requestSequence || !props.visible) return
     const incoming = Array.isArray(result.jobs) ? result.jobs : []
     rows.value = incoming.filter((row) => !row.alreadyImported)
     page.value = Number(result.page) || targetPage
     const reportedTotalPages = Number(result.totalPages)
+    // 兼容旧接口仅返回 hasMore 的情况，并确保总页数不小于当前页。
     totalPages.value =
       Number.isFinite(reportedTotalPages) && reportedTotalPages > 0
         ? Math.max(page.value, Math.trunc(reportedTotalPages))

@@ -38,8 +38,14 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+/**
+ * 验证 JobFavoriteServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class JobFavoriteServiceImplTest {
 
+  /**
+   * 验证 JobFavoriteServiceImpl 的持久化与状态变更规则。
+   */
   @Test
   void saveFavoriteShouldKeepExistingDescriptionWithoutFetchingDetail() {
     Fixture fixture = new Fixture();
@@ -56,6 +62,9 @@ class JobFavoriteServiceImplTest {
         "负责 Java 与 Agent 平台研发", fixture.jsonCodec.toMap(json.getValue()).get("jobDescription"));
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 的持久化与状态变更规则。
+   */
   @Test
   void saveFavoriteShouldFetchAndPersistDescriptionAtFavoriteTime() {
     Fixture fixture = new Fixture();
@@ -74,6 +83,9 @@ class JobFavoriteServiceImplTest {
     assertEquals("负责大模型应用研发与系统交付", fixture.jsonCodec.toMap(json.getValue()).get("jobDescription"));
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 的输入校验与拒绝边界。
+   */
   @Test
   void saveFavoriteShouldNotPersistWhenDescriptionCollectionFails() {
     Fixture fixture = new Fixture();
@@ -91,6 +103,9 @@ class JobFavoriteServiceImplTest {
     verify(fixture.mapper, never()).upsertFavorite(anyString(), anyString(), anyString());
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 的持久化与状态变更规则。
+   */
   @Test
   void analyzeFavoriteShouldFetchAndPersistDescriptionOnlyAfterExplicitRequest() {
     Fixture fixture = new Fixture();
@@ -120,6 +135,9 @@ class JobFavoriteServiceImplTest {
         .updateAnalysis(anyString(), anyString(), anyString(), any(Instant.class));
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 中岗位的核心业务契约。
+   */
   @Test
   void analyzeJobIncrementallyShouldPublishThreeRealPartialReports() {
     Fixture fixture = new Fixture();
@@ -163,6 +181,9 @@ class JobFavoriteServiceImplTest {
         .updateAnalysis(anyString(), anyString(), anyString(), any(Instant.class));
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 中运行时的持久化与状态变更规则。
+   */
   @Test
   void analyzeFavoriteShouldNotPersistEmptyRuntimeResult() {
     Fixture fixture = new Fixture();
@@ -185,6 +206,9 @@ class JobFavoriteServiceImplTest {
         .updateAnalysis(anyString(), anyString(), anyString(), any(Instant.class));
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 中分析任务的持久化与状态变更规则。
+   */
   @Test
   void analyzeFavoriteShouldPersistOnlyAnalysisPayloadAndTimestamp() {
     Fixture fixture = new Fixture();
@@ -219,6 +243,9 @@ class JobFavoriteServiceImplTest {
     assertEquals(Instant.parse(String.valueOf(persisted.get("analyzedAt"))), analyzedAt.getValue());
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 的去重与幂等边界。
+   */
   @Test
   void previewBossFavoritesShouldHideExistingAndPageDuplicatesWithoutFetchingDetail() {
     Fixture fixture = new Fixture();
@@ -258,6 +285,9 @@ class JobFavoriteServiceImplTest {
     verify(fixture.bossCliService, never()).jobDetail(anyString(), anyString());
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 中岗位的核心业务契约。
+   */
   @Test
   void importBossFavoritesShouldAcceptMoreThanFiveSelectedJobs() {
     Fixture fixture = new Fixture();
@@ -279,6 +309,9 @@ class JobFavoriteServiceImplTest {
     verify(fixture.bossCliService, never()).jobDetail(anyString(), anyString());
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 的持久化与状态变更规则。
+   */
   @Test
   void importBossFavoritesShouldFetchAndPersistDescriptionsInSelectionOrder() {
     Fixture fixture = new Fixture();
@@ -321,6 +354,9 @@ class JobFavoriteServiceImplTest {
     verify(fixture.jobRuntimeService, never()).matchResumeSections(any(), any(), any(), any());
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 的失败恢复、超时与降级边界。
+   */
   @Test
   void importBossFavoritesShouldStopAfterFirstDetailFailure() {
     Fixture fixture = new Fixture();
@@ -349,6 +385,9 @@ class JobFavoriteServiceImplTest {
     verify(fixture.bossCliService, never()).jobDetail("sec-3", "");
   }
 
+  /**
+   * 验证 JobFavoriteServiceImpl 中认证的失败恢复、超时与降级边界。
+   */
   @Test
   void importBossFavoritesShouldReturnAuthDataAndStopAfterLoginExpires() {
     Fixture fixture = new Fixture();
@@ -379,6 +418,12 @@ class JobFavoriteServiceImplTest {
     verify(fixture.bossCliService, never()).jobDetail("sec-3", "");
   }
 
+  /**
+   * 构造岗位匹配输出。
+   *
+   * @param match 匹配
+   * @return 岗位匹配输出
+   */
   private static Map<String, Object> matchOutput(Map<String, Object> match) {
     Map<String, Object> output = new LinkedHashMap<String, Object>();
     output.put("matches", Collections.singletonList(match));
@@ -386,6 +431,12 @@ class JobFavoriteServiceImplTest {
     return output;
   }
 
+  /**
+   * 根据键值对构造有序映射。
+   *
+   * @param values 值列表
+   * @return 有序映射
+   */
   private static Map<String, Object> mapOf(Object... values) {
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     for (int i = 0; i + 1 < values.length; i += 2)
@@ -393,6 +444,12 @@ class JobFavoriteServiceImplTest {
     return result;
   }
 
+  /**
+   * 验证岗位。
+   *
+   * @param securityId 安全标识
+   * @return 测试岗位
+   */
   private static Map<String, Object> job(String securityId) {
     Map<String, Object> job = new LinkedHashMap<String, Object>();
     job.put("securityId", securityId);
@@ -401,6 +458,13 @@ class JobFavoriteServiceImplTest {
     return job;
   }
 
+  /**
+   * 验证记录。
+   *
+   * @param jsonCodec JSON 编解码器
+   * @param job 岗位
+   * @return 测试数据行
+   */
   private static Map<String, Object> row(JsonCodec jsonCodec, Map<String, Object> job) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("jobKey", job.get("securityId"));
@@ -408,6 +472,11 @@ class JobFavoriteServiceImplTest {
     return row;
   }
 
+  /**
+   * 验证简历。
+   *
+   * @return 测试简历
+   */
   private static ResumeRecord resume() {
     ResumeRecord resume = new ResumeRecord();
     resume.setResumeId("resume-1");
@@ -417,6 +486,9 @@ class JobFavoriteServiceImplTest {
     return resume;
   }
 
+  /**
+   * 验证测试夹具的行为与边界。
+   */
   private static final class Fixture {
     private final JobFavoriteMapper mapper = mock(JobFavoriteMapper.class);
     private final JsonCodec jsonCodec = new JsonCodec();

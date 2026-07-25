@@ -8,11 +8,19 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+/**
+ * 启动 Agent 后端应用。
+ */
 @EnableScheduling
 @SpringBootApplication
 public class AgentBackendApplication {
   private static final Logger log = LoggerFactory.getLogger(AgentBackendApplication.class);
 
+  /**
+   * 启动命令行入口。
+   *
+   * @param args 调用参数
+   */
   public static void main(String[] args) {
     ConfigurableApplicationContext context =
         SpringApplication.run(AgentBackendApplication.class, args);

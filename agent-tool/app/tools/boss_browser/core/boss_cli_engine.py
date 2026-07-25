@@ -287,7 +287,7 @@ class BossCliEngine:
         self._transient_refresh_failure = False
 
     def export_qr_state(self) -> dict[str, Any]:
-        """Return a JSON-safe copy for an authenticated, encrypted session token."""
+        """返回适合写入认证加密会话令牌的 JSON 安全副本。"""
         return json.loads(json.dumps(self._qr_state or {}, ensure_ascii=False))
 
     def import_qr_state(self, state: dict[str, Any]) -> None:

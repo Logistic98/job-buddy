@@ -1,3 +1,5 @@
+"""在外部工具资源进入目录或上下文前执行结构预算。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,7 +7,7 @@ from typing import Any
 
 
 class ResourceBudgetExceeded(ValueError):
-    """Raised before untrusted structured content exceeds its configured budget."""
+    """不可信结构化内容超过预算前抛出的异常。"""
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,8 @@ class ResourceBudget:
 
 
 def enforce_resource_budget(value: Any, budget: ResourceBudget, label: str) -> int:
+    """递归校验结构深度、节点数和字节数，并返回总字节数。"""
+
     seen: set[int] = set()
     nodes = 0
     total_bytes = 0
@@ -28,6 +32,7 @@ def enforce_resource_budget(value: Any, budget: ResourceBudget, label: str) -> i
         if nodes > budget.max_nodes:
             raise ResourceBudgetExceeded(f"{label} 节点数量超过 {budget.max_nodes}")
 
+        # 容器按对象身份检测循环引用，标量统一累计 UTF-8 字节数。
         if current is None or isinstance(current, (bool, int, float)):
             total_bytes += len(str(current).encode("utf-8"))
         elif isinstance(current, str):

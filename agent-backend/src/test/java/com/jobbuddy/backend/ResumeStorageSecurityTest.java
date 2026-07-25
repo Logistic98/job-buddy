@@ -35,7 +35,13 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
+/**
+ * 验证 ResumeStorage 的核心行为、异常路径与边界条件。
+ */
 class ResumeStorageSecurityTest {
+  /**
+   * 验证 ResumeStorage 中简历的权限与租户隔离边界。
+   */
   @Test
   void getWithUserRejectsOtherOwnersResume() {
     ResumeRecordRepository repository = mock(ResumeRecordRepository.class);
@@ -46,6 +52,9 @@ class ResumeStorageSecurityTest {
     assertThrows(IllegalArgumentException.class, () -> service.get("resume_1", "owner-b"));
   }
 
+  /**
+   * 验证 ResumeStorage 中简历的权限与租户隔离边界。
+   */
   @Test
   void getWithTenantRejectsCrossTenantResume() {
     ResumeRecordRepository repository = mock(ResumeRecordRepository.class);
@@ -58,6 +67,9 @@ class ResumeStorageSecurityTest {
         IllegalArgumentException.class, () -> service.get("resume_1", "tenant-b", "owner-a"));
   }
 
+  /**
+   * 验证 ResumeStorage 的权限与租户隔离边界。
+   */
   @Test
   void getWithMatchingTenantAndOwnerSucceeds() {
     ResumeRecordRepository repository = mock(ResumeRecordRepository.class);
@@ -69,6 +81,9 @@ class ResumeStorageSecurityTest {
     assertEquals("resume_1", service.get("resume_1", "tenant-a", "owner-a").getResumeId());
   }
 
+  /**
+   * 验证 ResumeStorage 中简历的输入校验与拒绝边界。
+   */
   @Test
   void getWithUserRejectsLocalDefaultUserResume() {
     ResumeRecordRepository repository = mock(ResumeRecordRepository.class);
@@ -79,6 +94,9 @@ class ResumeStorageSecurityTest {
     assertThrows(IllegalArgumentException.class, () -> service.get("resume_1", "user-auth-1"));
   }
 
+  /**
+   * 验证 ResumeStorage 中简历的身份认证与会话边界。
+   */
   @Test
   void listDoesNotIncludeLocalDefaultUserResumesForAuthenticatedUser() {
     ResumeRecordRepository repository = mock(ResumeRecordRepository.class);
@@ -97,6 +115,9 @@ class ResumeStorageSecurityTest {
     verify(repository, never()).findLatestSummariesByUserId(null, "default-user", 50);
   }
 
+  /**
+   * 验证 ResumeStorage 中简历的数据转换与协议契约。
+   */
   @Test
   void listPreservesResumeManagementMetadata() {
     ResumeRecordRepository repository = mock(ResumeRecordRepository.class);
@@ -115,6 +136,9 @@ class ResumeStorageSecurityTest {
     assertEquals("后端", rows.get(0).getParsed().get("folder").asText());
   }
 
+  /**
+   * 验证 ResumeStorage 中简历的输入校验与拒绝边界。
+   */
   @Test
   void analyzeRejectsNonPdfResume() {
     ResumeRecordRepository repository = mock(ResumeRecordRepository.class);
@@ -132,6 +156,11 @@ class ResumeStorageSecurityTest {
     assertEquals("简历分析仅支持 PDF 格式", error.getMessage());
   }
 
+  /**
+   * 验证同一属主空间内的附件名称保持唯一。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void assetUploadsUseUniqueNamesWithinOwnerNamespace() throws Exception {
     ResumeObjectStorage objectStorage = mock(ResumeObjectStorage.class);
@@ -165,6 +194,11 @@ class ResumeStorageSecurityTest {
     assertEquals("owner-b", assetCaptor.getAllValues().get(2).get("userId"));
   }
 
+  /**
+   * 验证附件标识地址不带时效且校验属主。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void assetIdUrlDoesNotExpireAndRequiresOwner() throws Exception {
     ResumeObjectStorage objectStorage = mock(ResumeObjectStorage.class);
@@ -196,6 +230,11 @@ class ResumeStorageSecurityTest {
     verify(objectStorage).openObjectStream("owner-a/assets/" + assetId + ".png");
   }
 
+  /**
+   * 验证非法附件令牌不会访问对象存储。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void rejectedAssetTokenDoesNotOpenObjectStorage() throws Exception {
     ResumeObjectStorage objectStorage = mock(ResumeObjectStorage.class);
@@ -206,6 +245,13 @@ class ResumeStorageSecurityTest {
     verify(objectStorage, never()).openObjectStream(anyString());
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @param repository 存储访问
+   * @param objectStorage 对象存储
+   * @return 服务
+   */
   private ResumeStorageServiceImpl newService(
       ResumeRecordRepository repository, ResumeObjectStorage objectStorage) {
     JobBuddyProperties properties = new JobBuddyProperties();
@@ -219,6 +265,13 @@ class ResumeStorageSecurityTest {
         new JsonCodec());
   }
 
+  /**
+   * 验证记录。
+   *
+   * @param resumeId 简历标识
+   * @param userId 用户标识
+   * @return 测试记录
+   */
   private ResumeRecord record(String resumeId, String userId) {
     ResumeRecord record = new ResumeRecord();
     record.setResumeId(resumeId);

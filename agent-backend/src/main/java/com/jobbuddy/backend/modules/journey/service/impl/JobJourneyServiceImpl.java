@@ -18,12 +18,22 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+/**
+ * 持久化用户求职旅程，并基于记录和显式输入计算进展摘要。
+ */
 @Service
 public class JobJourneyServiceImpl implements JobJourneyService {
   private final JobJourneyRepository repository;
   private final JobBuddyProperties properties;
   private final JsonCodec jsonCodec;
 
+  /**
+   * 创建岗位求职旅程服务实例。
+   *
+   * @param repository 存储访问
+   * @param properties 配置属性
+   * @param jsonCodec JSON 编解码器
+   */
   @Autowired
   public JobJourneyServiceImpl(
       JobJourneyRepository repository, JobBuddyProperties properties, JsonCodec jsonCodec) {
@@ -32,14 +42,32 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     this.jsonCodec = jsonCodec;
   }
 
+  /**
+   * 创建岗位求职旅程服务实例。
+   *
+   * @param repository 存储访问
+   * @param properties 配置属性
+   */
   public JobJourneyServiceImpl(JobJourneyRepository repository, JobBuddyProperties properties) {
     this(repository, properties, new JsonCodec());
   }
 
+  /**
+   * 获取当前用户的求职目标。
+   *
+   * @param userId 用户标识
+   * @return 目标
+   */
   public JobTargetResponse getTarget(String userId) {
     return jsonCodec.convert(getTargetMap(userId), JobTargetResponse.class);
   }
 
+  /**
+   * 获取目标映射。
+   *
+   * @param userId 用户标识
+   * @return 目标映射
+   */
   private Map<String, Object> getTargetMap(String userId) {
     String effectiveUser = defaultUser(userId);
     Map<String, Object> target = repository.findTarget(effectiveUser);
@@ -60,6 +88,13 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return repository.findTarget(effectiveUser);
   }
 
+  /**
+   * 新增或更新当前用户的求职目标。
+   *
+   * @param userId 用户标识
+   * @param request 请求对象
+   * @return 保存后的目标
+   */
   public JobTargetResponse saveTarget(String userId, JobTargetRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
     String effectiveUser = defaultUser(userId);
@@ -85,6 +120,15 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return jsonCodec.convert(repository.findTarget(effectiveUser), JobTargetResponse.class);
   }
 
+  /**
+   * 查询记录列表。
+   *
+   * @param userId 用户标识
+   * @param keyword 关键词
+   * @param status 状态
+   * @param result 执行结果
+   * @return 记录列表
+   */
   public List<JourneyRecordResponse> listRecords(
       String userId, String keyword, String status, String result) {
     String effectiveUser = defaultUser(userId);
@@ -93,10 +137,25 @@ public class JobJourneyServiceImpl implements JobJourneyService {
         JourneyRecordResponse.class);
   }
 
+  /**
+   * 获取并校验当前用户所属的求职记录。
+   *
+   * @param recordId 记录标识
+   * @param userId 用户标识
+   * @return 记录
+   */
   public JourneyRecordResponse getRecord(String recordId, String userId) {
     return jsonCodec.convert(requireOwnedRecord(recordId, userId), JourneyRecordResponse.class);
   }
 
+  /**
+   * 新增或更新当前用户的求职记录。
+   *
+   * @param userId 用户标识
+   * @param request 请求对象
+   * @param recordId 记录标识
+   * @return 保存后的记录
+   */
   public JourneyRecordResponse saveRecord(
       String userId, JourneyRecordRequest request, String recordId) {
     Map<String, Object> payload = jsonCodec.toMap(request);
@@ -134,15 +193,29 @@ public class JobJourneyServiceImpl implements JobJourneyService {
         repository.findRecord(String.valueOf(record.get("recordId"))), JourneyRecordResponse.class);
   }
 
+  /**
+   * 校验归属后删除求职记录。
+   *
+   * @param recordId 记录标识
+   * @param userId 用户标识
+   */
   public void deleteRecord(String recordId, String userId) {
     requireOwnedRecord(recordId, userId);
     repository.deleteRecord(recordId);
   }
 
+  /**
+   * 分析进度。
+   *
+   * @param userId 用户标识
+   * @param request 请求对象
+   * @return 进度分析结果
+   */
   public JourneyAnalysisResponse analyzeProgress(String userId, JourneyAnalysisRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
     String effectiveUser = defaultUser(userId);
     List<Map<String, Object>> records = repository.listRecords(effectiveUser, null, null, null);
+    // 请求可限定参与分析的记录集合，并单独指定重点复盘对象。
     List<String> selectedRecordIds = normalizeStringList(payload.get("recordIds"));
     if (!selectedRecordIds.isEmpty()) {
       List<Map<String, Object>> filtered = new ArrayList<Map<String, Object>>();
@@ -164,6 +237,7 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     if (focus == null && !records.isEmpty()) focus = records.get(0);
     Map<String, Object> target = getTargetMap(effectiveUser);
 
+    // 单次遍历汇总漏斗指标、面试轮次、业务方向和待跟进信号。
     int total = records.size();
     int active = 0, passed = 0, failed = 0, pending = 0, offer = 0, converted = 0, highPriority = 0;
     Map<String, Integer> roundCount = new LinkedHashMap<String, Integer>();
@@ -187,6 +261,7 @@ public class JobJourneyServiceImpl implements JobJourneyService {
       if (hasWeakSignal(row)) weakSignals.add(row);
     }
 
+    // 综合分只反映当前求职漏斗健康度，并限制在可解释的稳定区间。
     int score =
         Math.min(
             95,
@@ -214,6 +289,7 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     if (failed > passed && failed > 0) risks.add("未通过记录偏多，需要从技术短板、项目表达、岗位匹配三个维度拆解原因。 ");
     if (risks.isEmpty()) risks.add("当前记录没有明显风险，但仍建议每次面试后当天完成复盘。 ");
 
+    // 建议围绕重点机会、待跟进事项和高频业务方向逐层生成。
     List<String> nextActions = new ArrayList<String>();
     if (focus != null) {
       nextActions.add(
@@ -252,6 +328,7 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     metrics.put("topRound", topKey(roundCount));
     metrics.put("topDomain", topKey(domainCount));
 
+    // 最终响应同时保留指标、风险、行动计划和可直接使用的跟进话术。
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("summary", buildAnalysisSummary(total, active, passed, failed, pending, score));
     result.put("metrics", metrics);
@@ -269,6 +346,13 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return jsonCodec.convert(result, JourneyAnalysisResponse.class);
   }
 
+  /**
+   * 校验并获取当前用户所属资源记录。
+   *
+   * @param recordId 记录标识
+   * @param userId 用户标识
+   * @return 校验后的并获取当前用户所属资源记录
+   */
   private Map<String, Object> requireOwnedRecord(String recordId, String userId) {
     Map<String, Object> record = repository.findRecord(recordId);
     if (record == null) throw new IllegalArgumentException("求职记录不存在: " + recordId);
@@ -278,24 +362,55 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return record;
   }
 
+  /**
+   * 获取默认用户。
+   *
+   * @param userId 用户标识
+   * @return 默认用户
+   */
   private String defaultUser(String userId) {
     return (userId == null || userId.isEmpty()) ? properties.getDefaultUserId() : userId;
   }
 
+  /**
+   * 将可空值转换为空值安全的字符串。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String string(Object value) {
     return value == null ? "" : String.valueOf(value);
   }
 
+  /**
+   * 获取字符串或默认值。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 字符串或默认值
+   */
   private String stringOrDefault(Object value, String fallback) {
     String text = string(value).trim();
     return text.isEmpty() ? fallback : text;
   }
 
+  /**
+   * 新增数量。
+   *
+   * @param counts 分类计数
+   * @param key 业务键
+   */
   private void addCount(Map<String, Integer> counts, String key) {
     if (key == null || key.trim().isEmpty()) key = "未标注";
     counts.put(key, Integer.valueOf(counts.containsKey(key) ? counts.get(key).intValue() + 1 : 1));
   }
 
+  /**
+   * 获取计数最高的分类键。
+   *
+   * @param counts 分类计数
+   * @return 计数最高的分类键
+   */
   private String topKey(Map<String, Integer> counts) {
     String best = "";
     int bestCount = 0;
@@ -308,6 +423,12 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return best;
   }
 
+  /**
+   * 判断是否需要跟进。
+   *
+   * @param row 查询行
+   * @return 是否需要跟进
+   */
   private boolean needsFollowUp(Map<String, Object> row) {
     String result = string(row.get("result"));
     return "待反馈".equals(result)
@@ -315,12 +436,29 @@ public class JobJourneyServiceImpl implements JobJourneyService {
         || string(row.get("nextAction")).trim().isEmpty();
   }
 
+  /**
+   * 判断是否存在弱信号。
+   *
+   * @param row 查询行
+   * @return 是否存在弱信号
+   */
   private boolean hasWeakSignal(Map<String, Object> row) {
     return string(row.get("interviewContent")).trim().isEmpty()
         || string(row.get("reflection")).trim().isEmpty()
         || string(row.get("nextAction")).trim().isEmpty();
   }
 
+  /**
+   * 构建分析摘要。
+   *
+   * @param total 总数
+   * @param active 进行中数量
+   * @param passed 通过数量
+   * @param failed 失败数量
+   * @param pending 待处理数量
+   * @param score 分数
+   * @return 分析摘要
+   */
   private String buildAnalysisSummary(
       int total, int active, int passed, int failed, int pending, int score) {
     if (total == 0) return "当前还没有可分析的面试进展。建议先录入投递、笔试、面试和反馈记录，系统会基于漏斗状态给出建议。";
@@ -339,6 +477,16 @@ public class JobJourneyServiceImpl implements JobJourneyService {
         + " 分，建议优先补齐复盘和下一步动作。";
   }
 
+  /**
+   * 构建评分分组。
+   *
+   * @param total 总数
+   * @param active 进行中数量
+   * @param converted 转化数量
+   * @param pending 待处理数量
+   * @param weakSignals 弱信号数量
+   * @return 评分分组
+   */
   private List<Map<String, Object>> buildScoreGroups(
       int total, int active, int converted, int pending, int weakSignals) {
     List<Map<String, Object>> groups = new ArrayList<Map<String, Object>>();
@@ -354,11 +502,27 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return groups;
   }
 
+  /**
+   * 计算比例评分。
+   *
+   * @param numerator 分子
+   * @param denominator 分母
+   * @return 比例得分
+   */
   private int ratioScore(int numerator, int denominator) {
     if (denominator <= 0) return 0;
     return Math.min(100, Math.max(0, (int) Math.round(numerator * 100.0d / denominator)));
   }
 
+  /**
+   * 获取评分分组。
+   *
+   * @param key 业务键
+   * @param label 展示标签
+   * @param score 分数
+   * @param description 说明文本
+   * @return 评分分组
+   */
   private Map<String, Object> scoreGroup(String key, String label, int score, String description) {
     Map<String, Object> group = new LinkedHashMap<String, Object>();
     group.put("key", key);
@@ -368,6 +532,12 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return group;
   }
 
+  /**
+   * 规范化字符串列表。
+   *
+   * @param raw 原始数据
+   * @return 规范化后的字符串列表
+   */
   private List<String> normalizeStringList(Object raw) {
     List<String> result = new ArrayList<String>();
     if (raw instanceof List) {
@@ -385,6 +555,12 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return result;
   }
 
+  /**
+   * 构建跟进提示消息。
+   *
+   * @param row 查询行
+   * @return 跟进消息
+   */
   private String buildFollowUpMessage(Map<String, Object> row) {
     if (row == null) return "您好，我想跟进一下之前沟通的岗位进展。如果有后续安排或需要补充材料，我可以及时配合提供，谢谢。";
     String company = stringOrDefault(row.get("company"), "贵司");
@@ -399,6 +575,12 @@ public class JobJourneyServiceImpl implements JobJourneyService {
         + " 后续进展。如果有下一轮安排或需要补充材料，我可以及时配合提供，谢谢。";
   }
 
+  /**
+   * 规范化标签列表。
+   *
+   * @param raw 原始数据
+   * @return 规范化后的标签列表
+   */
   private List<Map<String, Object>> normalizeTags(Object raw) {
     List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
     if (raw instanceof List) {
@@ -410,6 +592,12 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     return result;
   }
 
+  /**
+   * 添加非空标签。
+   *
+   * @param result 执行结果
+   * @param raw 原始数据
+   */
   private void addTag(List<Map<String, Object>> result, Object raw) {
     String label = raw instanceof Map ? string(((Map) raw).get("label")) : string(raw);
     if (label.trim().isEmpty()) return;

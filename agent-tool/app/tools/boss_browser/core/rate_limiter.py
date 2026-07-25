@@ -50,6 +50,8 @@ class _Window:
 
 
 class RateLimiter:
+    """按属主执行配额、请求节奏、冷却与连续失败兜底。"""
+
     def __init__(
         self,
         config: RateLimitConfig,

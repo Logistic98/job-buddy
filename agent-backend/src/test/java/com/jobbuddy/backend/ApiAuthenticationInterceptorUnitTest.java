@@ -19,7 +19,15 @@ import org.slf4j.MDC;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+/**
+ * 验证 ApiAuthenticationInterceptor 的核心行为、异常路径与边界条件。
+ */
 class ApiAuthenticationInterceptorUnitTest {
+  /**
+   * 验证 ApiAuthenticationInterceptor 中用户的身份认证与会话边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void disabledAuthInjectsDefaultLocalUserForProtectedApis() throws Exception {
     UserLoginService userLoginService = mock(UserLoginService.class);
@@ -39,6 +47,11 @@ class ApiAuthenticationInterceptorUnitTest {
     verifyNoInteractions(userLoginService);
   }
 
+  /**
+   * 验证 ApiAuthenticationInterceptor 中认证的身份认证与会话边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void internalTokenRequiresExactValueAndSetsAuthenticatedOperator() throws Exception {
     UserLoginService userLoginService = mock(UserLoginService.class);
@@ -59,6 +72,11 @@ class ApiAuthenticationInterceptorUnitTest {
     assertFalse(interceptor.preHandle(invalid, new MockHttpServletResponse(), new Object()));
   }
 
+  /**
+   * 验证 ApiAuthenticationInterceptor 中认证的持久化与状态变更规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void bearerAuthenticationOverwritesUntrustedOperatorHeader() throws Exception {
     UserLoginService userLoginService = mock(UserLoginService.class);

@@ -12,8 +12,14 @@ import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import java.util.LinkedHashMap;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 CurrentResumeLoader 的核心行为、异常路径与边界条件。
+ */
 class CurrentResumeLoaderTest {
 
+  /**
+   * 验证 CurrentResumeLoader 中简历的权限与租户隔离边界。
+   */
   @Test
   void currentResumeMustBeLoadedThroughOwnerCheckedPath() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -31,6 +37,9 @@ class CurrentResumeLoaderTest {
     verify(storage).get("resume-a", "tenant-a", "user-a");
   }
 
+  /**
+   * 验证 CurrentResumeLoader 中简历的权限与租户隔离边界。
+   */
   @Test
   void ownerCheckFailureMustNotBeDowngradedToMissingResume() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -45,6 +54,14 @@ class CurrentResumeLoaderTest {
         () -> new CurrentResumeLoader(storage).loadCurrentResume(state));
   }
 
+  /**
+   * 验证状态。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param resumeId 简历标识
+   * @return 测试会话状态
+   */
   private ChatSessionState state(String tenantId, String userId, String resumeId) {
     ChatSessionState state = new ChatSessionState();
     state.tenantId = tenantId;

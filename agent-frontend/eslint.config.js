@@ -62,7 +62,7 @@ export default [
       'use-isnan': 'error',
       'valid-typeof': 'error',
       'vue/multi-word-component-names': 'off',
-      // Prettier is the single source of truth for template whitespace and quote layout.
+      // 模板空白与引号布局统一由 Prettier 管理。
       'vue/max-attributes-per-line': 'off',
       'vue/singleline-html-element-content-newline': 'off',
       'vue/multiline-html-element-content-newline': 'off',

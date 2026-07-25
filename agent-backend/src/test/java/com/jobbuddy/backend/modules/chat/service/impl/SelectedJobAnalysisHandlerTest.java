@@ -19,8 +19,16 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * 验证 SelectedJobAnalysisHandler 的核心行为、异常路径与边界条件。
+ */
 class SelectedJobAnalysisHandlerTest {
 
+  /**
+   * 验证 SelectedJobAnalysisHandler 中岗位的检索、筛选与排序规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   @SuppressWarnings("unchecked")
   void shouldKeepCompleteSelectedJobContextAndUseEvidenceMatchFlow() throws Exception {
@@ -51,6 +59,11 @@ class SelectedJobAnalysisHandlerTest {
             eq(emitter), eq("session-1"), eq(state), eq("分析此岗位"), any(Map.class));
   }
 
+  /**
+   * 验证 SelectedJobAnalysisHandler 中岗位的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   @SuppressWarnings("unchecked")
   void shouldLoadMissingJobDescriptionBeforeRememberingContext() throws Exception {
@@ -83,6 +96,11 @@ class SelectedJobAnalysisHandlerTest {
             any(SseEmitter.class), eq("session-2"), eq(state), eq("分析此岗位"), any(Map.class));
   }
 
+  /**
+   * 验证 SelectedJobAnalysisHandler 中简历的流式生命周期与中断边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldNotLoadJobDetailBeforeResumeIsSelected() throws Exception {
     BossCliService bossCliService = mock(BossCliService.class);
@@ -113,6 +131,11 @@ class SelectedJobAnalysisHandlerTest {
             any(Map.class));
   }
 
+  /**
+   * 验证 SelectedJobAnalysisHandler 中岗位的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldNotRunMatchWhenJobDescriptionCannotBeResolved() throws Exception {
     ChatSseEventSender sender = mock(ChatSseEventSender.class);

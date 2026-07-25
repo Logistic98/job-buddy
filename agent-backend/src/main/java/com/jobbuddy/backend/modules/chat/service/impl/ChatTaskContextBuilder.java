@@ -11,7 +11,9 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** 为 Runtime 任务理解入口装配近期对话，确保省略式追问可以解析上一轮语义。 */
+/**
+ * 为 Runtime 任务理解入口装配近期对话，确保省略式追问可以解析上一轮语义。
+ */
 final class ChatTaskContextBuilder {
   private static final Logger log = LoggerFactory.getLogger(ChatTaskContextBuilder.class);
   private static final int MAX_HISTORY_MESSAGES = 7;
@@ -19,11 +21,22 @@ final class ChatTaskContextBuilder {
 
   private final ChatSessionStore sessionStore;
 
+  /**
+   * 创建对话任务上下文构建器实例。
+   *
+   * @param sessionStore 会话存储
+   */
   ChatTaskContextBuilder(ChatSessionStore sessionStore) {
     this.sessionStore = sessionStore;
   }
 
-  /** 返回“最近历史 + 当前用户消息”。当前消息可能已由异步持久化队列写入数据库，因此先移除末尾同内容用户消息， 再统一追加一次，避免 Runtime 把重复消息误判为两轮请求。 */
+  /**
+   * 返回“最近历史 + 当前用户消息”。当前消息可能已由异步持久化队列写入数据库，因此先移除末尾同内容用户消息， 再统一追加一次，避免 Runtime 把重复消息误判为两轮请求。
+   *
+   * @param state 状态
+   * @param currentMessage 当前消息
+   * @return 构建结果
+   */
   List<Map<String, Object>> build(ChatSessionState state, String currentMessage) {
     List<Map<String, Object>> history = loadHistory(state);
     String current = compact(currentMessage);
@@ -41,6 +54,12 @@ final class ChatTaskContextBuilder {
     return messages;
   }
 
+  /**
+   * 加载历史记录。
+   *
+   * @param state 状态
+   * @return 历史消息列表
+   */
   private List<Map<String, Object>> loadHistory(ChatSessionState state) {
     List<Map<String, Object>> messages = new ArrayList<Map<String, Object>>();
     if (state == null
@@ -67,6 +86,13 @@ final class ChatTaskContextBuilder {
     return messages;
   }
 
+  /**
+   * 获取消息。
+   *
+   * @param role 角色
+   * @param content 内容
+   * @return 消息
+   */
   private Map<String, Object> message(String role, String content) {
     Map<String, Object> value = new LinkedHashMap<String, Object>();
     value.put("role", role);
@@ -74,12 +100,24 @@ final class ChatTaskContextBuilder {
     return value;
   }
 
+  /**
+   * 规范化角色。
+   *
+   * @param value 输入值
+   * @return 规范化后的角色
+   */
   private String normalizeRole(String value) {
     if (value == null) return null;
     String role = value.trim().toLowerCase(Locale.ROOT);
     return "user".equals(role) || "assistant".equals(role) ? role : null;
   }
 
+  /**
+   * 压缩文本内容。
+   *
+   * @param value 输入值
+   * @return 压缩结果
+   */
   private String compact(String value) {
     if (value == null) return "";
     String text = value.trim();
@@ -87,10 +125,22 @@ final class ChatTaskContextBuilder {
     return text.substring(0, MAX_MESSAGE_CHARS) + "...(truncated)";
   }
 
+  /**
+   * 判断值是否为空白。
+   *
+   * @param value 输入值
+   * @return 值是否为空白是否成立
+   */
   private boolean isBlank(String value) {
     return value == null || value.trim().isEmpty();
   }
 
+  /**
+   * 生成精简消息。
+   *
+   * @param error 异常
+   * @return 精简消息
+   */
   private String conciseMessage(Throwable error) {
     Throwable cause = error;
     while (cause != null && cause.getCause() != null && cause.getCause() != cause) {

@@ -22,7 +22,9 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-/** 受鉴权的 agent-memory 客户端，统一承载设置页和对话上下文使用的长期记忆。 */
+/**
+ * 受鉴权的 agent-memory 客户端，统一承载设置页和对话上下文使用的长期记忆。
+ */
 @Component
 public class AgentMemoryClient {
   private static final String SERVICE = "agent-memory";
@@ -32,6 +34,13 @@ public class AgentMemoryClient {
   private final AgentServiceProperties properties;
   private final ServiceResilience resilience;
 
+  /**
+   * 创建 Agent 记忆客户端实例。
+   *
+   * @param restTemplate HTTP 请求客户端
+   * @param properties 配置属性
+   * @param resilience 弹性策略
+   */
   public AgentMemoryClient(
       @Qualifier("agentMemoryRestTemplate") RestTemplate restTemplate,
       AgentServiceProperties properties,
@@ -41,6 +50,13 @@ public class AgentMemoryClient {
     this.resilience = resilience;
   }
 
+  /**
+   * 查询当前用户的记忆列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 当前用户的记忆列表
+   */
   public List<SystemMemoryResponse> list(String tenantId, String userId) {
     URI uri =
         UriComponentsBuilder.fromUriString(baseUrl() + "/v1/memories")
@@ -52,6 +68,15 @@ public class AgentMemoryClient {
     return memoryList(exchange(uri, HttpMethod.GET, entity(tenantId, userId, null), true));
   }
 
+  /**
+   * 检索与查询条件匹配的记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param query 查询条件
+   * @param limit 数量上限
+   * @return 匹配查询条件的记忆列表
+   */
   public List<SystemMemoryResponse> search(
       String tenantId, String userId, String query, int limit) {
     URI uri =
@@ -67,6 +92,14 @@ public class AgentMemoryClient {
     return new ArrayList<SystemMemoryResponse>(items.subList(0, bounded));
   }
 
+  /**
+   * 创建用户记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param request 请求参数
+   * @return 创建后的记忆记录
+   */
   public SystemMemoryResponse create(String tenantId, String userId, SystemMemoryRequest request) {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
     payload.put("scope", LONG_TERM_SCOPE);
@@ -92,6 +125,13 @@ public class AgentMemoryClient {
     return memory(item);
   }
 
+  /**
+   * 删除用户记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param memoryId 记忆标识
+   */
   public void delete(String tenantId, String userId, String memoryId) {
     String normalizedId = memoryId == null ? "" : memoryId.trim();
     if (!normalizedId.matches("mem_[a-zA-Z0-9]{1,64}")) {
@@ -106,6 +146,13 @@ public class AgentMemoryClient {
     requireSuccess(envelope);
   }
 
+  /**
+   * 清空当前用户的记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 删除的记忆数量
+   */
   public int clear(String tenantId, String userId) {
     URI uri =
         UriComponentsBuilder.fromUriString(baseUrl() + "/v1/memories")
@@ -120,6 +167,14 @@ public class AgentMemoryClient {
     return deleted instanceof Number ? ((Number) deleted).intValue() : 0;
   }
 
+  /**
+   * 解析响应实体。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param body 请求体
+   * @return 响应实体
+   */
   private HttpEntity<?> entity(String tenantId, String userId, Object body) {
     requireOwner(tenantId, userId);
     HttpHeaders headers = new HttpHeaders();
@@ -129,6 +184,15 @@ public class AgentMemoryClient {
     return body == null ? new HttpEntity<Void>(headers) : new HttpEntity<Object>(body, headers);
   }
 
+  /**
+   * 调用记忆服务并解析响应。
+   *
+   * @param uri 请求地址
+   * @param method HTTP 方法
+   * @param entity 请求实体
+   * @param retryable 是否允许重试
+   * @return 记忆服务响应
+   */
   @SuppressWarnings({"rawtypes", "unchecked"})
   private Map<String, Object> exchange(
       URI uri, HttpMethod method, HttpEntity<?> entity, boolean retryable) {
@@ -156,6 +220,12 @@ public class AgentMemoryClient {
     throw new IllegalStateException("agent-memory 服务暂不可用，请稍后重试", lastFailure.get());
   }
 
+  /**
+   * 判断是否瞬时读取失败。
+   *
+   * @param error 错误
+   * @return 是否属于可重试读取故障
+   */
   private static boolean isTransientReadFailure(RuntimeException error) {
     if (error instanceof ResourceAccessException) return true;
     if (!(error instanceof HttpStatusCodeException)) return false;
@@ -163,6 +233,12 @@ public class AgentMemoryClient {
     return status == 408 || status == 429 || status >= 500;
   }
 
+  /**
+   * 校验并获取成功。
+   *
+   * @param envelope 响应封装
+   * @return 校验并获取成功
+   */
   private Object requireSuccess(Map<String, Object> envelope) {
     Object code = envelope == null ? null : envelope.get("code");
     if (!(code instanceof Number) || ((Number) code).intValue() != 200) {
@@ -173,6 +249,12 @@ public class AgentMemoryClient {
     return envelope.get("data");
   }
 
+  /**
+   * 解析记忆列表响应。
+   *
+   * @param envelope 响应封装
+   * @return 记忆列表
+   */
   private List<SystemMemoryResponse> memoryList(Map<String, Object> envelope) {
     Object data = requireSuccess(envelope);
     if (!(data instanceof List)) throw new IllegalStateException("agent-memory 返回的记忆列表不正确");
@@ -187,6 +269,12 @@ public class AgentMemoryClient {
     return result;
   }
 
+  /**
+   * 解析单条记忆响应。
+   *
+   * @param item 数据项
+   * @return 记忆数据
+   */
   private SystemMemoryResponse memory(Map<String, Object> item) {
     SystemMemoryResponse response = new SystemMemoryResponse();
     response.setId(text(item, "id"));
@@ -204,12 +292,23 @@ public class AgentMemoryClient {
     return response;
   }
 
+  /**
+   * 构造服务基础地址。
+   *
+   * @return 服务基础地址
+   */
   private String baseUrl() {
     String value = properties.resolvedMemoryUrl();
     if (value.isEmpty()) throw new IllegalStateException("未配置 agent-memory 服务地址");
     return value;
   }
 
+  /**
+   * 校验并获取属主。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   */
   private void requireOwner(String tenantId, String userId) {
     if (tenantId == null
         || tenantId.trim().isEmpty()
@@ -219,21 +318,49 @@ public class AgentMemoryClient {
     }
   }
 
+  /**
+   * 规范化记忆类型。
+   *
+   * @param value 待处理值
+   * @return 规范化类型
+   */
   private String normalizedType(String value) {
     String type = value == null ? "" : value.trim().toLowerCase();
     return type.matches("preference|constraint|interview|conversation") ? type : "preference";
   }
 
+  /**
+   * 读取文本内容。
+   *
+   * @param item 数据项
+   * @param key 键
+   * @return 文本内容
+   */
   private String text(Map<String, Object> item, String key) {
     Object value = item == null ? null : item.get(key);
     return value == null ? null : String.valueOf(value);
   }
 
+  /**
+   * 读取首个非空文本。
+   *
+   * @param item 数据项
+   * @param firstKey 首个键
+   * @param secondKey 备用键
+   * @return 首个非空文本
+   */
   private String firstText(Map<String, Object> item, String firstKey, String secondKey) {
     String first = text(item, firstKey);
     return first == null || first.trim().isEmpty() ? text(item, secondKey) : first;
   }
 
+  /**
+   * 读取布尔值。
+   *
+   * @param value 待处理值
+   * @param fallback 降级
+   * @return 转换后的布尔值
+   */
   private boolean booleanValue(Object value, boolean fallback) {
     if (value instanceof Boolean) return ((Boolean) value).booleanValue();
     return value == null ? fallback : Boolean.parseBoolean(String.valueOf(value));

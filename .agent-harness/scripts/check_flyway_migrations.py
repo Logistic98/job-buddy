@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Flyway migration structure and data boundaries."""
+"""校验 Flyway 迁移结构与数据边界。"""
 
 from __future__ import annotations
 
@@ -73,8 +73,7 @@ def dml_targets(sql: str) -> list[tuple[str, str]]:
         operation = " ".join(match.group("operation").upper().split())
         table = match.group("table").lower()
         if operation == "UPDATE" and table == "set":
-            # PostgreSQL upserts contain "DO UPDATE SET", which is not a
-            # second table target.
+        # PostgreSQL UPSERT 中的 DO UPDATE SET 不是第二个目标表。
             continue
         targets.append((operation, table))
     return targets

@@ -1,4 +1,4 @@
-"""Authenticated, owner-bound QR session state for cross-worker polling."""
+"""供跨 Worker 轮询使用的认证且绑定属主的二维码会话状态。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _MAX_TOKEN_BYTES = _MAX_SESSION_STATE_BYTES + 4096
 
 
 class QrSessionTokenError(ValueError):
-    """The QR state token is missing, expired, tampered with, or bound to another owner."""
+    """二维码状态令牌缺失、过期、被篡改或绑定其他属主。"""
 
 
 class QrSessionCodec:

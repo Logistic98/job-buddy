@@ -3,6 +3,11 @@ import { generateJobProfileSummary } from '../api/resume'
 import { useResumeStore } from '../stores/resume'
 import { validateInteger, validateLength, validateMonthRange, validateTags } from '../utils/formValidation'
 
+/**
+ * 管理 Boss 在线画像的表单同步、脏状态、校验与 AI 摘要对比。
+ *
+ * @returns 页面模板使用的响应式状态和操作方法
+ */
 export function useBossResumePage() {
   const resume = useResumeStore()
   const saving = ref(false)
@@ -153,6 +158,7 @@ export function useBossResumePage() {
   function resetForm() {
     resettingForm = true
     const parsed = profile.value?.parsed || {}
+    // 兼容历史字段别名，并统一写入当前表单模型。
     const basic = objectValue(parsed.basic_info)
     Object.assign(form.basic, {
       name: textValue(parsed.name || basic.name),
@@ -210,6 +216,7 @@ export function useBossResumePage() {
     saveHint.value = ''
     error.value = ''
     dirty.value = false
+    // 等待响应式赋值完成后再恢复脏数据监听，避免初始化被误判为用户编辑。
     nextTick(() => {
       resettingForm = false
       dirty.value = false
@@ -313,6 +320,7 @@ export function useBossResumePage() {
     if (!text) return ''
     if (workYearOptions.includes(text)) return text
     if (/应届|毕业生/.test(text)) return '应届生'
+    // 历史数据可能是自然语言年限，统一映射为表单支持的区间选项。
     const match = text.match(/(\d+)/)
     if (!match) return ''
     const years = Number(match[1])
@@ -476,6 +484,7 @@ export function useBossResumePage() {
     }
   }
   function validateProfileForm() {
+    // 基础信息采用较短上限，经历与摘要按长文本容量分别校验。
     validateLength(form.basic.name, '姓名', { max: 64 })
     if (form.basic.age !== '') validateInteger(form.basic.age, '年龄', { min: 16, max: 80 })
     validateLength(form.basic.city, '所在城市', { max: 64 })
@@ -538,6 +547,7 @@ export function useBossResumePage() {
     const oldTokens = diffTokens(oldText)
     const newTokens = diffTokens(newText)
     if (!oldTokens.length && !newTokens.length) return []
+    // 使用最长公共子序列对齐词元，保证增删高亮顺序稳定。
     const dp = Array.from({ length: oldTokens.length + 1 }, () => Array(newTokens.length + 1).fill(0))
     for (let i = oldTokens.length - 1; i >= 0; i--) {
       for (let j = newTokens.length - 1; j >= 0; j--) {

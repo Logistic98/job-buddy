@@ -1,3 +1,5 @@
+"""按脱敏和持久化策略保存可恢复的 Agent 状态。"""
+
 import json
 import os
 import time
@@ -16,10 +18,10 @@ _missing_dsn_warning_lock = Lock()
 
 
 class CheckpointStore:
-    """PostgreSQL checkpoint store with an in-memory mode for tests and local runs."""
+    """支持 PostgreSQL 持久化和测试用内存模式的检查点存储。"""
 
     def __init__(self, database_url: str | None = None):
-        # Runtime persistence uses its own variable and never inherits agent-memory's DSN.
+        # Runtime 持久化使用独立变量，不继承 agent-memory 的 DSN。
         if database_url is not None:
             self._database_url = database_url.strip()
         else:
@@ -182,11 +184,10 @@ class CheckpointStore:
         return obj
 
     def _persistence_snapshot(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Drop reconstructable personal-context copies before durable persistence.
+        """持久化前移除可重建的个人上下文副本。
 
-        The active in-memory state remains unchanged. Raw messages and personal context are
-        reconstructed from the resume request; only the non-personal context skeleton,
-        observations, plan, and tool state remain durable.
+        活跃内存状态保持不变。原始消息和个人上下文由恢复请求重建，持久化仅保留
+        非个人上下文骨架、观察、计划与工具状态。
         """
 
         snapshot = dict(state)

@@ -2,6 +2,9 @@ package com.jobbuddy.backend.modules.journey.dto.request;
 
 import lombok.Data;
 
+/**
+ * 承载岗位目标请求参数。
+ */
 @Data
 public class JobTargetRequest {
   private String targetId;

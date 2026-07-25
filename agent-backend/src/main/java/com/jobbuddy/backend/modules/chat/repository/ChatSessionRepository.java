@@ -11,16 +11,33 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Repository;
 
+/**
+ * 将聊天持久化行映射为会话状态，并把 JSON 元数据转换限制在存储边界。
+ */
 @Repository
 public class ChatSessionRepository {
   private final ChatSessionMapper mapper;
   private final JsonCodec jsonCodec;
 
+  /**
+   * 创建对话会话存储访问实例。
+   *
+   * @param mapper 数据映射
+   * @param jsonCodec JSON 编解码器
+   */
   public ChatSessionRepository(ChatSessionMapper mapper, JsonCodec jsonCodec) {
     this.mapper = mapper;
     this.jsonCodec = jsonCodec;
   }
 
+  /**
+   * 按标识查询记录。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @return 按标识查询到的记录
+   */
   public ChatSessionState findById(String tenantId, String userId, String sessionId) {
     Map<String, Object> row = mapper.findById(tenantId, userId, sessionId);
     if (row == null) return null;
@@ -36,6 +53,11 @@ public class ChatSessionRepository {
     return state;
   }
 
+  /**
+   * 保存对话会话存储访问。
+   *
+   * @param state 状态
+   */
   public void save(ChatSessionState state) {
     Map<String, Object> row = new HashMap<String, Object>();
     row.put("tenantId", state.tenantId);
@@ -52,11 +74,30 @@ public class ChatSessionRepository {
     }
   }
 
+  /**
+   * 追加会话消息。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @param role 角色
+   * @param content 内容
+   */
   public void appendMessage(
       String tenantId, String userId, String sessionId, String role, String content) {
     appendMessage(tenantId, userId, sessionId, role, content, null);
   }
 
+  /**
+   * 追加会话消息。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @param role 角色
+   * @param content 内容
+   * @param metadata 元数据
+   */
   public void appendMessage(
       String tenantId,
       String userId,
@@ -68,7 +109,16 @@ public class ChatSessionRepository {
         tenantId, userId, sessionId, role, content, jsonCodec.toJson(metadata), Instant.now());
   }
 
-  /** 用稳定 turnId 原子写入用户消息。相同 turnId 的同一请求视为幂等重放；若载荷不同则拒绝，避免错误复用动作身份。 */
+  /**
+   * 用稳定 turnId 原子写入用户消息。相同 turnId 的同一请求视为幂等重放；若载荷不同则拒绝，避免错误复用动作身份。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @param turnId 对话轮次标识
+   * @param content 内容
+   * @return 消息是否首次写入
+   */
   public boolean appendUserMessageOnce(
       String tenantId, String userId, String sessionId, String turnId, String content) {
     String normalizedTurnId = turnId == null ? "" : turnId.trim();
@@ -94,6 +144,16 @@ public class ChatSessionRepository {
     return false;
   }
 
+  /**
+   * 替换最近助手岗位消息。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @param jobs 岗位列表
+   * @param toolEvents 工具事件列表
+   * @return 是否替换成功
+   */
   public boolean replaceLatestAssistantJobMessage(
       String tenantId,
       String userId,
@@ -114,6 +174,13 @@ public class ChatSessionRepository {
         && mapper.updateMessageMetadata(tenantId, userId, id, jsonCodec.toJson(metadata)) > 0;
   }
 
+  /**
+   * 查询会话列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 会话列表
+   */
   public List<Map<String, Object>> listSessions(String tenantId, String userId) {
     List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
     for (Map<String, Object> row : mapper.listSessions(tenantId, userId)) {
@@ -127,6 +194,14 @@ public class ChatSessionRepository {
     return result;
   }
 
+  /**
+   * 查询消息列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @return 消息列表
+   */
   public List<Map<String, Object>> listMessages(String tenantId, String userId, String sessionId) {
     List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
     for (Map<String, Object> row : mapper.listMessages(tenantId, userId, sessionId)) {
@@ -150,11 +225,26 @@ public class ChatSessionRepository {
     return result;
   }
 
+  /**
+   * 按标识删除记录。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   */
   public void deleteById(String tenantId, String userId, String sessionId) {
     mapper.deleteMessages(tenantId, userId, sessionId);
     mapper.deleteState(tenantId, userId, sessionId);
   }
 
+  /**
+   * 创建会话。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @return 会话
+   */
   public static ChatSessionState newSession(String tenantId, String userId, String sessionId) {
     ChatSessionState state = new ChatSessionState();
     state.tenantId = tenantId;
@@ -165,10 +255,22 @@ public class ChatSessionRepository {
     return state;
   }
 
+  /**
+   * 将输入转换为字符串。
+   *
+   * @param value 待处理值
+   * @return 字符串值
+   */
   private String string(Object value) {
     return value == null ? null : String.valueOf(value);
   }
 
+  /**
+   * 读取长整型值。
+   *
+   * @param value 待处理值
+   * @return 长整型值
+   */
   private Long longValue(Object value) {
     if (value instanceof Number) return ((Number) value).longValue();
     try {
@@ -178,6 +280,12 @@ public class ChatSessionRepository {
     }
   }
 
+  /**
+   * 将输入转换为时间点对象。
+   *
+   * @param value 待处理值
+   * @return 时间点对象
+   */
   private Object toInstantObject(Object value) {
     if (value instanceof Instant) return value;
     if (value instanceof java.sql.Timestamp) return ((java.sql.Timestamp) value).toInstant();

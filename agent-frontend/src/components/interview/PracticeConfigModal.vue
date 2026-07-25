@@ -130,13 +130,11 @@
 </template>
 
 <script setup>
-// Random-exam configuration modal. Owns the exam config form (title, duration, answer mode,
-// draw rules) and the createRandomExam call; emits `created` with the exam plus the configured
-// duration in seconds so the parent can start the practice desk timer.
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { createRandomExam } from '../../api/interview'
 import { examRuleTotal as computeExamRuleTotal, validatePracticeConfig } from '../../utils/interviewForm'
 
+// 创建成功后同时返回试卷和时长，由父组件启动计时。
 defineProps({
   bankTypeOptions: { type: Array, default: () => [] },
   categories: { type: Array, default: () => [] },

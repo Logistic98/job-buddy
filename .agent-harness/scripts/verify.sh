@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# Unified verification entry for job-buddy.
-# Returns 0 on success, non-zero on failure. Goal and loop scripts should treat
-# this script's exit code as the primary machine-verifiable acceptance signal.
+# job-buddy 统一验证入口。
+# 成功返回 0，失败返回非 0；Goal 与 Loop 以此退出码作为主要机器验收信号。
 #
-# Usage:
-#   verify.sh                         # verify all known modules
-#   verify.sh agent-runtime           # verify one module
-#   verify.sh agent-frontend --quick  # skip slow checks when supported
-#   verify.sh --list                  # list known modules
+# 用法：
+#   verify.sh                         # 验证全部已知模块
+#   verify.sh agent-runtime           # 验证单个模块
+#   verify.sh agent-frontend --quick  # 支持时跳过慢速检查
+#   verify.sh --list                  # 列出已知模块
 #
-# Note: verify.sh is the test/build layer only. Use gate.sh when a task must
-# pass both tests and behavioral evals before handoff.
+# verify.sh 只负责测试和构建；需要同时通过行为评估时使用 gate.sh。
 
 set -euo pipefail
 
@@ -87,8 +85,7 @@ run_python_module() {
   uv run ruff format --check . || fail "$module: ruff format check failed"
 
   if [[ -d tests ]]; then
-    # Tests must be hermetic and must not inherit real deployment auth or production-mode flags.
-    # Internal-auth tests set their own values explicitly with monkeypatch.
+  # 测试必须隔离，不得继承真实部署鉴权或生产模式标记；内部鉴权测试自行注入配置。
     env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER \
       AGENT_INTERNAL_SERVICE_TOKEN= \
       JOB_BUDDY_ENVIRONMENT=development \
@@ -119,9 +116,7 @@ run_node_module() {
     npm install --silent || fail "$module: npm install failed"
   fi
 
-  # Some developer npm mirrors do not implement the audit API. Keep the
-  # security signal deterministic by using the official registry explicitly,
-  # matching CI, and retry only to absorb transient registry failures.
+  # 部分 npm 镜像不支持审计接口，显式使用与 CI 一致的官方源，并仅为瞬时故障重试。
   local audit_registry="${NPM_AUDIT_REGISTRY:-https://registry.npmjs.org}"
   local audit_attempt
   for audit_attempt in 1 2 3; do
@@ -146,7 +141,7 @@ run_node_module() {
     npm test || fail "$module: npm test failed"
   fi
 
-  # Production compilation is a required frontend quality signal even in quick mode.
+  # 快速模式也必须执行生产构建。
   if has_npm_script build; then
     npm run build --silent || fail "$module: npm run build failed"
   fi

@@ -28,7 +28,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 岗位收藏接口，提供收藏岗位查询、保存和删除能力。 */
+/**
+ * 岗位收藏接口，提供收藏岗位查询、保存和删除能力。
+ */
 @Tag(name = "岗位收藏接口")
 @RestController
 @RequirePermission(PermissionCodes.JOBS_USE)
@@ -37,6 +39,12 @@ public class JobFavoriteController {
   private final JobFavoriteService service;
   private final AnalysisTaskService analysisTaskService;
 
+  /**
+   * 创建岗位收藏岗位接口实例。
+   *
+   * @param service 服务
+   * @param analysisTaskService 分析任务服务
+   */
   public JobFavoriteController(
       JobFavoriteService service, AnalysisTaskService analysisTaskService) {
     this.service = service;
@@ -46,6 +54,7 @@ public class JobFavoriteController {
   /**
    * 查询收藏岗位列表。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询收藏岗位列表")
@@ -54,6 +63,14 @@ public class JobFavoriteController {
     return ApiResponse.success(service.listFavorites(AuthenticatedUserContext.userId(request)));
   }
 
+  /**
+   * 预览 Boss 收藏岗位。
+   *
+   * @param page 页码
+   * @param refresh 是否刷新
+   * @param request 请求对象
+   * @return Boss 收藏岗位预览结果
+   */
   @Operation(summary = "预览 Boss 收藏岗位")
   @GetMapping("/boss")
   public ApiResponse<BossFavoritePreviewResponse> previewBossFavorites(
@@ -75,6 +92,13 @@ public class JobFavoriteController {
     }
   }
 
+  /**
+   * 选择性导入 Boss 收藏岗位。
+   *
+   * @param body 请求体
+   * @param request 请求对象
+   * @return Boss 收藏岗位导入结果
+   */
   @Operation(summary = "选择性导入 Boss 收藏岗位")
   @PostMapping("/boss/import")
   public ApiResponse<BossFavoriteImportResponse> importBossFavorites(
@@ -86,6 +110,8 @@ public class JobFavoriteController {
   /**
    * 保存收藏岗位。
    *
+   * @param job 岗位
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "保存收藏岗位")
@@ -102,6 +128,8 @@ public class JobFavoriteController {
   /**
    * 分析岗位与简历的匹配度。岗位可以是收藏岗位，也可以是会话中的推荐岗位快照； 命中收藏岗位时结果持久化，未收藏的临时岗位仅返回分析结果不落库。
    *
+   * @param body 请求体
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "分析岗位匹配度")
@@ -117,6 +145,13 @@ public class JobFavoriteController {
         service.analyzeJob(AuthenticatedUserContext.userId(request), command, resumeId));
   }
 
+  /**
+   * 启动收藏岗位异步分析。
+   *
+   * @param body 请求体
+   * @param request 请求对象
+   * @return 启动后的分析任务
+   */
   @Operation(summary = "启动收藏岗位异步分析")
   @PostMapping("/analysis-tasks")
   public ApiResponse<AnalysisTaskResponse> startAnalysisTask(
@@ -131,6 +166,9 @@ public class JobFavoriteController {
   /**
    * 分析收藏岗位与简历的匹配度，结果持久化并支持重新分析。
    *
+   * @param jobKey 岗位键
+   * @param body 请求体
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "分析收藏岗位")
@@ -149,6 +187,8 @@ public class JobFavoriteController {
   /**
    * 删除收藏岗位。
    *
+   * @param jobKey 岗位键
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "删除收藏岗位")

@@ -21,7 +21,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 简历撰写接口：版本历史的查看、创建、回退与删除。 */
+/**
+ * 简历撰写接口：版本历史的查看、创建、回退与删除。
+ */
 @Tag(name = "简历撰写接口")
 @RestController
 @RequirePermission(PermissionCodes.RESUME_USE)
@@ -29,6 +31,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ResumeWriterController {
   private final ResumeWriterVersionService versionService;
 
+  /**
+   * 创建简历撰写器接口实例。
+   *
+   * @param versionService 版本服务
+   */
   public ResumeWriterController(ResumeWriterVersionService versionService) {
     this.versionService = versionService;
   }
@@ -36,6 +43,7 @@ public class ResumeWriterController {
   /**
    * 查询版本历史列表(仅元信息,不含快照内容)。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询撰写版本历史")
@@ -49,6 +57,8 @@ public class ResumeWriterController {
   /**
    * 查询单个版本详情(含快照内容)。
    *
+   * @param versionId 版本标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询版本快照详情")
@@ -63,6 +73,8 @@ public class ResumeWriterController {
   /**
    * 创建版本快照。
    *
+   * @param body 请求体
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "创建版本快照")
@@ -78,6 +90,9 @@ public class ResumeWriterController {
   /**
    * 回退到指定版本:先备份当前状态,再返回目标版本快照,由前端应用到撰写器。
    *
+   * @param versionId 版本标识
+   * @param body 请求体
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "回退到指定版本")
@@ -94,6 +109,8 @@ public class ResumeWriterController {
   /**
    * 删除单条版本。
    *
+   * @param versionId 版本标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "删除版本快照")

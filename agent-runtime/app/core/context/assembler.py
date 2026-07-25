@@ -1,3 +1,5 @@
+"""从会话、观察、记忆与工具引用装配有界任务上下文。"""
+
 from __future__ import annotations
 
 import json

@@ -72,10 +72,14 @@ TOOLS: list[dict] = [
 
 
 def list_tools() -> list[dict]:
+    """返回顺序稳定的完整工具目录。"""
+
     return TOOLS
 
 
 def get_tool(name: str) -> dict | None:
+    """按名称查找工具定义，未登记时返回空。"""
+
     for tool in TOOLS:
         if tool["name"] == name:
             return tool

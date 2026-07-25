@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
 import lombok.Data;
 
+/**
+ * 承载简历撰写器版本响应数据。
+ */
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ResumeWriterVersionResponse {

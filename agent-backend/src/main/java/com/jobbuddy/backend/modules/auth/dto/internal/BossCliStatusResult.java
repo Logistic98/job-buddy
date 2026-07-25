@@ -5,6 +5,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
 
+/**
+ * 定义 Boss CLI 状态结果。
+ */
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class BossCliStatusResult {

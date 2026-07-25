@@ -13,9 +13,15 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 SystemSettingsServiceHealthMonitor 的核心行为、异常路径与边界条件。
+ */
 class SystemSettingsServiceHealthMonitorTest {
   private static final JsonCodec JSON = new JsonCodec();
 
+  /**
+   * 验证读取设置时保留服务健康历史。
+   */
   @Test
   void keepsHealthHistoryAcrossSettingsReads() {
     SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
@@ -37,6 +43,9 @@ class SystemSettingsServiceHealthMonitorTest {
     assertEquals(2, historySize(statuses(settings), "runtime"));
   }
 
+  /**
+   * 验证 SystemSettingsServiceHealthMonitor 的数量、长度与分页边界。
+   */
   @Test
   void scheduledSamplesAreLimitedToRecentHistory() {
     SystemSettingsServiceImpl service =
@@ -53,6 +62,11 @@ class SystemSettingsServiceHealthMonitorTest {
     assertEquals(60, historySize(statuses, "runtime"));
   }
 
+  /**
+   * 验证空值服务配置属性。
+   *
+   * @return emptyService 配置属性
+   */
   private AgentServiceProperties emptyServiceProperties() {
     AgentServiceProperties properties = new AgentServiceProperties();
     properties.setIntentUrl("");
@@ -64,11 +78,24 @@ class SystemSettingsServiceHealthMonitorTest {
     return properties;
   }
 
+  /**
+   * 验证状态列表。
+   *
+   * @param settings 设置
+   * @return 服务状态列表
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> statuses(Map<String, Object> settings) {
     return (Map<String, Object>) settings.get("serviceStatuses");
   }
 
+  /**
+   * 读取指定服务的健康历史长度。
+   *
+   * @param statuses 状态列表
+   * @param serviceId 服务标识
+   * @return history 大小
+   */
   @SuppressWarnings("unchecked")
   private int historySize(Map<String, Object> statuses, String serviceId) {
     Map<String, Object> status = (Map<String, Object>) statuses.get(serviceId);

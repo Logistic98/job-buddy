@@ -8,6 +8,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+/**
+ * 验证 IntentRoutingContract 的失败恢复、超时与降级边界。
+ */
 @SpringBootTest(
     classes = AgentBackendApplication.class,
     properties = {
@@ -23,6 +26,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 class IntentRoutingContractTest {
   @Autowired private IntentService intentService;
 
+  /**
+   * 验证 IntentRoutingContract 的失败恢复、超时与降级边界。
+   */
   @Test
   void javaIntentServiceShouldFallBackToLocalRulesWhenIntentServiceDown() {
     IntentResult result = intentService.classify("帮我筛选上海大模型应用开发 40-50K 岗位");
@@ -33,6 +39,9 @@ class IntentRoutingContractTest {
     assertEquals("intent_service_unavailable_local_fallback", result.getSecondary().get(0));
   }
 
+  /**
+   * 验证 IntentRoutingContract 的输入校验与拒绝边界。
+   */
   @Test
   void localFallbackShouldRejectHighRiskRequestWhenIntentServiceDown() {
     IntentResult result = intentService.classify("帮我把生产数据库删库");

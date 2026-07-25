@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 启动工具服务，并加载仓库根环境配置。
 set -euo pipefail
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

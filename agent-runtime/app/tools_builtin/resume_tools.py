@@ -110,6 +110,7 @@ def _extract_json(text: str) -> Any:
     try:
         return json.loads(stripped)
     except json.JSONDecodeError as first_error:
+        # 优先解析代码围栏；多个对象围栏按出现顺序合并。
         fenced_blocks = re.findall(r"```(?:json)?\s*(.+?)\s*```", stripped, re.DOTALL)
         parsed_blocks: List[Any] = []
         for block in fenced_blocks:
@@ -125,6 +126,7 @@ def _extract_json(text: str) -> Any:
                 return merged
             return parsed_blocks[0]
 
+        # 无围栏时截取最外层对象或数组，忽略模型附带的解释文本。
         candidate = stripped
         object_start = candidate.find("{")
         object_end = candidate.rfind("}")
@@ -196,6 +198,8 @@ def _normalize_resume_score_breakdown(value: Any) -> tuple[int, Dict[str, Dict[s
 
 
 class ResumeParseTool(BaseTool):
+    """将有界 PDF 简历抽取为稳定结构化契约。"""
+
     name = "resume_parse"
     aliases = ["parse_resume"]
     search_hint = "解析 简历 PDF Markdown 求职"
@@ -225,6 +229,7 @@ class ResumeParseTool(BaseTool):
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
         file_path = arguments["file_path"]
         workspace = context.workspace_dir or settings.workspace_dir
+        # 路径必须先约束在工作区，再读取并按模型输入上限截断。
         target = _resolve_workspace_path(file_path, workspace)
         raw_text = _read_resume_text(target)
         truncated = _truncate(raw_text, MAX_RESUME_TEXT_CHARS)
@@ -253,6 +258,7 @@ class ResumeParseTool(BaseTool):
         except LLMServiceError as exc:
             raise RuntimeError(f"简历抽取调用 LLM 失败：{exc}") from exc
 
+        # 模型结果经过容错 JSON 解析后补齐固定字段，避免跨层传递无 Schema 结构。
         content = response.get("content") or ""
         data = _extract_json(content)
         if not isinstance(data, dict):
@@ -277,6 +283,8 @@ class ResumeParseTool(BaseTool):
 
 
 class ResumeAnalyzeTool(BaseTool):
+    """生成基于证据的简历分析，并支持限定分析区段。"""
+
     name = "resume_analyze"
     aliases = ["analyze_resume"]
     search_hint = "简历 分析 优势 风险 问题 面试 深挖 内容质量 经历价值 量化成果"
@@ -310,6 +318,7 @@ class ResumeAnalyzeTool(BaseTool):
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
         file_path = arguments["file_path"]
         workspace = context.workspace_dir or settings.workspace_dir
+        # 文件路径先经过工作区边界校验，再读取并按模型预算截断。
         target = _resolve_workspace_path(file_path, workspace)
         raw_text = _read_resume_text(target)
         truncated = _truncate(raw_text, MAX_RESUME_TEXT_CHARS)
@@ -345,6 +354,7 @@ class ResumeAnalyzeTool(BaseTool):
             "不要输出 overall_score，最终综合分由系统按上述权重计算。"
         )
 
+        # 模型只生成分项评分，综合分由固定权重在本地计算。
         messages = [
             ChatMessage(
                 role="system",
@@ -380,6 +390,7 @@ class ResumeAnalyzeTool(BaseTool):
         data = _extract_json(response.get("content") or "")
         if not isinstance(data, dict):
             raise ValueError("LLM 输出的简历分析不是 JSON 对象")
+        # 严格过滤未请求字段，并为列表型字段补齐稳定空值。
         list_fields = [
             "advantages",
             "disadvantages",
@@ -406,6 +417,8 @@ class ResumeAnalyzeTool(BaseTool):
 
 
 class JobProfileSummaryTool(BaseTool):
+    """将结构化求职画像压缩为模型生成的上下文摘要。"""
+
     name = "job_profile_summary"
     aliases = ["generate_job_profile_summary", "profile_summary"]
     search_hint = "求职画像 摘要 AI 生成"
@@ -517,6 +530,8 @@ class JobProfileSummaryTool(BaseTool):
 
 
 class ResumeMatchTool(BaseTool):
+    """按推荐列表或完整 JD 证据规则评估简历匹配度。"""
+
     name = "resume_match"
     aliases = ["match_resume_jobs"]
     search_hint = "简历 岗位 匹配 评分 推荐"
@@ -565,6 +580,7 @@ class ResumeMatchTool(BaseTool):
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
         resume = arguments.get("resume")
         jobs = arguments.get("jobs") or []
+        # 先收紧输入规模和输出字段，避免把无界岗位列表交给模型。
         if not isinstance(resume, dict):
             raise ValueError("resume 参数必须是对象")
         if not isinstance(jobs, list) or not jobs:
@@ -598,6 +614,7 @@ class ResumeMatchTool(BaseTool):
             else requested or all_sections
         )
 
+        # 列表预筛与完整 JD 分析使用不同证据和置信度规则。
         resume_brief = self._compact_resume(resume)
         jobs_brief = [self._compact_job(idx, job) for idx, job in enumerate(scoped_jobs)]
         if evaluation_mode == "recommendation_list":
@@ -666,6 +683,7 @@ class ResumeMatchTool(BaseTool):
             ),
         ]
 
+        # 模型只生成候选判断，结构完整性和证据约束由本地代码复核。
         try:
             response = await self._client().chat(
                 messages=messages,
@@ -694,6 +712,7 @@ class ResumeMatchTool(BaseTool):
             )
             raise ValueError("岗位匹配结果不完整: 大模型未返回有效的岗位匹配结果，请重试")
         rows = self._align_match_rows(rows, jobs_brief)
+        # 逐项归一化分数、置信度和证据，再按请求模式裁剪返回字段。
         normalized = [
             self._normalize_match(
                 item,
@@ -786,6 +805,7 @@ class ResumeMatchTool(BaseTool):
 
     @staticmethod
     def _compact_recommendation_list_match(row: Dict[str, Any]) -> Dict[str, Any]:
+
         def bounded_text(value: Any, max_chars: int) -> str:
             return str(value or "").strip()[:max_chars]
 
@@ -823,6 +843,7 @@ class ResumeMatchTool(BaseTool):
 
     @staticmethod
     def _compact_resume(resume: Dict[str, Any]) -> Dict[str, Any]:
+        # 兼容历史解析结构，但只保留匹配分析需要的经历集合。
         skills = resume.get("skills") or []
         experiences = resume.get("experiences") or resume.get("work_experiences") or []
         projects = resume.get("projects") or resume.get("project_experiences") or []
@@ -838,6 +859,7 @@ class ResumeMatchTool(BaseTool):
             if not isinstance(records, list):
                 return [str(records)[:1200]] if records else []
             compacted: List[Any] = []
+            # 每类经历限制条数和单字段长度，防止简历正文挤占模型上下文。
             for record in records[:limit]:
                 if not isinstance(record, dict):
                     compacted.append(str(record)[:500])
@@ -955,6 +977,7 @@ class ResumeMatchTool(BaseTool):
     ) -> Dict[str, Any]:
         item = item if isinstance(item, dict) else {}
         job = jobs[idx] if idx < len(jobs) and isinstance(jobs[idx], dict) else {}
+        # 标识、分数和证据结构均以当前输入岗位为可信边界。
         fallback_id = (
             job.get("securityId") or job.get("id") or job.get("jobId") or job.get("encryptJobId") or f"job_{idx}"
         )
@@ -991,6 +1014,7 @@ class ResumeMatchTool(BaseTool):
                 "industry",
             )
         )
+        # 置信度由岗位信息完整度和可落地证据数量共同校准。
         if evidence_requested and grounded_evidence_count == 0:
             confidence = "low"
         elif has_detailed_job_context and grounded_evidence_count >= 3:
@@ -1012,6 +1036,7 @@ class ResumeMatchTool(BaseTool):
             score = min(score, 70)
             confidence = "low"
             limitations.append("缺少逐条证据支撑,高分已下调。")
+        # 推荐结论必须与校准后的置信度和证据等级保持一致。
         recommendation = str(item.get("recommendation") or "").strip()
         if title_only:
             recommendation = "证据不足"

@@ -27,6 +27,11 @@ function normalizeProjectQuestionDifficulty(value, fallback = '') {
   return projectQuestionDifficulties.includes(normalized) ? normalized : fallback
 }
 
+/**
+ * 管理项目深挖页面的项目、材料、问题、路由选择与弹窗状态。
+ *
+ * @returns 页面模板使用的响应式状态和操作方法
+ */
 export function useProjectDeepDivePage() {
   const route = useRoute()
   const router = useRouter()
@@ -48,6 +53,7 @@ export function useProjectDeepDivePage() {
     selectedQuestionId = ref(''),
     projectNameInput = ref(null)
   const projectDetails = reactive({})
+  // 使用递增请求标识丢弃过期详情响应，避免快速切换项目时旧请求覆盖新状态。
   let detailRequestId = 0
   const questionKeyword = ref('')
   const selectedMaterialIds = ref([])
@@ -331,6 +337,7 @@ export function useProjectDeepDivePage() {
     const fileName = String(material?.fileName || '')
     const type = String(material?.contentType || '').toLowerCase()
     const extension = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : ''
+    // 扩展名优先、媒体类型兜底，将常见材料归并为稳定的展示类别。
     if (extension === 'pdf' || type.includes('pdf')) return { label: 'PDF', tone: 'pdf' }
     if (
       ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz'].includes(extension) ||
@@ -443,6 +450,7 @@ export function useProjectDeepDivePage() {
   async function saveProject() {
     modalError.value = ''
     try {
+      // 统一校验短字段、长文本与技术标签，阻止无效载荷进入接口层。
       validateLength(form.name, '项目名称', { max: 80, required: true })
       validateLength(form.role, '项目角色', { max: 40 })
       for (const [key, label, max] of [
@@ -467,6 +475,7 @@ export function useProjectDeepDivePage() {
     saving.value = true
     modalError.value = ''
     try {
+      // 编辑与新建共用表单，但新建后还需进入详情以初始化后续材料操作。
       if (projectModalMode.value === 'edit') {
         const saved = await updateDeepDiveProject(selectedId.value, form)
         replaceProject(saved)
@@ -521,6 +530,7 @@ export function useProjectDeepDivePage() {
     }
     const accepted = []
     const failures = []
+    // 先完成整批本地校验，再逐个上传并保留每个文件的失败原因。
     for (const file of files) {
       try {
         validateFile(file, file.name || '项目材料', { maxBytes })
@@ -542,6 +552,7 @@ export function useProjectDeepDivePage() {
           failures.push(`${file.name}（${error.message || '上传失败'}）`)
         }
       }
+      // 允许部分成功，并分别反馈已上传数量与失败文件。
       if (uploaded) materialUploadStatus.value = `已完成 ${uploaded} 个文件上传`
       if (failures.length) materialError.value = `${failures.length} 个文件未上传：${failures.join('、')}`
     } finally {

@@ -17,9 +17,15 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 ProfileContextServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class ProfileContextServiceImplTest {
   private static final JsonCodec JSON = new JsonCodec();
 
+  /**
+   * 验证 ProfileContextServiceImpl 中文件的文件解析与存储边界。
+   */
   @Test
   void shouldMergeParsedProfileAndSummarizeAliasFields() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -43,6 +49,9 @@ class ProfileContextServiceImplTest {
     assertTrue(summary.contains("薪资：40k-50k"));
   }
 
+  /**
+   * 验证 ProfileContextServiceImpl 的核心业务契约。
+   */
   @Test
   void expectationListShouldUseFirstEntry() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -57,6 +66,9 @@ class ProfileContextServiceImplTest {
     assertTrue(context.getSummary().contains("岗位：Java 大模型应用开发"));
   }
 
+  /**
+   * 验证 ProfileContextServiceImpl 中文件的失败恢复、超时与降级边界。
+   */
   @Test
   void profileReadFailureShouldDegradeToEmptyProfile() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -68,6 +80,9 @@ class ProfileContextServiceImplTest {
     assertEquals("", context.getSummary());
   }
 
+  /**
+   * 验证 ProfileContextServiceImpl 中简历的失败恢复、超时与降级边界。
+   */
   @Test
   void resumeReadFailureShouldDegradeWithoutResume() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -82,6 +97,9 @@ class ProfileContextServiceImplTest {
     assertFalse(context.getProfile().has("current_resume"));
   }
 
+  /**
+   * 验证 ProfileContextServiceImpl 中简历的权限与租户隔离边界。
+   */
   @Test
   void unauthorizedResumeShouldBeIgnoredWhileKeepingJobProfile() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -98,6 +116,9 @@ class ProfileContextServiceImplTest {
     assertTrue(context.getSummary().contains("姓名：王五"));
   }
 
+  /**
+   * 验证 ProfileContextServiceImpl 中简历的核心业务契约。
+   */
   @Test
   void currentResumeShouldBeAttachedWhenPresent() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -114,6 +135,9 @@ class ProfileContextServiceImplTest {
     assertEquals(JSON.toTree(resumeParsed), context.getProfile().get("current_resume"));
   }
 
+  /**
+   * 验证 ProfileContextServiceImpl 的数量、长度与分页边界。
+   */
   @Test
   void longSummaryFieldShouldBeTruncatedTo180Chars() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
@@ -130,6 +154,12 @@ class ProfileContextServiceImplTest {
     assertEquals("摘要：".length() + 180 + "...".length(), summary.length());
   }
 
+  /**
+   * 验证响应封装。
+   *
+   * @param parsed 解析结果
+   * @return 模拟下游响应
+   */
   private ResumeSummaryResponse envelope(Map<String, Object> parsed) {
     ResumeSummaryResponse profile = new ResumeSummaryResponse();
     profile.setParsed(JSON.toTree(parsed));

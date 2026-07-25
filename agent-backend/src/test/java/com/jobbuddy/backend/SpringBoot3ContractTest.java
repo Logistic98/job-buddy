@@ -25,6 +25,9 @@ import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.mvc.method.RequestMappingInfo;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
+/**
+ * 验证 SpringBoot3Contract 的核心业务契约。
+ */
 @SpringBootTest(
     properties = {
       "spring.datasource.url=jdbc:h2:mem:boot3compat;MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
@@ -48,6 +51,9 @@ class SpringBoot3ContractTest {
 
   @Autowired private RequestMappingHandlerMapping requestMappingHandlerMapping;
 
+  /**
+   * 验证 SpringBoot3Contract 的核心业务契约。
+   */
   @Test
   void shouldBindSpringBoot3RedisProperties() {
     LettuceConnectionFactory connectionFactory =
@@ -57,6 +63,11 @@ class SpringBoot3ContractTest {
     assertEquals(6381, connectionFactory.getPort());
   }
 
+  /**
+   * 验证 SpringBoot3Contract 的核心业务契约。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldExposeApplicationAndActuatorHealthEndpoints() throws Exception {
     mockMvc
@@ -70,6 +81,11 @@ class SpringBoot3ContractTest {
         .andExpect(jsonPath("$.status").value("UP"));
   }
 
+  /**
+   * 验证 SpringBoot3Contract 的题目生成与作答判定规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldGenerateOpenApiDocumentWithJakartaStack() throws Exception {
     mockMvc
@@ -94,6 +110,9 @@ class SpringBoot3ContractTest {
     mockMvc.perform(get("/doc.html")).andExpect(status().isOk());
   }
 
+  /**
+   * 验证 SpringBoot3Contract 的核心业务契约。
+   */
   @Test
   void shouldDocumentEveryBackendControllerAndOperation() {
     List<String> missingTags = new ArrayList<String>();

@@ -9,7 +9,9 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
 
-/** Encrypts persisted Boss credentials with AES-256-GCM and row-bound associated data. */
+/**
+ * 使用 AES-256-GCM 和行绑定关联数据加密持久化 Boss 凭据。
+ */
 @Component
 public class BossCredentialCipher {
   private static final String PREFIX = "enc:v1:";
@@ -19,10 +21,24 @@ public class BossCredentialCipher {
   private final JobBuddyProperties properties;
   private final SecureRandom secureRandom = new SecureRandom();
 
+  /**
+   * 创建 Boss 凭据加密器实例。
+   *
+   * @param properties 配置属性
+   */
   public BossCredentialCipher(JobBuddyProperties properties) {
     this.properties = properties;
   }
 
+  /**
+   * 加密 Boss 凭据。
+   *
+   * @param plaintext 凭据明文
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param provider 提供器
+   * @return 密文
+   */
   public String encrypt(String plaintext, String tenantId, String userId, String provider) {
     if (plaintext == null || plaintext.trim().isEmpty()) return null;
     try {
@@ -41,6 +57,15 @@ public class BossCredentialCipher {
     }
   }
 
+  /**
+   * 解密 Boss 凭据。
+   *
+   * @param value 待处理值
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param provider 提供器
+   * @return 凭据明文
+   */
   public String decrypt(String value, String tenantId, String userId, String provider) {
     if (value == null || value.trim().isEmpty()) return null;
     if (!value.startsWith(PREFIX)) throw new IllegalStateException("Boss 凭据存储格式无效");
@@ -58,6 +83,11 @@ public class BossCredentialCipher {
     }
   }
 
+  /**
+   * 读取或构造业务键。
+   *
+   * @return 业务键
+   */
   private SecretKeySpec key() {
     String configured = configuredKey();
     if (configured == null || configured.isEmpty()) {
@@ -73,6 +103,14 @@ public class BossCredentialCipher {
     }
   }
 
+  /**
+   * 构造凭据加密的附加认证数据。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param provider 提供器
+   * @return 附加认证数据
+   */
   private byte[] aad(String tenantId, String userId, String provider) {
     String value =
         required(tenantId, "tenantId")
@@ -83,12 +121,24 @@ public class BossCredentialCipher {
     return value.getBytes(StandardCharsets.UTF_8);
   }
 
+  /**
+   * 读取并校验必填配置。
+   *
+   * @param value 待处理值
+   * @param field 字段
+   * @return 必填配置值
+   */
   private String required(String value, String field) {
     if (value == null || value.trim().isEmpty())
       throw new IllegalArgumentException(field + " 不能为空");
     return value.trim();
   }
 
+  /**
+   * 解析配置的凭据加密密钥。
+   *
+   * @return 凭据加密密钥
+   */
   private String configuredKey() {
     if (properties == null || properties.getAuth() == null) return null;
     String value = properties.getAuth().getBossCredentialEncryptionKey();

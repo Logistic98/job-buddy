@@ -17,6 +17,9 @@ _DEFAULT_TIMEOUT = 60.0
 
 
 def run_sandbox_execute(arguments: Dict[str, Any], trace_id: str = None) -> ToolResult:
+    """调用 agent-sandbox 并将结果归一为工具成功或结构化错误。"""
+
+    # 本层只封装请求，不在 agent-tool 进程内直接执行用户命令。
     command = str(arguments.get("command", "")).strip()
     if not command:
         return ToolResult(
@@ -43,6 +46,7 @@ def run_sandbox_execute(arguments: Dict[str, Any], trace_id: str = None) -> Tool
     token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
     if token:
         headers["X-Internal-Service-Token"] = token
+    # 下游退出码属于命令失败，网络异常则归类为可重试的服务错误。
     try:
         response = httpx.post(f"{base_url}/v1/shell", json=payload, headers=headers, timeout=timeout)
         response.raise_for_status()

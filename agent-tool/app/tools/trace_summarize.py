@@ -11,6 +11,8 @@ from ..models import ToolError, ToolResult
 
 
 def run_trace_summarize(arguments: Dict[str, Any], trace_id: str = None) -> ToolResult:
+    """将 Trace 事件聚合为计数、时间范围与错误摘要。"""
+
     events = arguments.get("events")
     if not isinstance(events, list) or not events:
         return ToolResult(

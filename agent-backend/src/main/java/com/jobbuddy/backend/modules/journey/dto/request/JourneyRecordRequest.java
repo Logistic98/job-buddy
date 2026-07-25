@@ -3,6 +3,9 @@ package com.jobbuddy.backend.modules.journey.dto.request;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
 
+/**
+ * 承载求职旅程记录请求参数。
+ */
 @Data
 public class JourneyRecordRequest {
   private String company;

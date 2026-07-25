@@ -4,6 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载托管用户创建请求参数。
+ */
 @Data
 public class ManagedUserCreateRequest {
   private String username;

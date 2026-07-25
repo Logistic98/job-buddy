@@ -1,3 +1,5 @@
+"""使用词法与倒数排名信号选出有界工具候选。"""
+
 import math
 from collections import Counter
 from typing import Dict, List, Tuple

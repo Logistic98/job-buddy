@@ -1,3 +1,5 @@
+"""从校验后的 Runtime 工作区读取有界文本。"""
+
 from pathlib import Path
 from typing import Any, Dict
 

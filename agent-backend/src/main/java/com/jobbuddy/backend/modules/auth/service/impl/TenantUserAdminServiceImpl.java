@@ -21,6 +21,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 实现租户用户管理、密码哈希、角色替换与会话失效。
+ *
+ * <p>所有变更均通过 {@link RbacDelegationPolicy} 校验；重置密码或禁用用户会撤销现有会话。
+ */
 @Service
 public class TenantUserAdminServiceImpl implements TenantUserAdminService {
   private final UserAuthRepository repository;
@@ -29,6 +34,14 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
   private final RbacDelegationPolicy delegationPolicy;
   private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
+  /**
+   * 创建租户用户管理服务实例。
+   *
+   * @param repository 存储访问
+   * @param loginService 登录服务
+   * @param rbacService RBAC 服务
+   * @param delegationPolicy 委派策略
+   */
   public TenantUserAdminServiceImpl(
       UserAuthRepository repository,
       UserLoginService loginService,
@@ -40,6 +53,12 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
     this.delegationPolicy = delegationPolicy;
   }
 
+  /**
+   * 查询用户列表。
+   *
+   * @param tenantId 租户标识
+   * @return 用户列表
+   */
   @Transactional(readOnly = true)
   @Override
   public List<ManagedUserResponse> listUsers(String tenantId) {
@@ -66,6 +85,14 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
     return new ArrayList<ManagedUserResponse>(users.values());
   }
 
+  /**
+   * 创建租户用户。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param request 请求对象
+   * @return 创建后的资源数据
+   */
   @Transactional
   @Override
   public ManagedUserResponse create(
@@ -91,6 +118,15 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
     return getRequired(tenantId, userId);
   }
 
+  /**
+   * 更新租户用户。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param userId 用户标识
+   * @param request 请求对象
+   * @return 更新后的租户用户
+   */
   @Transactional
   @Override
   public ManagedUserResponse update(
@@ -142,6 +178,15 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
     return getRequired(tenantId, userId);
   }
 
+  /**
+   * 替换角色。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param userId 用户标识
+   * @param roleIds 角色标识列表
+   * @return 更新后的用户角色
+   */
   @Transactional
   @Override
   public ManagedUserResponse replaceRoles(
@@ -151,6 +196,14 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
     return getRequired(tenantId, userId);
   }
 
+  /**
+   * 重置密码。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param userId 用户标识
+   * @param password 密码
+   */
   @Transactional
   @Override
   public void resetPassword(
@@ -162,16 +215,37 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
     loginService.invalidateUserSessions(userId);
   }
 
+  /**
+   * 获取必需项。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 必需项
+   */
   private ManagedUserResponse getRequired(String tenantId, String userId) {
     return toResponse(tenantId, requiredUser(tenantId, userId));
   }
 
+  /**
+   * 校验并获取租户内用户。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 校验后的并获取租户内用户
+   */
   private Map<String, Object> requiredUser(String tenantId, String userId) {
     Map<String, Object> row = repository.findUserById(tenantId, userId);
     if (row == null || row.isEmpty()) throw new IllegalArgumentException("用户不存在或不属于当前租户");
     return row;
   }
 
+  /**
+   * 转换为响应。
+   *
+   * @param tenantId 租户标识
+   * @param row 查询行
+   * @return 转换后的响应对象
+   */
   private ManagedUserResponse toResponse(String tenantId, Map<String, Object> row) {
     ManagedUserResponse response = baseResponse(row);
     String userId = response.getUserId();
@@ -181,6 +255,12 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
     return response;
   }
 
+  /**
+   * 构建基础用户响应。
+   *
+   * @param row 查询行
+   * @return 基础响应
+   */
   private ManagedUserResponse baseResponse(Map<String, Object> row) {
     ManagedUserResponse response = new ManagedUserResponse();
     response.setUserId(text(row.get("userId")));
@@ -192,26 +272,56 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
     return response;
   }
 
+  /**
+   * 校验密码。
+   *
+   * @param password 密码
+   */
   private void validatePassword(String password) {
     if (password == null || password.length() < 8 || password.length() > 16)
       throw new IllegalArgumentException("密码长度必须为 8-16 位");
   }
 
+  /**
+   * 校验用户名。
+   *
+   * @param username 用户名
+   */
   private void validateUsername(String username) {
     if (!username.matches("[A-Za-z][A-Za-z0-9_-]{2,31}")) {
       throw new IllegalArgumentException("用户名须为 3-32 位、以字母开头，且仅可包含字母、数字、下划线和短横线");
     }
   }
 
+  /**
+   * 校验并获取必填值。
+   *
+   * @param value 输入值
+   * @param message 消息内容
+   * @return 必填配置值
+   */
   private String required(String value, String message) {
     if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException(message);
     return value.trim();
   }
 
+  /**
+   * 裁剪目标默认值。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 带默认值的规范化文本
+   */
   private String trimToDefault(String value, String fallback) {
     return value == null || value.trim().isEmpty() ? fallback : value.trim();
   }
 
+  /**
+   * 获取文本。
+   *
+   * @param value 输入值
+   * @return 文本内容
+   */
   private String text(Object value) {
     return value == null ? "" : String.valueOf(value);
   }

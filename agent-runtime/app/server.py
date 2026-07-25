@@ -1,3 +1,5 @@
+"""创建 FastAPI 应用并绑定请求级可观测上下文。"""
+
 import time
 from contextlib import asynccontextmanager
 from uuid import uuid4
@@ -17,6 +19,8 @@ from app.internal_auth import install_internal_auth
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """启动时注册 MCP 工具，关闭时释放执行器资源。"""
+
     executor = get_executor()
     mcp_config = settings.config.mcp
     try:
@@ -59,6 +63,8 @@ async def request_logging_middleware(request: Request, call_next):
 
 
 def create_app() -> FastAPI:
+    """创建并装配 Runtime FastAPI 应用。"""
+
     setup_logging()
     app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
     # 先装鉴权、后装请求日志：请求日志中间件位于最外层，401 拒绝也会留下访问日志。

@@ -13,8 +13,14 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 PermissionDelegationService 的核心行为、异常路径与边界条件。
+ */
 class PermissionDelegationServiceTest {
 
+  /**
+   * 验证 PermissionDelegationService 中权限的权限与租户隔离边界。
+   */
   @Test
   void filtersPermissionDefinitionsWithoutChangingRepositoryOrder() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -40,6 +46,13 @@ class PermissionDelegationServiceTest {
     assertEquals("job:use", result.get(1).getPermissionCode());
   }
 
+  /**
+   * 验证权限。
+   *
+   * @param code 编码
+   * @param name 名称
+   * @return 测试权限
+   */
   private Map<String, Object> permission(String code, String name) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("permissionCode", code);

@@ -21,6 +21,11 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 实现带租户隔离和委派校验的事务化 RBAC 管理。
+ *
+ * <p>受保护的内置角色与菜单不得被修改为无管理入口的状态。
+ */
 @Service
 public class DynamicRbacServiceImpl implements DynamicRbacService {
   private static final Set<String> MENU_TYPES = new LinkedHashSet<String>();
@@ -33,6 +38,13 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
   private final UserLoginService loginService;
   private final RbacDelegationPolicy delegationPolicy;
 
+  /**
+   * 创建动态 RBAC 服务实例。
+   *
+   * @param mapper 数据映射
+   * @param loginService 登录服务
+   * @param delegationPolicy 委派策略
+   */
   public DynamicRbacServiceImpl(
       RbacMapper mapper, UserLoginService loginService, RbacDelegationPolicy delegationPolicy) {
     this.mapper = mapper;
@@ -40,6 +52,12 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     this.delegationPolicy = delegationPolicy;
   }
 
+  /**
+   * 查询角色列表。
+   *
+   * @param tenantId 租户标识
+   * @return 角色列表
+   */
   @Transactional(readOnly = true)
   @Override
   public List<RbacRoleResponse> listRoles(String tenantId) {
@@ -56,6 +74,13 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return new ArrayList<RbacRoleResponse>(roles.values());
   }
 
+  /**
+   * 查询可分配角色列表。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @return 可分配角色列表
+   */
   @Transactional(readOnly = true)
   @Override
   public List<RbacRoleResponse> listAssignableRoles(String tenantId, AuthenticatedUser actor) {
@@ -68,6 +93,14 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return result;
   }
 
+  /**
+   * 创建角色。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param request 请求对象
+   * @return 创建后的角色
+   */
   @Transactional
   @Override
   public RbacRoleResponse createRole(
@@ -99,6 +132,15 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return requiredRole(tenantId, roleId);
   }
 
+  /**
+   * 更新角色。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param roleId 角色标识
+   * @param request 请求对象
+   * @return 更新后的角色
+   */
   @Transactional
   @Override
   public RbacRoleResponse updateRole(
@@ -138,6 +180,15 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return requiredRole(tenantId, roleId);
   }
 
+  /**
+   * 替换角色菜单。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param roleId 角色标识
+   * @param menuIds 菜单标识列表
+   * @return 更新后的角色菜单
+   */
   @Transactional
   @Override
   public RbacRoleResponse replaceRoleMenus(
@@ -156,6 +207,13 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return requiredRole(tenantId, roleId);
   }
 
+  /**
+   * 删除角色。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param roleId 角色标识
+   */
   @Transactional
   @Override
   public void deleteRole(String tenantId, AuthenticatedUser actor, String roleId) {
@@ -169,6 +227,12 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     protectManagementAccess(tenantId);
   }
 
+  /**
+   * 查询菜单列表。
+   *
+   * @param tenantId 租户标识
+   * @return 菜单列表
+   */
   @Transactional(readOnly = true)
   @Override
   public List<RbacMenuResponse> listMenus(String tenantId) {
@@ -178,6 +242,13 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return result;
   }
 
+  /**
+   * 查询可分配菜单列表。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @return 可分配菜单列表
+   */
   @Transactional(readOnly = true)
   @Override
   public List<RbacMenuResponse> listAssignableMenus(String tenantId, AuthenticatedUser actor) {
@@ -190,6 +261,14 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return result;
   }
 
+  /**
+   * 创建菜单。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param request 请求对象
+   * @return 创建后的菜单
+   */
   @Transactional
   @Override
   public RbacMenuResponse createMenu(
@@ -209,6 +288,15 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return menuResponse(requiredMenuRow(tenantId, menuId));
   }
 
+  /**
+   * 更新菜单。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param menuId 菜单标识
+   * @param request 请求对象
+   * @return 更新后的菜单
+   */
   @Transactional
   @Override
   public RbacMenuResponse updateMenu(
@@ -244,6 +332,13 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return menuResponse(requiredMenuRow(tenantId, menuId));
   }
 
+  /**
+   * 删除菜单。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param menuId 菜单标识
+   */
   @Transactional
   @Override
   public void deleteMenu(String tenantId, AuthenticatedUser actor, String menuId) {
@@ -259,16 +354,38 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     protectManagementAccess(tenantId);
   }
 
+  /**
+   * 获取用户角色标识列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 用户角色标识列表
+   */
   @Override
   public List<String> userRoleIds(String tenantId, String userId) {
     return mapper.findUserRoleIds(requireTenant(tenantId), userId);
   }
 
+  /**
+   * 获取用户角色名称。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 用户角色名称
+   */
   @Override
   public List<String> userRoleNames(String tenantId, String userId) {
     return mapper.findUserRoleNames(requireTenant(tenantId), userId);
   }
 
+  /**
+   * 替换用户角色。
+   *
+   * @param tenantId 租户标识
+   * @param actor 操作人
+   * @param userId 用户标识
+   * @param roleIds 角色标识列表
+   */
   @Transactional
   @Override
   public void replaceUserRoles(
@@ -284,18 +401,35 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     loginService.invalidateUserSessions(userId);
   }
 
+  /**
+   * 校验管理功能访问权限。
+   *
+   * @param tenantId 租户标识
+   */
   @Override
   public void protectManagementAccess(String tenantId) {
     if (mapper.countManagementUsers(tenantId) < 1)
       throw new IllegalArgumentException("当前租户必须至少保留一个具备用户、角色和菜单管理能力的有效账号");
   }
 
+  /**
+   * 替换角色菜单内部数据。
+   *
+   * @param tenantId 租户标识
+   * @param roleId 角色标识
+   * @param menuIds 菜单标识列表
+   */
   private void replaceRoleMenusInternal(String tenantId, String roleId, List<String> menuIds) {
     mapper.deleteRoleMenus(tenantId, roleId);
     Instant now = Instant.now();
     for (String menuId : menuIds) mapper.insertRoleMenu(tenantId, roleId, menuId, now);
   }
 
+  /**
+   * 校验角色请求。
+   *
+   * @param request 请求对象
+   */
   private void validateRoleRequest(RbacRoleRequest request) {
     if (request == null) throw new IllegalArgumentException("角色信息不能为空");
     String code = trim(request.getRoleCode());
@@ -304,6 +438,13 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     if (trim(request.getRoleName()).isEmpty()) throw new IllegalArgumentException("角色名称不能为空");
   }
 
+  /**
+   * 校验菜单请求。
+   *
+   * @param tenantId 租户标识
+   * @param menuId 菜单标识
+   * @param request 请求对象
+   */
   private void validateMenuRequest(String tenantId, String menuId, RbacMenuRequest request) {
     if (request == null) throw new IllegalArgumentException("菜单信息不能为空");
     if (!trim(request.getMenuCode()).matches("[A-Za-z0-9._-]{2,64}"))
@@ -336,6 +477,13 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     }
   }
 
+  /**
+   * 补全菜单祖先节点。
+   *
+   * @param tenantId 租户标识
+   * @param ids 标识列表
+   * @return 补全祖先后的菜单集合
+   */
   private List<String> expandMenuAncestors(String tenantId, List<String> ids) {
     LinkedHashSet<String> expanded = new LinkedHashSet<String>(ids);
     for (String id : new ArrayList<String>(ids)) {
@@ -351,16 +499,37 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return new ArrayList<String>(expanded);
   }
 
+  /**
+   * 校验菜单。
+   *
+   * @param tenantId 租户标识
+   * @param ids 标识列表
+   */
   private void validateMenus(String tenantId, List<String> ids) {
     if (!ids.isEmpty() && mapper.countMenusByIds(tenantId, ids) != ids.size())
       throw new IllegalArgumentException("包含不存在或跨租户的菜单");
   }
 
+  /**
+   * 校验角色。
+   *
+   * @param tenantId 租户标识
+   * @param ids 标识列表
+   */
   private void validateRoles(String tenantId, List<String> ids) {
     if (!ids.isEmpty() && mapper.countRolesByIds(tenantId, ids) != ids.size())
       throw new IllegalArgumentException("包含不存在或跨租户的角色");
   }
 
+  /**
+   * 获取菜单映射。
+   *
+   * @param tenantId 租户标识
+   * @param menuId 菜单标识
+   * @param request 请求对象
+   * @param now 当前时间
+   * @return 菜单映射
+   */
   private Map<String, Object> menuMap(
       String tenantId, String menuId, RbacMenuRequest request, Instant now) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
@@ -383,23 +552,51 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return row;
   }
 
+  /**
+   * 校验并获取角色详情。
+   *
+   * @param tenantId 租户标识
+   * @param roleId 角色标识
+   * @return 校验后的并获取角色详情
+   */
   private RbacRoleResponse requiredRole(String tenantId, String roleId) {
     return roleResponse(
         requiredRoleRow(tenantId, roleId), mapper.findRoleMenuIds(tenantId, roleId));
   }
 
+  /**
+   * 校验并获取角色记录。
+   *
+   * @param tenantId 租户标识
+   * @param roleId 角色标识
+   * @return 校验后的并获取角色记录
+   */
   private Map<String, Object> requiredRoleRow(String tenantId, String roleId) {
     Map<String, Object> row = mapper.findRole(tenantId, roleId);
     if (row == null) throw new IllegalArgumentException("角色不存在或不属于当前租户");
     return row;
   }
 
+  /**
+   * 校验并获取菜单记录。
+   *
+   * @param tenantId 租户标识
+   * @param menuId 菜单标识
+   * @return 校验后的并获取菜单记录
+   */
   private Map<String, Object> requiredMenuRow(String tenantId, String menuId) {
     Map<String, Object> row = mapper.findMenu(tenantId, menuId);
     if (row == null) throw new IllegalArgumentException("菜单不存在或不属于当前租户");
     return row;
   }
 
+  /**
+   * 获取角色响应。
+   *
+   * @param row 查询行
+   * @param menuIds 菜单标识列表
+   * @return 角色响应
+   */
   private RbacRoleResponse roleResponse(Map<String, Object> row, List<String> menuIds) {
     RbacRoleResponse value = new RbacRoleResponse();
     value.setRoleId(text(row.get("roleId")));
@@ -413,6 +610,12 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return value;
   }
 
+  /**
+   * 获取菜单响应。
+   *
+   * @param row 查询行
+   * @return 菜单响应
+   */
   private RbacMenuResponse menuResponse(Map<String, Object> row) {
     RbacMenuResponse value = new RbacMenuResponse();
     value.setMenuId(text(row.get("menuId")));
@@ -433,39 +636,86 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     return value;
   }
 
+  /**
+   * 使指定用户缓存失效。
+   *
+   * @param users 用户列表
+   */
   private void invalidateUsers(List<String> users) {
     for (String userId : new LinkedHashSet<String>(users))
       loginService.invalidateUserSessions(userId);
   }
 
+  /**
+   * 规范化标识列表。
+   *
+   * @param ids 标识列表
+   * @return 规范化后的标识列表
+   */
   private List<String> normalizeIds(List<String> ids) {
     LinkedHashSet<String> set = new LinkedHashSet<String>();
     if (ids != null) for (String id : ids) if (!trim(id).isEmpty()) set.add(id.trim());
     return new ArrayList<String>(set);
   }
 
+  /**
+   * 校验并获取租户。
+   *
+   * @param value 输入值
+   * @return 校验后的并获取租户
+   */
   private String requireTenant(String value) {
     if (trim(value).isEmpty()) throw new IllegalArgumentException("当前账号缺少租户归属");
     return value.trim();
   }
 
+  /**
+   * 获取空值目标空值。
+   *
+   * @param value 输入值
+   * @return 空值目标空值
+   */
   private String emptyToNull(String value) {
     String result = trim(value);
     return result.isEmpty() ? null : result;
   }
 
+  /**
+   * 裁剪字符串。
+   *
+   * @param value 输入值
+   * @return 裁剪后的文本
+   */
   private String trim(String value) {
     return value == null ? "" : value.trim();
   }
 
+  /**
+   * 获取文本。
+   *
+   * @param value 输入值
+   * @return 文本内容
+   */
   private String text(Object value) {
     return value == null ? "" : String.valueOf(value);
   }
 
+  /**
+   * 解析布尔值。
+   *
+   * @param value 输入值
+   * @return 布尔值
+   */
   private boolean bool(Object value) {
     return Boolean.TRUE.equals(value);
   }
 
+  /**
+   * 计算数值。
+   *
+   * @param value 输入值
+   * @return 数值
+   */
   private int number(Object value) {
     return value instanceof Number ? ((Number) value).intValue() : 0;
   }

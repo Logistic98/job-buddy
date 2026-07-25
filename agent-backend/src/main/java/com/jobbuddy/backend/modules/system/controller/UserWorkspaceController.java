@@ -28,6 +28,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class UserWorkspaceController {
   private final UserWorkspaceService service;
 
+  /**
+   * 创建用户工作区接口实例。
+   *
+   * @param service 服务
+   */
   public UserWorkspaceController(UserWorkspaceService service) {
     this.service = service;
   }
@@ -36,6 +41,7 @@ public class UserWorkspaceController {
    * 查询当前用户指定键的工作区状态。
    *
    * @param stateKey 工作区状态键
+   * @param request 请求对象
    * @return 已保存的 JSON 状态；不存在时返回空对象
    */
   @Operation(summary = "查询工作区状态", description = "按当前登录用户和状态键读取 JSON 状态；未保存时返回空 JSON 对象。")
@@ -52,6 +58,7 @@ public class UserWorkspaceController {
    *
    * @param stateKey 工作区状态键
    * @param payload 任意 JSON 状态；空请求体按空对象保存
+   * @param request 请求对象
    * @return 实际保存的 JSON 状态
    */
   @Operation(summary = "保存工作区状态", description = "覆盖保存当前用户指定状态键的 JSON 数据；空请求体会规范化为空 JSON 对象。")
@@ -71,6 +78,7 @@ public class UserWorkspaceController {
    * 删除当前用户指定键的工作区状态。
    *
    * @param stateKey 工作区状态键
+   * @param request 请求对象
    * @return 已删除的状态键
    */
   @Operation(summary = "删除工作区状态", description = "仅删除当前登录用户在指定状态键下保存的数据。")

@@ -8,7 +8,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+/**
+ * 验证 AuthSessionCookie 的核心行为、异常路径与边界条件。
+ */
 class AuthSessionCookieTest {
+  /**
+   * 验证 AuthSessionCookie 的持久化与状态变更规则。
+   */
   @Test
   void resolvesTokenFromPersistentCookie() {
     MockHttpServletRequest request = new MockHttpServletRequest();
@@ -17,6 +23,9 @@ class AuthSessionCookieTest {
     assertThat(AuthSessionCookie.resolveToken(request)).isEqualTo("cookie-token");
   }
 
+  /**
+   * 验证 AuthSessionCookie 的身份认证与会话边界。
+   */
   @Test
   void bearerTokenTakesPrecedenceOverCookie() {
     MockHttpServletRequest request = new MockHttpServletRequest();
@@ -26,6 +35,9 @@ class AuthSessionCookieTest {
     assertThat(AuthSessionCookie.resolveToken(request)).isEqualTo("header-token");
   }
 
+  /**
+   * 验证会话 Cookie 的 Secure、HttpOnly 写入与清除规则。
+   */
   @Test
   void writesAndClearsSecureHttpOnlyCookie() {
     MockHttpServletResponse loginResponse = new MockHttpServletResponse();

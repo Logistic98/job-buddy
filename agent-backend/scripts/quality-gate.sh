@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Backend-local quality gate. Use this before returning backend changes.
-# It delegates to the repository harness so backend work always runs both tests and eval checks.
+# 后端模块交付前质量门禁。
+# 委托仓库 Harness 统一执行测试与评估。
 
 set -euo pipefail
 

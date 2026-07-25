@@ -16,6 +16,7 @@ def test_record_usage_normalizes_openai_and_anthropic_fields():
 
 
 def test_record_usage_noop_without_tracking():
+
     def _in_fresh_context():
         # 未开启追踪时 record_usage 为空操作，不抛异常
         record_usage({"prompt_tokens": 10})
@@ -36,6 +37,7 @@ def test_record_usage_tolerates_bad_input():
 
 
 def test_usage_isolated_between_concurrent_tasks():
+
     async def _run(prompt: int) -> dict:
         usage = start_usage_tracking()
         await asyncio.sleep(0)
@@ -53,6 +55,7 @@ def test_usage_isolated_between_concurrent_tasks():
 
 
 def test_child_tasks_share_parent_accumulator():
+
     async def _main():
         usage = start_usage_tracking()
 

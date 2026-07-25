@@ -4,6 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载托管用户响应数据。
+ */
 @Data
 public class ManagedUserResponse {
   private String userId;

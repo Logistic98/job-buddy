@@ -84,6 +84,7 @@ def test_disable_thinking_payload_ignored_for_non_deepseek_provider():
 
 @pytest.mark.asyncio
 async def test_fetch_latest_model_picks_newest_by_created(monkeypatch):
+
     class FakeResponse:
         status_code = 200
 

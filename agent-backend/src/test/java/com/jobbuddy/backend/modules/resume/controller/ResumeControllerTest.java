@@ -20,8 +20,16 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
+/**
+ * 验证 ResumeController 的核心行为、异常路径与边界条件。
+ */
 class ResumeControllerTest {
 
+  /**
+   * 验证 ResumeController 中简历的持久化与状态变更规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void uploadReturnsStoredResumeWithoutWaitingForParsingOrAnalysis() throws Exception {
     ResumeStorageService storageService = mock(ResumeStorageService.class);
@@ -51,6 +59,11 @@ class ResumeControllerTest {
     verifyNoInteractions(analysisTaskService);
   }
 
+  /**
+   * 构造带认证身份的模拟请求。
+   *
+   * @return 带认证上下文的测试请求
+   */
   private HttpServletRequest authenticatedRequest() {
     HttpServletRequest request = mock(HttpServletRequest.class);
     AuthenticatedUser user = new AuthenticatedUser("user-1", "tester", "Tester", "user");

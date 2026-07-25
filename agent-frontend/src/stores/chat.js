@@ -22,6 +22,7 @@ import {
 const duplicateSubmitWindowMs = 1800
 const createTurnId = () => `turn_${crypto.randomUUID().replace(/-/g, '')}`
 
+// 管理多会话 SSE 请求、乐观消息、认证续跑与持久化快照；每个在途请求按 sessionId 隔离。
 export const useChatStore = defineStore('chat', {
   state: () => ({
     sessionId: '',
@@ -91,7 +92,6 @@ export const useChatStore = defineStore('chat', {
       if (request && (!requestKeyValue || request.key === requestKeyValue)) delete this.activeSessionRequests[sessionId]
       if (this.sessionId === sessionId) this.applyCurrentRequestProjection(sessionId)
     },
-    /** 把后台流式请求累积的增量合并进目标会话快照：切走期间的增量不丢失，切回立即可见。 */
     mergeRequestAccIntoSnapshot(sessionId, acc) {
       if (!sessionId || !acc || !acc.assistantId) return
       const hasPayload =
@@ -102,6 +102,7 @@ export const useChatStore = defineStore('chat', {
       if (!hasPayload) return
       const snapshot = this.sessionSnapshots[sessionId]
       const messages = snapshot?.messages ? JSON.parse(JSON.stringify(snapshot.messages)) : []
+      // 使用稳定消息标识更新既有占位消息，避免重复追加助手响应。
       let msg = messages.find((item) => item.id === acc.assistantId)
       if (!msg) {
         msg = {
@@ -132,7 +133,6 @@ export const useChatStore = defineStore('chat', {
         lastPersonalContextEvent: snapshot?.lastPersonalContextEvent || null,
       }
     },
-    /** 请求缓冲内按事件 ID 去重累积工具事件，供后台会话切回时重建过程面板。 */
     accumulateToolEvent(acc, data) {
       if (!acc || !data || !data.id || data.id === 'sse_connect') return
       const now = Date.now()

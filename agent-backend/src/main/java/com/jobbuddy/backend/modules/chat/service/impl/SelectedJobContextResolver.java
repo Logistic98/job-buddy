@@ -27,14 +27,32 @@ final class SelectedJobContextResolver {
   private static final int MAX_JOB_DESCRIPTION_CHARS = 2400;
   private final BossCliService bossCliService;
 
+  /**
+   * 创建已选岗位上下文解析器实例。
+   *
+   * @param bossCliService Boss CLI 服务
+   */
   SelectedJobContextResolver(BossCliService bossCliService) {
     this.bossCliService = bossCliService;
   }
 
+  /**
+   * 解析已选岗位上下文。
+   *
+   * @param selectedJob 已选岗位
+   * @return 解析结果
+   */
   Resolution resolve(Map<String, Object> selectedJob) {
     return resolve(selectedJob, Collections.<Map<String, Object>>emptyList());
   }
 
+  /**
+   * 解析已选岗位上下文。
+   *
+   * @param selectedJob 已选岗位
+   * @param currentJobs 当前岗位列表
+   * @return 解析结果
+   */
   Resolution resolve(Map<String, Object> selectedJob, List<Map<String, Object>> currentJobs) {
     Map<String, Object> merged =
         selectedJob == null
@@ -81,6 +99,12 @@ final class SelectedJobContextResolver {
     }
   }
 
+  /**
+   * 压缩文本内容。
+   *
+   * @param job 岗位
+   * @return 压缩结果
+   */
   Map<String, Object> compact(Map<String, Object> job) {
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     if (job == null || job.isEmpty()) return result;
@@ -130,6 +154,12 @@ final class SelectedJobContextResolver {
     return result;
   }
 
+  /**
+   * 判断岗位描述是否充分。
+   *
+   * @param job 岗位
+   * @return 岗位描述是否充分是否成立
+   */
   boolean hasSufficientDescription(Map<String, Object> job) {
     String description =
         stringValue(
@@ -146,6 +176,12 @@ final class SelectedJobContextResolver {
     return description.length() >= MIN_JOB_DESCRIPTION_CHARS;
   }
 
+  /**
+   * 合并当前岗位匹配结果。
+   *
+   * @param selectedJob 已选岗位
+   * @param currentJobs 当前岗位列表
+   */
   private void mergeMatchingCurrentJob(
       Map<String, Object> selectedJob, List<Map<String, Object>> currentJobs) {
     if (selectedJob.isEmpty() || currentJobs == null || currentJobs.isEmpty()) return;
@@ -164,6 +200,12 @@ final class SelectedJobContextResolver {
     }
   }
 
+  /**
+   * 合并详情。
+   *
+   * @param target 待补全的岗位上下文
+   * @param detail 详情
+   */
   @SuppressWarnings("unchecked")
   private void mergeDetail(Map<String, Object> target, Map<String, Object> detail) {
     if (detail == null || detail.isEmpty()) return;
@@ -177,6 +219,12 @@ final class SelectedJobContextResolver {
     }
   }
 
+  /**
+   * 优先选择完整岗位描述。
+   *
+   * @param target 待补全岗位描述的上下文
+   * @param detail 详情
+   */
   private void preferCompleteDescription(Map<String, Object> target, Map<String, Object> detail) {
     Object value =
         firstPresent(
@@ -195,6 +243,12 @@ final class SelectedJobContextResolver {
     }
   }
 
+  /**
+   * 补充缺失字段。
+   *
+   * @param target 待补全的岗位上下文
+   * @param source 源数据
+   */
   private void mergeMissing(Map<String, Object> target, Map<String, Object> source) {
     for (Map.Entry<String, Object> entry : source.entrySet()) {
       Object value = entry.getValue();
@@ -206,18 +260,38 @@ final class SelectedJobContextResolver {
     }
   }
 
+  /**
+   * 获取身份。
+   *
+   * @param job 岗位
+   * @return 身份
+   */
   private String identity(Map<String, Object> job) {
     return stringValue(
         firstPresent(
             job, "securityId", "security_id", "encryptJobId", "encrypt_job_id", "jobId", "id"));
   }
 
+  /**
+   * 获取展示标签。
+   *
+   * @param job 岗位
+   * @return 展示标签
+   */
   private String label(Map<String, Object> job) {
     String name = stringValue(firstPresent(job, "jobName", "job_name", "title", "name"));
     String company = stringValue(firstPresent(job, "brandName", "companyName", "company"));
     return (company + "/" + name).trim();
   }
 
+  /**
+   * 写入文本。
+   *
+   * @param target 待写入的岗位上下文
+   * @param field 字段名称
+   * @param source 源数据
+   * @param keys 键列表
+   */
   private void putText(
       Map<String, Object> target, String field, Map<String, Object> source, String... keys) {
     Object value = firstPresent(source, keys);
@@ -227,6 +301,14 @@ final class SelectedJobContextResolver {
     target.put(field, text.length() > limit ? text.substring(0, limit) : text);
   }
 
+  /**
+   * 写入列表。
+   *
+   * @param target 待写入的岗位上下文
+   * @param field 字段名称
+   * @param source 源数据
+   * @param keys 键列表
+   */
   private void putList(
       Map<String, Object> target, String field, Map<String, Object> source, String... keys) {
     Object value = firstPresent(source, keys);
@@ -245,11 +327,24 @@ final class SelectedJobContextResolver {
     if (!values.isEmpty()) target.put(field, values);
   }
 
+  /**
+   * 解析岗位字段别名。
+   *
+   * @param target 待补充别名的岗位上下文
+   * @param alias 字段别名
+   * @param source 源数据
+   */
   private void alias(Map<String, Object> target, String alias, String source) {
     Object value = target.get(source);
     if (value != null) target.put(alias, value);
   }
 
+  /**
+   * 规范化文本。
+   *
+   * @param value 输入值
+   * @return 规范化后的文本
+   */
   private String normalizeText(Object value) {
     if (value == null) return "";
     String raw = String.valueOf(value).replace("\r\n", "\n").replace('\r', '\n');
@@ -263,6 +358,12 @@ final class SelectedJobContextResolver {
     return builder.toString();
   }
 
+  /**
+   * 生成精简消息。
+   *
+   * @param error 异常
+   * @return 精简消息
+   */
   private String conciseMessage(Throwable error) {
     Throwable cause = error;
     while (cause != null && cause.getCause() != null && cause.getCause() != cause) {
@@ -276,11 +377,21 @@ final class SelectedJobContextResolver {
     return message.length() <= 180 ? message : message.substring(0, 180) + "...";
   }
 
+  /**
+   * 定义解析结果。
+   */
   static final class Resolution {
     private final Map<String, Object> job;
     private final boolean detailLoaded;
     private final String warning;
 
+    /**
+     * 创建解析结果实例。
+     *
+     * @param job 岗位
+     * @param detailLoaded 详情是否已加载
+     * @param warning 警告
+     */
     Resolution(Map<String, Object> job, boolean detailLoaded, String warning) {
       this.job =
           job == null
@@ -290,14 +401,29 @@ final class SelectedJobContextResolver {
       this.warning = warning == null ? "" : warning;
     }
 
+    /**
+     * 获取岗位。
+     *
+     * @return 岗位
+     */
     Map<String, Object> getJob() {
       return new LinkedHashMap<String, Object>(job);
     }
 
+    /**
+     * 判断岗位详情是否已加载。
+     *
+     * @return 岗位详情是否已加载是否成立
+     */
     boolean isDetailLoaded() {
       return detailLoaded;
     }
 
+    /**
+     * 获取警告信息。
+     *
+     * @return 警告信息
+     */
     String getWarning() {
       return warning;
     }

@@ -16,7 +16,9 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Runtime 托管请求工厂：统一构造流式/非流式托管请求体与元数据，并装配个人上下文， 保证消息/预算/元数据在各调用入口保持一致。 */
+/**
+ * Runtime 托管请求工厂：统一构造流式/非流式托管请求体与元数据，并装配个人上下文， 保证消息/预算/元数据在各调用入口保持一致。
+ */
 class RuntimeManagedRequestFactory {
   private static final Logger log = LoggerFactory.getLogger(RuntimeManagedRequestFactory.class);
   private static final JsonCodec JSON = new JsonCodec();
@@ -24,6 +26,13 @@ class RuntimeManagedRequestFactory {
   private final PersonalContextBuilder personalContextBuilder;
   private final JobBuddyProperties properties;
 
+  /**
+   * 创建运行时托管请求工厂实例。
+   *
+   * @param integrationService 集成服务
+   * @param personalContextBuilder 个人上下文构建器
+   * @param properties 配置属性
+   */
   RuntimeManagedRequestFactory(
       AgentIntegrationService integrationService,
       PersonalContextBuilder personalContextBuilder,
@@ -33,7 +42,14 @@ class RuntimeManagedRequestFactory {
     this.properties = properties;
   }
 
-  /** 自动装配求职画像、当前简历、求职进展等个人上下文，工作台问答无需用户重复提供。 */
+  /**
+   * 自动装配求职画像、当前简历、求职进展等个人上下文，工作台问答无需用户重复提供。
+   *
+   * @param message 消息内容
+   * @param intent 意图
+   * @param state 状态
+   * @return 个人上下文
+   */
   Map<String, Object> buildPersonalContext(
       String message, IntentResult intent, ChatSessionState state) {
     try {
@@ -55,6 +71,11 @@ class RuntimeManagedRequestFactory {
   /**
    * 任务理解只需要判断“有哪些上下文以及当前引用对象是谁”，不需要读取完整项目、经历和 JD 正文。 完整个人上下文仍保留给后续执行/答案合成，理解阶段改用该高信号目录以降低噪声和 token
    * 开销。
+   *
+   * @param message 消息内容
+   * @param intent 意图
+   * @param state 状态
+   * @return 任务理解上下文
    */
   @SuppressWarnings("unchecked")
   Map<String, Object> buildUnderstandingContext(
@@ -107,6 +128,15 @@ class RuntimeManagedRequestFactory {
     return compact;
   }
 
+  /**
+   * 复制首个文本。
+   *
+   * @param target 待写入的精简上下文
+   * @param field 字段名称
+   * @param source 源数据
+   * @param maxChars 最大字符数
+   * @param keys 键列表
+   */
   private void copyFirstText(
       Map<String, Object> target,
       String field,
@@ -121,6 +151,14 @@ class RuntimeManagedRequestFactory {
     }
   }
 
+  /**
+   * 写入文本。
+   *
+   * @param target 待写入的精简上下文
+   * @param field 字段名称
+   * @param value 输入值
+   * @param maxChars 最大字符数
+   */
   private void putText(Map<String, Object> target, String field, Object value, int maxChars) {
     if (value == null) return;
     String text = String.valueOf(value).trim().replace('\n', ' ').replace('\r', ' ');
@@ -128,12 +166,24 @@ class RuntimeManagedRequestFactory {
     target.put(field, text.length() > maxChars ? text.substring(0, maxChars) : text);
   }
 
+  /**
+   * 统计集合元素数量。
+   *
+   * @param value 输入值
+   * @return 集合元素数量
+   */
   private int collectionSize(Object value) {
     if (value instanceof java.util.Collection) return ((java.util.Collection<?>) value).size();
     if (value instanceof Map) return ((Map<?, ?>) value).size();
     return value == null || String.valueOf(value).trim().isEmpty() ? 0 : 1;
   }
 
+  /**
+   * 判断是否存在岗位描述。
+   *
+   * @param job 岗位
+   * @return 是否存在岗位描述
+   */
   private boolean hasJobDescription(Map<String, Object> job) {
     for (String key :
         new String[] {
@@ -152,6 +202,15 @@ class RuntimeManagedRequestFactory {
     return false;
   }
 
+  /**
+   * 结合用户画像执行运行时托管答复。
+   *
+   * @param sessionId 会话标识
+   * @param message 消息内容
+   * @param profile 画像
+   * @param extraMetadata 附加元数据
+   * @return 带画像的运行时回答
+   */
   Map<String, Object> runRuntimeManagedAnswerWithProfile(
       String sessionId, String message, String profile, Map<String, Object> extraMetadata) {
     RuntimeRunResult result =
@@ -160,7 +219,16 @@ class RuntimeManagedRequestFactory {
     return result == null ? Collections.<String, Object>emptyMap() : result.toMap(JSON);
   }
 
-  /** 构造 Runtime 托管请求体，供流式与非流式入口共用，保证消息/预算/元数据一致。 */
+  /**
+   * 构造 Runtime 托管请求体，供流式与非流式入口共用，保证消息/预算/元数据一致。
+   *
+   * @param sessionId 会话标识
+   * @param message 消息内容
+   * @param profile 画像
+   * @param extraMetadata 附加元数据
+   * @param stream 流式
+   * @return  Runtime 托管请求体，供流式与非流式入口共用，保证消息/预算/元数据一致
+   */
   RuntimeRunRequest buildRuntimeManagedRequest(
       String sessionId,
       String message,
@@ -189,6 +257,15 @@ class RuntimeManagedRequestFactory {
     return RuntimeRunRequest.fromPayload(request, JSON);
   }
 
+  /**
+   * 构建运行时托管元数据。
+   *
+   * @param message 消息内容
+   * @param state 状态
+   * @param directive 运行时指令
+   * @param intent 意图
+   * @return 运行时托管元数据
+   */
   Map<String, Object> runtimeManagedMetadata(
       String message, ChatSessionState state, Map<String, Object> directive, IntentResult intent) {
     Map<String, Object> metadata = new LinkedHashMap<String, Object>();

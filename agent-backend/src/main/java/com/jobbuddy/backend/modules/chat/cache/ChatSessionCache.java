@@ -14,6 +14,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+/**
+ * 为活跃会话提供尽力而为的 Redis 缓存。
+ *
+ * <p>缓存失败可观测，但恢复与属主判断仍以 PostgreSQL 为准。
+ */
 @Component
 public class ChatSessionCache {
 
@@ -25,17 +30,34 @@ public class ChatSessionCache {
   private final AtomicLong unavailableUntilMillis = new AtomicLong(0L);
   private volatile Duration failureCooldown = Duration.ofSeconds(30);
 
+  /**
+   * 创建对话会话缓存实例。
+   *
+   * @param redisTemplate Redis 模板
+   * @param jsonCodec JSON 编解码器
+   */
   public ChatSessionCache(StringRedisTemplate redisTemplate, JsonCodec jsonCodec) {
     this.redisTemplate = redisTemplate;
     this.jsonCodec = jsonCodec;
   }
 
+  /**
+   * 设置失败冷却期。
+   *
+   * @param failureCooldown 失败冷却时间
+   */
   @Value("${job-buddy.chat.redis-failure-cooldown:30s}")
   void setFailureCooldown(Duration failureCooldown) {
     if (failureCooldown != null && !failureCooldown.isNegative())
       this.failureCooldown = failureCooldown;
   }
 
+  /**
+   * 按会话标识读取缓存状态。
+   *
+   * @param sessionId 会话标识
+   * @return 查询结果
+   */
   public ChatSessionState get(String sessionId) {
     if (isTemporarilyUnavailable()) return null;
     String json;
@@ -75,6 +97,11 @@ public class ChatSessionCache {
     return state;
   }
 
+  /**
+   * 写入缓存数据。
+   *
+   * @param state 状态
+   */
   public void put(ChatSessionState state) {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
     payload.put("tenantId", state.tenantId);
@@ -96,6 +123,11 @@ public class ChatSessionCache {
     }
   }
 
+  /**
+   * 移除会话缓存。
+   *
+   * @param sessionId 会话标识
+   */
   public void evict(String sessionId) {
     if (isTemporarilyUnavailable()) return;
     try {
@@ -106,20 +138,41 @@ public class ChatSessionCache {
     }
   }
 
+  /**
+   * 读取字符串值。
+   *
+   * @param value 待处理值
+   * @return 字符串值
+   */
   private String stringValue(Object value) {
     if (value == null) return null;
     String text = String.valueOf(value).trim();
     return text.isEmpty() || "null".equalsIgnoreCase(text) ? null : text;
   }
 
+  /**
+   * 判断是否暂时不可用。
+   *
+   * @return 缓存是否暂时不可用
+   */
   private boolean isTemporarilyUnavailable() {
     return unavailableUntilMillis.get() > System.currentTimeMillis();
   }
 
+  /**
+   * 标记缓存服务可用。
+   */
   private void markAvailable() {
     unavailableUntilMillis.set(0L);
   }
 
+  /**
+   * 标记缓存服务不可用。
+   *
+   * @param operation 操作名称
+   * @param sessionId 会话标识
+   * @param error 错误
+   */
   private void markUnavailable(String operation, String sessionId, RuntimeException error) {
     long now = System.currentTimeMillis();
     long cooldownMillis = Math.max(0L, failureCooldown.toMillis());
@@ -135,6 +188,12 @@ public class ChatSessionCache {
     }
   }
 
+  /**
+   * 压缩错误消息。
+   *
+   * @param error 错误
+   * @return 精简错误消息
+   */
   private String conciseMessage(Throwable error) {
     if (error == null) return "unknown";
     Throwable cause = error;
@@ -145,6 +204,12 @@ public class ChatSessionCache {
     return message.length() <= 180 ? message : message.substring(0, 180) + "...";
   }
 
+  /**
+   * 构造会话缓存键。
+   *
+   * @param sessionId 会话标识
+   * @return 会话缓存键
+   */
   private String cacheKey(String sessionId) {
     return "job-buddy:chat-session:" + sessionId;
   }

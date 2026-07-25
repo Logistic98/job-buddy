@@ -28,6 +28,9 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
+/**
+ * 验证 InterviewPracticeController 的主要成功路径。
+ */
 @SpringBootTest(
     classes = AgentBackendApplication.class,
     properties = {
@@ -47,6 +50,11 @@ class InterviewPracticeControllerTest {
 
   @MockBean private AgentIntegrationService agentIntegrationService;
 
+  /**
+   * 验证 InterviewPracticeController 的主要成功路径。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldExtractInterviewReferenceDocument() throws Exception {
     MockMultipartFile file =
@@ -65,6 +73,11 @@ class InterviewPracticeControllerTest {
         .andExpect(jsonPath("$.data.truncated").value(false));
   }
 
+  /**
+   * 验证 InterviewPracticeController 的检索、筛选与排序规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldGenerateReviewCandidatesWithoutSavingThem() throws Exception {
     Map<String, Object> toolResult =
@@ -104,6 +117,11 @@ class InterviewPracticeControllerTest {
         .andExpect(jsonPath("$.data.items[0].codingMeta.tests.length()", greaterThanOrEqualTo(3)));
   }
 
+  /**
+   * 验证 InterviewPracticeController 中题目的题目生成与作答判定规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldCreatePracticeFromManualQuestionIds() throws Exception {
     JsonNode first =
@@ -149,6 +167,11 @@ class InterviewPracticeControllerTest {
             jsonPath("$.data.questions[1].questionId").value(first.get("questionId").asText()));
   }
 
+  /**
+   * 验证 InterviewPracticeController 中编程题的题目生成与作答判定规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldCreateMixedTimedPracticeAndSubmitCodingResult() throws Exception {
     createQuestion(
@@ -246,6 +269,13 @@ class InterviewPracticeControllerTest {
         .andExpect(jsonPath("$.data.score").value(100.0));
   }
 
+  /**
+   * 验证创建题目。
+   *
+   * @param body 请求体
+   * @return 题目
+   * @throws Exception 处理失败时抛出
+   */
   private JsonNode createQuestion(String body) throws Exception {
     String content =
         mockMvc
@@ -261,6 +291,13 @@ class InterviewPracticeControllerTest {
     return parseData(content);
   }
 
+  /**
+   * 解析 JSON 测试数据。
+   *
+   * @param content 内容
+   * @return 数据
+   * @throws Exception 处理失败时抛出
+   */
   private JsonNode parseData(String content) throws Exception {
     return objectMapper.readTree(content).get("data");
   }

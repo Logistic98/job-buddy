@@ -1,3 +1,5 @@
+"""维护来源可追踪、顺序稳定且原子更新的工具目录。"""
+
 from typing import Dict, List, Optional
 
 from loguru import logger

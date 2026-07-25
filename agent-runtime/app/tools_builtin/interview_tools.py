@@ -237,6 +237,7 @@ class InterviewQuestionGenerateTool(BaseTool):
         return ValidationResult(result=True)
 
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
+        # 校验阶段已限制枚举和数量，这里只构造受限模型输入。
         bank_type = str(arguments["bank_type"]).strip()
         category = _required_text(arguments.get("category"), "category")
         difficulty = str(arguments["difficulty"]).strip()
@@ -272,6 +273,7 @@ class InterviewQuestionGenerateTool(BaseTool):
             )
         except LLMServiceError as exc:
             raise RuntimeError(f"候选题生成调用模型失败：{exc}") from exc
+        # 模型返回题量必须与请求完全一致，每道题再按题库类型规范化。
         payload = _extract_json_object(response.get("content") or "")
         rows = payload.get("items")
         if not isinstance(rows, list) or len(rows) != count:

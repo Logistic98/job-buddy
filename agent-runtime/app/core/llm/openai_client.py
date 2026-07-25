@@ -1,3 +1,5 @@
+"""以有界重试调用兼容模型接口，并统一流式用量。"""
+
 import asyncio
 import copy
 import hashlib

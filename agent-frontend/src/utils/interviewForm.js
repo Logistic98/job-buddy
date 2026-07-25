@@ -1,7 +1,4 @@
-// Pure, side-effect-free helpers for the interview maintain/practice forms. Extracted from
-// InterviewBank.vue so validation, payload shaping and title formatting can be unit-tested in
-// isolation, while the component keeps only its reactive state and API orchestration. None of
-// these functions read or mutate component state; everything flows through explicit arguments.
+// 面试维护与练习表单的无副作用辅助函数；只通过显式参数读写数据，不访问组件状态。
 
 import { detectCodeLanguage } from './codeHighlight'
 import { validateInteger, validateLength, validateTags } from './formValidation'
@@ -40,6 +37,7 @@ export function isCurrentExam(exam, currentExam) {
 // 按向导步骤校验手动录入表单，提交失败时用于定位首个需要修正的步骤。
 export function validateQuestionStep(form, step) {
   const choice = isChoiceType(form.questionType)
+  // 每个步骤只校验当前可见字段，便于向导定位首个错误。
   if (step === 0) {
     validateLength(form.title, '题目标题', { max: 200, required: true })
     requireText(form.bankType, '请选择题库')
@@ -62,6 +60,7 @@ export function validateQuestionStep(form, step) {
     return
   }
   if (choice) {
+    // 选择题答案必须引用已有选项，且单选题只能保留一个答案。
     requireText(form.answer, '请填写正确答案')
     const validKeys = new Set(form.options.filter((item) => String(item.text || '').trim()).map((item) => item.key))
     const answerKeys = selectedAnswerKeys(form.answer)
@@ -313,6 +312,7 @@ export function buildDebugFormDefaults(item) {
   const sample = tests.find((test) => test?.sample) || tests[0]
   if (!sample) return { argsText: parameterCount === 1 ? 'null' : '[]', expectedText: '' }
 
+  // 单参数题直接展示首个参数，多参数题保持数组结构供调试器解析。
   const storedArgs = Array.isArray(sample.args) ? sample.args : []
   const input = parameterCount === 1 ? storedArgs[0] : storedArgs
   return {

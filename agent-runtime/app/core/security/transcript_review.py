@@ -1,3 +1,5 @@
+"""对高风险工具调用执行失败关闭的 Transcript 授权复核。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,10 +25,11 @@ class TranscriptReviewDecision(BaseModel):
 
 
 class TranscriptReviewClient:
-    """Independent final reviewer for high-risk tool calls."""
+    """高风险工具调用的独立终审客户端。"""
 
     async def review(self, messages: Iterable[Any], call: ToolCall) -> TranscriptReviewDecision:
         config = settings.config.transcript_review
+        # 终审仅查看用户原话与拟执行调用，剥离助手解释以降低提示注入影响。
         payload = {
             "messages": [
                 {"role": "user", "content": str(self._message_value(message, "content") or "")}
@@ -41,6 +44,7 @@ class TranscriptReviewClient:
         if internal_token:
             headers["X-Internal-Service-Token"] = internal_token
         last_error: Exception | None = None
+        # 只重试临时网络和服务端故障；协议异常按失败关闭处理。
         for attempt in range(config.max_retries + 1):
             if attempt:
                 await asyncio.sleep(config.retry_backoff_seconds * (2 ** (attempt - 1)))

@@ -3,6 +3,9 @@ package com.jobbuddy.backend.modules.interview.dto.request;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
 
+/**
+ * 承载面试题目请求参数。
+ */
 @Data
 public class InterviewQuestionRequest {
   private String title;

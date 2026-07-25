@@ -10,12 +10,24 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Repository;
 
+/**
+ * 在类型化仓储边界内持久化加密的外部认证状态。
+ *
+ * <p>JSON 解码集中在此处，避免 Service 依赖 Mapper 行结构。
+ */
 @Repository
 public class AuthStateRepository {
   private final AuthStateMapper mapper;
   private final JsonCodec jsonCodec;
   private final BossCredentialCipher credentialCipher;
 
+  /**
+   * 创建认证状态存储访问实例。
+   *
+   * @param mapper 数据映射
+   * @param jsonCodec JSON 编解码器
+   * @param credentialCipher 凭据加密器
+   */
   public AuthStateRepository(
       AuthStateMapper mapper, JsonCodec jsonCodec, BossCredentialCipher credentialCipher) {
     this.mapper = mapper;
@@ -23,10 +35,24 @@ public class AuthStateRepository {
     this.credentialCipher = credentialCipher;
   }
 
+  /**
+   * 按提供方查询认证状态。
+   *
+   * @param provider 提供器
+   * @return 通过提供器
+   */
   public Map<String, Object> findByProvider(String provider) {
     return findByProvider(AuthenticationScope.tenantId(), AuthenticationScope.userId(), provider);
   }
 
+  /**
+   * 按提供方查询认证状态。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param provider 提供器
+   * @return 通过提供器
+   */
   public Map<String, Object> findByProvider(String tenantId, String userId, String provider) {
     Map<String, Object> row = mapper.findByProvider(tenantId, userId, provider);
     if (row == null) return null;
@@ -38,6 +64,14 @@ public class AuthStateRepository {
     return result;
   }
 
+  /**
+   * 保存认证状态存储访问。
+   *
+   * @param provider 提供器
+   * @param status 状态
+   * @param credentialJson 凭据 JSON
+   * @param metadata 元数据
+   */
   public void save(
       String provider, String status, String credentialJson, Map<String, Object> metadata) {
     save(
@@ -49,6 +83,16 @@ public class AuthStateRepository {
         metadata);
   }
 
+  /**
+   * 保存认证状态存储访问。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param provider 提供器
+   * @param status 状态
+   * @param credentialJson 凭据 JSON
+   * @param metadata 元数据
+   */
   public void save(
       String tenantId,
       String userId,
@@ -71,11 +115,27 @@ public class AuthStateRepository {
     else mapper.insertState(row);
   }
 
+  /**
+   * 更新状态。
+   *
+   * @param provider 提供器
+   * @param status 状态
+   * @param metadata 元数据
+   */
   public void updateStatus(String provider, String status, Map<String, Object> metadata) {
     updateStatus(
         AuthenticationScope.tenantId(), AuthenticationScope.userId(), provider, status, metadata);
   }
 
+  /**
+   * 更新状态。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param provider 提供器
+   * @param status 状态
+   * @param metadata 元数据
+   */
   public void updateStatus(
       String tenantId,
       String userId,
@@ -92,6 +152,16 @@ public class AuthStateRepository {
         metadata);
   }
 
+  /**
+   * 保存二维码会话。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param chatSessionId 对话会话标识
+   * @param qrSessionId 二维码会话标识
+   * @param toolSessionToken 工具会话令牌
+   * @param expiresAt 过期时间
+   */
   public void saveQrSession(
       String tenantId,
       String userId,
@@ -121,6 +191,15 @@ public class AuthStateRepository {
     mapper.upsertQrSession(row);
   }
 
+  /**
+   * 更新二维码会话令牌。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param qrSessionId 二维码会话标识
+   * @param toolSessionToken 工具会话令牌
+   * @param currentVersion 当前版本
+   */
   public void updateQrSessionToken(
       String tenantId,
       String userId,
@@ -140,16 +219,37 @@ public class AuthStateRepository {
     if (updated != 1) throw new IllegalArgumentException("Boss 登录会话不存在或不属于当前账号");
   }
 
+  /**
+   * 查找二维码会话。
+   *
+   * @param qrSessionId 二维码会话标识
+   * @return 二维码会话
+   */
   public Map<String, Object> findQrSession(String qrSessionId) {
     if (qrSessionId == null || qrSessionId.trim().isEmpty()) return null;
     return mapper.findQrSession(qrSessionId.trim());
   }
 
+  /**
+   * 查找活动二维码会话。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 活动二维码会话
+   */
   public Map<String, Object> findActiveQrSession(String tenantId, String userId) {
     requireOwner(tenantId, userId);
     return mapper.findActiveQrSession(tenantId.trim(), userId.trim(), Instant.now());
   }
 
+  /**
+   * 按对话标识查询二维码会话。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param chatSessionId 对话会话标识
+   * @return 二维码会话通过对话
+   */
   public Map<String, Object> findQrSessionByChat(
       String tenantId, String userId, String chatSessionId) {
     requireOwner(tenantId, userId);
@@ -158,12 +258,26 @@ public class AuthStateRepository {
         tenantId.trim(), userId.trim(), chatSessionId.trim(), Instant.now());
   }
 
+  /**
+   * 删除二维码会话。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param qrSessionId 二维码会话标识
+   * @return 是否删除了二维码会话
+   */
   public boolean deleteQrSession(String tenantId, String userId, String qrSessionId) {
     requireOwner(tenantId, userId);
     if (qrSessionId == null || qrSessionId.trim().isEmpty()) return false;
     return mapper.deleteQrSession(qrSessionId.trim(), tenantId.trim(), userId.trim()) == 1;
   }
 
+  /**
+   * 校验并获取属主。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   */
   private void requireOwner(String tenantId, String userId) {
     if (tenantId == null
         || tenantId.trim().isEmpty()
@@ -173,6 +287,12 @@ public class AuthStateRepository {
     }
   }
 
+  /**
+   * 将输入转换为字符串。
+   *
+   * @param value 待处理值
+   * @return 字符串值
+   */
   private String string(Object value) {
     return value == null ? null : String.valueOf(value);
   }

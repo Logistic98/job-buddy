@@ -1,4 +1,4 @@
-"""One-shot headless browser helper for refreshing Boss web security cookies."""
+"""一次性无头浏览器辅助器，用于刷新 Boss Web 安全 Cookie。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ _TARGET_CLOSED_MARKERS = (
 
 
 class HeadlessCookieCompleter:
+    """在隔离且短生命周期的 Chromium Profile 中补齐必要 Cookie。"""
+
     def __init__(self, settings: Settings, constants: Any) -> None:
         self._settings = settings
         self._constants = constants

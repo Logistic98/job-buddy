@@ -10,9 +10,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 /**
- * Dependency-free resilience layer for outbound calls to the Python agent services. Provides
- * bounded retry with backoff and a per-service circuit breaker so a single unavailable downstream
- * cannot stall every request on the configured read timeout.
+ * Python Agent 服务出站调用的无依赖弹性层。
+ *
+ * <p>提供带退避的有界重试和服务级熔断，避免单个下游故障拖住所有请求。
  */
 @Component
 public class ServiceResilience {
@@ -22,22 +22,41 @@ public class ServiceResilience {
   private final ConcurrentHashMap<String, Circuit> circuits =
       new ConcurrentHashMap<String, Circuit>();
 
+  /**
+   * 创建服务弹性治理实例。
+   *
+   * @param properties 配置属性
+   */
   public ServiceResilience(AgentServiceProperties properties) {
     this.properties = properties;
   }
 
   /**
-   * Execute {@code action}, returning {@code fallback} when the circuit is open or all attempts
-   * fail. Only retry idempotent operations; pass {@code retryable=false} for non-idempotent
-   * writes/runs.
+   * 执行下游动作；熔断开启或全部尝试失败时返回降级结果。
+   *
+   * <p>仅幂等操作可重试，非幂等写入或运行必须传入 {@code retryable=false}。
+   *
+   * @param service 下游服务
+   * @param action 执行动作
+   * @param fallback 降级结果
+   * @param retryable 是否允许重试
+   * @return 下游调用结果
    */
   public <T> T call(String service, Supplier<T> action, T fallback, boolean retryable) {
     return call(service, action, fallback, retryable, error -> true);
   }
 
   /**
-   * Execute with caller-provided transient-failure classification. A deterministic error proves the
-   * dependency is reachable, so it is neither retried nor counted toward the availability circuit.
+   * 使用调用方提供的瞬时故障分类执行操作。
+   *
+   * <p>确定性错误表示依赖可达，因此不重试，也不计入可用性熔断。
+   *
+   * @param service 下游服务
+   * @param action 执行动作
+   * @param fallback 降级结果
+   * @param retryable 是否允许重试
+   * @param transientFailure 瞬时故障判定函数
+   * @return 下游调用结果
    */
   public <T> T call(
       String service,
@@ -89,18 +108,31 @@ public class ServiceResilience {
     return fallback;
   }
 
-  /** Whether the circuit for {@code service} is currently open (used by streaming callers). */
+  /**
+   * 返回 {@code service} 熔断器是否开启，供流式调用方使用。
+   *
+   * @param service 下游服务
+   * @return 熔断器是否开启
+   */
   public boolean isOpen(String service) {
     Circuit circuit = circuits.get(service);
     return circuit != null && circuit.openUntil > System.currentTimeMillis();
   }
 
-  /** Record a successful streaming call, closing the circuit. */
+  /**
+   * 记录流式调用成功并关闭熔断。
+   *
+   * @param service 下游服务
+   */
   public void recordSuccess(String service) {
     circuits.computeIfAbsent(service, k -> new Circuit()).failures.set(0);
   }
 
-  /** Record a failed streaming call, opening the circuit once the threshold is reached. */
+  /**
+   * 记录流式调用失败，达到阈值后开启熔断。
+   *
+   * @param service 下游服务
+   */
   public void recordFailure(String service) {
     Circuit circuit = circuits.computeIfAbsent(service, k -> new Circuit());
     int failures = circuit.failures.incrementAndGet();
@@ -115,6 +147,9 @@ public class ServiceResilience {
     }
   }
 
+  /**
+   * 定义熔断器。
+   */
   private static final class Circuit {
     final AtomicInteger failures = new AtomicInteger(0);
     volatile long openUntil = 0L;

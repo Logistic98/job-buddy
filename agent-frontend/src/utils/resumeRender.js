@@ -245,6 +245,7 @@ export function applyResumePhotoToHtml(renderedHtml, photoUrl, transform = {}, o
   if (!url) return markup
   if (typeof document === 'undefined') return `${photoMarkup(url, transform, options)}\n${markup}`
 
+  // 优先复用既有受管照片节点，避免重复插入并保留用户调整后的布局位置。
   const root = document.createElement('div')
   root.innerHTML = markup
   const existingFrame = root.querySelector('[data-managed-resume-photo="true"]')
@@ -275,6 +276,7 @@ export function applyResumePhotoToHtml(renderedHtml, photoUrl, transform = {}, o
 
   frame.appendChild(img)
   applyPhotoHandles(frame, options.selected)
+  // 优先挂载到模板预留区域；旧模板没有锚点时降级为顶部浮动照片。
   const target = findPhotoTarget(root)
   if (target) {
     target.appendChild(frame)
@@ -411,6 +413,7 @@ export function escapeHtml(value) {
 
 export function iconSvg(name) {
   const key = String(name || '').toLowerCase()
+  // 图标仅从内置白名单选取，避免把外部文本直接拼接为 SVG。
   const paths = {
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5h.01"/>',
     phone: '<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M11 18h2"/>',

@@ -17,13 +17,22 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** Runtime 托管任务链路：流式优先下发答案与推理增量，空产出时回退非流式托管调用， 并按流式中断/无产出/成功分别下发对应终态。 */
+/**
+ * Runtime 托管任务链路：流式优先下发答案与推理增量，空产出时回退非流式托管调用， 并按流式中断/无产出/成功分别下发对应终态。
+ */
 class RuntimeManagedTaskHandler {
   private static final JsonCodec JSON = new JsonCodec();
   private final ChatSseEventSender sender;
   private final AgentIntegrationService integrationService;
   private final RuntimeManagedRequestFactory requestFactory;
 
+  /**
+   * 创建运行时托管任务处理器实例。
+   *
+   * @param sender SSE 事件发送器
+   * @param integrationService 集成服务
+   * @param requestFactory 请求工厂
+   */
   RuntimeManagedTaskHandler(
       ChatSseEventSender sender,
       AgentIntegrationService integrationService,
@@ -33,6 +42,17 @@ class RuntimeManagedTaskHandler {
     this.requestFactory = requestFactory;
   }
 
+  /**
+   * 处理已选岗位分析。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param rawMessage 原始消息
+   * @param state 状态
+   * @param directive 运行时指令
+   * @param intent 意图
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void handle(
       final SseEmitter emitter,
       final String sessionId,
@@ -63,6 +83,11 @@ class RuntimeManagedTaskHandler {
         integrationService.runRuntimeStream(
             request,
             new java.util.function.Consumer<String>() {
+              /**
+               * 接收并处理输入。
+               *
+               * @param piece 文本片段
+               */
               @Override
               public void accept(String piece) {
                 if (piece == null || piece.isEmpty()) return;
@@ -75,6 +100,11 @@ class RuntimeManagedTaskHandler {
               }
             },
             new java.util.function.Consumer<String>() {
+              /**
+               * 接收并处理输入。
+               *
+               * @param piece 文本片段
+               */
               @Override
               public void accept(String piece) {
                 if (piece == null || piece.isEmpty()) return;

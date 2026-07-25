@@ -246,6 +246,7 @@ function closeModal() {
 async function save() {
   modalError.value = ''
   try {
+    // 按弹窗模式执行差异化校验，避免密码重置误用编辑字段。
     if (modal.value === 'create') {
       validateUsername(form.username)
       validateLength(form.displayName, '显示名称', { max: 64, required: true })
@@ -263,6 +264,7 @@ async function save() {
   }
   saving.value = true
   try {
+    // 三种操作共享保存状态和刷新流程，仅请求载荷按模式区分。
     if (modal.value === 'create')
       await createUser({
         username: form.username,

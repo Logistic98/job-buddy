@@ -59,6 +59,8 @@ class TranscriptReviewResult(BaseModel):
 
 
 def review_transcript(request: TranscriptReviewRequest) -> TranscriptReviewResult:
+    """仅依据用户消息与拟执行工具判断批准、确认或拒绝。"""
+
     user_text = " ".join(m.content or "" for m in request.messages if m.role == "user").lower()
     user_count = sum(1 for m in request.messages if m.role == "user")
 

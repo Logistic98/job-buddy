@@ -1,6 +1,4 @@
-// Pure DOM/geometry helpers for the resume PDF export path. Extracted from ResumeWriter.vue so the
-// layout math (link hot-zones, pinned photo frames, resize deltas) can be unit-tested without a
-// full component mount, and the component keeps only the html2canvas/jsPDF orchestration.
+// 简历 PDF 导出的无副作用 DOM 与几何辅助函数，使链接热区、照片定位和缩放计算可独立测试。
 
 export function pdfViewerFitWidthUrl(value) {
   const url = String(value || '').trim()

@@ -3,7 +3,9 @@ package com.jobbuddy.backend.modules.auth.dto.response;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-/** 租户菜单的层级、展示、路由和权限映射。 */
+/**
+ * 租户菜单的层级、展示、路由和权限映射。
+ */
 @Data
 @Schema(description = "租户菜单")
 public class RbacMenuResponse {

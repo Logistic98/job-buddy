@@ -14,8 +14,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+/**
+ * 验证 ChatSseHeartbeatScheduler 的核心行为、异常路径与边界条件。
+ */
 class ChatSseHeartbeatSchedulerTest {
 
+  /**
+   * 验证 ChatSseHeartbeatScheduler 的流式生命周期与中断边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldSendHeartbeatDuringLongRunningRequestAndAllowLifecycleStop() throws Exception {
     ChatSseHeartbeatScheduler scheduler =

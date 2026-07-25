@@ -1,3 +1,5 @@
+"""基于选定存储提供租户隔离的记忆生命周期接口。"""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header
@@ -56,7 +58,7 @@ class OperatorRequest(BaseModel):
 
 
 def _resolve_identity(header_tenant: str | None, header_operator: str | None) -> tuple[str, str]:
-    """Resolve identity only from trusted headers injected by the authenticated upstream service."""
+    """仅从已认证上游注入的可信请求头解析身份。"""
     tenant_id = (header_tenant or DEFAULT_TENANT).strip() or DEFAULT_TENANT
     operator_id = (header_operator or ANONYMOUS_OPERATOR).strip() or ANONYMOUS_OPERATOR
     return tenant_id, operator_id

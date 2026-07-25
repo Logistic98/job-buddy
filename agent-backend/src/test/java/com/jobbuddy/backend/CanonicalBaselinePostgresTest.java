@@ -19,6 +19,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+/**
+ * 验证 CanonicalBaselinePostgres 的持久化与状态变更规则。
+ */
 @Testcontainers(disabledWithoutDocker = true)
 class CanonicalBaselinePostgresTest {
 
@@ -57,6 +60,11 @@ class CanonicalBaselinePostgresTest {
   @Container
   static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
+  /**
+   * 清空测试数据库中的应用表。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @BeforeEach
   void resetDatabase() throws Exception {
     try (Connection connection = connection();
@@ -66,6 +74,11 @@ class CanonicalBaselinePostgresTest {
     }
   }
 
+  /**
+   * 验证 CanonicalBaselinePostgres 中岗位的持久化与状态变更规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void emptyDatabaseMigratesWithDefaultUsersAuthorizationAndJobBlacklist() throws Exception {
     var result = flyway().migrate();
@@ -152,6 +165,11 @@ class CanonicalBaselinePostgresTest {
                 + " 'tenant_name', 'last_seen_at', 'favorite_id', 'evaluated_at'))"));
   }
 
+  /**
+   * 验证 CanonicalBaselinePostgres 的输入校验与拒绝边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void nonEmptySchemaWithoutFlywayHistoryFailsClosed() throws Exception {
     try (Connection connection = connection();
@@ -165,6 +183,11 @@ class CanonicalBaselinePostgresTest {
     assertFalse(tableExists("tenant"));
   }
 
+  /**
+   * 创建测试用 Flyway 实例。
+   *
+   * @return Flyway 实例
+   */
   private Flyway flyway() {
     return Flyway.configure()
         .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
@@ -174,11 +197,23 @@ class CanonicalBaselinePostgresTest {
         .load();
   }
 
+  /**
+   * 打开测试数据库连接。
+   *
+   * @return 数据库连接
+   * @throws Exception 处理失败时抛出
+   */
   private Connection connection() throws Exception {
     return DriverManager.getConnection(
         POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
   }
 
+  /**
+   * 查询应用数据表集合。
+   *
+   * @return application 数据表
+   * @throws Exception 处理失败时抛出
+   */
   private Set<String> applicationTables() throws Exception {
     Set<String> tables = new TreeSet<>();
     try (Connection connection = connection();
@@ -195,6 +230,13 @@ class CanonicalBaselinePostgresTest {
     return tables;
   }
 
+  /**
+   * 判断指定数据表是否存在。
+   *
+   * @param table 数据表
+   * @return 数据表是否存在
+   * @throws Exception 处理失败时抛出
+   */
   private boolean tableExists(String table) throws Exception {
     try (Connection connection = connection();
         var statement = connection.prepareStatement("SELECT to_regclass(?) IS NOT NULL")) {
@@ -206,6 +248,13 @@ class CanonicalBaselinePostgresTest {
     }
   }
 
+  /**
+   * 验证查询条件长期。
+   *
+   * @param sql SQL 语句
+   * @return query 长整型值
+   * @throws Exception 处理失败时抛出
+   */
   private long queryLong(String sql) throws Exception {
     try (Connection connection = connection();
         Statement statement = connection.createStatement();
@@ -215,6 +264,13 @@ class CanonicalBaselinePostgresTest {
     }
   }
 
+  /**
+   * 查询单个布尔值。
+   *
+   * @param sql SQL 语句
+   * @return SQL 查询结果
+   * @throws Exception 处理失败时抛出
+   */
   private boolean queryBoolean(String sql) throws Exception {
     try (Connection connection = connection();
         Statement statement = connection.createStatement();
@@ -224,6 +280,13 @@ class CanonicalBaselinePostgresTest {
     }
   }
 
+  /**
+   * 查询单个字符串值。
+   *
+   * @param sql SQL 语句
+   * @return query 字符串值
+   * @throws Exception 处理失败时抛出
+   */
   private String queryString(String sql) throws Exception {
     try (Connection connection = connection();
         Statement statement = connection.createStatement();

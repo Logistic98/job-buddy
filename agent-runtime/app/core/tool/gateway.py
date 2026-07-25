@@ -1,3 +1,5 @@
+"""治理工具发现、权限、Transcript 复核、执行与不可信结果。"""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional

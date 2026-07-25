@@ -55,7 +55,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** SSE 会话主编排：负责连接生命周期、意图分流与各业务链路的调度； 事件下发、持久化、记忆写入与各链路细节由同包协作类承载。 */
+/**
+ * SSE 会话主编排：负责连接生命周期、意图分流与各业务链路的调度； 事件下发、持久化、记忆写入与各链路细节由同包协作类承载。
+ */
 @Service
 public class ChatSseServiceImpl implements ChatSseService {
   private static final Logger log = LoggerFactory.getLogger(ChatSseServiceImpl.class);
@@ -83,9 +85,21 @@ public class ChatSseServiceImpl implements ChatSseService {
   private final JobRecommendHandler jobRecommendHandler;
   private final RuntimeManagedTaskHandler runtimeManagedTaskHandler;
 
+  /**
+   * 创建具名线程工厂。
+   *
+   * @param prefix 名称前缀
+   * @return 创建后的具名线程工厂
+   */
   private static java.util.concurrent.ThreadFactory namedThreadFactory(final String prefix) {
     final AtomicInteger seq = new AtomicInteger(1);
     return new java.util.concurrent.ThreadFactory() {
+      /**
+       * 生成线程。
+       *
+       * @param runnable 待执行任务
+       * @return 线程
+       */
       @Override
       public Thread newThread(Runnable runnable) {
         Thread thread = new Thread(runnable, prefix + "-" + seq.getAndIncrement());
@@ -95,6 +109,21 @@ public class ChatSseServiceImpl implements ChatSseService {
     };
   }
 
+  /**
+   * 创建对话 SSE 服务实例。
+   *
+   * @param jobRuntimeService 岗位运行时服务
+   * @param sessionStore 会话存储
+   * @param integrationService 集成服务
+   * @param intentService 意图服务
+   * @param resumeStorageService 简历存储服务
+   * @param bossCliService Boss CLI 服务
+   * @param personalContextBuilder 个人上下文构建器
+   * @param settingsService 设置服务
+   * @param properties 配置属性
+   * @param agentServiceProperties Agent 服务配置属性
+   * @param admissionController 准入控制器
+   */
   public ChatSseServiceImpl(
       JobRuntimeService jobRuntimeService,
       ChatSessionStore sessionStore,
@@ -164,6 +193,9 @@ public class ChatSseServiceImpl implements ChatSseService {
         new RuntimeManagedTaskHandler(sender, integrationService, requestFactory);
   }
 
+  /**
+   * 关闭任务执行器。
+   */
   @PreDestroy
   public void shutdownExecutors() {
     executor.shutdownNow();
@@ -172,6 +204,12 @@ public class ChatSseServiceImpl implements ChatSseService {
     persistence.shutdown();
   }
 
+  /**
+   * 建立聊天 SSE 流。
+   *
+   * @param request 请求对象
+   * @return SSE 事件流
+   */
   public SseEmitter stream(final ChatStreamRequest request) {
     final ChatStreamAdmissionController.Lease admissionLease =
         admissionController.acquire(
@@ -189,6 +227,9 @@ public class ChatSseServiceImpl implements ChatSseService {
     emitterCancelled.put(emitter, cancelled);
     emitter.onCompletion(
         new Runnable() {
+          /**
+           * 清理已正常结束连接占用的后台资源。
+           */
           @Override
           public void run() {
             // 正常完成或容器侧关闭连接后，阻止后台任务继续向该连接写事件。
@@ -199,6 +240,9 @@ public class ChatSseServiceImpl implements ChatSseService {
         });
     emitter.onTimeout(
         new Runnable() {
+          /**
+           * 中断超时连接对应的后台任务并释放准入许可。
+           */
           @Override
           public void run() {
             cancelled.set(true);
@@ -211,6 +255,11 @@ public class ChatSseServiceImpl implements ChatSseService {
         });
     emitter.onError(
         new java.util.function.Consumer<Throwable>() {
+          /**
+           * 接收并处理输入。
+           *
+           * @param throwable 异常
+           */
           @Override
           public void accept(Throwable throwable) {
             cancelled.set(true);
@@ -229,6 +278,9 @@ public class ChatSseServiceImpl implements ChatSseService {
       future =
           executor.submit(
               new Runnable() {
+                /**
+                 * 在认证上下文内执行完整 SSE 会话并统一释放资源。
+                 */
                 @Override
                 public void run() {
                   AuthenticationScope.set(
@@ -302,6 +354,9 @@ public class ChatSseServiceImpl implements ChatSseService {
             heartbeatIntervalMillis,
             request.getSessionId(),
             new Runnable() {
+              /**
+               * 在心跳写入失败后取消主处理任务。
+               */
               @Override
               public void run() {
                 cancelTask(taskRef);
@@ -313,6 +368,12 @@ public class ChatSseServiceImpl implements ChatSseService {
     return emitter;
   }
 
+  /**
+   * 判断是否为客户端断开连接。
+   *
+   * @param error 异常
+   * @return 是否为客户端断开连接
+   */
   static boolean isClientDisconnect(Throwable error) {
     Throwable current = error;
     for (int depth = 0; current != null && depth < 8; depth++) {
@@ -332,6 +393,11 @@ public class ChatSseServiceImpl implements ChatSseService {
     return false;
   }
 
+  /**
+   * 取消任务。
+   *
+   * @param taskRef 任务引用
+   */
   private void cancelTask(AtomicReference<Future<?>> taskRef) {
     Future<?> task = taskRef.get();
     if (task != null && !task.isDone()) {
@@ -340,6 +406,13 @@ public class ChatSseServiceImpl implements ChatSseService {
     }
   }
 
+  /**
+   * 处理已选岗位分析。
+   *
+   * @param request 请求对象
+   * @param emitter SSE 事件发送器
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private void handle(ChatStreamRequest request, SseEmitter emitter) throws IOException {
     String sessionId =
         request.getSessionId() == null || request.getSessionId().isEmpty()
@@ -532,13 +605,27 @@ public class ChatSseServiceImpl implements ChatSseService {
     handleDirective(emitter, sessionId, effectiveMessage, state, directive, intent);
   }
 
-  /** 安全门控：仅当配置开关开启，且预判为高风险并建议拒绝时拦截。默认关闭，主链路行为与现状一致。 */
+  /**
+   * 安全门控：仅当配置开关开启，且预判为高风险并建议拒绝时拦截。默认关闭，主链路行为与现状一致。
+   *
+   * @param preIntent 前置意图结果
+   * @return 是否被安全门禁拦截
+   */
   private boolean isSafetyGateBlocked(IntentResult preIntent) {
     if (!properties.isIntentSafetyGateEnabled() || preIntent == null) return false;
     return "high".equalsIgnoreCase(stringValue(preIntent.getRisk()))
         && "reject".equalsIgnoreCase(stringValue(preIntent.getNextAction()));
   }
 
+  /**
+   * 执行任务理解。
+   *
+   * @param sessionId 会话标识
+   * @param message 消息内容
+   * @param state 状态
+   * @param preIntent 前置意图结果
+   * @return 任务理解结果
+   */
   private Map<String, Object> runTaskUnderstanding(
       String sessionId, String message, ChatSessionState state, IntentResult preIntent) {
     // 任务理解只需意图/能力路由/directive，这里短路 Runtime 图，跳过上下文装配、Tool Search、Planner、合成，
@@ -575,6 +662,17 @@ public class ChatSseServiceImpl implements ChatSseService {
     return directive;
   }
 
+  /**
+   * 处理运行时指令。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param rawMessage 原始消息
+   * @param state 状态
+   * @param directive 运行时指令
+   * @param intent 意图
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private void handleDirective(
       SseEmitter emitter,
       String sessionId,
@@ -615,6 +713,13 @@ public class ChatSseServiceImpl implements ChatSseService {
     runtimeManagedTaskHandler.handle(emitter, sessionId, rawMessage, state, directive, intent);
   }
 
+  /**
+   * 判断认证后是否恢复岗位匹配。
+   *
+   * @param request 请求对象
+   * @param state 状态
+   * @return 认证后是否恢复岗位匹配是否成立
+   */
   static boolean shouldResumeSelectedJobMatchAfterAuth(
       ChatStreamRequest request, ChatSessionState state) {
     if (request == null
@@ -626,6 +731,12 @@ public class ChatSseServiceImpl implements ChatSseService {
         || "resume_switch_rematch".equals(stringValue(state.lastSlots.get("follow_up")));
   }
 
+  /**
+   * 判断已选项岗位分析。
+   *
+   * @param request 请求对象
+   * @return 已选项岗位分析是否成立
+   */
   private boolean isSelectedJobAnalysis(ChatStreamRequest request) {
     return request != null
         && request.getSelectedJob() != null

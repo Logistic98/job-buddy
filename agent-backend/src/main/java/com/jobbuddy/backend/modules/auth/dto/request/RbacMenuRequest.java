@@ -3,7 +3,9 @@ package com.jobbuddy.backend.modules.auth.dto.request;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
-/** 创建或更新租户菜单时使用的请求。 */
+/**
+ * 创建或更新租户菜单时使用的请求。
+ */
 @Data
 @Schema(description = "菜单创建或更新请求")
 public class RbacMenuRequest {

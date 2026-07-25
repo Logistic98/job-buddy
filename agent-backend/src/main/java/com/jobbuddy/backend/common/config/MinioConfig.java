@@ -6,9 +6,18 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
 
+/**
+ * 配置 MinIO。
+ */
 @Configuration
 public class MinioConfig {
 
+  /**
+   * 创建 MinIO 客户端。
+   *
+   * @param properties 配置属性
+   * @return MinIO 配置 客户端
+   */
   @Bean
   public MinioClient minioClient(JobBuddyProperties properties) {
     JobBuddyProperties.Minio minio = properties.getMinio();
@@ -33,6 +42,12 @@ public class MinioConfig {
     return builder.build();
   }
 
+  /**
+   * 校验并获取文本。
+   *
+   * @param value 待处理值
+   * @param envName 环境名称
+   */
   private static void requireText(String value, String envName) {
     if (!StringUtils.hasText(value)) {
       throw new IllegalStateException("缺少环境变量: " + envName);

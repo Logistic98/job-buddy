@@ -26,7 +26,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 求职旅程接口，提供求职目标、投递记录和进展分析能力。 */
+/**
+ * 求职旅程接口，提供求职目标、投递记录和进展分析能力。
+ */
 @Tag(name = "求职旅程接口")
 @RestController
 @RequirePermission(PermissionCodes.JOURNEY_USE)
@@ -34,6 +36,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class JobJourneyController {
   private final JobJourneyService service;
 
+  /**
+   * 创建岗位求职旅程接口实例。
+   *
+   * @param service 服务
+   */
   public JobJourneyController(JobJourneyService service) {
     this.service = service;
   }
@@ -41,6 +48,7 @@ public class JobJourneyController {
   /**
    * 查询求职目标。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询求职目标")
@@ -53,6 +61,8 @@ public class JobJourneyController {
   /**
    * 保存求职目标。
    *
+   * @param request 请求对象
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "保存求职目标")
@@ -66,6 +76,10 @@ public class JobJourneyController {
   /**
    * 查询求职记录列表。
    *
+   * @param request 请求对象
+   * @param keyword 关键词
+   * @param status 状态
+   * @param result 执行结果
    * @return 统一接口响应
    */
   @Operation(summary = "查询求职记录列表")
@@ -82,6 +96,8 @@ public class JobJourneyController {
   /**
    * 分析求职进展。
    *
+   * @param request 请求对象
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "分析求职进展")
@@ -95,6 +111,8 @@ public class JobJourneyController {
   /**
    * 查询求职记录详情。
    *
+   * @param request 请求对象
+   * @param recordId 记录标识
    * @return 统一接口响应
    */
   @Operation(summary = "查询求职记录详情")
@@ -108,6 +126,8 @@ public class JobJourneyController {
   /**
    * 创建求职记录。
    *
+   * @param request 请求对象
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "创建求职记录")
@@ -121,6 +141,9 @@ public class JobJourneyController {
   /**
    * 更新求职记录。
    *
+   * @param request 请求对象
+   * @param recordId 记录标识
+   * @param payload 请求载荷
    * @return 统一接口响应
    */
   @Operation(summary = "更新求职记录")
@@ -136,6 +159,8 @@ public class JobJourneyController {
   /**
    * 删除求职记录。
    *
+   * @param request 请求对象
+   * @param recordId 记录标识
    * @return 统一接口响应
    */
   @Operation(summary = "删除求职记录")

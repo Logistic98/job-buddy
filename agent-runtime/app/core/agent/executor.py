@@ -1,3 +1,5 @@
+"""协调单次 Agent 运行的任务理解、状态图、检查点与最终输出。"""
+
 import asyncio
 import os
 from typing import AsyncIterator, Dict, List
@@ -118,6 +120,7 @@ class AgentExecutor:
     async def _execute_inner(
         self, request: AgentRunRequest, timer: ExecutionTimer, trace_id: str, run_id: str, session_id: str
     ) -> AgentRunResponse:
+        # 每次运行先固定模型客户端、状态图和独立用量统计上下文。
         logger.info("Agent 执行开始")
         await self.trace_recorder.record(
             trace_id, TraceEventName.RUN_START.value, {"session_id": session_id}, run_id=run_id
@@ -131,6 +134,7 @@ class AgentExecutor:
 
         try:
             final_state = await graph.ainvoke(state)
+            # 正常终态先落 Trace，再从最终状态组装稳定响应。
             timer.end()
             await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(
@@ -162,6 +166,7 @@ class AgentExecutor:
                 stop_reason=final_state.get("stop_reason"),
             )
         except Exception as e:
+            # 异常时优先恢复最近检查点，保留可续跑现场后再记录失败终态。
             timer.end()
             latest_checkpoint = await self.checkpoint_store.load_latest(session_id)
             if latest_checkpoint and latest_checkpoint.get("state"):
@@ -603,6 +608,7 @@ class AgentExecutor:
 
     async def _initial_state(self, request: AgentRunRequest, session_id: str, run_id: str, trace_id: str):
         metadata = request.metadata or {}
+        # 恢复执行只继承业务状态，运行标识、权限、预算和本轮消息必须使用当前请求。
         if metadata.get("resume_from_checkpoint") and session_id:
             checkpoint = await self.checkpoint_store.load_latest(session_id)
             if checkpoint and checkpoint.get("state"):
@@ -634,6 +640,7 @@ class AgentExecutor:
                 )
                 return state
 
+        # 新任务显式初始化所有计数器和集合，保证检查点结构稳定可回放。
         state = {
             "run_id": run_id,
             "trace_id": trace_id,
@@ -748,7 +755,7 @@ class AgentExecutor:
         return self.default_llm_client
 
     def _build_graph(self, llm_client):
-        """Build a request-local graph when a run overrides its LLM connection."""
+        """运行覆盖模型连接时构建请求级状态图。"""
         task_understanding = TaskUnderstandingService(
             capability_registry=self.capability_registry,
             llm_client=llm_client,

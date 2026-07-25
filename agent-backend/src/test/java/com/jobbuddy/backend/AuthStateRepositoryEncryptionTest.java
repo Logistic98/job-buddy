@@ -19,8 +19,14 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+/**
+ * 验证 AuthStateRepositoryEncryption 的核心行为、异常路径与边界条件。
+ */
 class AuthStateRepositoryEncryptionTest {
 
+  /**
+   * 验证 AuthStateRepositoryEncryption 中凭据的安全保护边界。
+   */
   @Test
   void saveMustWriteCiphertextInsteadOfCredentialJson() {
     AuthStateMapper mapper = mock(AuthStateMapper.class);
@@ -42,6 +48,9 @@ class AuthStateRepositoryEncryptionTest {
     assertTrue(!stored.contains("secret"));
   }
 
+  /**
+   * 验证 AuthStateRepositoryEncryption 中凭据的安全保护边界。
+   */
   @Test
   void plaintextCredentialMustBeRejected() {
     AuthStateMapper mapper = mock(AuthStateMapper.class);
@@ -56,10 +65,22 @@ class AuthStateRepositoryEncryptionTest {
         () -> repository.findByProvider("tenant-a", "user-a", "jackwener/boss-cli"));
   }
 
+  /**
+   * 验证存储访问。
+   *
+   * @param mapper 数据映射
+   * @param properties 配置属性
+   * @return 使用测试密钥的认证状态仓库
+   */
   private AuthStateRepository repository(AuthStateMapper mapper, JobBuddyProperties properties) {
     return new AuthStateRepository(mapper, new JsonCodec(), new BossCredentialCipher(properties));
   }
 
+  /**
+   * 验证配置属性带有键。
+   *
+   * @return 带测试密钥的配置
+   */
   private JobBuddyProperties propertiesWithKey() {
     JobBuddyProperties properties = new JobBuddyProperties();
     byte[] key = "0123456789abcdef0123456789abcdef".getBytes(StandardCharsets.UTF_8);
@@ -67,6 +88,11 @@ class AuthStateRepositoryEncryptionTest {
     return properties;
   }
 
+  /**
+   * 创建映射参数捕获器。
+   *
+   * @return 映射参数捕获器
+   */
   @SuppressWarnings({"rawtypes", "unchecked"})
   private ArgumentCaptor<Map<String, Object>> mapCaptor() {
     return (ArgumentCaptor) ArgumentCaptor.forClass(Map.class);

@@ -30,6 +30,18 @@ public final class RuntimeRunRequest {
   private final ObjectNode metadata;
   private final ObjectNode extensions;
 
+  /**
+   * 创建运行时运行请求实例。
+   *
+   * @param messages 消息列表
+   * @param traceId Trace 标识
+   * @param sessionId 会话标识
+   * @param permissionMode 权限模式
+   * @param budget 预算
+   * @param stream 流式响应
+   * @param metadata 元数据
+   * @param extensions 扩展名
+   */
   private RuntimeRunRequest(
       List<RuntimeMessage> messages,
       String traceId,
@@ -52,15 +64,33 @@ public final class RuntimeRunRequest {
     this.extensions = extensions == null ? emptyObject() : extensions.deepCopy();
   }
 
+  /**
+   * 创建空结果对象。
+   *
+   * @return 空结果对象
+   */
   public static RuntimeRunRequest empty() {
     return fromJson(emptyObject());
   }
 
+  /**
+   * 根据运行时载荷创建请求。
+   *
+   * @param payload 请求载荷
+   * @param jsonCodec JSON 编解码器
+   * @return 运行时请求
+   */
   public static RuntimeRunRequest fromPayload(Map<String, Object> payload, JsonCodec jsonCodec) {
     return fromJson(
         jsonCodec == null || payload == null ? emptyObject() : jsonCodec.toTree(payload));
   }
 
+  /**
+   * 从 JSON 文本反序列化对象。
+   *
+   * @param source 源数据
+   * @return 反序列化结果
+   */
   public static RuntimeRunRequest fromJson(JsonNode source) {
     if (source == null || !source.isObject()) source = emptyObject();
     ObjectNode object = (ObjectNode) source;
@@ -79,6 +109,11 @@ public final class RuntimeRunRequest {
         extensions);
   }
 
+  /**
+   * 将对象序列化为 JSON 文本。
+   *
+   * @return JSON 文本
+   */
   public ObjectNode toJson() {
     ObjectNode result = extensions.deepCopy();
     if (messages != null) {
@@ -94,38 +129,84 @@ public final class RuntimeRunRequest {
     return result;
   }
 
+  /**
+   * 读取消息列表。
+   *
+   * @return 消息列表
+   */
   public List<RuntimeMessage> messages() {
     return messages;
   }
 
+  /**
+   * 读取 Trace 标识。
+   *
+   * @return Trace 标识
+   */
   public String traceId() {
     return traceId;
   }
 
+  /**
+   * 读取会话标识。
+   *
+   * @return 会话标识
+   */
   public String sessionId() {
     return sessionId;
   }
 
+  /**
+   * 读取权限模式。
+   *
+   * @return 权限模式
+   */
   public String permissionMode() {
     return permissionMode;
   }
 
+  /**
+   * 构造运行时预算。
+   *
+   * @return 运行时预算
+   */
   public RuntimeBudget budget() {
     return budget;
   }
 
+  /**
+   * 订阅运行时运行请求。
+   *
+   * @return 是否启用流式响应
+   */
   public Boolean stream() {
     return stream;
   }
 
+  /**
+   * 读取扩展元数据。
+   *
+   * @return 扩展元数据
+   */
   public ObjectNode metadata() {
     return metadata == null ? null : metadata.deepCopy();
   }
 
+  /**
+   * 获取扩展字段对象。
+   *
+   * @return 扩展字段对象
+   */
   public ObjectNode extensions() {
     return extensions.deepCopy();
   }
 
+  /**
+   * 读取消息列表。
+   *
+   * @param value 待处理值
+   * @return 消息列表
+   */
   private static List<RuntimeMessage> messages(JsonNode value) {
     if (value == null || !value.isArray()) return null;
     List<RuntimeMessage> result = new ArrayList<RuntimeMessage>();
@@ -133,14 +214,31 @@ public final class RuntimeRunRequest {
     return result;
   }
 
+  /**
+   * 读取文本内容。
+   *
+   * @param value 待处理值
+   * @return 文本内容
+   */
   private static String text(JsonNode value) {
     return value == null || value.isNull() ? null : value.asText();
   }
 
+  /**
+   * 读取布尔字段。
+   *
+   * @param value 待处理值
+   * @return 转换后的布尔值
+   */
   private static Boolean bool(JsonNode value) {
     return value == null || !value.isBoolean() ? null : Boolean.valueOf(value.booleanValue());
   }
 
+  /**
+   * 创建空 JSON 对象。
+   *
+   * @return 空 JSON 对象
+   */
   private static ObjectNode emptyObject() {
     return JsonNodeFactory.instance.objectNode();
   }

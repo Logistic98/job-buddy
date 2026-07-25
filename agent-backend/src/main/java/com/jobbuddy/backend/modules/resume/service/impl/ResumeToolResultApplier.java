@@ -6,13 +6,30 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Runtime 工具结果落盘：严格校验 resume_parse / resume_analyze 结果并写回简历记录。 */
+/**
+ * Runtime 工具结果落盘：严格校验 resume_parse / resume_analyze 结果并写回简历记录。
+ */
 class ResumeToolResultApplier {
 
+  /**
+   * 提取分析参数。
+   *
+   * @param tempFile 临时文件
+   * @param record 记录
+   * @return 分析参数
+   */
   Map<String, Object> analysisArgs(Path tempFile, ResumeRecord record) {
     return analysisArgs(tempFile, record, null);
   }
 
+  /**
+   * 提取分析参数。
+   *
+   * @param tempFile 临时文件
+   * @param record 记录
+   * @param sections 简历章节列表
+   * @return 分析参数
+   */
   Map<String, Object> analysisArgs(
       Path tempFile, ResumeRecord record, java.util.List<String> sections) {
     Map<String, Object> args = new LinkedHashMap<String, Object>();
@@ -22,6 +39,12 @@ class ResumeToolResultApplier {
     return args;
   }
 
+  /**
+   * 压缩解析结果。
+   *
+   * @param parsed 解析结果
+   * @return 压缩后的解析数据
+   */
   private Map<String, Object> compactParsed(Map<String, Object> parsed) {
     if (parsed == null || parsed.isEmpty()) return Collections.emptyMap();
     Map<String, Object> compact = new LinkedHashMap<String, Object>();
@@ -40,6 +63,12 @@ class ResumeToolResultApplier {
     return compact;
   }
 
+  /**
+   * 合并分析结果。
+   *
+   * @param record 记录
+   * @param result 执行结果
+   */
   void mergeAnalysisResult(ResumeRecord record, Map<String, Object> result) {
     if (!Boolean.TRUE.equals(result.get("success"))) {
       throw new RuntimeException(stringOf(result.get("error")));
@@ -61,6 +90,12 @@ class ResumeToolResultApplier {
     record.setParsed(parsed);
   }
 
+  /**
+   * 应用分析结果。
+   *
+   * @param record 记录
+   * @param result 执行结果
+   */
   void applyAnalysisResult(ResumeRecord record, Map<String, Object> result) {
     if (!Boolean.TRUE.equals(result.get("success"))) {
       throw new RuntimeException(stringOf(result.get("error")));
@@ -78,6 +113,12 @@ class ResumeToolResultApplier {
     record.setParsed(parsed);
   }
 
+  /**
+   * 应用解析结果。
+   *
+   * @param record 记录
+   * @param result 执行结果
+   */
   void applyParseResult(ResumeRecord record, Map<String, Object> result) {
     boolean success = Boolean.TRUE.equals(result.get("success"));
     if (!success) {
@@ -104,6 +145,12 @@ class ResumeToolResultApplier {
     record.setParseError(null);
   }
 
+  /**
+   * 将输入值转换为字符串。
+   *
+   * @param value 输入值
+   * @return 转换后的字符串
+   */
   private String stringOf(Object value) {
     return value == null ? "" : String.valueOf(value);
   }

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Applies or verifies the repository's language-specific source formatters.
+# 应用或校验仓库各语言格式化工具。
 
 set -euo pipefail
 

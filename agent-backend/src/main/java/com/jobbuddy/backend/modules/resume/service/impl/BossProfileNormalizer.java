@@ -7,7 +7,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** 求职画像的字段归一化：将 Boss 在线简历原始结构映射为统一的 parsed 画像字段， 并提供画像文本渲染、空画像模板与规则版摘要兜底。 */
+/**
+ * 求职画像的字段归一化：将 Boss 在线简历原始结构映射为统一的 parsed 画像字段， 并提供画像文本渲染、空画像模板与规则版摘要兜底。
+ */
 class BossProfileNormalizer {
 
   static final String PROFILE_SOURCE_TYPE = "job_profile";
@@ -15,11 +17,23 @@ class BossProfileNormalizer {
 
   private final JsonCodec jsonCodec;
 
+  /**
+   * 创建 Boss 画像规范化器实例。
+   *
+   * @param jsonCodec JSON 编解码器
+   */
   BossProfileNormalizer(JsonCodec jsonCodec) {
     this.jsonCodec = jsonCodec;
   }
 
+  /**
+   * 规范化 Boss 画像。
+   *
+   * @param profile 画像
+   * @return 规范化后的 Boss 画像
+   */
   Map<String, Object> normalizeBossProfile(Map<String, Object> profile) {
+    // 先兼容 Boss 不同接口版本的顶层分组结构。
     Map<String, Object> basic = asMap(profile.get("basicInfo"));
     Map<String, Object> expectations = asMap(profile.get("jobExpectations"));
     Map<String, Object> status = asMap(profile.get("jobStatus"));
@@ -30,6 +44,7 @@ class BossProfileNormalizer {
     Map<String, Object> education = asMap(profile.get("educationExperiences"));
     Map<String, Object> intention = asMap(profile.get("jobIntentions"));
 
+    // 核心画像字段按明确优先级从分组和原始载荷中提取。
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();
     parsed.put(
         "name",
@@ -75,6 +90,7 @@ class BossProfileNormalizer {
             "geekSkillList",
             "skillList"));
 
+    // 经历类字段保留原结构，缺失时递归查找兼容的历史字段名。
     parsed.put("basic_info", basic.isEmpty() ? profile : basic);
     parsed.put(
         "personal_advantage",
@@ -177,6 +193,7 @@ class BossProfileNormalizer {
                 "jobExpectations")
             : intention);
 
+    // 同时输出 Runtime 使用的稳定别名和可追溯来源信息。
     parsed.put("education", parsed.get("education_experiences"));
     parsed.put("experiences", parsed.get("work_experiences"));
     parsed.put("projects", parsed.get("project_experiences"));
@@ -190,6 +207,11 @@ class BossProfileNormalizer {
     return parsed;
   }
 
+  /**
+   * 获取空值岗位画像。
+   *
+   * @return 空值岗位画像
+   */
   Map<String, Object> emptyJobProfile() {
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();
     parsed.put("name", "");
@@ -210,6 +232,13 @@ class BossProfileNormalizer {
     return parsed;
   }
 
+  /**
+   * 确保画像来源。
+   *
+   * @param parsed 解析结果
+   * @param provider 提供方
+   * @param raw 原始数据
+   */
   void ensureProfileSource(Map<String, Object> parsed, String provider, Map<String, Object> raw) {
     Map<String, Object> source = asMap(parsed.get("source"));
     source.put("type", PROFILE_SOURCE_TYPE);
@@ -219,6 +248,13 @@ class BossProfileNormalizer {
     parsed.put("source", source);
   }
 
+  /**
+   * 渲染 Boss 画像文本。
+   *
+   * @param parsed 解析结果
+   * @param raw 原始数据
+   * @return Boss 画像文本
+   */
   String renderBossProfileText(Map<String, Object> parsed, Map<String, Object> raw) {
     StringBuilder builder = new StringBuilder();
     builder.append("# 求职画像\n\n");
@@ -229,6 +265,12 @@ class BossProfileNormalizer {
     return builder.toString();
   }
 
+  /**
+   * 获取降级结果画像摘要。
+   *
+   * @param parsed 解析结果
+   * @return 降级结果画像摘要
+   */
   String fallbackProfileSummary(Map<String, Object> parsed) {
     Map<String, Object> basic = asMap(parsed.get("basic_info"));
     Map<String, Object> expectation =
@@ -285,11 +327,27 @@ class BossProfileNormalizer {
             : result);
   }
 
+  /**
+   * 转换为映射。
+   *
+   * @param value 输入值
+   * @return 转换后的键值映射
+   */
   Map<String, Object> asMap(Object value) {
     if (value instanceof Map) return new LinkedHashMap<String, Object>((Map<String, Object>) value);
     return new LinkedHashMap<String, Object>();
   }
 
+  /**
+   * 构建 Boss 摘要。
+   *
+   * @param basic 基础信息
+   * @param expectations 求职期望
+   * @param status 状态
+   * @param user 用户
+   * @param profile 画像
+   * @return Boss 摘要
+   */
   private String buildBossSummary(
       Map<String, Object> basic,
       Map<String, Object> expectations,
@@ -350,27 +408,59 @@ class BossProfileNormalizer {
     return builder.length() == 0 ? "已从 Boss 直聘在线资料同步，可作为问答画像上下文。" : builder.toString();
   }
 
+  /**
+   * 获取首个非空文本。
+   *
+   * @param values 输入值列表
+   * @return 首个非空文本
+   */
   private Object firstNonEmpty(Object... values) {
     for (Object value : values)
       if (value != null && !String.valueOf(value).trim().isEmpty()) return value;
     return null;
   }
 
+  /**
+   * 获取首个文本。
+   *
+   * @param values 输入值列表
+   * @return 首个文本
+   */
   private String firstText(Object... values) {
     Object value = firstNonEmpty(values);
     return value == null ? "" : shortText(value, 200).trim();
   }
 
+  /**
+   * 获取首个完整句子。
+   *
+   * @param value 输入值
+   * @param maxLength 最大长度
+   * @return 首个完整句子
+   */
   private String firstSentence(String value, int maxLength) {
     String text = value == null ? "" : value.replaceAll("[\\r\\n]+", " ").trim();
     String[] parts = text.split("[。！？；;]");
     return shortText(parts.length == 0 ? text : parts[0], maxLength);
   }
 
+  /**
+   * 按句子边界裁剪文本。
+   *
+   * @param value 输入值
+   * @return 限长后的句子
+   */
   private String trimSentence(String value) {
     return value == null ? "" : value.replaceAll("[。；;]+$", "").trim();
   }
 
+  /**
+   * 生成短文本。
+   *
+   * @param value 输入值
+   * @param maxLength 最大长度
+   * @return 短文本
+   */
   private String shortText(Object value, int maxLength) {
     String text =
         String.valueOf(value == null ? "" : value)
@@ -380,12 +470,29 @@ class BossProfileNormalizer {
     return text.length() > maxLength ? text.substring(0, maxLength) : text;
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param primary 主值
+   * @param secondary 备用值
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private Object firstPresent(
       Map<String, Object> primary, Map<String, Object> secondary, String... keys) {
     Object value = firstPresent(primary, keys);
     return value != null ? value : firstPresent(secondary, keys);
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param first 第一个候选值
+   * @param second 第二个候选值
+   * @param third 第三个候选值
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private Object firstPresent(
       Map<String, Object> first,
       Map<String, Object> second,
@@ -397,6 +504,13 @@ class BossProfileNormalizer {
     return value != null ? value : firstPresent(third, keys);
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param map 数据映射
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private Object firstPresent(Map<String, Object> map, String... keys) {
     if (map == null) return null;
     for (String key : keys) {
@@ -406,6 +520,14 @@ class BossProfileNormalizer {
     return null;
   }
 
+  /**
+   * 获取首个非空值深挖。
+   *
+   * @param primary 主值
+   * @param secondary 备用值
+   * @param keys 键列表
+   * @return 首个非空值深挖
+   */
   private Object firstPresentDeep(
       Map<String, Object> primary, Map<String, Object> secondary, String... keys) {
     Object value = firstPresent(primary, keys);
@@ -416,6 +538,14 @@ class BossProfileNormalizer {
     return value != null ? value : deepFind(secondary, keys, 0);
   }
 
+  /**
+   * 递归查找嵌套字段。
+   *
+   * @param node JSON 节点
+   * @param keys 键列表
+   * @param depth 递归深度
+   * @return 递归查找结果
+   */
   private Object deepFind(Object node, String[] keys, int depth) {
     if (node == null || depth > 5) return null;
     if (node instanceof Map) {
@@ -437,6 +567,15 @@ class BossProfileNormalizer {
     return null;
   }
 
+  /**
+   * 获取首个字符串。
+   *
+   * @param first 第一个候选值
+   * @param second 第二个候选值
+   * @param third 第三个候选值
+   * @param keys 键列表
+   * @return 首个字符串
+   */
   private String firstString(
       Map<String, Object> first,
       Map<String, Object> second,
@@ -446,18 +585,38 @@ class BossProfileNormalizer {
     return value == null ? "" : String.valueOf(value);
   }
 
+  /**
+   * 获取首个字符串。
+   *
+   * @param primary 主值
+   * @param secondary 备用值
+   * @param keys 键列表
+   * @return 首个字符串
+   */
   private String firstString(
       Map<String, Object> primary, Map<String, Object> secondary, String... keys) {
     Object value = firstPresent(primary, secondary, keys);
     return value == null ? "" : String.valueOf(value);
   }
 
+  /**
+   * 追加非空文本片段。
+   *
+   * @param builder 文本构建器
+   * @param value 输入值
+   */
   private void appendPart(StringBuilder builder, String value) {
     if (value == null || value.trim().isEmpty()) return;
     if (builder.length() > 0) builder.append("，");
     builder.append(value.trim());
   }
 
+  /**
+   * 将输入值转换为字符串。
+   *
+   * @param value 输入值
+   * @return 转换后的字符串
+   */
   private String stringOf(Object value) {
     return value == null ? "" : String.valueOf(value);
   }

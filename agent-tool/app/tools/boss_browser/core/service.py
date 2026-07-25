@@ -34,6 +34,8 @@ class RiskControlError(Exception):
 
 
 class BossService:
+    """为单个属主协调凭据、风控与标准化 boss-cli 操作。"""
+
     def __init__(
         self,
         settings: Settings,
@@ -157,6 +159,7 @@ class BossService:
             raise
         self._handle_upstream_rate_limit(result)
         self._handle_risk(result.get("risk_marker"))
+        # 登录跳转与临时令牌失败分别归类，避免把认证问题计为普通空结果。
         if result.get("login_redirect"):
             raise AuthRequiredError(result.get("error_message") or "Boss 未登录或登录态失效，请扫码登录。")
         payload = result.get("payload")
@@ -170,6 +173,7 @@ class BossService:
             if not result.get("local_rejected"):
                 self._limiter.record_failure()
             raise RuntimeError(result.get("error_message") or "未拿到 Boss 收藏列表数据，请稍后重试。")
+        # 上游总量与 hasMore 共同推导页数，再受人工可浏览页数上限约束。
         jobs = extract_jobs(payload)
         total_count = self._payload_value(payload, "totalCount", len(jobs))
         try:

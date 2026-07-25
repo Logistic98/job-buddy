@@ -15,8 +15,17 @@ public final class ResumeParsedContent {
       new HashSet<String>(
           Arrays.asList("folder", "resumeFolder", "version", "labels", "manageTags", "updatedAt"));
 
+  /**
+   * 创建简历解析后内容实例。
+   */
   private ResumeParsedContent() {}
 
+  /**
+   * 判断是否存在内容。
+   *
+   * @param parsed 解析结果
+   * @return 是否存在内容
+   */
   public static boolean hasContent(Map<String, Object> parsed) {
     if (parsed == null || parsed.isEmpty()) return false;
     for (Map.Entry<String, Object> entry : parsed.entrySet()) {

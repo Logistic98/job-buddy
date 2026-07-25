@@ -12,10 +12,16 @@ import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import java.util.Collections;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 IntentServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class IntentServiceImplTest {
 
   private static final String FALLBACK_MARKER = "intent_service_unavailable_local_fallback";
 
+  /**
+   * 验证 IntentServiceImpl 的核心业务契约。
+   */
   @Test
   void shouldPreferRemoteIntentResultWhenAvailable() {
     IntentClient client = mock(IntentClient.class);
@@ -39,6 +45,9 @@ class IntentServiceImplTest {
     assertFalse(result.getSecondary().contains(FALLBACK_MARKER));
   }
 
+  /**
+   * 验证 IntentServiceImpl 的失败恢复、超时与降级边界。
+   */
   @Test
   void emptyMessageShouldFallbackToClarify() {
     IntentClient client = mock(IntentClient.class);
@@ -53,6 +62,9 @@ class IntentServiceImplTest {
     assertTrue(result.getSecondary().contains(FALLBACK_MARKER));
   }
 
+  /**
+   * 验证 IntentServiceImpl 的输入校验与拒绝边界。
+   */
   @Test
   void highRiskKeywordsShouldBeRejectedByLocalFallback() {
     IntentClient client = mock(IntentClient.class);
@@ -68,6 +80,9 @@ class IntentServiceImplTest {
     assertTrue(result.isNeedsClarification());
   }
 
+  /**
+   * 验证 IntentServiceImpl 中岗位的失败恢复、超时与降级边界。
+   */
   @Test
   void jobKeywordsShouldRouteToJobDomainByLocalFallback() {
     IntentClient client = mock(IntentClient.class);
@@ -82,6 +97,9 @@ class IntentServiceImplTest {
     assertTrue(result.getSecondary().contains(FALLBACK_MARKER));
   }
 
+  /**
+   * 验证 IntentServiceImpl 的失败恢复、超时与降级边界。
+   */
   @Test
   void generalMessageShouldFallbackToOpenDomainChat() {
     IntentClient client = mock(IntentClient.class);

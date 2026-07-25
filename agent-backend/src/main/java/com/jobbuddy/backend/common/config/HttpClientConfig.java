@@ -15,9 +15,20 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
+/**
+ * 构建内部服务 HTTP 连接池并透传服务令牌与请求身份。
+ *
+ * <p>重试由调用方的弹性策略统一管理，避免传输层重复非幂等操作。
+ */
 @Configuration
 public class HttpClientConfig {
 
+  /**
+   * 创建统一配置的 HTTP 客户端。
+   *
+   * @param properties 配置属性
+   * @return HTTP 客户端
+   */
   @Bean
   @Primary
   public RestTemplate restTemplate(AgentServiceProperties properties) {
@@ -26,9 +37,10 @@ public class HttpClientConfig {
   }
 
   /**
-   * Memory management is a synchronous settings-path dependency, so it uses a short dedicated
-   * timeout. Automatic Apache retries are disabled because ServiceResilience owns the explicit
-   * retry budget and error classification.
+   * 记忆管理属于同步设置链路，使用独立短超时。自动重试关闭，由 ServiceResilience 统一管理重试预算和错误分类。
+   *
+   * @param properties 配置属性
+   * @return 记忆服务 HTTP 客户端
    */
   @Bean("agentMemoryRestTemplate")
   public RestTemplate agentMemoryRestTemplate(AgentServiceProperties properties) {
@@ -36,6 +48,15 @@ public class HttpClientConfig {
         properties, properties.getMemoryConnectTimeout(), properties.getMemoryReadTimeout(), true);
   }
 
+  /**
+   * 创建 REST 请求客户端。
+   *
+   * @param properties 配置属性
+   * @param connectDuration 连接时长
+   * @param readDuration 读取时长
+   * @param disableAutomaticRetries 是否禁用自动重试
+   * @return HTTP 客户端
+   */
   private RestTemplate createRestTemplate(
       AgentServiceProperties properties,
       java.time.Duration connectDuration,

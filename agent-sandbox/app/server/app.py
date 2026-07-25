@@ -37,9 +37,12 @@ _ALLOWED_ENV_KEYS = {"LANG", "LC_ALL", "LC_CTYPE"}
 
 
 def create_app() -> FastAPI:
+    """创建沙箱服务并注册受并发和策略约束的执行接口。"""
+
     app = FastAPI(title="Job Buddy Sandbox Runtime Service", version="1.0.0")
     install_internal_auth(app)
 
+    # 各执行入口只负责请求类型适配，资源约束与清理由统一执行边界处理。
     @app.get("/health")
     def health() -> dict:
         return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-sandbox"}}

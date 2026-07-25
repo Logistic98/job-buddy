@@ -5,7 +5,9 @@ import java.util.ArrayList;
 import java.util.List;
 import lombok.Data;
 
-/** 创建或更新租户角色时使用的请求。 */
+/**
+ * 创建或更新租户角色时使用的请求。
+ */
 @Data
 @Schema(description = "角色创建或更新请求")
 public class RbacRoleRequest {

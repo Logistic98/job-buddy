@@ -16,7 +16,13 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+/**
+ * 验证 ResumeWriterVersionService 的核心行为、异常路径与边界条件。
+ */
 class ResumeWriterVersionServiceTest {
+  /**
+   * 验证 ResumeWriterVersionService 的数量、长度与分页边界。
+   */
   @Test
   void createAssignsIncrementingVersionNoAndTrimsToLimit() {
     ResumeWriterVersionMapper mapper = mock(ResumeWriterVersionMapper.class);
@@ -42,6 +48,9 @@ class ResumeWriterVersionServiceTest {
     verify(mapper).deleteBeyondLimit("tenant-a", "user-a", 12);
   }
 
+  /**
+   * 验证 ResumeWriterVersionService 的输入校验与拒绝边界。
+   */
   @Test
   void createRejectsUnknownSourceAndEmptySnapshot() {
     ResumeWriterVersionServiceImpl service = newService(mock(ResumeWriterVersionMapper.class));
@@ -57,6 +66,9 @@ class ResumeWriterVersionServiceTest {
                 create(null, ResumeWriterVersionService.SOURCE_MANUAL, null, "  ")));
   }
 
+  /**
+   * 验证 ResumeWriterVersionService 的输入校验与拒绝边界。
+   */
   @Test
   void createRejectsOversizedSnapshot() {
     ResumeWriterVersionMapper mapper = mock(ResumeWriterVersionMapper.class);
@@ -73,6 +85,9 @@ class ResumeWriterVersionServiceTest {
     verify(mapper, never()).insertVersion(anyMap());
   }
 
+  /**
+   * 验证 ResumeWriterVersionService 的持久化与状态变更规则。
+   */
   @Test
   void restoreBacksUpCurrentStateBeforeReturningTarget() {
     ResumeWriterVersionMapper mapper = mock(ResumeWriterVersionMapper.class);
@@ -94,6 +109,9 @@ class ResumeWriterVersionServiceTest {
     assertEquals(ResumeWriterVersionService.SOURCE_RESTORE_BACKUP, captor.getValue().get("source"));
   }
 
+  /**
+   * 验证 ResumeWriterVersionService 的持久化与状态变更规则。
+   */
   @Test
   void restoreWithoutCurrentSnapshotSkipsBackup() {
     ResumeWriterVersionMapper mapper = mock(ResumeWriterVersionMapper.class);
@@ -104,6 +122,9 @@ class ResumeWriterVersionServiceTest {
     verify(mapper, never()).insertVersion(anyMap());
   }
 
+  /**
+   * 验证 ResumeWriterVersionService 的权限与租户隔离边界。
+   */
   @Test
   void crossOwnerVersionAccessFails() {
     ResumeWriterVersionMapper mapper = mock(ResumeWriterVersionMapper.class);
@@ -117,6 +138,9 @@ class ResumeWriterVersionServiceTest {
     assertThrows(IllegalArgumentException.class, () -> service.list(null, "user-b"));
   }
 
+  /**
+   * 验证 ResumeWriterVersionService 的核心业务契约。
+   */
   @Test
   void autoTitleFallsBackBySource() {
     ResumeWriterVersionMapper mapper = mock(ResumeWriterVersionMapper.class);
@@ -131,6 +155,15 @@ class ResumeWriterVersionServiceTest {
     assertNull(created.getResumeId());
   }
 
+  /**
+   * 验证创建。
+   *
+   * @param resumeId 简历标识
+   * @param source 源数据
+   * @param title 标题
+   * @param snapshot 快照
+   * @return 创建后的记忆记录
+   */
   private ResumeWriterVersionCreateRequest create(
       String resumeId, String source, String title, String snapshot) {
     ResumeWriterVersionCreateRequest request = new ResumeWriterVersionCreateRequest();
@@ -141,6 +174,13 @@ class ResumeWriterVersionServiceTest {
     return request;
   }
 
+  /**
+   * 验证恢复。
+   *
+   * @param resumeId 简历标识
+   * @param snapshot 快照
+   * @return 版本恢复请求
+   */
   private ResumeWriterRestoreRequest restore(String resumeId, String snapshot) {
     ResumeWriterRestoreRequest request = new ResumeWriterRestoreRequest();
     request.setCurrentResumeId(resumeId);
@@ -148,6 +188,12 @@ class ResumeWriterVersionServiceTest {
     return request;
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @param mapper 数据映射
+   * @return 服务
+   */
   private ResumeWriterVersionServiceImpl newService(ResumeWriterVersionMapper mapper) {
     return new ResumeWriterVersionServiceImpl(mapper, new JobBuddyProperties());
   }

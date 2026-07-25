@@ -1,3 +1,5 @@
+"""通过不阻塞主链路的旁路将 Trace 事件导出到 OTLP。"""
+
 from __future__ import annotations
 
 import asyncio
@@ -48,6 +50,7 @@ class OtelExporter:
 
     def build_payload(self, item: TraceEvent) -> Dict[str, Any]:
         now_nano = str(time.time_ns())
+        # 载荷正文有独立长度上限，核心审计字段固定展开为 Span 属性。
         payload_text = json.dumps(item.payload or {}, ensure_ascii=False, default=str)[:MAX_PAYLOAD_CHARS]
 
         attrs = [
@@ -74,6 +77,7 @@ class OtelExporter:
             {"key": "payload", "value": {"stringValue": payload_text}},
         ]
 
+        # 内部追踪标识转换为 OTLP 固定长度十六进制标识。
         span = {
             "traceId": self._trace_hex(item.trace_id),
             "spanId": os.urandom(8).hex(),

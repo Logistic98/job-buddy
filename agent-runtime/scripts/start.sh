@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 启动 agent-runtime，并从仓库根配置注入运行环境。
 set -euo pipefail
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

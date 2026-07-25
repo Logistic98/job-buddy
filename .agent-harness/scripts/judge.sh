@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# Independent judge for a goal run. Reads goal + transcript + verify log,
-# asks a cheaper model whether the goal is truly completed, writes verdict.md.
+# Goal 运行的独立裁判：读取目标、对话和验证日志，调用低成本模型判断是否完成并写入 verdict.md。
 #
-# Usage:
+# 用法：
 #   judge.sh <goal_file> <run_dir>
 #
-# Exit codes:
-#   0 = completed
-#   1 = not_completed
-#   2 = uncertain or verdict unparseable (manual review required)
-#   3 = judge skipped (claude CLI missing)
+# 退出码：
+#   0 = 已完成
+#   1 = 未完成
+#   2 = 不确定或裁判结果无法解析，需人工复核
+#   3 = 缺少 claude CLI，跳过裁判
 
 set -euo pipefail
 

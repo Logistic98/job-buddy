@@ -29,6 +29,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+/**
+ * 持久化平台设置、应用校验后的运行限制并代理用户记忆。
+ *
+ * <p>部署配置是降级基线；设置表瞬时故障不阻断启动，显式记忆写入失败时也不落本地副本。
+ */
 @Service
 public class SystemSettingsServiceImpl implements SystemSettingsService {
   private static final Logger LOG = LoggerFactory.getLogger(SystemSettingsServiceImpl.class);
@@ -84,6 +89,14 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private final JobBlacklistPolicy blacklistPolicy;
   private boolean persistedRuntimeSettingsLoaded;
 
+  /**
+   * 创建系统设置服务实例。
+   *
+   * @param agentServiceProperties Agent 服务配置属性
+   * @param jobBuddyProperties JobBuddy 配置属性
+   * @param systemSettingsMapper 系统设置数据访问组件
+   * @param agentMemoryClient Agent 记忆客户端
+   */
   public SystemSettingsServiceImpl(
       AgentServiceProperties agentServiceProperties,
       JobBuddyProperties jobBuddyProperties,
@@ -101,7 +114,9 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     this.objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
   }
 
-  /** 在接收业务请求前加载持久化运行参数，避免首个请求短暂使用部署默认值。 */
+  /**
+   * 在接收业务请求前加载持久化运行参数，避免首个请求短暂使用部署默认值。
+   */
   @PostConstruct
   public synchronized void loadPersistedRuntimeSettings() {
     try {
@@ -113,10 +128,20 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 获取合并持久化配置后的平台运行设置。
+   *
+   * @return 设置
+   */
   public synchronized SystemSettingsResponse getSettings() {
     return jsonCodec.convert(getSettingsMap(), SystemSettingsResponse.class);
   }
 
+  /**
+   * 获取设置映射。
+   *
+   * @return 设置映射
+   */
   private synchronized Map<String, Object> getSettingsMap() {
     Map<String, Object> settings = defaultSettings();
     Map<String, Object> saved = readSavedSettings();
@@ -133,6 +158,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return settings;
   }
 
+  /**
+   * 保存配置并刷新运行参数与服务状态。
+   *
+   * @param request 请求对象
+   * @return 保存后的设置
+   */
   public synchronized SystemSettingsResponse saveSettings(SystemSettingsRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
     Map<String, Object> current = getSettingsWithoutRuntime();
@@ -144,6 +175,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return getSettings();
   }
 
+  /**
+   * 恢复工作区默认值。
+   *
+   * @return 恢复后的工作区默认设置
+   */
   public synchronized SystemSettingsResponse restoreWorkspaceDefaults() {
     Map<String, Object> saved = readSavedSettings();
     saved.remove("workspace");
@@ -152,11 +188,26 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return getSettings();
   }
 
+  /**
+   * 查询记忆列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 记忆列表
+   */
   public synchronized List<SystemMemoryResponse> listMemories(String tenantId, String userId) {
     migrateLegacyMemories(tenantId, userId);
     return agentMemoryClient.list(tenantId, userId);
   }
 
+  /**
+   * 新增记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param request 请求对象
+   * @return 新增后的记忆
+   */
   public synchronized SystemMemoryResponse addMemory(
       String tenantId, String userId, SystemMemoryRequest request) {
     migrateLegacyMemories(tenantId, userId);
@@ -171,6 +222,15 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return created;
   }
 
+  /**
+   * 写入本地数据记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param type 类型
+   * @param content 内容
+   * @param source 源数据
+   */
   public synchronized void writeLocalMemory(
       String tenantId, String userId, String type, String content, String source) {
     requireMemoryOwner(tenantId, userId);
@@ -188,16 +248,39 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     addMemory(tenantId, userId, request);
   }
 
+  /**
+   * 删除记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param memoryId 记忆标识
+   */
   public synchronized void deleteMemory(String tenantId, String userId, String memoryId) {
     migrateLegacyMemories(tenantId, userId);
     agentMemoryClient.delete(tenantId, userId, memoryId);
   }
 
+  /**
+   * 清理记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 记忆清理结果
+   */
   public synchronized int clearMemories(String tenantId, String userId) {
     migrateLegacyMemories(tenantId, userId);
     return agentMemoryClient.clear(tenantId, userId);
   }
 
+  /**
+   * 检索本地数据记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param query 查询条件
+   * @param limit 数量上限
+   * @return 本地记忆搜索结果
+   */
   public synchronized List<SystemMemoryResponse> searchLocalMemories(
       String tenantId, String userId, String query, int limit) {
     Map<String, Object> policy = memoryPolicy();
@@ -210,6 +293,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return agentMemoryClient.search(tenantId, userId, query, Math.max(1, Math.min(limit, 2)));
   }
 
+  /**
+   * 获取默认设置。
+   *
+   * @return 默认设置
+   */
   private Map<String, Object> defaultSettings() {
     Map<String, Object> root = new LinkedHashMap<String, Object>();
     root.put("workspace", workspaceDefaults());
@@ -220,10 +308,20 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return root;
   }
 
+  /**
+   * 获取工作区默认值。
+   *
+   * @return 工作区默认值
+   */
   private Map<String, Object> workspaceDefaults() {
     return new LinkedHashMap<String, Object>(workspaceDefaultSettings);
   }
 
+  /**
+   * 从配置属性构建工作区设置。
+   *
+   * @return 配置生成的工作区设置
+   */
   private Map<String, Object> workspaceSettingsFromProperties() {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("maxJobsPerRecommend", jobBuddyProperties.getMaxJobsPerRecommend());
@@ -242,6 +340,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return data;
   }
 
+  /**
+   * 保留业务运行时设置。
+   *
+   * @param settings 设置
+   */
   @SuppressWarnings("unchecked")
   private void retainBusinessRuntimeSettings(Map<String, Object> settings) {
     Map<String, Object> defaults = workspaceDefaults();
@@ -255,6 +358,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     settings.put("workspace", defaults);
   }
 
+  /**
+   * 获取记忆默认值。
+   *
+   * @return 记忆默认值
+   */
   private Map<String, Object> memoryDefaults() {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("enabled", true);
@@ -265,47 +373,98 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return data;
   }
 
+  /**
+   * 获取黑名单默认值。
+   *
+   * @return 黑名单默认值
+   */
   private Map<String, Object> blacklistDefaults() {
     return blacklistPolicy.defaults();
   }
 
+  /**
+   * 查询黑名单数据项列表。
+   *
+   * @return 黑名单数据项列表
+   */
   @SuppressWarnings("unchecked")
   public synchronized List<SystemSettingsResponse.Item> listBlacklistItems() {
     return jsonCodec.convertList(listBlacklistItemsMap(), SystemSettingsResponse.Item.class);
   }
 
+  /**
+   * 查询黑名单数据项映射列表。
+   *
+   * @return 黑名单数据项映射列表
+   */
   @SuppressWarnings("unchecked")
   private synchronized List<Map<String, Object>> listBlacklistItemsMap() {
     return blacklistPolicy.listItems(getSettingsMap());
   }
 
+  /**
+   * 应用黑名单数据项。
+   *
+   * @param settings 设置
+   * @param savedSettings 已保存设置
+   */
   @SuppressWarnings("unchecked")
   private void applyBlacklistItems(
       Map<String, Object> settings, Map<String, Object> savedSettings) {
     blacklistPolicy.applyItems(settings, savedSettings);
   }
 
+  /**
+   * 判断岗位是否命中黑名单。
+   *
+   * @param job 岗位
+   * @return 岗位是否命中黑名单
+   */
   public synchronized boolean isBlacklistedJob(Map<String, Object> job) {
     return blacklistPolicy.isBlacklisted(job, readSavedSettings());
   }
 
+  /**
+   * 筛除命中黑名单的岗位。
+   *
+   * @param jobs 岗位列表
+   * @return 过滤后的岗位列表
+   */
   public synchronized List<Map<String, Object>> filterBlacklistedJobs(
       List<Map<String, Object>> jobs) {
     return blacklistPolicy.filter(jobs, readSavedSettings());
   }
 
+  /**
+   * 获取服务默认值。
+   *
+   * @return 服务默认值
+   */
   private Map<String, Object> serviceDefaults() {
     return serviceHealthMonitor.serviceDefaults();
   }
 
+  /**
+   * 获取运行时设置。
+   *
+   * @return 运行时设置
+   */
   private Map<String, Object> runtimeSettings() {
     return serviceHealthMonitor.runtimeSettings();
   }
 
+  /**
+   * 获取服务状态。
+   *
+   * @return 服务状态
+   */
   private synchronized Map<String, Object> serviceStatuses() {
     return serviceHealthMonitor.statuses();
   }
 
+  /**
+   * 按调度周期刷新服务健康状态。
+   */
   @Scheduled(
       fixedDelayString = "${job-buddy.service-monitor.interval-ms:10000}",
       initialDelayString = "${job-buddy.service-monitor.initial-delay-ms:0}")
@@ -313,12 +472,20 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     refreshServiceStatuses();
   }
 
+  /**
+   * 刷新服务状态。
+   *
+   * @return 最新服务状态列表
+   */
   @Override
   public synchronized ServiceStatusesResponse refreshServiceStatuses() {
     ensurePersistedRuntimeSettingsLoaded();
     return serviceHealthMonitor.refresh();
   }
 
+  /**
+   * 确保已加载持久化运行时设置。
+   */
   private void ensurePersistedRuntimeSettingsLoaded() {
     if (persistedRuntimeSettingsLoaded) return;
     Map<String, Object> settings = defaultSettings();
@@ -328,6 +495,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     persistedRuntimeSettingsLoaded = true;
   }
 
+  /**
+   * 应用 Runtime 设置。
+   *
+   * @param settings 设置
+   */
   @SuppressWarnings("unchecked")
   private void applyRuntimeSettings(Map<String, Object> settings) {
     Object workspaceValue = settings.get("workspace");
@@ -425,6 +597,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
           services,
           "intentUrl",
           new TextSetter() {
+            /**
+             * 设置目标值。
+             *
+             * @param value 输入值
+             */
             public void set(String value) {
               agentServiceProperties.setIntentUrl(value);
             }
@@ -433,6 +610,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
           services,
           "runtimeUrl",
           new TextSetter() {
+            /**
+             * 设置目标值。
+             *
+             * @param value 输入值
+             */
             public void set(String value) {
               agentServiceProperties.setRuntimeUrl(value);
             }
@@ -441,6 +623,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
           services,
           "memoryUrl",
           new TextSetter() {
+            /**
+             * 设置目标值。
+             *
+             * @param value 输入值
+             */
             public void set(String value) {
               agentServiceProperties.setMemoryUrl(value);
             }
@@ -449,6 +636,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
           services,
           "toolUrl",
           new TextSetter() {
+            /**
+             * 设置目标值。
+             *
+             * @param value 输入值
+             */
             public void set(String value) {
               agentServiceProperties.setToolUrl(value);
             }
@@ -457,6 +649,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
           services,
           "evalUrl",
           new TextSetter() {
+            /**
+             * 设置目标值。
+             *
+             * @param value 输入值
+             */
             public void set(String value) {
               agentServiceProperties.setEvalUrl(value);
             }
@@ -465,6 +662,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
           services,
           "sandboxUrl",
           new TextSetter() {
+            /**
+             * 设置目标值。
+             *
+             * @param value 输入值
+             */
             public void set(String value) {
               agentServiceProperties.setSandboxUrl(value);
             }
@@ -476,6 +678,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 获取移除 Runtime 地址后的设置。
+   *
+   * @return 设置不含 Runtime
+   */
   private Map<String, Object> getSettingsWithoutRuntime() {
     Map<String, Object> settings = getSettingsMap();
     settings.remove("runtime");
@@ -484,6 +691,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return settings;
   }
 
+  /**
+   * 应用全局记忆策略。
+   *
+   * @param settings 设置
+   */
   @SuppressWarnings("unchecked")
   private void enforceGlobalMemoryPolicy(Map<String, Object> settings) {
     if (settings == null) return;
@@ -494,6 +706,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     settings.put("memory", memory);
   }
 
+  /**
+   * 获取记忆策略。
+   *
+   * @return 记忆策略
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> memoryPolicy() {
     Map<String, Object> settings = getSettingsWithoutRuntime();
@@ -503,6 +720,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
         : memoryDefaults();
   }
 
+  /**
+   * 迁移旧版数据记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   */
   private void migrateLegacyMemories(String tenantId, String userId) {
     List<Map<String, Object>> legacyItems = readLegacyMemoryItems(tenantId, userId);
     if (legacyItems.isEmpty()) return;
@@ -517,6 +740,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     systemSettingsMapper.deleteSetting(memoryScope(tenantId, userId), USER_MEMORY_KEY);
   }
 
+  /**
+   * 读取旧版数据记忆数据项。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 旧版记忆列表
+   */
   @SuppressWarnings("unchecked")
   private List<Map<String, Object>> readLegacyMemoryItems(String tenantId, String userId) {
     requireMemoryOwner(tenantId, userId);
@@ -535,6 +765,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 校验并获取记忆属主。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   */
   private void requireMemoryOwner(String tenantId, String userId) {
     if (tenantId == null
         || tenantId.trim().isEmpty()
@@ -544,6 +780,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 获取记忆作用域。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 记忆作用域
+   */
   private String memoryScope(String tenantId, String userId) {
     requireMemoryOwner(tenantId, userId);
     try {
@@ -559,6 +802,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 规范化记忆请求。
+   *
+   * @param request 请求对象
+   * @param defaultSource 默认源
+   * @return 规范化后的记忆请求
+   */
   private SystemMemoryRequest normalizeMemoryRequest(
       SystemMemoryRequest request, String defaultSource) {
     if (request == null || request.getContent() == null || request.getContent().trim().isEmpty()) {
@@ -577,6 +827,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return normalized;
   }
 
+  /**
+   * 查询相同数据记忆。
+   *
+   * @param items 数据项列表
+   * @param target 待匹配的记忆
+   * @return 相同数据记忆
+   */
   private SystemMemoryResponse findSameMemory(
       List<SystemMemoryResponse> items, SystemMemoryRequest target) {
     String targetKey = memoryKey(target.getType(), target.getContent());
@@ -586,6 +843,14 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return null;
   }
 
+  /**
+   * 裁剪记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param existing 已存在数量
+   * @param created 新建数量
+   */
   private void trimMemories(
       String tenantId,
       String userId,
@@ -603,12 +868,25 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 获取记忆键。
+   *
+   * @param type 类型
+   * @param content 内容
+   * @return 记忆键
+   */
   private String memoryKey(String type, String content) {
     String normalizedContent = normalizeMemoryText(content);
     if (normalizedContent.isEmpty()) return "";
     return normalizeMemoryText(type == null ? "preference" : type) + "|" + normalizedContent;
   }
 
+  /**
+   * 规范化记忆文本。
+   *
+   * @param value 输入值
+   * @return 规范化后的记忆文本
+   */
   private String normalizeMemoryText(String value) {
     if (value == null) return "";
     return value
@@ -621,6 +899,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
         .trim();
   }
 
+  /**
+   * 判断是否自动写入记忆。
+   *
+   * @param type 类型
+   * @param content 内容
+   * @return 是否自动写入记忆
+   */
   private boolean shouldAutoWriteMemory(String type, String content) {
     String memoryType = type == null ? "" : type.trim().toLowerCase();
     if (!"preference".equals(memoryType) && !"constraint".equals(memoryType)) return false;
@@ -629,6 +914,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return normalizeMemoryText(text).length() >= 4;
   }
 
+  /**
+   * 获取布尔值。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 布尔值
+   */
   private boolean booleanValue(Object value, boolean fallback) {
     if (value instanceof Boolean) return ((Boolean) value).booleanValue();
     if (value == null) return fallback;
@@ -636,6 +928,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return "true".equalsIgnoreCase(text) || "1".equals(text);
   }
 
+  /**
+   * 读取已保存设置。
+   *
+   * @return 已保存设置
+   */
   private Map<String, Object> readSavedSettings() {
     try {
       String json = systemSettingsMapper.findSettingJson(SETTINGS_SCOPE, SETTINGS_KEY);
@@ -646,6 +943,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 清理并校验系统设置。
+   *
+   * @param payload 请求载荷
+   * @return 清洗后的数据
+   */
   private Map<String, Object> sanitize(Map<String, Object> payload) {
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     if (payload == null) return result;
@@ -656,6 +959,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     return result;
   }
 
+  /**
+   * 写入设置。
+   *
+   * @param settings 设置
+   */
   private void writeSettings(Map<String, Object> settings) {
     try {
       systemSettingsMapper.upsertSetting(
@@ -668,11 +976,24 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 仅复制映射类型字段。
+   *
+   * @param from 来源
+   * @param to 目标
+   * @param key 业务键
+   */
   private void copyIfMap(Map<String, Object> from, Map<String, Object> to, String key) {
     Object value = from.get(key);
     if (value instanceof Map) to.put(key, value);
   }
 
+  /**
+   * 复制已清理的记忆策略。
+   *
+   * @param from 来源
+   * @param to 目标
+   */
   @SuppressWarnings("unchecked")
   private void copySanitizedMemoryPolicy(Map<String, Object> from, Map<String, Object> to) {
     Object value = from.get("memory");
@@ -686,10 +1007,23 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     to.put("memory", policy);
   }
 
+  /**
+   * 仅复制非空配置项。
+   *
+   * @param from 来源
+   * @param to 目标
+   * @param key 业务键
+   */
   private void copyIfPresent(Map<String, Object> from, Map<String, Object> to, String key) {
     if (from.containsKey(key)) to.put(key, from.get(key));
   }
 
+  /**
+   * 复制已清理的工作区配置。
+   *
+   * @param from 来源
+   * @param to 目标
+   */
   @SuppressWarnings("unchecked")
   private void copySanitizedWorkspace(Map<String, Object> from, Map<String, Object> to) {
     Object value = from.get("workspace");
@@ -702,6 +1036,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     to.put("workspace", workspace);
   }
 
+  /**
+   * 复制已清理的服务配置。
+   *
+   * @param from 来源
+   * @param to 目标
+   */
   @SuppressWarnings("unchecked")
   private void copySanitizedServices(Map<String, Object> from, Map<String, Object> to) {
     Object value = from.get("services");
@@ -716,6 +1056,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     to.put("services", services);
   }
 
+  /**
+   * 清理并校验服务地址。
+   *
+   * @param services 服务配置列表
+   * @param key 业务键
+   */
   private void sanitizeServiceUrl(Map<String, Object> services, String key) {
     if (!services.containsKey(key)) return;
     String value = stringValue(services.get(key));
@@ -726,6 +1072,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     services.put(key, normalizeLoopbackHttpUrl(value, key));
   }
 
+  /**
+   * 规范化回环 HTTP 地址。
+   *
+   * @param rawValue 原始值
+   * @param key 业务键
+   * @return 规范化后的回环 HTTP 地址
+   */
   private String normalizeLoopbackHttpUrl(String rawValue, String key) {
     String value = rawValue.trim();
     try {
@@ -752,6 +1105,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 判断是否为回环主机。
+   *
+   * @param host 主机名
+   * @return 是否为回环主机
+   */
   private boolean isLoopbackHost(String host) {
     if (host == null || host.trim().isEmpty()) return false;
     String value = host.trim().toLowerCase();
@@ -762,6 +1121,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
         || "0:0:0:0:0:0:0:1".equals(value);
   }
 
+  /**
+   * 递归合并嵌套配置。
+   *
+   * @param target 合并后的配置
+   * @param source 源数据
+   */
   @SuppressWarnings("unchecked")
   private void deepMerge(Map<String, Object> target, Map<String, Object> source) {
     if (source == null) return;
@@ -774,6 +1139,16 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 应用整数配置项。
+   *
+   * @param map 数据映射
+   * @param key 业务键
+   * @param min 最小
+   * @param max 最大
+   * @param fallback 降级结果
+   * @param setter 字段设置函数
+   */
   private void applyIntegerSetting(
       Map<String, Object> map, String key, int min, int max, int fallback, IntSetter setter) {
     Integer parsed = intValue(map.get(key));
@@ -782,23 +1157,58 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     setter.set(normalized);
   }
 
+  /**
+   * 设置文本。
+   *
+   * @param map 数据映射
+   * @param key 业务键
+   * @param setter 字段设置函数
+   */
   private void setText(Map<String, Object> map, String key, TextSetter setter) {
     String value = stringValue(map.get(key));
     if (value != null) setter.set(value.trim());
   }
 
+  /**
+   * 定义整数配置写入器。
+   */
   private interface IntSetter {
+    /**
+     * 设置目标值。
+     *
+     * @param value 输入值
+     */
     void set(int value);
   }
 
+  /**
+   * 定义文本写入器。
+   */
   private interface TextSetter {
+    /**
+     * 设置目标值。
+     *
+     * @param value 输入值
+     */
     void set(String value);
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String stringValue(Object value) {
     return value == null ? null : String.valueOf(value);
   }
 
+  /**
+   * 获取整数值。
+   *
+   * @param value 输入值
+   * @return 整数值
+   */
   private Integer intValue(Object value) {
     if (value instanceof Number) return Integer.valueOf(((Number) value).intValue());
     if (value == null) return null;
@@ -809,10 +1219,24 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     }
   }
 
+  /**
+   * 将数值约束在上下限内。
+   *
+   * @param value 输入值
+   * @param min 最小
+   * @param max 最大
+   * @return 限制范围后的数值
+   */
   private int clamp(int value, int min, int max) {
     return Math.min(max, Math.max(min, value));
   }
 
+  /**
+   * 获取时长配置。
+   *
+   * @param value 输入值
+   * @return 时长配置
+   */
   private Duration durationValue(Object value) {
     if (value instanceof Duration) return (Duration) value;
     if (value == null) return null;

@@ -1,3 +1,5 @@
+"""定义自描述工具契约、执行上下文与参数校验结果。"""
+
 import asyncio
 import json
 from abc import ABC, abstractmethod

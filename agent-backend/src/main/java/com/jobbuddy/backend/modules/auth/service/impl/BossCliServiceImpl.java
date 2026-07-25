@@ -51,6 +51,13 @@ public class BossCliServiceImpl implements BossCliService {
   private final Map<String, FavoritePageCacheEntry> favoritePageCache =
       new ConcurrentHashMap<String, FavoritePageCacheEntry>();
 
+  /**
+   * 创建 Boss CLI 服务实例。
+   *
+   * @param browserClient 浏览器客户端
+   * @param eventPublisher 事件发布器
+   * @param properties 配置属性
+   */
   public BossCliServiceImpl(
       BossBrowserClient browserClient,
       ApplicationEventPublisher eventPublisher,
@@ -64,6 +71,11 @@ public class BossCliServiceImpl implements BossCliService {
   }
 
   // ---- 登录态 ----
+  /**
+   * 获取状态。
+   *
+   * @return 当前状态
+   */
   public BossCliStatusResult status() {
     Map<String, Object> envelope = browserClient.get("/status");
     Map<String, Object> data = dataOf(envelope);
@@ -83,6 +95,9 @@ public class BossCliServiceImpl implements BossCliService {
     return jsonCodec.convert(result, BossCliStatusResult.class);
   }
 
+  /**
+   * 通知认证状态丢失。
+   */
   private void notifyAuthLost() {
     favoritePageCache.clear();
     // Boss 工具判定登录态失效时广播事件，让上层当前用户的登录态缓存立即失效，
@@ -92,10 +107,21 @@ public class BossCliServiceImpl implements BossCliService {
     }
   }
 
+  /**
+   * 判断已认证用户。
+   *
+   * @return 用户是否已认证
+   */
   public boolean isAuthenticated() {
     return statusAuthenticated(jsonCodec.toMap(status()));
   }
 
+  /**
+   * 判断状态已认证用户。
+   *
+   * @param status 状态
+   * @return 用户是否已认证
+   */
   private boolean statusAuthenticated(Map<String, Object> status) {
     if (status == null || status.isEmpty()) return false;
     if (Boolean.TRUE.equals(status.get("ok"))) return true;
@@ -111,6 +137,11 @@ public class BossCliServiceImpl implements BossCliService {
     return "logged_in".equals(String.valueOf(status.get("status")));
   }
 
+  /**
+   * 获取登录指令。
+   *
+   * @return 登录指令
+   */
   public BossLoginStatusResponse loginInstructions() {
     Map<String, Object> currentStatus = jsonCodec.toMap(status());
     Map<String, Object> response = new LinkedHashMap<String, Object>();
@@ -137,6 +168,8 @@ public class BossCliServiceImpl implements BossCliService {
    * <p>不能在这里回查 {@link #status()}：status 只校验 wt2 cookie 是否存在，而搜索还依赖 __zp_stoken__， 当 stoken
    * 过期且静默刷新失败时，status 仍会判定 logged_in，导致前端出现"提示需要登录、authData 却显示已登录" 的自相矛盾。既然当前操作已经因登录态不足而失败，这里直接返回
    * authRequired:true，保证提示与 authData 一致。
+   *
+   * @return 认证操作说明
    */
   private Map<String, Object> authRequiredInstructions() {
     Map<String, Object> response = new LinkedHashMap<String, Object>();
@@ -150,6 +183,11 @@ public class BossCliServiceImpl implements BossCliService {
   }
 
   // ---- 扫码登录 ----
+  /**
+   * 启动二维码登录。
+   *
+   * @return 二维码登录启动结果
+   */
   public BossCliQrResult qrStart() {
     String sessionId = UUID.randomUUID().toString();
     Map<String, Object> requestPayload = new LinkedHashMap<String, Object>();
@@ -177,6 +215,13 @@ public class BossCliServiceImpl implements BossCliService {
     return jsonCodec.convert(response, BossCliQrResult.class);
   }
 
+  /**
+   * 获取二维码状态。
+   *
+   * @param sessionId 会话标识
+   * @param sessionToken 会话令牌
+   * @return 二维码状态
+   */
   public BossCliQrResult qrStatus(String sessionId, String sessionToken) {
     Map<String, Object> requestPayload = new LinkedHashMap<String, Object>();
     requestPayload.put("session_id", sessionId);
@@ -237,6 +282,13 @@ public class BossCliServiceImpl implements BossCliService {
     return jsonCodec.convert(response, BossCliQrResult.class);
   }
 
+  /**
+   * 取消二维码登录。
+   *
+   * @param sessionId 会话标识
+   * @param sessionToken 会话令牌
+   * @return 二维码登录取消结果
+   */
   public BossCliCancelResult qrCancel(String sessionId, String sessionToken) {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
     payload.put("session_id", sessionId);
@@ -251,10 +303,20 @@ public class BossCliServiceImpl implements BossCliService {
     return jsonCodec.convert(response, BossCliCancelResult.class);
   }
 
+  /**
+   * 取消登录。
+   *
+   * @return 登录取消结果
+   */
   public BossCliCancelResult cancelLogin() {
     return noop();
   }
 
+  /**
+   * 构建空操作结果。
+   *
+   * @return 空操作结果
+   */
   private BossCliCancelResult noop() {
     Map<String, Object> response = new LinkedHashMap<String, Object>();
     response.put("ok", true);
@@ -263,6 +325,11 @@ public class BossCliServiceImpl implements BossCliService {
   }
 
   // ---- 在线求职画像 ----
+  /**
+   * 获取在线数据画像。
+   *
+   * @return 在线数据画像
+   */
   public JsonNode fetchOnlineProfile() {
     Map<String, Object> envelope =
         browserClient.post("/profile", Collections.<String, Object>emptyMap());
@@ -279,10 +346,23 @@ public class BossCliServiceImpl implements BossCliService {
   }
 
   // ---- Boss 收藏列表 ----
+  /**
+   * 获取收藏岗位列表。
+   *
+   * @param page 页码
+   * @return 收藏岗位列表
+   */
   public BossFavoriteListResult favoriteJobs(int page) {
     return favoriteJobs(page, false);
   }
 
+  /**
+   * 获取收藏岗位列表。
+   *
+   * @param page 页码
+   * @param forceRefresh 是否强制刷新
+   * @return 收藏岗位列表
+   */
   public BossFavoriteListResult favoriteJobs(int page, boolean forceRefresh) {
     int safePage = Math.max(1, page);
     String cacheKey = favoritePageCacheKey(safePage);
@@ -317,6 +397,12 @@ public class BossCliServiceImpl implements BossCliService {
     return result;
   }
 
+  /**
+   * 获取收藏岗位分页缓存键。
+   *
+   * @param page 页码
+   * @return 收藏岗位分页缓存键
+   */
   private String favoritePageCacheKey(int page) {
     return stringOrDefault(AuthenticationScope.tenantId(), "default-tenant")
         + ":"
@@ -325,28 +411,60 @@ public class BossCliServiceImpl implements BossCliService {
         + page;
   }
 
+  /**
+   * 定义收藏岗位分页缓存条目。
+   */
   private static final class FavoritePageCacheEntry {
     private final BossFavoriteListResult value;
     private final long createdAt = System.currentTimeMillis();
 
+    /**
+     * 创建收藏岗位分页缓存条目实例。
+     *
+     * @param value 待处理值
+     */
     private FavoritePageCacheEntry(BossFavoriteListResult value) {
       this.value = value;
     }
 
+    /**
+     * 判断会话是否过期。
+     *
+     * @return 会话是否过期是否成立
+     */
     private boolean expired() {
       return System.currentTimeMillis() - createdAt > FAVORITE_PAGE_CACHE_TTL_MILLIS;
     }
   }
 
   // ---- 搜索 ----
+  /**
+   * 检索岗位。
+   *
+   * @param intent 意图
+   * @return 岗位搜索结果
+   */
   public List<Map<String, Object>> searchJobs(IntentResult intent) {
     return searchJobs(intent, 0);
   }
 
+  /**
+   * 检索岗位。
+   *
+   * @param intent 意图
+   * @param targetCount 目标数量
+   * @return 岗位搜索结果
+   */
   public List<Map<String, Object>> searchJobs(IntentResult intent, int targetCount) {
     return searchJobsBatches(intent, targetCount, null);
   }
 
+  /**
+   * 检索岗位首个分页。
+   *
+   * @param intent 意图
+   * @return 岗位搜索首页结果
+   */
   public List<Map<String, Object>> searchJobsFirstPage(IntentResult intent) {
     List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
     java.util.Set<String> seen = new java.util.HashSet<String>();
@@ -359,13 +477,27 @@ public class BossCliServiceImpl implements BossCliService {
     return result;
   }
 
+  /**
+   * 检索岗位分页。
+   *
+   * @param intent 意图
+   * @param page 页码
+   * @return 岗位搜索分页结果
+   */
   public List<Map<String, Object>> searchJobsPage(IntentResult intent, int page) {
     List<String> queries = searchQueries(intent);
     String query = queries.isEmpty() ? "Java" : queries.get(0);
     return searchJobsPage(intent, Math.max(1, page), query);
   }
 
-  /** 浏览器是单会话串行、限速的，搜索强制串行执行，避免并发请求堆积在浏览器锁上并触发风控。 为控制请求量、保护账号，多轮分页只使用主查询词，逐页累积到目标数量为止。 */
+  /**
+   * 浏览器是单会话串行、限速的，搜索强制串行执行，避免并发请求堆积在浏览器锁上并触发风控。 为控制请求量、保护账号，多轮分页只使用主查询词，逐页累积到目标数量为止。
+   *
+   * @param intent 意图
+   * @param targetCount 目标数量
+   * @param consumer 结果消费函数
+   * @return 岗位搜索批次列表
+   */
   public List<Map<String, Object>> searchJobsBatches(
       IntentResult intent, int targetCount, JobBatchConsumer consumer) {
     int expected = Math.max(1, targetCount);
@@ -408,6 +540,12 @@ public class BossCliServiceImpl implements BossCliService {
     return merged;
   }
 
+  /**
+   * 生成岗位检索词。
+   *
+   * @param intent 意图
+   * @return 岗位检索词
+   */
   private List<String> searchQueries(IntentResult intent) {
     Map<String, Object> slots =
         intent.getSlots() == null ? Collections.<String, Object>emptyMap() : intent.getSlots();
@@ -428,6 +566,14 @@ public class BossCliServiceImpl implements BossCliService {
     return queries.size() > 3 ? new ArrayList<String>(queries.subList(0, 3)) : queries;
   }
 
+  /**
+   * 检索岗位分页。
+   *
+   * @param intent 意图
+   * @param page 页码
+   * @param query 查询条件
+   * @return 岗位搜索分页结果
+   */
   private List<Map<String, Object>> searchJobsPage(IntentResult intent, int page, String query) {
     Map<String, Object> slots =
         intent.getSlots() == null ? Collections.<String, Object>emptyMap() : intent.getSlots();
@@ -452,6 +598,13 @@ public class BossCliServiceImpl implements BossCliService {
     return enrichJobs(extractJobs(data.get("jobs")));
   }
 
+  /**
+   * 补充岗位详情。
+   *
+   * @param jobs 岗位列表
+   * @param maxDetails 最大详情数量
+   * @return 补全岗位详情列表
+   */
   public List<Map<String, Object>> enrichJobDetails(
       List<Map<String, Object>> jobs, int maxDetails) {
     if (jobs == null || jobs.isEmpty() || maxDetails <= 0)
@@ -478,12 +631,23 @@ public class BossCliServiceImpl implements BossCliService {
     return enrichJobs(jobs);
   }
 
-  /** 按 securityId 拉取单个岗位详情（含 JD）。失败时抛出异常，便于懒加载接口分流处理。 */
+  /**
+   * 按 securityId 拉取单个岗位详情（含 JD）。失败时抛出异常，便于懒加载接口分流处理。
+   *
+   * @param securityId Boss 岗位安全标识
+   * @return 岗位详情
+   */
   public JsonNode jobDetail(String securityId) {
     return jobDetail(securityId, "");
   }
 
-  /** 按 securityId 与原始链接拉取单个岗位详情（含 JD）。url 用于浏览器侧导航定位，可为空。 */
+  /**
+   * 按 securityId 与原始链接拉取单个岗位详情（含 JD）。url 用于浏览器侧导航定位，可为空。
+   *
+   * @param securityId Boss 岗位安全标识
+   * @param url 请求地址
+   * @return 岗位详情
+   */
   public JsonNode jobDetail(String securityId, String url) {
     String trimmedSecurityId = securityId == null ? "" : securityId.trim();
     String trimmedUrl = url == null ? "" : url.trim();
@@ -507,6 +671,12 @@ public class BossCliServiceImpl implements BossCliService {
     return jsonCodec.toTree(dataOf(envelope));
   }
 
+  /**
+   * 合并岗位详情。
+   *
+   * @param job 岗位
+   * @param detail 详情
+   */
   private void mergeJobDetail(Map<String, Object> job, Map<String, Object> detail) {
     Map<String, Object> source = detail;
     Object nested = firstPresent(detail, "job", "jobInfo", "jobDetail", "detail");
@@ -558,10 +728,23 @@ public class BossCliServiceImpl implements BossCliService {
     putIfPresent(job, "bossName", firstPresent(source, "bossName", "boss"));
   }
 
+  /**
+   * 仅写入非空字段。
+   *
+   * @param map 数据映射
+   * @param key 业务键
+   * @param value 输入值
+   */
   private void putIfPresent(Map<String, Object> map, String key, Object value) {
     if (value != null && !String.valueOf(value).trim().isEmpty()) map.put(key, value);
   }
 
+  /**
+   * 补充岗位。
+   *
+   * @param jobs 岗位列表
+   * @return 补全岗位列表
+   */
   private List<Map<String, Object>> enrichJobs(List<Map<String, Object>> jobs) {
     for (Map<String, Object> job : jobs) {
       String detailUrl = bossDetailUrl(job);
@@ -576,6 +759,12 @@ public class BossCliServiceImpl implements BossCliService {
     return jobs;
   }
 
+  /**
+   * 规范化 Boss 地址。
+   *
+   * @param value 输入值
+   * @return 规范化后的 Boss 地址
+   */
   private String normalizeBossUrl(Object value) {
     if (value == null) return null;
     String url = String.valueOf(value).trim();
@@ -586,6 +775,12 @@ public class BossCliServiceImpl implements BossCliService {
     return null;
   }
 
+  /**
+   * 获取 Boss 详情地址。
+   *
+   * @param job 岗位
+   * @return Boss 详情地址
+   */
   private String bossDetailUrl(Map<String, Object> job) {
     Object existing =
         firstPresent(
@@ -616,6 +811,13 @@ public class BossCliServiceImpl implements BossCliService {
     return url.toString();
   }
 
+  /**
+   * 获取首个可用状态岗位路径标识。
+   *
+   * @param job 岗位
+   * @param securityId Boss 岗位安全标识
+   * @return 首个可用状态岗位路径标识
+   */
   private String firstUsableJobPathId(Map<String, Object> job, String securityId) {
     for (String key : Arrays.asList("encryptJobId", "encrypt_job_id", "jobId", "job_id", "id")) {
       String value = valueString(job.get(key));
@@ -624,14 +826,32 @@ public class BossCliServiceImpl implements BossCliService {
     return "";
   }
 
+  /**
+   * 编码路径参数。
+   *
+   * @param value 输入值
+   * @return 路径编码文本
+   */
   private String pathEncode(String value) {
     return urlEncode(value).replace("+", "%20").replace("%7E", "~");
   }
 
+  /**
+   * 获取值字符串。
+   *
+   * @param value 输入值
+   * @return 值字符串
+   */
   private String valueString(Object value) {
     return value == null ? "" : String.valueOf(value).trim();
   }
 
+  /**
+   * 编码 URL 参数。
+   *
+   * @param value 输入值
+   * @return URL 编码文本
+   */
   private String urlEncode(String value) {
     try {
       return URLEncoder.encode(value == null ? "" : value, "UTF-8");
@@ -640,6 +860,12 @@ public class BossCliServiceImpl implements BossCliService {
     }
   }
 
+  /**
+   * 获取岗位键。
+   *
+   * @param job 岗位
+   * @return 岗位键
+   */
   private String jobKey(Map<String, Object> job) {
     Object id = firstPresent(job, "securityId", "encryptJobId", "jobId", "id");
     if (id != null) return String.valueOf(id);
@@ -662,6 +888,13 @@ public class BossCliServiceImpl implements BossCliService {
                 "compensation"));
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param map 数据映射
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private Object firstPresent(Map<String, Object> map, String... keys) {
     for (String key : keys) {
       Object value = map.get(key);
@@ -670,6 +903,12 @@ public class BossCliServiceImpl implements BossCliService {
     return null;
   }
 
+  /**
+   * 提取岗位。
+   *
+   * @param data 业务数据
+   * @return 岗位
+   */
   @SuppressWarnings("unchecked")
   private List<Map<String, Object>> extractJobs(Object data) {
     if (data instanceof List) return (List<Map<String, Object>>) data;
@@ -693,6 +932,13 @@ public class BossCliServiceImpl implements BossCliService {
     return new ArrayList<Map<String, Object>>();
   }
 
+  /**
+   * 计算数值或默认值。
+   *
+   * @param value 输入值
+   * @param defaultValue 默认值
+   * @return 带默认值的数值
+   */
   private int numberOrDefault(Object value, int defaultValue) {
     if (value instanceof Number) return ((Number) value).intValue();
     try {
@@ -702,6 +948,13 @@ public class BossCliServiceImpl implements BossCliService {
     }
   }
 
+  /**
+   * 获取字符串或默认值。
+   *
+   * @param value 输入值
+   * @param defaultValue 默认值
+   * @return 字符串或默认值
+   */
   private String stringOrDefault(Object value, String defaultValue) {
     return value == null || String.valueOf(value).trim().isEmpty()
         ? defaultValue
@@ -709,6 +962,12 @@ public class BossCliServiceImpl implements BossCliService {
   }
 
   // ---- 统一响应解析 ----
+  /**
+   * 计算代码。
+   *
+   * @param envelope 响应封装
+   * @return 状态码
+   */
   private int code(Map<String, Object> envelope) {
     if (envelope == null) return -1;
     Object value = envelope.get("code");
@@ -720,20 +979,44 @@ public class BossCliServiceImpl implements BossCliService {
     }
   }
 
+  /**
+   * 构建成功结果。
+   *
+   * @param envelope 响应封装
+   * @return 成功响应
+   */
   private boolean success(Map<String, Object> envelope) {
     return success(code(envelope));
   }
 
+  /**
+   * 构建成功结果。
+   *
+   * @param code 编码
+   * @return 成功响应
+   */
   private boolean success(int code) {
     return code == 0 || (code >= 200 && code < 300);
   }
 
+  /**
+   * 获取消息。
+   *
+   * @param envelope 响应封装
+   * @return 消息
+   */
   private String message(Map<String, Object> envelope) {
     if (envelope == null) return "";
     Object message = envelope.get("message");
     return message == null ? "" : String.valueOf(message);
   }
 
+  /**
+   * 获取数据对象。
+   *
+   * @param envelope 响应封装
+   * @return 数据对象
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> dataOf(Map<String, Object> envelope) {
     if (envelope == null) return new LinkedHashMap<String, Object>();
@@ -742,6 +1025,12 @@ public class BossCliServiceImpl implements BossCliService {
     return new LinkedHashMap<String, Object>();
   }
 
+  /**
+   * 获取错误对象。
+   *
+   * @param envelope 响应封装
+   * @return 错误对象
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> errorOf(Map<String, Object> envelope) {
     if (envelope == null) return new LinkedHashMap<String, Object>();

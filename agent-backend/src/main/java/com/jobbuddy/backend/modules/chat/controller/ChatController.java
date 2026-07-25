@@ -28,7 +28,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** 对话接口，提供健康检查、普通问答、流式问答和会话管理能力。 */
+/**
+ * 对话接口，提供健康检查、普通问答、流式问答和会话管理能力。
+ */
 @Tag(name = "对话接口")
 @RestController
 @RequirePermission(PermissionCodes.CHAT_USE)
@@ -38,6 +40,13 @@ public class ChatController {
   private final ChatSseService chatSseService;
   private final ChatSessionStore chatSessionStore;
 
+  /**
+   * 创建对话接口实例。
+   *
+   * @param agentFlowService Agent 流程服务
+   * @param chatSseService 对话 SSE 服务
+   * @param chatSessionStore 对话会话存储
+   */
   public ChatController(
       AgentFlowService agentFlowService,
       ChatSseService chatSseService,
@@ -50,6 +59,8 @@ public class ChatController {
   /**
    * 普通对话问答。
    *
+   * @param body 请求体
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "普通对话问答")
@@ -67,6 +78,8 @@ public class ChatController {
   /**
    * 流式对话问答。
    *
+   * @param body 请求体
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "流式对话问答")
@@ -84,6 +97,7 @@ public class ChatController {
   /**
    * 查询对话会话列表。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询对话会话列表")
@@ -97,6 +111,8 @@ public class ChatController {
   /**
    * 查询会话消息列表。
    *
+   * @param sessionId 会话标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "查询会话消息列表")
@@ -113,6 +129,8 @@ public class ChatController {
   /**
    * 删除对话会话。
    *
+   * @param sessionId 会话标识
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "删除对话会话")
@@ -126,16 +144,31 @@ public class ChatController {
     return ApiResponse.success(new SessionIdResponse(sessionId));
   }
 
+  /**
+   * 确保会话标识。
+   *
+   * @param request 请求对象
+   */
   private void ensureSessionId(ChatRequest request) {
     if (request.getSessionId() == null || request.getSessionId().trim().isEmpty())
       request.setSessionId(newSessionId());
   }
 
+  /**
+   * 确保会话标识。
+   *
+   * @param request 请求对象
+   */
   private void ensureSessionId(ChatStreamRequest request) {
     if (request.getSessionId() == null || request.getSessionId().trim().isEmpty())
       request.setSessionId(newSessionId());
   }
 
+  /**
+   * 生成会话标识。
+   *
+   * @return 会话标识
+   */
   private String newSessionId() {
     return "sess_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
   }

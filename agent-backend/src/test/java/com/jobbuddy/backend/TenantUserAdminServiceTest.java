@@ -22,7 +22,13 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 TenantUserAdminService 的核心行为、异常路径与边界条件。
+ */
 class TenantUserAdminServiceTest {
+  /**
+   * 验证 TenantUserAdminService 中用户的权限与租户隔离边界。
+   */
   @Test
   void listUsersLoadsRolesAndPermissionsWithBatchQueries() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -59,6 +65,9 @@ class TenantUserAdminServiceTest {
     verify(repository, never()).findPermissions(anyString());
   }
 
+  /**
+   * 验证 TenantUserAdminService 中用户的数量、长度与分页边界。
+   */
   @Test
   void disablingUserMustPreserveAtLeastOneManagementAccount() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -80,6 +89,9 @@ class TenantUserAdminServiceTest {
     verify(rbacService).protectManagementAccess("tenant-1");
   }
 
+  /**
+   * 验证 TenantUserAdminService 中用户的持久化与状态变更规则。
+   */
   @Test
   void updateChangesGloballyUniqueUsernameAndKeepsUnchangedRoles() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -109,6 +121,9 @@ class TenantUserAdminServiceTest {
     verify(loginService).invalidateUserSessions("manager-1");
   }
 
+  /**
+   * 验证 TenantUserAdminService 中用户的输入校验与拒绝边界。
+   */
   @Test
   void updateRejectsUsernameOwnedByAnotherUserIgnoringCase() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -128,6 +143,9 @@ class TenantUserAdminServiceTest {
         () -> service.update("tenant-1", actor(), "manager-1", request));
   }
 
+  /**
+   * 验证 TenantUserAdminService 的核心业务契约。
+   */
   @Test
   void passwordMustBeBetweenEightAndSixteenCharacters() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -153,6 +171,9 @@ class TenantUserAdminServiceTest {
         .updatePasswordHash(org.mockito.ArgumentMatchers.eq("user-1"), anyString());
   }
 
+  /**
+   * 验证 TenantUserAdminService 中用户的权限与租户隔离边界。
+   */
   @Test
   void cannotManageUserFromAnotherTenant() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -169,6 +190,13 @@ class TenantUserAdminServiceTest {
         () -> service.update("tenant-1", actor(), "foreign-user", request));
   }
 
+  /**
+   * 验证用户。
+   *
+   * @param userId 用户标识
+   * @param enabled 启用状态
+   * @return 当前认证用户
+   */
   private Map<String, Object> user(String userId, boolean enabled) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("userId", userId);
@@ -179,6 +207,11 @@ class TenantUserAdminServiceTest {
     return row;
   }
 
+  /**
+   * 验证操作人。
+   *
+   * @return 测试操作用户
+   */
   private AuthenticatedUser actor() {
     AuthenticatedUser actor = new AuthenticatedUser();
     actor.setUserId("manager-1");

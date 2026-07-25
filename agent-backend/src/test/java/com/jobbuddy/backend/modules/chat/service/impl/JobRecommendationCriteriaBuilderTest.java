@@ -11,8 +11,14 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 JobRecommendationCriteriaBuilder 的核心行为、异常路径与边界条件。
+ */
 class JobRecommendationCriteriaBuilderTest {
 
+  /**
+   * 验证 JobRecommendationCriteriaBuilder 中简历的检索、筛选与排序规则。
+   */
   @Test
   void shouldRecoverSalaryFromRawMessageAndMergeProfileResumeEvidence() {
     Map<String, Object> expectations = new LinkedHashMap<String, Object>();
@@ -42,6 +48,9 @@ class JobRecommendationCriteriaBuilderTest {
     assertTrue(((List<?>) result.getSlots().get("hard_excludes")).contains("外包"));
   }
 
+  /**
+   * 验证 JobRecommendationCriteriaBuilder 的检索、筛选与排序规则。
+   */
   @Test
   void shouldParseCommonMonthlySalaryExpressions() {
     assertRange("月薪 4-5 万", 40, 50);
@@ -52,12 +61,25 @@ class JobRecommendationCriteriaBuilderTest {
     assertEquals(0, minimum[1]);
   }
 
+  /**
+   * 断言薪资范围上下限。
+   *
+   * @param value 待处理值
+   * @param min 最小值
+   * @param max 上限值
+   */
   private void assertRange(String value, int min, int max) {
     int[] range = JobRecommendationCriteriaBuilder.parseSalaryRangeK(value);
     assertEquals(min, range[0]);
     assertEquals(max, range[1]);
   }
 
+  /**
+   * 验证意图。
+   *
+   * @param slots 槽位
+   * @return 测试意图
+   */
   private IntentResult intent(Map<String, Object> slots) {
     return new IntentResult(
         "job",
@@ -70,6 +92,13 @@ class JobRecommendationCriteriaBuilderTest {
         slots);
   }
 
+  /**
+   * 验证上下文。
+   *
+   * @param profile 画像
+   * @param resume 简历
+   * @return 测试任务上下文
+   */
   private PersonalContext context(Map<String, Object> profile, Map<String, Object> resume) {
     return new PersonalContext(
         "job.recommend",

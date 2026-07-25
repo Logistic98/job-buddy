@@ -1,3 +1,5 @@
+"""提供受治理的工具、配置、Trace 与检查点管理接口。"""
+
 from pathlib import Path
 from typing import Any, Dict, Optional
 from uuid import uuid4
@@ -74,6 +76,7 @@ async def invoke_tool(
     """
 
     executor = get_executor()
+    # 动态重载后再次查找，确保缺失的内置工具可以自愈注册。
     tool = executor.registry.get(name)
     if tool is None:
         register_missing_builtin_tools(executor.registry)
@@ -86,6 +89,7 @@ async def invoke_tool(
     trace_id = f"trace_{uuid4().hex[:12]}"
     workspace_dir = _configured_workspace_dir()
 
+    # 工作区只取服务端配置；客户端请求值仅记录审计，不参与路径授权。
     tool_call = ToolCall(id=f"call_{uuid4().hex[:8]}", name=name, arguments=request.arguments or {})
     metadata: Dict[str, Any] = {}
     if request.workspace_dir:
@@ -103,6 +107,7 @@ async def invoke_tool(
         workspace_dir=workspace_dir,
         metadata=metadata,
     )
+    # 直接调用仍经过统一工具网关，不能绕过权限与结果治理。
     gateway_result = await executor.tool_gateway.execute(
         tool_call,
         _default_permission_mode(),

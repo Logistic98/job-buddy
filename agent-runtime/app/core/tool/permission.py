@@ -1,3 +1,5 @@
+"""独立于意图分类评估工具风险与权限模式。"""
+
 from pydantic import BaseModel
 
 from app.core.common.constants import PermissionMode, ToolRiskLevel

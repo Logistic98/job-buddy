@@ -775,9 +775,6 @@
 </template>
 
 <script setup>
-// Create/edit modal for interview questions with manual entry and AI generation tabs.
-// Owns the two form states and question CRUD/generate API calls; emits `saved` with the raw
-// saved row (or null after AI generation) so the parent can refresh the bank list.
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   createQuestion,
@@ -812,6 +809,7 @@ import {
   validateQuestionStep,
 } from '../../utils/interviewForm'
 
+// AI 批量生成时发送 null，由父组件重新加载题目列表。
 const props = defineProps({
   bankTypeOptions: { type: Array, default: () => [] },
   questionTypeOptions: { type: Array, default: () => [] },

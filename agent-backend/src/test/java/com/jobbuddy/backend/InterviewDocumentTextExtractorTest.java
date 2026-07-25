@@ -20,10 +20,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * 验证 InterviewDocumentTextExtractor 的核心行为、异常路径与边界条件。
+ */
 class InterviewDocumentTextExtractorTest {
   private final InterviewDocumentTextExtractorImpl extractor =
       new InterviewDocumentTextExtractorImpl();
 
+  /**
+   * 验证 InterviewDocumentTextExtractor 的文件解析与存储边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldExtractPdfText() throws Exception {
     byte[] content;
@@ -51,6 +59,11 @@ class InterviewDocumentTextExtractorTest {
     assertFalse(response.getTruncated());
   }
 
+  /**
+   * 验证 InterviewDocumentTextExtractor 的文件解析与存储边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void shouldExtractDocxParagraphAndTableText() throws Exception {
     byte[] content;
@@ -74,6 +87,9 @@ class InterviewDocumentTextExtractorTest {
     assertTrue(response.getText().contains("月薪40-50k"));
   }
 
+  /**
+   * 验证 InterviewDocumentTextExtractor 的核心业务契约。
+   */
   @Test
   void shouldDecodeUtf8AndRemoveBom() {
     byte[] body = "\uFEFF第一行\r\n第二行".getBytes(StandardCharsets.UTF_8);
@@ -85,6 +101,9 @@ class InterviewDocumentTextExtractorTest {
     assertEquals(Integer.valueOf(7), response.getCharacterCount());
   }
 
+  /**
+   * 验证 InterviewDocumentTextExtractor 的数量、长度与分页边界。
+   */
   @Test
   void shouldTruncateExtractedTextAndReportOriginalLength() {
     String text = "a".repeat(InterviewDocumentTextExtractorImpl.MAX_TEXT_CHARACTERS + 5);
@@ -102,6 +121,9 @@ class InterviewDocumentTextExtractorTest {
     assertTrue(response.getTruncated());
   }
 
+  /**
+   * 验证 InterviewDocumentTextExtractor 中文件的输入校验与拒绝边界。
+   */
   @Test
   void shouldRejectUnsupportedOversizedAndInvalidBinaryFiles() {
     assertEquals(
@@ -135,6 +157,9 @@ class InterviewDocumentTextExtractorTest {
             .getMessage());
   }
 
+  /**
+   * 验证 InterviewDocumentTextExtractor 的输入校验与拒绝边界。
+   */
   @Test
   void shouldRejectEmptyExtractedText() {
     assertEquals(

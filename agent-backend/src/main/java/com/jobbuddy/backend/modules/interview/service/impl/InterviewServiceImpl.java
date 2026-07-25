@@ -18,6 +18,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 实现题库和试卷事务，并将不可信代码委派给沙箱执行器。
+ */
 @Service
 public class InterviewServiceImpl implements InterviewService {
   private final InterviewRepository interviewRepository;
@@ -25,6 +28,14 @@ public class InterviewServiceImpl implements InterviewService {
   private final JsonCodec jsonCodec;
   private final AgentIntegrationService agentIntegrationService;
 
+  /**
+   * 创建面试服务实例。
+   *
+   * @param interviewRepository 面试存储访问
+   * @param interviewCodeRunner 面试编码运行器
+   * @param jsonCodec JSON 编解码器
+   * @param agentIntegrationService Agent 集成服务
+   */
   @Autowired
   public InterviewServiceImpl(
       InterviewRepository interviewRepository,
@@ -37,16 +48,40 @@ public class InterviewServiceImpl implements InterviewService {
     this.agentIntegrationService = agentIntegrationService;
   }
 
+  /**
+   * 创建面试服务实例。
+   *
+   * @param interviewRepository 面试存储访问
+   * @param interviewCodeRunner 面试编码运行器
+   */
   public InterviewServiceImpl(
       InterviewRepository interviewRepository, InterviewCodeRunner interviewCodeRunner) {
     this(interviewRepository, interviewCodeRunner, new JsonCodec(), null);
   }
 
+  /**
+   * 查询题目列表。
+   *
+   * @param keyword 关键词
+   * @param category 题目分类
+   * @return 题目列表
+   */
   public List<InterviewQuestionResponse> listQuestions(String keyword, String category) {
     return jsonCodec.convertList(
         interviewRepository.listQuestions(keyword, category), InterviewQuestionResponse.class);
   }
 
+  /**
+   * 获取分页题目。
+   *
+   * @param keyword 关键词
+   * @param bankType 题库类型
+   * @param category 题目分类
+   * @param difficulty 难度
+   * @param pageValue 页码值
+   * @param sizeValue 数量值
+   * @return 分页题目
+   */
   public InterviewQuestionPageResponse pageQuestions(
       String keyword,
       String bankType,
@@ -71,6 +106,12 @@ public class InterviewServiceImpl implements InterviewService {
     return jsonCodec.convert(result, InterviewQuestionPageResponse.class);
   }
 
+  /**
+   * 获取题目元数据。
+   *
+   * @param bankType 题库类型
+   * @return 题目元数据
+   */
   public InterviewQuestionMetaResponse questionMeta(String bankType) {
     Map<String, Object> meta = interviewRepository.questionMeta(normalizeBankType(bankType, null));
     List<Map<String, Object>> bankTypes = new ArrayList<Map<String, Object>>();
@@ -80,12 +121,26 @@ public class InterviewServiceImpl implements InterviewService {
     return jsonCodec.convert(meta, InterviewQuestionMetaResponse.class);
   }
 
+  /**
+   * 保存题目。
+   *
+   * @param request 请求对象
+   * @param questionId 题目标识
+   * @return 保存后的题目
+   */
   public InterviewQuestionResponse saveQuestion(
       InterviewQuestionRequest request, String questionId) {
     return jsonCodec.convert(
         saveQuestionMap(jsonCodec.toMap(request), questionId), InterviewQuestionResponse.class);
   }
 
+  /**
+   * 保存题目映射。
+   *
+   * @param payload 请求载荷
+   * @param questionId 题目标识
+   * @return 保存后的题目映射
+   */
   private Map<String, Object> saveQuestionMap(Map<String, Object> payload, String questionId) {
     if (payload == null) payload = Collections.emptyMap();
     Map<String, Object> question = new LinkedHashMap<String, Object>();
@@ -114,10 +169,21 @@ public class InterviewServiceImpl implements InterviewService {
     return interviewRepository.findQuestion(String.valueOf(question.get("questionId")));
   }
 
+  /**
+   * 删除题目。
+   *
+   * @param questionId 题目标识
+   */
   public void deleteQuestion(String questionId) {
     interviewRepository.deleteQuestion(questionId);
   }
 
+  /**
+   * 获取批次题目。
+   *
+   * @param request 请求对象
+   * @return 批次题目
+   */
   @SuppressWarnings("unchecked")
   public InterviewBatchResponse batchQuestions(InterviewBatchRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
@@ -149,6 +215,12 @@ public class InterviewServiceImpl implements InterviewService {
     return jsonCodec.convert(result, InterviewBatchResponse.class);
   }
 
+  /**
+   * 导入题目。
+   *
+   * @param request 请求对象
+   * @return 导入后的题目列表
+   */
   @SuppressWarnings("unchecked")
   @Transactional
   public InterviewImportResponse importQuestions(InterviewImportRequest request) {
@@ -169,6 +241,12 @@ public class InterviewServiceImpl implements InterviewService {
     return jsonCodec.convert(result, InterviewImportResponse.class);
   }
 
+  /**
+   * 生成题目。
+   *
+   * @param request 请求对象
+   * @return 题目
+   */
   public InterviewGenerateResponse generateQuestions(InterviewGenerateRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
     String topic = stringValue(payload.get("topic"));
@@ -239,6 +317,16 @@ public class InterviewServiceImpl implements InterviewService {
     return generatedResponse(items);
   }
 
+  /**
+   * 规范化生成题目。
+   *
+   * @param payload 请求载荷
+   * @param bankType 题库类型
+   * @param category 题目分类
+   * @param difficulty 难度
+   * @param questionType 题目类型
+   * @return 规范化后的生成题目
+   */
   private Map<String, Object> normalizeGeneratedQuestion(
       Map<String, Object> payload,
       String bankType,
@@ -259,6 +347,12 @@ public class InterviewServiceImpl implements InterviewService {
     return question;
   }
 
+  /**
+   * 构建题目生成响应。
+   *
+   * @param items 数据项列表
+   * @return 生成结果响应
+   */
   private InterviewGenerateResponse generatedResponse(List<Map<String, Object>> items) {
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("count", Integer.valueOf(items.size()));
@@ -266,6 +360,14 @@ public class InterviewServiceImpl implements InterviewService {
     return jsonCodec.convert(result, InterviewGenerateResponse.class);
   }
 
+  /**
+   * 创建随机结果考试。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param request 请求对象
+   * @return 创建后的随机结果考试
+   */
   @SuppressWarnings("unchecked")
   public InterviewExamResponse createRandomExam(
       String tenantId, String userId, InterviewExamRequest request) {
@@ -273,6 +375,7 @@ public class InterviewServiceImpl implements InterviewService {
     List<Map<String, Object>> selected = new ArrayList<Map<String, Object>>();
     Object questionIdsValue = payload.get("questionIds");
     Object rulesValue = payload.get("rules");
+    // 组卷优先使用显式题目，其次按多条规则抽取，最后回退到单组筛选条件。
     if (questionIdsValue instanceof List && !((List) questionIdsValue).isEmpty()) {
       java.util.Set<String> used = new java.util.HashSet<String>();
       for (Object idValue : (List) questionIdsValue) {
@@ -322,12 +425,14 @@ public class InterviewServiceImpl implements InterviewService {
       selected =
           pool.size() > count ? new ArrayList<Map<String, Object>>(pool.subList(0, count)) : pool;
     }
+    // 所有入口统一限制题目数量并拒绝空试卷。
     if (selected.size() > 50)
       selected = new ArrayList<Map<String, Object>>(selected.subList(0, 50));
     if (selected.isEmpty()) throw new IllegalArgumentException("当前出题策略下没有可用练习题，请先维护题库或调整组合规则。 ");
     String examId = "practice_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
     String title = defaultString(payload.get("title"), "随机组卷");
     int durationMinutes = normalizeDuration(payload.get("durationMinutes"));
+    // 保存可回放的组卷策略，保证提交与复盘能还原本次规则。
     Map<String, Object> strategy = new LinkedHashMap<String, Object>();
     strategy.put(
         "mode",
@@ -346,38 +451,89 @@ public class InterviewServiceImpl implements InterviewService {
         interviewRepository.findExam(tenantId, userId, examId), InterviewExamResponse.class);
   }
 
+  /**
+   * 规范化考试数量。
+   *
+   * @param value 输入值
+   * @param defaultValue 默认值
+   * @return 规范化后的考试数量
+   */
   private int normalizeExamCount(Object value, int defaultValue) {
     int count = intValue(value, defaultValue);
     if (count <= 0) return defaultValue;
     return Math.min(count, 50);
   }
 
+  /**
+   * 规范化时长。
+   *
+   * @param value 输入值
+   * @return 规范化后的时长
+   */
   private int normalizeDuration(Object value) {
     int minutes = intValue(value, 30);
     if (minutes <= 0) return 30;
     return Math.min(minutes, 240);
   }
 
+  /**
+   * 获取考试。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 考试标识
+   * @return 考试
+   */
   public InterviewExamResponse getExam(String tenantId, String userId, String examId) {
     return jsonCodec.convert(getExamMap(tenantId, userId, examId), InterviewExamResponse.class);
   }
 
+  /**
+   * 获取考试映射。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 考试标识
+   * @return 考试映射
+   */
   private Map<String, Object> getExamMap(String tenantId, String userId, String examId) {
     Map<String, Object> exam = interviewRepository.findExam(tenantId, userId, examId);
     if (exam == null) throw new IllegalArgumentException("练习不存在");
     return exam;
   }
 
+  /**
+   * 查询考试列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 考试列表
+   */
   public List<InterviewExamResponse> listExams(String tenantId, String userId) {
     return jsonCodec.convertList(
         interviewRepository.listExams(tenantId, userId), InterviewExamResponse.class);
   }
 
+  /**
+   * 执行代码。
+   *
+   * @param request 请求对象
+   * @return 执行后的编码
+   */
   public InterviewCodeRunResponse runCode(InterviewCodeRunRequest request) {
     return jsonCodec.convert(
         interviewCodeRunner.run(jsonCodec.toMap(request)), InterviewCodeRunResponse.class);
   }
 
+  /**
+   * 提交考试。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 考试标识
+   * @param request 请求对象
+   * @return 考试提交结果
+   */
   @SuppressWarnings("unchecked")
   @Transactional
   public InterviewExamSubmitResponse submitExam(
@@ -415,6 +571,14 @@ public class InterviewServiceImpl implements InterviewService {
         getExamMap(tenantId, userId, examId), InterviewExamSubmitResponse.class);
   }
 
+  /**
+   * 评估题目。
+   *
+   * @param question 题目
+   * @param userAnswer 用户答案
+   * @param codingResult 代码题执行结果
+   * @return 题目评估结果
+   */
   private boolean evaluateQuestion(
       Map<String, Object> question, String userAnswer, Object codingResult) {
     if ("编程题".equals(stringValue(question.get("questionType")))
@@ -433,7 +597,13 @@ public class InterviewServiceImpl implements InterviewService {
     return evaluate(userAnswer, stringValue(question.get("answer")));
   }
 
-  /** 简答题按参考答案关键片段覆盖率做轻量判分，命中一半以上视为通过。 */
+  /**
+   * 简答题按参考答案关键片段覆盖率做轻量判分，命中一半以上视为通过。
+   *
+   * @param userAnswer 用户答案
+   * @param expectedAnswer 期望答案
+   * @return 简答题评估结果
+   */
   private boolean evaluateShortAnswer(String userAnswer, String expectedAnswer) {
     if (userAnswer == null
         || userAnswer.trim().isEmpty()
@@ -453,6 +623,13 @@ public class InterviewServiceImpl implements InterviewService {
     return hit * 2 >= segments.size();
   }
 
+  /**
+   * 评估面试。
+   *
+   * @param userAnswer 用户答案
+   * @param expectedAnswer 期望答案
+   * @return 评估结果
+   */
   private boolean evaluate(String userAnswer, String expectedAnswer) {
     if (userAnswer == null
         || userAnswer.trim().isEmpty()
@@ -463,12 +640,25 @@ public class InterviewServiceImpl implements InterviewService {
     return user.equals(expected) || user.contains(expected) || expected.contains(user);
   }
 
+  /**
+   * 规范化面试。
+   *
+   * @param value 输入值
+   * @return 规范化后的面试
+   */
   private String normalize(String value) {
     return value == null
         ? ""
         : value.toLowerCase().replaceAll("\\s+", "").replace("。", "").replace("，", ",").trim();
   }
 
+  /**
+   * 补充题库类型元数据。
+   *
+   * @param options 选项列表
+   * @param value 输入值
+   * @param label 展示标签
+   */
   private void addBankTypeMeta(List<Map<String, Object>> options, String value, String label) {
     Map<String, Object> option = new LinkedHashMap<String, Object>();
     option.put("value", value);
@@ -476,6 +666,13 @@ public class InterviewServiceImpl implements InterviewService {
     options.add(option);
   }
 
+  /**
+   * 规范化题库类型。
+   *
+   * @param value 输入值
+   * @param defaultValue 默认值
+   * @return 规范化后的题库类型
+   */
   private String normalizeBankType(String value, String defaultValue) {
     String text = value == null ? null : value.trim().toLowerCase();
     if (text == null || text.isEmpty()) return defaultValue;
@@ -485,6 +682,13 @@ public class InterviewServiceImpl implements InterviewService {
     return text;
   }
 
+  /**
+   * 规范化编程题元数据。
+   *
+   * @param value 输入值
+   * @param codingRequired 是否要求编程作答
+   * @return 规范化后的编程题元数据
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> normalizeCodingMeta(Object value, boolean codingRequired) {
     if (!(value instanceof Map)) {
@@ -529,30 +733,70 @@ public class InterviewServiceImpl implements InterviewService {
     return result;
   }
 
+  /**
+   * 校验并获取必填值。
+   *
+   * @param payload 请求载荷
+   * @param key 业务键
+   * @param message 消息内容
+   * @return 必填配置值
+   */
   private String required(Map<String, Object> payload, String key, String message) {
     String value = stringValue(payload == null ? null : payload.get(key));
     if (value == null || value.trim().isEmpty()) throw new IllegalArgumentException(message);
     return value.trim();
   }
 
+  /**
+   * 获取默认字符串。
+   *
+   * @param value 输入值
+   * @param defaultValue 默认值
+   * @return 默认字符串
+   */
   private String defaultString(Object value, String defaultValue) {
     String text = stringValue(value);
     return text == null || text.trim().isEmpty() ? defaultValue : text.trim();
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String stringValue(Object value) {
     return value == null ? null : String.valueOf(value);
   }
 
+  /**
+   * 判断值是否为空白。
+   *
+   * @param value 输入值
+   * @return 值是否为空白是否成立
+   */
   private boolean isBlank(String value) {
     return value == null || value.trim().isEmpty();
   }
 
+  /**
+   * 获取布尔值。
+   *
+   * @param value 输入值
+   * @return 布尔值
+   */
   private boolean booleanValue(Object value) {
     if (value instanceof Boolean) return ((Boolean) value).booleanValue();
     return value != null && Boolean.parseBoolean(String.valueOf(value));
   }
 
+  /**
+   * 获取整数值。
+   *
+   * @param value 输入值
+   * @param defaultValue 默认值
+   * @return 整数值
+   */
   private int intValue(Object value, int defaultValue) {
     if (value instanceof Number) return ((Number) value).intValue();
     try {
@@ -562,6 +806,12 @@ public class InterviewServiceImpl implements InterviewService {
     }
   }
 
+  /**
+   * 规范化标签列表。
+   *
+   * @param value 输入值
+   * @return 规范化后的标签列表
+   */
   private List<Map<String, Object>> normalizeTags(Object value) {
     List<Map<String, Object>> tags = new ArrayList<Map<String, Object>>();
     if (value instanceof List) {
@@ -573,6 +823,12 @@ public class InterviewServiceImpl implements InterviewService {
     return tags;
   }
 
+  /**
+   * 添加非空标签。
+   *
+   * @param tags 标签列表
+   * @param item 数据项
+   */
   private void addTag(List<Map<String, Object>> tags, Object item) {
     if (item == null) return;
     String text;
@@ -591,6 +847,12 @@ public class InterviewServiceImpl implements InterviewService {
     tags.add(tag);
   }
 
+  /**
+   * 清理标签文本。
+   *
+   * @param value 输入值
+   * @return 清理后的标签文本
+   */
   private String cleanTagText(String value) {
     if (value == null) return "";
     String text = value.trim();

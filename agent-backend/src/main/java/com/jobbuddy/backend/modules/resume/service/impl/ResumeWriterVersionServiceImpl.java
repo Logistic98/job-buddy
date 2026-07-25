@@ -22,6 +22,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 管理简历撰写快照的创建、回退与容量裁剪。
+ *
+ * <p>版本号在用户维度单调递增；回退前可先保存当前快照，避免覆盖后无法恢复。
+ */
 @Service
 public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionService {
 
@@ -35,6 +40,13 @@ public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionServic
   private final JobBuddyProperties properties;
   private final JsonCodec jsonCodec;
 
+  /**
+   * 创建简历撰写器版本服务实例。
+   *
+   * @param mapper 数据映射
+   * @param properties 配置属性
+   * @param jsonCodec JSON 编解码器
+   */
   @Autowired
   public ResumeWriterVersionServiceImpl(
       ResumeWriterVersionMapper mapper, JobBuddyProperties properties, JsonCodec jsonCodec) {
@@ -43,22 +55,51 @@ public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionServic
     this.jsonCodec = jsonCodec;
   }
 
+  /**
+   * 创建简历撰写器版本服务实例。
+   *
+   * @param mapper 数据映射
+   * @param properties 配置属性
+   */
   public ResumeWriterVersionServiceImpl(
       ResumeWriterVersionMapper mapper, JobBuddyProperties properties) {
     this(mapper, properties, new JsonCodec());
   }
 
+  /**
+   * 查询简历版本列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 数据列表
+   */
   public List<ResumeWriterVersionResponse> list(String tenantId, String userId) {
     requireOwner(tenantId, userId);
     return jsonCodec.convertList(
         mapper.listByOwner(tenantId, userId, versionLimit()), ResumeWriterVersionResponse.class);
   }
 
+  /**
+   * 按标识读取数据。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param versionId 版本标识
+   * @return 查询结果
+   */
   public ResumeWriterVersionResponse get(String tenantId, String userId, String versionId) {
     return jsonCodec.convert(
         getMap(tenantId, userId, versionId), ResumeWriterVersionResponse.class);
   }
 
+  /**
+   * 获取映射。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param versionId 版本标识
+   * @return 映射
+   */
   private Map<String, Object> getMap(String tenantId, String userId, String versionId) {
     requireOwner(tenantId, userId);
     Map<String, Object> version =
@@ -67,6 +108,14 @@ public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionServic
     return version;
   }
 
+  /**
+   * 创建租户用户。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param request 请求对象
+   * @return 创建后的资源数据
+   */
   @Transactional
   public ResumeWriterVersionResponse create(
       String tenantId, String userId, ResumeWriterVersionCreateRequest request) {
@@ -82,6 +131,17 @@ public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionServic
         ResumeWriterVersionResponse.class);
   }
 
+  /**
+   * 创建映射。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param resumeId 简历标识
+   * @param source 源数据
+   * @param title 标题
+   * @param snapshotJson 快照 JSON
+   * @return 创建后的映射
+   */
   private Map<String, Object> createMap(
       String tenantId,
       String userId,
@@ -132,6 +192,15 @@ public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionServic
     return view;
   }
 
+  /**
+   * 回退到目标版本；请求携带当前快照时，先创建回退前备份。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param versionId 版本标识
+   * @param request 请求对象
+   * @return 恢复结果
+   */
   @Transactional
   public ResumeWriterVersionResponse restore(
       String tenantId, String userId, String versionId, ResumeWriterRestoreRequest request) {
@@ -149,6 +218,13 @@ public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionServic
     return jsonCodec.convert(target, ResumeWriterVersionResponse.class);
   }
 
+  /**
+   * 删除指定简历版本。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param versionId 版本标识
+   */
   @Transactional
   public void delete(String tenantId, String userId, String versionId) {
     requireOwner(tenantId, userId);
@@ -156,11 +232,24 @@ public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionServic
     if (deleted == 0) throw new IllegalArgumentException("版本不存在: " + versionId);
   }
 
+  /**
+   * 计算版本限制。
+   *
+   * @return 版本数量上限
+   */
   private int versionLimit() {
     int limit = properties.getResumeWriterVersionLimit();
     return limit > 0 ? limit : 30;
   }
 
+  /**
+   * 规范化标题。
+   *
+   * @param title 标题
+   * @param source 源数据
+   * @param versionNo 版本号
+   * @return 规范化后的标题
+   */
   private String normalizeTitle(String title, String source, long versionNo) {
     String safe = title == null ? "" : title.trim();
     if (safe.isEmpty()) {
@@ -173,12 +262,24 @@ public class ResumeWriterVersionServiceImpl implements ResumeWriterVersionServic
     return safe;
   }
 
+  /**
+   * 校验并获取属主。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   */
   private void requireOwner(String tenantId, String userId) {
     if (tenantId == null || tenantId.trim().isEmpty())
       throw new IllegalArgumentException("当前账号缺少租户归属");
     if (userId == null || userId.trim().isEmpty()) throw new IllegalArgumentException("未登录或登录已过期");
   }
 
+  /**
+   * 校验并获取版本标识。
+   *
+   * @param versionId 版本标识
+   * @return 校验后的并获取版本标识
+   */
   private String requireVersionId(String versionId) {
     if (versionId == null || versionId.trim().isEmpty())
       throw new IllegalArgumentException("版本 ID 不能为空");

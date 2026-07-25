@@ -10,10 +10,16 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 JsonCodec 的核心行为、异常路径与边界条件。
+ */
 class JsonCodecTest {
 
   private final JsonCodec jsonCodec = new JsonCodec();
 
+  /**
+   * 验证 JsonCodec 的数据转换与协议契约。
+   */
   @Test
   void toJsonShouldSerializeMetadataContainingInstant() {
     // 回归用例：简历摘要中的 uploadedAt(Instant) 曾导致整个 metadata 序列化失败落库 "{}"，

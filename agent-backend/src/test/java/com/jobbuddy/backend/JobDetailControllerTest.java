@@ -18,8 +18,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 JobDetailController 的核心行为、异常路径与边界条件。
+ */
 class JobDetailControllerTest {
 
+  /**
+   * 验证岗位详情被封装为强类型响应。
+   */
   @Test
   void detailWrapsServiceMapIntoTypedResponse() {
     BossCliService service = mock(BossCliService.class);
@@ -34,6 +40,9 @@ class JobDetailControllerTest {
     assertEquals("资深 Java 工程师", response.getData().value().get("jd").asText());
   }
 
+  /**
+   * 验证 JobDetailController 中认证的输入校验与拒绝边界。
+   */
   @Test
   void detailPropagatesBossAuthRequired() {
     BossCliService service = mock(BossCliService.class);
@@ -45,6 +54,9 @@ class JobDetailControllerTest {
     assertThrows(BossAuthRequiredException.class, () -> controller.detail("sec-1", null));
   }
 
+  /**
+   * 验证 JobDetailController 的失败恢复、超时与降级边界。
+   */
   @Test
   void detailStripsRedundantErrorPrefix() {
     BossCliService service = mock(BossCliService.class);

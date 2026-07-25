@@ -23,9 +23,15 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+/**
+ * 验证 JobJourneyService 的核心行为、异常路径与边界条件。
+ */
 class JobJourneyServiceSecurityTest {
   private static final JsonCodec JSON = new JsonCodec();
 
+  /**
+   * 验证 JobJourneyService 中用户的身份认证与会话边界。
+   */
   @Test
   void listRecordsExcludeLocalDefaultUserRowsForAuthenticatedUser() {
     JobJourneyRepository repository = mock(JobJourneyRepository.class);
@@ -43,6 +49,9 @@ class JobJourneyServiceSecurityTest {
     verify(repository, never()).listRecords("default-user", null, null, null);
   }
 
+  /**
+   * 验证 JobJourneyService 中用户的权限与租户隔离边界。
+   */
   @Test
   void newRecordGetsGeneratedIdAndCrossUserOperationsAreRejected() {
     JobJourneyRepository repository = mock(JobJourneyRepository.class);
@@ -71,6 +80,11 @@ class JobJourneyServiceSecurityTest {
         () -> service.saveRecord("user-auth-1", new JourneyRecordRequest(), "journey_other"));
   }
 
+  /**
+   * 验证 JobJourneyService 的持久化与状态变更规则。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void mapperXmlUsesTopLevelMapFieldsForJourneyWrites() throws Exception {
     String xml =
@@ -81,6 +95,9 @@ class JobJourneyServiceSecurityTest {
     assertFalse(xml.contains("#{record."));
   }
 
+  /**
+   * 验证 JobJourneyService 中用户的失败恢复、超时与降级边界。
+   */
   @Test
   void targetDoesNotFallBackToLocalDefaultUserForAuthenticatedUser() {
     JobJourneyRepository repository = mock(JobJourneyRepository.class);
@@ -99,6 +116,9 @@ class JobJourneyServiceSecurityTest {
     verify(repository, never()).findTarget("default-user");
   }
 
+  /**
+   * 验证 JobJourneyService 中分析任务的检索、筛选与排序规则。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void analysisReturnsExplainableScoreGroups() {
@@ -134,6 +154,12 @@ class JobJourneyServiceSecurityTest {
                     ((Integer) group.get("score")) >= 0 && ((Integer) group.get("score")) <= 100));
   }
 
+  /**
+   * 验证目标。
+   *
+   * @param userId 用户标识
+   * @return 测试目标数据
+   */
   private Map<String, Object> target(String userId) {
     Map<String, Object> target = new LinkedHashMap<String, Object>();
     target.put("targetId", "target_test");
@@ -142,6 +168,13 @@ class JobJourneyServiceSecurityTest {
     return target;
   }
 
+  /**
+   * 验证记录。
+   *
+   * @param recordId 记录标识
+   * @param userId 用户标识
+   * @return 测试记录
+   */
   private Map<String, Object> record(String recordId, String userId) {
     Map<String, Object> row = new LinkedHashMap<String, Object>();
     row.put("recordId", recordId);

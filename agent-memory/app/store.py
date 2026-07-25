@@ -1,3 +1,5 @@
+"""实现内存与 PostgreSQL 后端的记忆生命周期和混合检索。"""
+
 import asyncio
 import errno
 import math
@@ -105,6 +107,8 @@ def _item_created(item: "MemoryItem") -> str | None:
 
 @dataclass
 class MemoryItem:
+    """本地与 PostgreSQL 存储共用的标准记忆记录。"""
+
     id: str
     scope: str
     content: str
@@ -148,6 +152,8 @@ def _is_expired(item: MemoryItem) -> bool:
 
 @dataclass
 class MemoryStore:
+    """仅在未配置持久化数据库时使用的进程内存储。"""
+
     items: list[MemoryItem] = field(default_factory=list)
     revisions: dict[str, list[MemoryRevision]] = field(default_factory=dict)
 
@@ -334,6 +340,7 @@ class PostgresMemoryStore:
         ssl_mode = self._database_ssl_mode()
         last_error: Exception | None = None
 
+        # 仅对瞬时连接故障执行指数退避，配置或认证错误立即失败。
         for attempt in range(1, attempts + 1):
             try:
                 self.pool = await asyncpg.create_pool(
@@ -553,6 +560,7 @@ class PostgresMemoryStore:
         terms = significant_terms(query)
         patterns = [f"%{term}%" for term in terms]
         pool_size = _search_pool()
+        # 有显著词时先缩小候选池；空查询仅按时间获取最近候选。
         async with self.pool.acquire() as conn:
             if patterns:
                 rows = await conn.fetch(
@@ -592,6 +600,7 @@ class PostgresMemoryStore:
                     scope,
                     pool_size,
                 )
+        # 数据库负责权限和过期过滤，应用层统一执行混合相关性排序。
         candidates = [self._row_to_item(row) for row in rows]
         return await hybrid_rank(query, candidates)
 
@@ -607,6 +616,7 @@ class PostgresMemoryStore:
             raise RuntimeError("PostgreSQL memory store 未连接")
         async with self.pool.acquire() as conn:
             async with conn.transaction():
+                # 行锁保证修订快照与新版本写入原子完成。
                 current = await conn.fetchrow(
                     """
                     SELECT id, content, version, operator_id, updated_at, created_at
@@ -621,6 +631,7 @@ class PostgresMemoryStore:
                 )
                 if current is None:
                     return None
+                # 先保存旧版本，再递增当前版本，支持后续回滚。
                 await conn.execute(
                     """
                     INSERT INTO agent_memory_revisions (memory_id, version, content, operator_id, recorded_at)
@@ -801,6 +812,7 @@ class PostgresMemoryStore:
 
     @staticmethod
     def _row_to_item(row: asyncpg.Record) -> MemoryItem:
+
         def iso(value):
             if value is None:
                 return None

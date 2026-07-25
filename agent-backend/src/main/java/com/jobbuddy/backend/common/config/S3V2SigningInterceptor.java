@@ -19,9 +19,9 @@ import okhttp3.Request;
 import okhttp3.Response;
 
 /**
- * S3v2 signer for MinIO deployments behind proxies that rewrite AWS S3v4 requests. When S3v2 mode
- * is enabled, all bucket and object operations must use the same signature version; otherwise an
- * upload can succeed while subsequent GET requests fail with SignatureDoesNotMatch.
+ * 为会改写 AWS S3v4 请求的代理后 MinIO 部署提供 S3v2 签名。
+ *
+ * <p>启用后桶与对象操作必须统一签名版本，否则可能上传成功但读取时报 SignatureDoesNotMatch。
  */
 final class S3V2SigningInterceptor implements Interceptor {
   private static final Set<String> SIGNED_SUBRESOURCES =
@@ -56,16 +56,36 @@ final class S3V2SigningInterceptor implements Interceptor {
   private final String accessKey;
   private final String secretKey;
 
+  /**
+   * 创建 S3V2 签名拦截器实例。
+   *
+   * @param accessKey 访问键
+   * @param secretKey 密钥键
+   */
   S3V2SigningInterceptor(String accessKey, String secretKey) {
     this.accessKey = accessKey;
     this.secretKey = secretKey;
   }
 
+  /**
+   * 拦截并签名 S3 请求。
+   *
+   * @param chain 过滤链
+   * @return 下游响应
+   * @throws IOException 文件读写失败时抛出
+   */
   @Override
   public Response intercept(Chain chain) throws IOException {
     return chain.proceed(signRequest(chain.request()));
   }
 
+  /**
+   * 为 S3 请求生成 V2 签名头。
+   *
+   * @param request 请求参数
+   * @return 已签名请求
+   * @throws IOException 文件读写失败时抛出
+   */
   Request signRequest(Request request) throws IOException {
     String date =
         DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.now(java.time.ZoneOffset.UTC));
@@ -96,6 +116,12 @@ final class S3V2SigningInterceptor implements Interceptor {
     return builder.build();
   }
 
+  /**
+   * 构造 S3 V2 签名的规范资源。
+   *
+   * @param request 请求参数
+   * @return 规范资源
+   */
   String canonicalResource(Request request) {
     StringBuilder resource = new StringBuilder(request.url().encodedPath());
     List<String> names = new ArrayList<String>();
@@ -112,6 +138,13 @@ final class S3V2SigningInterceptor implements Interceptor {
     return resource.toString();
   }
 
+  /**
+   * 计算 HMAC-SHA1 签名。
+   *
+   * @param value 待处理值
+   * @return Base64 签名
+   * @throws IOException 文件读写失败时抛出
+   */
   private String sign(String value) throws IOException {
     try {
       Mac mac = Mac.getInstance("HmacSHA1");

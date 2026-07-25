@@ -10,12 +10,10 @@ import pytest
 
 @pytest.fixture()
 def fake_srt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Create a fake `srt` executable for wrapper unit tests.
+    """创建用于包装器单元测试的伪 `srt` 可执行文件。
 
-    The fake binary validates that `--settings <file>` exists and then executes
-    the remaining argv directly. This keeps tests independent from the real
-    Anthropic Sandbox Runtime installation while still verifying our Python
-    wrapper argument construction, cwd/env propagation, and result handling.
+    伪程序校验配置文件后直接执行剩余参数，使测试不依赖真实 Sandbox Runtime，
+    同时覆盖参数组装、工作目录、环境变量透传与结果处理。
     """
 
     bin_dir = tmp_path / "bin"

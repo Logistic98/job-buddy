@@ -1,3 +1,5 @@
+"""依据任务理解生成有界执行计划与确定性降级方案。"""
+
 import json
 import re
 from typing import List, Optional
@@ -37,6 +39,7 @@ class RuntimePlanner:
         context_summary: str = "",
         task_understanding: Optional[TaskUnderstandingResult] = None,
     ) -> tuple[AgentPlan, Optional[ToolCall]]:
+        # 澄清、已有充分观察和确定性工具请求优先走可验证的本地计划。
         if task_understanding and task_understanding.clarification.needed:
             return self._clarification_plan(objective, task_understanding), None
         if observations and not self.llm_client and self._observations_are_sufficient(task_understanding, observations):
@@ -59,6 +62,7 @@ class RuntimePlanner:
             + "\n".join(tool_lines)
         )
         task_payload = task_understanding.model_dump() if task_understanding else {}
+        # 稳定工具目录放入可缓存前缀，动态任务上下文只追加到末尾。
         dynamic_prompt = (
             f"用户目标：{objective}\n\n"
             f"任务理解结果：{json.dumps(task_payload, ensure_ascii=False, sort_keys=True)}\n\n"
@@ -78,6 +82,7 @@ class RuntimePlanner:
             ]
         )
         try:
+            # 模型输出必须经过结构化解析和可用工具白名单校验。
             response = await self.llm_client.chat(planner_messages)
             content = response.get("content") or "{}"
             data = self._parse_json(content)

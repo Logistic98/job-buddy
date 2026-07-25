@@ -269,6 +269,7 @@ class TaskUnderstandingService:
         previous_slots: Dict[str, Any],
         trace_id: str,
     ) -> TaskUnderstandingResult:
+        # 能力标识不可信，必须回落到画像中已注册的能力。
         capability_id = str(data.get("selected_capability_id") or data.get("capability_id") or "")
         intent = str(data.get("intent") or "")
         capability = (
@@ -278,6 +279,7 @@ class TaskUnderstandingService:
         )
         model_slots = data.get("slots") if isinstance(data.get("slots"), dict) else {}
         reuse_previous_slots = bool(data.get("reuse_previous_slots"))
+        # 只有模型显式声明复用时才合并历史槽位，避免旧上下文污染新任务。
         reusable_slots = previous_slots if reuse_previous_slots else {}
         slots = {**reusable_slots, **model_slots}
         confidence = self._clamp_float(data.get("confidence"), 0.8)
@@ -297,6 +299,7 @@ class TaskUnderstandingService:
             router="llm",
             reason=str(data.get("reason") or "llm selected"),
         )
+        # 查询改写、上下文依赖和澄清信息按各自协议边界逐项收敛。
         result.rewritten_query = QueryRewrite(
             resolved_query=str(data.get("resolved_query") or result.rewritten_query.resolved_query),
             retrieval_query=str(data.get("retrieval_query") or result.rewritten_query.retrieval_query),
@@ -330,6 +333,7 @@ class TaskUnderstandingService:
         for capability in profile.capabilities:
             raw_score = 0.0
             reasons: List[str] = []
+            # 正向关键词与示例累积分数，负向信号用于抑制误路由。
             for keyword in capability.keywords:
                 if phrase_match(keyword, normalized_message):
                     raw_score += 3.0

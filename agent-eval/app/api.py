@@ -1,3 +1,5 @@
+"""提供 Trace、运行结果、能力、延迟与裁判评估接口。"""
+
 import uuid
 
 from fastapi import FastAPI

@@ -7,31 +7,59 @@ package com.jobbuddy.backend.common.result;
  * 等魔法数字。新增错误语义时在此登记，调用方统一引用枚举值，保持前后端约定一致。
  */
 public enum ErrorCode {
-  /** 成功。 */
+  /**
+   * 成功。
+   */
   SUCCESS(200, "success"),
-  /** 请求参数校验失败。 */
+  /**
+   * 请求参数校验失败。
+   */
   BAD_REQUEST(400, "invalid request"),
-  /** 请求的接口或静态资源不存在。 */
+  /**
+   * 请求的接口或静态资源不存在。
+   */
   NOT_FOUND(404, "resource not found"),
-  /** Boss 直聘登录态缺失，需引导用户扫码登录。 */
+  /**
+   * Boss 直聘登录态缺失，需引导用户扫码登录。
+   */
   BOSS_AUTH_REQUIRED(4001, "Boss 登录态缺失"),
-  /** 服务端未捕获异常的兜底码。 */
+  /**
+   * 服务端未捕获异常的兜底码。
+   */
   INTERNAL_ERROR(500, "服务暂时不可用，请稍后重试。"),
-  /** 下游依赖（Runtime、工具、沙箱等）调用失败。 */
+  /**
+   * 下游依赖（Runtime、工具、沙箱等）调用失败。
+   */
   DEPENDENCY_FAILURE(5001, "下游依赖调用失败");
 
   private final int code;
   private final String message;
 
+  /**
+   * 创建错误编码实例。
+   *
+   * @param code 编码
+   * @param message 消息内容
+   */
   ErrorCode(int code, String message) {
     this.code = code;
     this.message = message;
   }
 
+  /**
+   * 获取编码。
+   *
+   * @return 编码
+   */
   public int getCode() {
     return code;
   }
 
+  /**
+   * 获取消息。
+   *
+   * @return 消息
+   */
   public String getMessage() {
     return message;
   }

@@ -21,17 +21,32 @@ class ChatPersistenceCoordinator {
   private final ChatSessionStore sessionStore;
   private final ExecutorService persistExecutor;
 
+  /**
+   * 创建对话持久化协调器实例。
+   *
+   * @param sessionStore 会话存储
+   * @param threadFactory 线程工厂
+   */
   ChatPersistenceCoordinator(ChatSessionStore sessionStore, ThreadFactory threadFactory) {
     this.sessionStore = sessionStore;
     this.persistExecutor = Executors.newSingleThreadExecutor(threadFactory);
   }
 
-  /** 持久化队列允许已提交任务执行完毕，避免关停时丢失尚未落库的会话消息。 */
+  /**
+   * 持久化队列允许已提交任务执行完毕，避免关停时丢失尚未落库的会话消息。
+   */
   void shutdown() {
     persistExecutor.shutdown();
   }
 
-  /** 顺序异步落库助手消息，保证与用户消息的先后顺序，且不阻塞 SSE 主线程。 */
+  /**
+   * 顺序异步落库助手消息，保证与用户消息的先后顺序，且不阻塞 SSE 主线程。
+   *
+   * @param sessionId 会话标识
+   * @param role 角色
+   * @param content 内容
+   * @param metadata 扩展元数据
+   */
   void appendMessageAsync(
       final String sessionId,
       final String role,
@@ -39,6 +54,9 @@ class ChatPersistenceCoordinator {
       final Map<String, Object> metadata) {
     persistExecutor.submit(
         new Runnable() {
+          /**
+           * 将消息按提交顺序写入会话存储。
+           */
           @Override
           public void run() {
             try {
@@ -53,7 +71,13 @@ class ChatPersistenceCoordinator {
         });
   }
 
-  /** 顺序异步替换最近一条岗位助手消息；若历史中尚无岗位消息则回退为追加，保证新会话首屏仍可持久化。 */
+  /**
+   * 顺序异步替换最近一条岗位助手消息；若历史中尚无岗位消息则回退为追加，保证新会话首屏仍可持久化。
+   *
+   * @param sessionId 会话标识
+   * @param jobs 岗位列表
+   * @param toolEvents 工具事件列表
+   */
   void replaceLatestJobMessageAsync(
       final String sessionId,
       final List<Map<String, Object>> jobs,
@@ -68,6 +92,9 @@ class ChatPersistenceCoordinator {
             : new java.util.ArrayList<Map<String, Object>>(toolEvents);
     persistExecutor.submit(
         new Runnable() {
+          /**
+           * 替换最近的岗位消息，缺少目标消息时追加新记录。
+           */
           @Override
           public void run() {
             try {
@@ -98,6 +125,9 @@ class ChatPersistenceCoordinator {
       persistExecutor
           .submit(
               new Runnable() {
+                /**
+                 * 作为队列屏障，等待此前持久化任务全部完成。
+                 */
                 @Override
                 public void run() {}
               })
@@ -108,11 +138,18 @@ class ChatPersistenceCoordinator {
     }
   }
 
-  /** 顺序异步保存会话状态（槽位/岗位/工具事件等），从 SSE 主线程剥离。 */
+  /**
+   * 顺序异步保存会话状态（槽位/岗位/工具事件等），从 SSE 主线程剥离。
+   *
+   * @param state 状态
+   */
   void saveStateAsync(final ChatSessionState state) {
     if (state == null) return;
     persistExecutor.submit(
         new Runnable() {
+          /**
+           * 将会话状态异步写入持久化存储。
+           */
           @Override
           public void run() {
             try {

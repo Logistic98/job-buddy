@@ -1,3 +1,5 @@
+"""约束 Agent Loop 的轮次、工具调用、失败、Token 与终态预算。"""
+
 from typing import Literal, Optional
 
 from pydantic import BaseModel

@@ -1,3 +1,5 @@
+"""在状态、日志、Trace 或检查点持久化前脱敏敏感值。"""
+
 from __future__ import annotations
 
 import json
@@ -49,11 +51,12 @@ def _sensitive_key(key: Any) -> bool:
 
 
 def redact_sensitive(value: Any, *, max_depth: int = 12, _depth: int = 0) -> Any:
-    """Recursively redact credential-bearing fields before persistence or export."""
+    """在持久化或导出前递归脱敏凭据字段。"""
     if _depth > max_depth:
         return "[TRUNCATED]"
     if hasattr(value, "model_dump"):
         value = value.model_dump()
+    # 映射按敏感键整值替换，其他容器递归处理。
     if isinstance(value, dict):
         return {
             str(key): _REDACTED
@@ -65,6 +68,7 @@ def redact_sensitive(value: Any, *, max_depth: int = 12, _depth: int = 0) -> Any
         return [redact_sensitive(item, max_depth=max_depth, _depth=_depth + 1) for item in value]
     if isinstance(value, str):
         stripped = value.strip()
+        # 字符串化 JSON 先还原结构再脱敏，普通文本使用凭据与隐私模式替换。
         if stripped.startswith(("{", "[")) and stripped.endswith(("}", "]")):
             try:
                 decoded = json.loads(value)

@@ -1,3 +1,5 @@
+"""提供 UTC 时间与单调时钟执行计时工具。"""
+
 import time
 from datetime import datetime
 from uuid import uuid4

@@ -29,12 +29,18 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+/**
+ * 验证 SystemSettingsService 的核心行为、异常路径与边界条件。
+ */
 class SystemSettingsServiceSecurityTest {
   private static final JsonCodec JSON = new JsonCodec();
   private final String originalUserHome = System.getProperty("user.home");
 
   @TempDir Path tempDir;
 
+  /**
+   * 清理测试创建的资源与上下文。
+   */
   @AfterEach
   void tearDown() {
     if (originalUserHome == null) {
@@ -44,6 +50,9 @@ class SystemSettingsServiceSecurityTest {
     }
   }
 
+  /**
+   * 验证 SystemSettingsService 中设置的输入校验与拒绝边界。
+   */
   @Test
   void saveSettingsRejectsNonLoopbackServiceUrls() {
     System.setProperty("user.home", tempDir.toString());
@@ -58,6 +67,9 @@ class SystemSettingsServiceSecurityTest {
                     SystemSettingsRequest.class)));
   }
 
+  /**
+   * 验证 SystemSettingsService 中设置的持久化与状态变更规则。
+   */
   @Test
   void saveSettingsAllowsLoopbackServiceUrls() {
     System.setProperty("user.home", tempDir.toString());
@@ -70,6 +82,9 @@ class SystemSettingsServiceSecurityTest {
                     settingsWithRuntimeUrl("http://127.0.0.1:8010"), SystemSettingsRequest.class)));
   }
 
+  /**
+   * 验证 SystemSettingsService 的检索、筛选与排序规则。
+   */
   @Test
   void companyBlacklistOnlyMatchesCompanyFields() {
     SystemSettingsServiceImpl service =
@@ -79,6 +94,9 @@ class SystemSettingsServiceSecurityTest {
     assertFalse(service.isBlacklistedJob(job("Java 开发", "其他公司", "服务示例科技客户")));
   }
 
+  /**
+   * 验证 SystemSettingsService 中岗位的检索、筛选与排序规则。
+   */
   @Test
   void keywordBlacklistOnlyMatchesJobContentFields() {
     SystemSettingsServiceImpl service =
@@ -89,6 +107,9 @@ class SystemSettingsServiceSecurityTest {
     assertFalse(service.isBlacklistedJob(job("Java 开发", "驻场科技", "负责平台研发")));
   }
 
+  /**
+   * 验证 SystemSettingsService 的身份认证与会话边界。
+   */
   @Test
   void shortAsciiKeywordUsesTokenBoundaries() {
     SystemSettingsServiceImpl service =
@@ -100,6 +121,9 @@ class SystemSettingsServiceSecurityTest {
     assertFalse(service.isBlacklistedJob(job("Java 开发", "其他公司", "负责 product 研发")));
   }
 
+  /**
+   * 验证 SystemSettingsService 的检索、筛选与排序规则。
+   */
   @Test
   void disabledAndUnknownBlacklistItemsDoNotMatch() {
     SystemSettingsServiceImpl service =
@@ -111,6 +135,9 @@ class SystemSettingsServiceSecurityTest {
     assertFalse(service.isBlacklistedJob(Collections.<String, Object>emptyMap()));
   }
 
+  /**
+   * 验证批量黑名单过滤仅加载一次设置。
+   */
   @Test
   void batchBlacklistFilterLoadsSettingsOnlyOnce() {
     SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
@@ -135,6 +162,9 @@ class SystemSettingsServiceSecurityTest {
     verify(mapper, times(1)).listBlacklistItems();
   }
 
+  /**
+   * 验证 SystemSettingsService 的持久化与状态变更规则。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void restoreWorkspaceDefaultsRemovesOnlyWorkspaceOverrides() {
@@ -168,6 +198,9 @@ class SystemSettingsServiceSecurityTest {
     assertFalse(JSON.toMap(savedJson.get()).containsKey("workspace"));
   }
 
+  /**
+   * 验证 SystemSettingsService 中运行时的持久化与状态变更规则。
+   */
   @Test
   void startupLoadAppliesPersistedRuntimeSettingsBeforeSettingsPageIsOpened() {
     Map<String, Object> workspace = new LinkedHashMap<String, Object>();
@@ -194,6 +227,9 @@ class SystemSettingsServiceSecurityTest {
     assertEquals(4, properties.getRuntimeMaxFailures());
   }
 
+  /**
+   * 验证 SystemSettingsService 中设置的失败恢复、超时与降级边界。
+   */
   @Test
   void startupLoadKeepsDeploymentDefaultsWhenSettingsTableIsUnavailable() {
     SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
@@ -210,6 +246,9 @@ class SystemSettingsServiceSecurityTest {
     assertEquals(3, properties.getRuntimeMaxFailures());
   }
 
+  /**
+   * 验证 SystemSettingsService 中运行时的输入校验与拒绝边界。
+   */
   @Test
   @SuppressWarnings("unchecked")
   void saveSettingsNormalizesBusinessRuntimeParametersAndDropsUnsupportedFields() {
@@ -272,14 +311,32 @@ class SystemSettingsServiceSecurityTest {
     assertEquals(100, properties.getResumeWriterVersionLimit());
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @return 服务
+   */
   private SystemSettingsServiceImpl newService() {
     return newService(Collections.<Map<String, Object>>emptyList());
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @param blacklistItems 黑名单数据项列表
+   * @return 服务
+   */
   private SystemSettingsServiceImpl newService(List<Map<String, Object>> blacklistItems) {
     return newService(blacklistItems, new JobBuddyProperties());
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @param blacklistItems 黑名单数据项列表
+   * @param properties 配置属性
+   * @return 服务
+   */
   private SystemSettingsServiceImpl newService(
       List<Map<String, Object>> blacklistItems, JobBuddyProperties properties) {
     AtomicReference<String> savedJson = new AtomicReference<String>();
@@ -298,6 +355,14 @@ class SystemSettingsServiceSecurityTest {
         agentProperties, properties, mapper, mock(AgentMemoryClient.class));
   }
 
+  /**
+   * 验证黑名单数据项。
+   *
+   * @param type 类型
+   * @param name 名称
+   * @param enabled 启用状态
+   * @return 测试黑名单项
+   */
   private Map<String, Object> blacklistItem(String type, String name, boolean enabled) {
     Map<String, Object> item = new LinkedHashMap<String, Object>();
     item.put("id", type + "_" + name);
@@ -308,6 +373,14 @@ class SystemSettingsServiceSecurityTest {
     return item;
   }
 
+  /**
+   * 验证岗位。
+   *
+   * @param title 标题
+   * @param company 公司
+   * @param description 说明文本
+   * @return 测试岗位
+   */
   private Map<String, Object> job(String title, String company, String description) {
     Map<String, Object> job = new LinkedHashMap<String, Object>();
     job.put("jobName", title);
@@ -316,6 +389,12 @@ class SystemSettingsServiceSecurityTest {
     return job;
   }
 
+  /**
+   * 构造包含运行时地址的设置。
+   *
+   * @param url Runtime 服务地址
+   * @return 包含 Runtime 地址的设置
+   */
   private Map<String, Object> settingsWithRuntimeUrl(String url) {
     Map<String, Object> services = new LinkedHashMap<String, Object>();
     services.put("runtimeUrl", url);

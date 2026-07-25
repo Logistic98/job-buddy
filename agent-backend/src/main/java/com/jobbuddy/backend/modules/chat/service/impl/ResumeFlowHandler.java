@@ -29,7 +29,9 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** 简历相关链路：简历匹配分析（真实岗位/用户 JD/通用岗位画像三种基准）与简历解析。 */
+/**
+ * 简历相关链路：简历匹配分析（真实岗位/用户 JD/通用岗位画像三种基准）与简历解析。
+ */
 class ResumeFlowHandler {
   private static final JsonCodec JSON = new JsonCodec();
   private final ChatSseEventSender sender;
@@ -41,6 +43,18 @@ class ResumeFlowHandler {
   private final RuntimeManagedRequestFactory requestFactory;
   private final SelectedJobContextResolver contextResolver;
 
+  /**
+   * 创建简历流程处理器实例。
+   *
+   * @param sender SSE 事件发送器
+   * @param resumeLoader 简历加载器
+   * @param resumeStorageService 简历存储服务
+   * @param jobRuntimeService 岗位运行时服务
+   * @param sessionStore 会话存储
+   * @param integrationService 集成服务
+   * @param requestFactory 请求工厂
+   * @param contextResolver 上下文解析器
+   */
   ResumeFlowHandler(
       ChatSseEventSender sender,
       CurrentResumeLoader resumeLoader,
@@ -60,6 +74,17 @@ class ResumeFlowHandler {
     this.contextResolver = contextResolver;
   }
 
+  /**
+   * 处理简历匹配结果。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param intent 意图
+   * @param rawMessage 原始消息
+   * @param directive 运行时指令
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void handleResumeMatch(
       SseEmitter emitter,
       String sessionId,
@@ -122,6 +147,16 @@ class ResumeFlowHandler {
         reuseSelectedJob);
   }
 
+  /**
+   * 处理已选项岗位匹配结果。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param rawMessage 原始消息
+   * @param selectedJobContext 已选岗位上下文
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void handleSelectedJobMatch(
       SseEmitter emitter,
       String sessionId,
@@ -150,6 +185,19 @@ class ResumeFlowHandler {
         false);
   }
 
+  /**
+   * 处理通用简历匹配。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param rawMessage 原始消息
+   * @param resume 简历
+   * @param targetRole 目标角色
+   * @param targetDescription 目标岗位描述
+   * @param slots 候选槽位
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private void handleGeneralResumeMatch(
       SseEmitter emitter,
       String sessionId,
@@ -190,6 +238,19 @@ class ResumeFlowHandler {
     sender.sendAssistant(emitter, sessionId, state, answer, metadata);
   }
 
+  /**
+   * 执行基于证据的匹配。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param target 匹配目标
+   * @param selectedJobContext 已选岗位上下文
+   * @param reusedPreviousJob 是否复用上一岗位
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private void executeEvidenceBasedMatch(
       SseEmitter emitter,
       String sessionId,
@@ -262,6 +323,18 @@ class ResumeFlowHandler {
         metadata);
   }
 
+  /**
+   * 发送已选岗位证据缺失提示。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param resume 简历
+   * @param selectedJob 已选岗位
+   * @param warning 警告信息
+   * @param reusedPreviousJob 是否复用上一岗位
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private void sendSelectedJobEvidenceMissing(
       SseEmitter emitter,
       String sessionId,
@@ -302,6 +375,12 @@ class ResumeFlowHandler {
         metadata);
   }
 
+  /**
+   * 记录已选项岗位。
+   *
+   * @param state 状态
+   * @param selectedJobContext 已选岗位上下文
+   */
   private void rememberSelectedJob(ChatSessionState state, Map<String, Object> selectedJobContext) {
     if (state == null) return;
     state.lastSlots =
@@ -311,7 +390,18 @@ class ResumeFlowHandler {
     state.lastSlots.put(SELECTED_JOB_CONTEXT_KEY, selectedJobContext);
   }
 
-  /** 通用简历匹配分析：流式优先逐字下发，流式无产出时回退非流式托管调用，最终回退本地模板。 */
+  /**
+   * 通用简历匹配分析：流式优先逐字下发，流式无产出时回退非流式托管调用，最终回退本地模板。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param rawMessage 原始消息
+   * @param resume 简历
+   * @param targetRole 目标角色
+   * @param targetDescription 目标岗位描述
+   * @param slots 候选槽位
+   * @return 通用简历匹配流
+   */
   private Map<String, Object> streamGeneralResumeMatchAnswer(
       final SseEmitter emitter,
       final String sessionId,
@@ -355,6 +445,11 @@ class ResumeFlowHandler {
           integrationService.runRuntimeStream(
               request,
               new java.util.function.Consumer<String>() {
+                /**
+                 * 接收并处理输入。
+                 *
+                 * @param piece 文本片段
+                 */
                 @Override
                 public void accept(String piece) {
                   if (piece == null || piece.isEmpty()) return;
@@ -367,6 +462,11 @@ class ResumeFlowHandler {
                 }
               },
               new java.util.function.Consumer<String>() {
+                /**
+                 * 接收并处理输入。
+                 *
+                 * @param piece 文本片段
+                 */
                 @Override
                 public void accept(String piece) {
                   if (piece == null || piece.isEmpty()) return;
@@ -412,6 +512,18 @@ class ResumeFlowHandler {
     return response;
   }
 
+  /**
+   * 解析目标岗位。
+   *
+   * @param state 状态
+   * @param rawMessage 原始消息
+   * @param explicitTargetRole 用户明确指定的目标岗位
+   * @param targetRole 目标角色
+   * @param targetDescription 目标岗位描述
+   * @param slots 候选槽位
+   * @param reusePreviousSlots 是否复用上一批槽位
+   * @return 目标岗位
+   */
   List<Map<String, Object>> resolveTargetJobs(
       ChatSessionState state,
       String rawMessage,
@@ -434,6 +546,16 @@ class ResumeFlowHandler {
     return Collections.emptyList();
   }
 
+  /**
+   * 判断是否需要复用资源已选项岗位。
+   *
+   * @param selectedJob 已选岗位
+   * @param rawMessage 原始消息
+   * @param explicitTargetRole 用户明确指定的目标岗位
+   * @param targetDescription 目标岗位描述
+   * @param reusePreviousSlots 是否复用上一批槽位
+   * @return 是否需要复用资源已选项岗位
+   */
   static boolean shouldReuseSelectedJob(
       Map<String, Object> selectedJob,
       String rawMessage,
@@ -448,6 +570,14 @@ class ResumeFlowHandler {
                 || isSelectedJobResumeFollowUp(rawMessage)));
   }
 
+  /**
+   * 判断是否明确指定新目标。
+   *
+   * @param rawMessage 原始消息
+   * @param explicitTargetRole 用户明确指定的目标岗位
+   * @param targetDescription 目标岗位描述
+   * @return 是否明确指定新目标
+   */
   static boolean hasExplicitNewTarget(
       String rawMessage, String explicitTargetRole, String targetDescription) {
     String message = stringValue(rawMessage).trim();
@@ -486,6 +616,12 @@ class ResumeFlowHandler {
         || withoutReferences.contains("工程师");
   }
 
+  /**
+   * 判断是否为已选岗位简历跟进。
+   *
+   * @param rawMessage 原始消息
+   * @return 是否为已选岗位简历跟进
+   */
   static boolean isSelectedJobResumeFollowUp(String rawMessage) {
     String message = stringValue(rawMessage);
     if (!message.contains("简历")) return false;
@@ -496,6 +632,12 @@ class ResumeFlowHandler {
         || message.contains("换");
   }
 
+  /**
+   * 判断是否复用上一轮槽位。
+   *
+   * @param directive 运行时指令
+   * @return 是否复用上一轮槽位
+   */
   @SuppressWarnings("unchecked")
   static boolean shouldReusePreviousSlots(Map<String, Object> directive) {
     if (directive == null) return false;
@@ -507,6 +649,12 @@ class ResumeFlowHandler {
     return Boolean.TRUE.equals(reuseValue) || "true".equalsIgnoreCase(stringValue(reuseValue));
   }
 
+  /**
+   * 获取已选项岗位来源状态。
+   *
+   * @param state 状态
+   * @return 已选项岗位来源状态
+   */
   @SuppressWarnings("unchecked")
   Map<String, Object> selectedJobFromState(ChatSessionState state) {
     if (state == null) return Collections.emptyMap();
@@ -532,6 +680,14 @@ class ResumeFlowHandler {
     return Collections.emptyMap();
   }
 
+  /**
+   * 处理简历分析。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void handleResumeAnalyze(SseEmitter emitter, String sessionId, ChatSessionState state)
       throws IOException {
     ResumeRecord resume = resumeLoader.loadCurrentResume(state);

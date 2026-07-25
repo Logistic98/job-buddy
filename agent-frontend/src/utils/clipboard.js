@@ -8,7 +8,7 @@ export async function copyText(text) {
       return true
     }
   } catch (_) {
-    // Fall through to the selection-based clipboard path.
+    // Clipboard API 失败时继续使用基于选区的兼容路径。
   }
 
   if (typeof document === 'undefined') return false

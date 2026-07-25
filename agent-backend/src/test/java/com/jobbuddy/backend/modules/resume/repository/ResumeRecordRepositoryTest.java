@@ -15,7 +15,13 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 ResumeRecordRepository 的核心行为、异常路径与边界条件。
+ */
 class ResumeRecordRepositoryTest {
+  /**
+   * 验证 ResumeRecordRepository 中简历的持久化与状态变更规则。
+   */
   @Test
   void listSummariesRestoresManagementMetadataWithoutExposingResumeContent() {
     ResumeRecordMapper mapper = mock(ResumeRecordMapper.class);
@@ -51,6 +57,12 @@ class ResumeRecordRepositoryTest {
     assertEquals("resume-1", response.getResumeId());
   }
 
+  /**
+   * 将输入转换为字符串键映射。
+   *
+   * @param value 待处理值
+   * @return 转换后的映射
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> castMap(Object value) {
     return (Map<String, Object>) value;

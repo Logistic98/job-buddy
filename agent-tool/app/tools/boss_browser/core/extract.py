@@ -104,6 +104,7 @@ def _find_job_list(node: Any, depth: int) -> Optional[list[dict]]:
             return node
         return None
     if isinstance(node, dict):
+        # 优先匹配已知列表键，并把页面级链路标识下沉到岗位项。
         for key in _LIST_KEYS:
             value = node.get(key)
             if isinstance(value, list) and value and all(isinstance(i, dict) for i in value):
@@ -112,6 +113,7 @@ def _find_job_list(node: Any, depth: int) -> Optional[list[dict]]:
                     for row in value:
                         row.setdefault("lid", page_lid)
                 return value
+        # 已知容器未命中时再递归其他值，深度上限防止异常结构无限遍历。
         for key in _CONTAINER_KEYS:
             if key in node:
                 found = _find_job_list(node[key], depth + 1)

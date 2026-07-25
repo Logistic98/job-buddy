@@ -44,6 +44,7 @@ class TaskResultBuilder:
         router: str,
         reason: str,
     ) -> TaskUnderstandingResult:
+        # 先依据能力卡推导缺失槽位、风险等级和下一步动作。
         missing_required = self.missing_required(capability, slots)
         missing_optional = [slot for slot in capability.optional_slots if slot not in slots]
         clarification_needed = bool(missing_required)
@@ -56,6 +57,7 @@ class TaskResultBuilder:
         answer = capability.answer_template if capability.answer_template and not missing_required else None
         selected = candidates[0] if candidates else self.candidate(capability, confidence, reason, missing_required)
 
+        # 所有槽位同时保留状态和来源，便于后续澄清与审计。
         slot_source = "llm" if router == "llm" else "semantic_fallback"
         slot_status: Dict[str, SlotValue] = {}
         for key, value in slots.items():
@@ -65,6 +67,7 @@ class TaskResultBuilder:
         for key in missing_optional:
             slot_status.setdefault(key, SlotValue(status="missing_optional", value=None, source="capability_card"))
 
+        # 最终收敛为跨 Backend 与 Runtime 稳定传递的任务理解协议。
         return TaskUnderstandingResult(
             trace_id=trace_id,
             profile=profile.id,

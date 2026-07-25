@@ -1,3 +1,5 @@
+"""按质量维度对 Runtime 结果与 Trace 执行确定性评分。"""
+
 from __future__ import annotations
 
 import re
@@ -82,6 +84,7 @@ def grade_capability_inventory(profile: dict) -> dict:
 
     capabilities = _list(profile.get("capabilities"))
     checks: list[dict] = []
+    # 先校验清单存在性，再逐项检查稳定标识和执行契约。
     if not capabilities:
         checks.append(
             _check("capability_inventory", "capabilities_present", 0.0, 1.0, "Profile 缺少 capabilities", "critical")
@@ -220,8 +223,7 @@ def grade_run(run: dict, expected: dict | None = None) -> dict:
             "score": round(dim_score, 4),
             "checks": row["checks"],
         }
-        # Each dimension contributes once. Repeating low-value events may add checks inside a
-        # dimension, but cannot dilute critical failures in other dimensions.
+        # 每个维度只贡献一次权重，重复低价值事件不能稀释其他维度的关键失败。
         dimension_weight = DIMENSION_WEIGHTS.get(dim, 1.0)
         total_weight += dimension_weight
         weighted_score += dim_score * dimension_weight
@@ -353,6 +355,7 @@ def _grade_tool_dimension(run: dict) -> list[dict]:
 def _grade_grounding_dimension(run: dict, expected: dict) -> list[dict]:
     text = _all_text(run)
     checks = []
+    # 伪造数据属于一票否决项，必须先于业务证据评分检查。
     fake_hits = [marker for marker in FORBIDDEN_FAKE_MARKERS if marker.lower() in text.lower()]
     if FAKE_CLAIM_PATTERN.search(text):
         fake_hits.append("fake_data_claim")
@@ -372,6 +375,7 @@ def _grade_grounding_dimension(run: dict, expected: dict) -> list[dict]:
     resume_match = _dict(
         run.get("resume_match") or _nested(run, "metadata", "resumeMatch") or _nested(run, "resumeMatch")
     )
+    # 简历匹配同时校验证据覆盖、置信度和学历维度分值。
     if resume_match:
         matches = _list(resume_match.get("matches"))
         evidence_counts = [_actual_evidence_count(item) for item in matches if isinstance(item, dict)]
@@ -459,6 +463,7 @@ def _grade_grounding_dimension(run: dict, expected: dict) -> list[dict]:
             )
         )
     job_cards = _list(run.get("job_cards") or run.get("jobCards"))
+    # 推荐质量门禁需保证评分覆盖完整且漏斗计数守恒。
     quality_gate = next(
         (
             event
@@ -550,6 +555,7 @@ def _grade_grounding_dimension(run: dict, expected: dict) -> list[dict]:
             )
         )
     if job_cards:
+        # 用户可见岗位还需逐项满足分数、置信度、建议和去重约束。
         minimum_score = _int(expected.get("minimum_recommended_match_score"), 60)
         invalid_cards = []
         card_ids = []
@@ -728,6 +734,7 @@ def _grade_observability_dimension(run: dict, expected: dict) -> list[dict]:
     trace = _list(run.get("trace_events") or run.get("trace") or [])
     checks: list[dict] = []
 
+    # 成功事件必须携带总耗时和逐工具结果，便于还原执行现场。
     end_events = [_dict(step) for step in trace if str(_dict(step).get("event")) == "tool_execute_end"]
     for step in end_events:
         payload = _dict(step.get("payload"))
@@ -759,6 +766,7 @@ def _grade_observability_dimension(run: dict, expected: dict) -> list[dict]:
             )
         )
 
+    # 失败事件至少保留工具名和错误信息，避免只看到模糊失败状态。
     failed_events = [_dict(step) for step in trace if str(_dict(step).get("event")) == "tool_execute_failed"]
     for step in failed_events:
         payload = _dict(step.get("payload"))
@@ -777,6 +785,7 @@ def _grade_observability_dimension(run: dict, expected: dict) -> list[dict]:
             )
         )
 
+    # 模型用量按调用和令牌字段分别校验，支持用例强制要求事件存在。
     usage_events = [_dict(step) for step in trace if str(_dict(step).get("event")) == "llm_usage"]
     for step in usage_events:
         payload = _dict(step.get("payload"))
@@ -944,7 +953,7 @@ def _summary(score: float, issues: list[dict]) -> str:
 
 
 def _actual_evidence_count(match: dict) -> int:
-    """Count concrete evidence structures; never trust a model-reported evidence_count."""
+    """统计具体证据结构，不信任模型自报的 evidence_count。"""
     count = 0
     for key in ("evidence", "hits"):
         for item in _list(match.get(key)):
@@ -956,7 +965,7 @@ def _actual_evidence_count(match: dict) -> int:
 
 
 def _grounded_requirement_evidence_count(match: dict) -> int:
-    """Count requirement-resume evidence pairs that can directly support confidence calibration."""
+    """统计可直接支撑置信度校准的岗位要求与简历证据对。"""
     return sum(
         1
         for item in _list(match.get("evidence"))

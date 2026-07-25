@@ -24,6 +24,7 @@ def memory_enabled(monkeypatch):
 
 
 def test_memory_client_disabled_by_default(monkeypatch):
+
     def fail_get(*args, **kwargs):
         raise AssertionError("memory disabled 时不应发起 HTTP 请求")
 
@@ -83,6 +84,7 @@ def test_memory_client_respects_top_k(monkeypatch, memory_enabled):
 
 
 def test_memory_client_degrades_on_connection_error(monkeypatch, memory_enabled):
+
     def raise_connect(*args, **kwargs):
         raise httpx.ConnectError("connection refused")
 
@@ -91,6 +93,7 @@ def test_memory_client_degrades_on_connection_error(monkeypatch, memory_enabled)
 
 
 def test_memory_client_skips_empty_query(monkeypatch, memory_enabled):
+
     def fail_get(*args, **kwargs):
         raise AssertionError("空查询不应发起 HTTP 请求")
 
@@ -125,6 +128,7 @@ def test_assembler_omits_memory_refs_when_disabled():
 
 
 def test_assembler_degrades_when_memory_unavailable(monkeypatch, memory_enabled):
+
     def raise_connect(*args, **kwargs):
         raise httpx.ConnectError("connection refused")
 

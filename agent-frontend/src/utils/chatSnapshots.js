@@ -1,6 +1,4 @@
-// Pure snapshot/normalization transforms for the chat store. Extracted so the store keeps only
-// state orchestration and effects, while these data-shaping rules stay side-effect free and unit
-// testable. None of these functions touch the store instance or perform I/O.
+// Chat Store 的无副作用快照与规范化转换；不访问 Store 实例，也不执行 I/O。
 
 import { filterVisibleToolEvents } from './chatHelpers'
 

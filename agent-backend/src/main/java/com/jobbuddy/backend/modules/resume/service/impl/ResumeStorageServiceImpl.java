@@ -40,7 +40,9 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-/** 简历存储服务：负责简历与附件的上传下载、求职画像的同步与保存、 解析/分析编排以及归属校验。签名令牌、缩略图渲染、Boss 画像归一化 和工具结果落盘分别由同包协作类承担。 */
+/**
+ * 简历存储服务：负责简历与附件的上传下载、求职画像的同步与保存、 解析/分析编排以及归属校验。签名令牌、缩略图渲染、Boss 画像归一化 和工具结果落盘分别由同包协作类承担。
+ */
 @Service
 public class ResumeStorageServiceImpl implements ResumeStorageService {
 
@@ -64,6 +66,17 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
   private final JsonCodec jsonCodec;
   private ResumeAssetMapper resumeAssetMapper;
 
+  /**
+   * 创建简历存储服务实例。
+   *
+   * @param properties 配置属性
+   * @param toolClient 工具客户端
+   * @param resumeRecordRepository 简历记录存储访问
+   * @param resumeObjectStorage 简历对象存储
+   * @param bossCliService Boss CLI 服务
+   * @param jsonCodec JSON 编解码器
+   * @param redisTemplate Redis 模板
+   */
   @Autowired
   public ResumeStorageServiceImpl(
       JobBuddyProperties properties,
@@ -86,6 +99,16 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     this.jsonCodec = jsonCodec;
   }
 
+  /**
+   * 创建简历存储服务实例。
+   *
+   * @param properties 配置属性
+   * @param toolClient 工具客户端
+   * @param resumeRecordRepository 简历记录存储访问
+   * @param resumeObjectStorage 简历对象存储
+   * @param bossCliService Boss CLI 服务
+   * @param jsonCodec JSON 编解码器
+   */
   public ResumeStorageServiceImpl(
       JobBuddyProperties properties,
       RuntimeToolClient toolClient,
@@ -103,16 +126,40 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         null);
   }
 
+  /**
+   * 设置简历资源映射器。
+   *
+   * @param resumeAssetMapper 简历附件数据访问组件
+   */
   @Autowired(required = false)
   void setResumeAssetMapper(ResumeAssetMapper resumeAssetMapper) {
     this.resumeAssetMapper = resumeAssetMapper;
   }
 
+  /**
+   * 上传简历存储。
+   *
+   * @param file 上传文件
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 上传结果
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   public ResumeRecord upload(MultipartFile file, String tenantId, String userId)
       throws IOException {
     return upload(file, null, tenantId, userId);
   }
 
+  /**
+   * 上传简历存储。
+   *
+   * @param file 上传文件
+   * @param originalName 原始文件名
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 上传结果
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   @Override
   public ResumeRecord upload(
       MultipartFile file, String originalName, String tenantId, String userId) throws IOException {
@@ -152,6 +199,15 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return record;
   }
 
+  /**
+   * 上传资源。
+   *
+   * @param file 上传文件
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 上传后的附件
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   public ResumeAssetUploadResponse uploadAsset(MultipartFile file, String tenantId, String userId)
       throws IOException {
     validateFile(file);
@@ -196,10 +252,24 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         ResumeAssetUploadResponse.class);
   }
 
+  /**
+   * 打开资源。
+   *
+   * @param assetToken 附件访问令牌
+   * @param userId 用户标识
+   * @return 可读取的附件
+   */
   public InputStream openAsset(String assetToken, String userId) {
     return resumeObjectStorage.openObjectStream(resolveAssetObjectName(assetToken, userId));
   }
 
+  /**
+   * 解析资源内容类型。
+   *
+   * @param assetToken 附件访问令牌
+   * @param userId 用户标识
+   * @return 资源内容类型
+   */
   public String assetContentType(String assetToken, String userId) {
     try {
       String objectName = resolveAssetObjectName(assetToken, userId);
@@ -212,6 +282,14 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 同步 Boss 在线数据简历。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return Boss 在线简历同步结果
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   public ResumeRecord syncBossOnlineResume(String tenantId, String userId) throws IOException {
     String effectiveUser = defaultUser(userId);
     String effectiveTenant = effectiveTenant(tenantId, effectiveUser);
@@ -227,10 +305,23 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return record;
   }
 
+  /**
+   * 获取岗位画像或空值。
+   *
+   * @param userId 用户标识
+   * @return 岗位画像或空值
+   */
   public ResumeSummaryResponse getJobProfileOrEmpty(String userId) {
     return getJobProfileOrEmpty(null, userId);
   }
 
+  /**
+   * 获取岗位画像或空值。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 岗位画像或空值
+   */
   public ResumeSummaryResponse getJobProfileOrEmpty(String tenantId, String userId) {
     String effectiveUser = defaultUser(userId);
     ResumeRecord existing = findJobProfile(tenantId, effectiveUser);
@@ -248,6 +339,13 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return jsonCodec.convert(view, ResumeSummaryResponse.class);
   }
 
+  /**
+   * 获取或创建岗位画像。
+   *
+   * @param userId 用户标识
+   * @return 或创建岗位画像
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   public ResumeRecord getOrCreateJobProfile(String userId) throws IOException {
     String effectiveUser = defaultUser(userId);
     ResumeRecord existing = findJobProfile(null, effectiveUser);
@@ -260,6 +358,15 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         Collections.<String, Object>emptyMap());
   }
 
+  /**
+   * 保存岗位画像。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param parsed 解析结果
+   * @return 保存后的岗位画像
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   public ResumeRecord saveJobProfile(String tenantId, String userId, JsonNode parsed)
       throws IOException {
     String effectiveUser = defaultUser(userId);
@@ -276,6 +383,13 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         profileNormalizer.asMap(profileNormalizer.asMap(safeParsed.get("source")).get("raw")));
   }
 
+  /**
+   * 生成岗位画像摘要。
+   *
+   * @param parsed 解析结果
+   * @param sessionId 会话标识
+   * @return 岗位画像摘要
+   */
   public ResumeProfileSummaryResponse generateJobProfileSummary(JsonNode parsed, String sessionId) {
     Map<String, Object> safeParsed =
         parsed == null
@@ -316,15 +430,36 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 按属主范围读取简历记录。
+   *
+   * @param resumeId 简历标识
+   * @return 查询结果
+   */
   public ResumeRecord get(String resumeId) {
     if (resumeId == null || resumeId.isEmpty()) return null;
     return resumeRecordRepository.findById(resumeId);
   }
 
+  /**
+   * 按属主范围读取简历记录。
+   *
+   * @param resumeId 简历标识
+   * @param userId 用户标识
+   * @return 查询结果
+   */
   public ResumeRecord get(String resumeId, String userId) {
     return get(resumeId, null, userId);
   }
 
+  /**
+   * 按属主范围读取简历记录。
+   *
+   * @param resumeId 简历标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 查询结果
+   */
   public ResumeRecord get(String resumeId, String tenantId, String userId) {
     ResumeRecord record = get(resumeId);
     if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
@@ -332,11 +467,27 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return record;
   }
 
+  /**
+   * 打开原始简历文件。
+   *
+   * @param resumeId 简历标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 可读取的原始文件
+   */
   public InputStream openOriginalFile(String resumeId, String tenantId, String userId) {
     ResumeRecord record = get(resumeId, tenantId, userId);
     return resumeObjectStorage.openStream(record);
   }
 
+  /**
+   * 获取缩略图。
+   *
+   * @param resumeId 简历标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 缩略图
+   */
   public byte[] thumbnail(String resumeId, String tenantId, String userId) {
     ResumeRecord record = get(resumeId, tenantId, userId);
     String suffix =
@@ -359,6 +510,12 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 读取缩略图缓存。
+   *
+   * @param cacheKey 缓存键
+   * @return 缩略图缓存
+   */
   private byte[] readThumbnailCache(String cacheKey) {
     if (redisTemplate == null) return null;
     try {
@@ -370,6 +527,12 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 写入缩略图缓存。
+   *
+   * @param cacheKey 缓存键
+   * @param bytes 字节数
+   */
   private void writeThumbnailCache(String cacheKey, byte[] bytes) {
     if (redisTemplate == null || bytes == null || bytes.length == 0) return;
     try {
@@ -381,6 +544,15 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 更新解析结果。
+   *
+   * @param resumeId 简历标识
+   * @param parsed 解析结果
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 更新后的解析结果
+   */
   public ResumeRecord updateParsed(
       String resumeId, JsonNode parsed, String tenantId, String userId) {
     ResumeRecord record = get(resumeId);
@@ -400,6 +572,13 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return record;
   }
 
+  /**
+   * 删除简历存储。
+   *
+   * @param resumeId 简历标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   */
   public void delete(String resumeId, String tenantId, String userId) {
     ResumeRecord record = get(resumeId);
     if (record == null) return;
@@ -408,10 +587,23 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     resumeRecordRepository.deleteById(resumeId);
   }
 
+  /**
+   * 查询简历存储列表。
+   *
+   * @param userId 用户标识
+   * @return 数据列表
+   */
   public List<ResumeSummaryResponse> list(String userId) {
     return list(null, userId);
   }
 
+  /**
+   * 查询简历存储列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 数据列表
+   */
   public List<ResumeSummaryResponse> list(String tenantId, String userId) {
     String effectiveUser = defaultUser(userId);
     return jsonCodec.convertList(
@@ -420,6 +612,12 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         ResumeSummaryResponse.class);
   }
 
+  /**
+   * 判断内部数据画像记录。
+   *
+   * @param record 记录
+   * @return 内部数据画像记录是否成立
+   */
   private boolean isInternalProfileRecord(ResumeRecord record) {
     Map<String, Object> source =
         profileNormalizer.asMap(
@@ -429,18 +627,44 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
         || BossProfileNormalizer.BOSS_PROFILE_SOURCE_TYPE.equals(type);
   }
 
+  /**
+   * 分析同步结果。
+   *
+   * @param resumeId 简历标识
+   * @param sessionId 会话标识
+   * @return 同步分析结果
+   */
   public ResumeRecord analyzeSync(String resumeId, String sessionId) {
     ResumeRecord record = get(resumeId);
     if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
     return analyzeRecordSync(record, sessionId);
   }
 
+  /**
+   * 分析同步结果。
+   *
+   * @param resumeId 简历标识
+   * @param sessionId 会话标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 同步分析结果
+   */
   public ResumeRecord analyzeSync(
       String resumeId, String sessionId, String tenantId, String userId) {
     ResumeRecord record = get(resumeId, tenantId, userId);
     return analyzeRecordSync(record, sessionId);
   }
 
+  /**
+   * 分析增量结果。
+   *
+   * @param resumeId 简历标识
+   * @param sessionId 会话标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param consumer 结果消费函数
+   * @return 增量分析结果
+   */
   public ResumeRecord analyzeIncrementally(
       String resumeId,
       String sessionId,
@@ -502,6 +726,13 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 分析记录同步结果。
+   *
+   * @param record 记录
+   * @param sessionId 会话标识
+   * @return 记录同步分析结果
+   */
   private ResumeRecord analyzeRecordSync(ResumeRecord record, String sessionId) {
     requirePdfResume(record, "简历分析");
     Path tempFile = null;
@@ -535,17 +766,40 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 解析同步结果。
+   *
+   * @param resumeId 简历标识
+   * @param sessionId 会话标识
+   * @return 同步结果
+   */
   public ResumeRecord parseSync(String resumeId, String sessionId) {
     ResumeRecord record = get(resumeId);
     if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
     return parseRecordSync(record, sessionId);
   }
 
+  /**
+   * 解析同步结果。
+   *
+   * @param resumeId 简历标识
+   * @param sessionId 会话标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 同步结果
+   */
   public ResumeRecord parseSync(String resumeId, String sessionId, String tenantId, String userId) {
     ResumeRecord record = get(resumeId, tenantId, userId);
     return parseRecordSync(record, sessionId);
   }
 
+  /**
+   * 解析记录同步结果。
+   *
+   * @param record 记录
+   * @param sessionId 会话标识
+   * @return 记录同步结果
+   */
   private ResumeRecord parseRecordSync(ResumeRecord record, String sessionId) {
     // parse_status 可能被 updateParsed（如文件夹整理）置为 success 而 parsed 只有元数据，必须校验内容字段。
     if ("success".equals(record.getParseStatus())
@@ -578,6 +832,16 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 新增或更新画像记录。
+   *
+   * @param effectiveTenant 实际生效租户
+   * @param effectiveUser 实际生效用户
+   * @param parsed 解析结果
+   * @param raw 原始数据
+   * @return 新增后的或更新画像记录
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   private ResumeRecord upsertProfileRecord(
       String effectiveTenant,
       String effectiveUser,
@@ -612,6 +876,13 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return record;
   }
 
+  /**
+   * 查询岗位画像。
+   *
+   * @param tenantId 租户标识
+   * @param effectiveUser 实际生效用户
+   * @return 岗位画像
+   */
   private ResumeRecord findJobProfile(String tenantId, String effectiveUser) {
     List<ResumeRecord> records =
         resumeRecordRepository.findLatestByUserId(tenantId, effectiveUser, DEFAULT_LIST_LIMIT);
@@ -621,6 +892,12 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return null;
   }
 
+  /**
+   * 生成简历存储摘要。
+   *
+   * @param record 记录
+   * @return 摘要文本
+   */
   public ResumeSummaryResponse summarize(ResumeRecord record) {
     if (record == null) return null;
     Map<String, Object> view = new LinkedHashMap<String, Object>();
@@ -636,6 +913,12 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return jsonCodec.convert(view, ResumeSummaryResponse.class);
   }
 
+  /**
+   * 校验并获取 PDF 简历。
+   *
+   * @param record 记录
+   * @param operation 操作名称
+   */
   private void requirePdfResume(ResumeRecord record, String operation) {
     String suffix =
         record == null || record.getSuffix() == null
@@ -646,6 +929,11 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 校验文件。
+   *
+   * @param file 上传文件
+   */
   private void validateFile(MultipartFile file) {
     if (file == null || file.isEmpty()) throw new IllegalArgumentException("上传文件不能为空");
     if (file.getSize() > properties.getMaxResumeBytes()) {
@@ -654,6 +942,14 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 规范化原始文件名。
+   *
+   * @param preferred 首选值
+   * @param fallback 降级结果
+   * @param defaultName 默认名称
+   * @return 规范化后的原始文件名
+   */
   private String normalizedOriginalName(String preferred, String fallback, String defaultName) {
     String candidate =
         preferred == null || preferred.trim().isEmpty()
@@ -669,6 +965,15 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return fileName;
   }
 
+  /**
+   * 调用 Runtime 工具。
+   *
+   * @param toolName 工具名称
+   * @param arguments 工具参数
+   * @param sessionId 会话标识
+   * @param workspaceDir 沙箱工作目录
+   * @return Runtime 工具调用结果
+   */
   private Map<String, Object> invokeRuntimeTool(
       String toolName, Map<String, Object> arguments, String sessionId, String workspaceDir) {
     RuntimeToolResult result =
@@ -677,6 +982,11 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return result == null ? Collections.<String, Object>emptyMap() : result.toMap(jsonCodec);
   }
 
+  /**
+   * 构建 Runtime 所需的工作区上下文。
+   *
+   * @return 工作区用于 Runtime
+   */
   private String workspaceForRuntime() {
     String override = properties.getResumeRuntimeWorkspace();
     Path workspace;
@@ -696,6 +1006,14 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return workspace.toAbsolutePath().normalize().toString();
   }
 
+  /**
+   * 构建资源响应。
+   *
+   * @param assetId 附件标识
+   * @param contentType 内容类型
+   * @param sizeBytes 数量字节数
+   * @return 附件响应
+   */
   private Map<String, Object> assetResponse(String assetId, String contentType, long sizeBytes) {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("assetId", assetId);
@@ -705,6 +1023,13 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return data;
   }
 
+  /**
+   * 解析资源对象名称。
+   *
+   * @param assetToken 附件访问令牌
+   * @param userId 用户标识
+   * @return 资源对象名称
+   */
   private String resolveAssetObjectName(String assetToken, String userId) {
     String effectiveUser = defaultUser(userId);
     if (assetToken != null && assetToken.matches("asset_[a-f0-9]{16}")) {
@@ -726,6 +1051,12 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return assetTokenSigner.requireAssetObjectName(assetToken, effectiveUser);
   }
 
+  /**
+   * 计算 SHA-256 摘要。
+   *
+   * @param content 内容
+   * @return SHA-256 摘要
+   */
   private String sha256(byte[] content) {
     try {
       return HexFormat.of()
@@ -735,10 +1066,23 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 获取默认用户。
+   *
+   * @param userId 用户标识
+   * @return 默认用户
+   */
   private String defaultUser(String userId) {
     return (userId == null || userId.isEmpty()) ? properties.getDefaultUserId() : userId;
   }
 
+  /**
+   * 确定实际租户标识。
+   *
+   * @param tenantId 租户标识
+   * @param effectiveUser 实际生效用户
+   * @return 实际生效租户
+   */
   private String effectiveTenant(String tenantId, String effectiveUser) {
     if (tenantId != null && !tenantId.trim().isEmpty()) return tenantId;
     try {
@@ -750,6 +1094,13 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     return FALLBACK_TENANT_ID;
   }
 
+  /**
+   * 确保属主。
+   *
+   * @param record 记录
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   */
   private void ensureOwner(ResumeRecord record, String tenantId, String userId) {
     String effectiveUser = defaultUser(userId);
     if (record.getUserId() == null
@@ -767,10 +1118,21 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     }
   }
 
+  /**
+   * 将输入值转换为字符串。
+   *
+   * @param value 输入值
+   * @return 转换后的字符串
+   */
   private String stringOf(Object value) {
     return value == null ? "" : String.valueOf(value);
   }
 
+  /**
+   * 静默删除存储对象。
+   *
+   * @param tempFile 临时文件
+   */
   private void deleteQuietly(Path tempFile) {
     if (tempFile == null) return;
     try {

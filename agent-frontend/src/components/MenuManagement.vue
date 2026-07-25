@@ -330,6 +330,7 @@ function permissionFallback(menu) {
 async function save() {
   modalError.value = ''
   try {
+    // 公共字段统一校验，页面与外链类型再校验各自的导航目标。
     validateCode(form.menuCode, '菜单编码')
     validateLength(form.menuName, '菜单名称', { max: 64, required: true })
     if (!form.menuType) throw new Error('请选择菜单类型')
@@ -344,6 +345,7 @@ async function save() {
     if (form.menuType === 'external') validateHttpUrl(form.externalUrl, '外部地址', { required: true })
     saving.value = true
     const payload = { ...form, displayOrder }
+    // 外链在提交前再次规范化，避免校验值与实际载荷不一致。
     if (payload.externalUrl) payload.externalUrl = validateHttpUrl(payload.externalUrl, '外部地址')
     if (modal.value === 'create') await createMenu(payload)
     else await updateMenu(selected.value.menuId, payload)

@@ -24,6 +24,9 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
+/**
+ * 验证 ResumeStorageServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class ResumeStorageServiceImplTest {
 
   private final JsonCodec jsonCodec = new JsonCodec();
@@ -37,6 +40,9 @@ class ResumeStorageServiceImplTest {
           mock(BossCliService.class),
           jsonCodec);
 
+  /**
+   * 验证 ResumeStorageServiceImpl 中岗位的文件解析与存储边界。
+   */
   @Test
   void generateJobProfileSummaryReadsBusinessSummaryFromToolOutput() {
     Map<String, Object> output = new LinkedHashMap<String, Object>();
@@ -61,6 +67,9 @@ class ResumeStorageServiceImplTest {
     assertEquals("AI", response.getProvider());
   }
 
+  /**
+   * 验证 ResumeStorageServiceImpl 中岗位的输入校验与拒绝边界。
+   */
   @Test
   void generateJobProfileSummaryFallsBackWhenToolOutputIsInvalid() {
     Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
@@ -77,6 +86,9 @@ class ResumeStorageServiceImplTest {
     assertEquals("fallback", response.getProvider());
   }
 
+  /**
+   * 验证 ResumeStorageServiceImpl 中简历的数量、长度与分页边界。
+   */
   @Test
   void uploadReadsCurrentResumeSizeLimit() {
     JobBuddyProperties properties = new JobBuddyProperties();
@@ -100,6 +112,11 @@ class ResumeStorageServiceImplTest {
     assertEquals("简历文件超出大小限制: 4 bytes", error.getMessage());
   }
 
+  /**
+   * 验证 ResumeStorageServiceImpl 的文件解析与存储边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void uploadPrefersExplicitUtf8OriginalNameOverMultipartHeaderName() throws Exception {
     MockMultipartFile file =
@@ -112,6 +129,11 @@ class ResumeStorageServiceImplTest {
     assertEquals("pdf", record.getSuffix());
   }
 
+  /**
+   * 验证 ResumeStorageServiceImpl 的文件解析与存储边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
   @Test
   void uploadRemovesClientPathFromExplicitOriginalName() throws Exception {
     MockMultipartFile file =
@@ -122,10 +144,22 @@ class ResumeStorageServiceImplTest {
     assertEquals("中文简历.pdf", record.getOriginalName());
   }
 
+  /**
+   * 验证运行时工具结果。
+   *
+   * @param value 待处理值
+   * @return runtime 工具 Result
+   */
   private RuntimeToolResult runtimeToolResult(Map<String, Object> value) {
     return RuntimeToolResult.fromJson(jsonCodec.toTree(value));
   }
 
+  /**
+   * 验证画像。
+   *
+   * @param summary 摘要
+   * @return 测试简历画像
+   */
   private com.fasterxml.jackson.databind.JsonNode profile(String summary) {
     Map<String, Object> profile = new LinkedHashMap<String, Object>();
     profile.put("summary", summary);

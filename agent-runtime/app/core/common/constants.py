@@ -1,3 +1,5 @@
+"""定义 Runtime 公共状态、风险、权限模式、停止原因与 Trace 事件名。"""
+
 from enum import Enum
 
 

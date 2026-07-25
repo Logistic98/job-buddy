@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Repository pre-commit check: validates the staged diff and runs verify.sh
-# --quick for changed modules. Shared build, workflow, script, or Harness
-# changes run the all-module verification because they can affect every gate.
+# 仓库提交前检查：校验暂存差异，并对变更模块执行 verify.sh --quick。
+# 公共构建、工作流、脚本或 Harness 变更会触发全模块验证。
 #
-# Usage (after running install-git-hooks.sh):
-#   git commit ...   # hook runs automatically
-# Manual dry run:
+# 用法（先执行 install-git-hooks.sh）：
+#   git commit ...   # 自动运行 Hook
+# 手工执行：
 #   .agent-harness/scripts/pre-commit-hook.sh
 
 set -euo pipefail

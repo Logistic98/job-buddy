@@ -13,8 +13,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+/**
+ * 验证 ProductionDefaultCredentialGuard 的核心行为、异常路径与边界条件。
+ */
 class ProductionDefaultCredentialGuardTest {
 
+  /**
+   * 验证 ProductionDefaultCredentialGuard 的输入校验与拒绝边界。
+   */
   @Test
   void productionRejectsUnchangedBootstrapPassword() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -33,6 +39,9 @@ class ProductionDefaultCredentialGuardTest {
         () -> guard.run(new DefaultApplicationArguments(new String[0])));
   }
 
+  /**
+   * 验证 ProductionDefaultCredentialGuard 中登录的身份认证与会话边界。
+   */
   @Test
   void developmentKeepsBootstrapLoginAvailable() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
@@ -44,6 +53,9 @@ class ProductionDefaultCredentialGuardTest {
     assertDoesNotThrow(() -> guard.run(new DefaultApplicationArguments(new String[0])));
   }
 
+  /**
+   * 验证 ProductionDefaultCredentialGuard 中认证的输入校验与拒绝边界。
+   */
   @Test
   void productionRejectsDisabledAuthentication() {
     UserAuthRepository repository = mock(UserAuthRepository.class);

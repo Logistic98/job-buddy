@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Data;
 
+/**
+ * 承载 Boss 登录二维码响应数据。
+ */
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class BossLoginQrResponse {

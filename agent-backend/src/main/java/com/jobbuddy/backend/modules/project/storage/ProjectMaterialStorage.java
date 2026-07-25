@@ -12,17 +12,33 @@ import java.io.InputStream;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
-/** MinIO storage adapter for project material files. */
+/**
+ * 项目材料文件的 MinIO 存储适配器。
+ */
 @Component
 public class ProjectMaterialStorage {
   private final JobBuddyProperties properties;
   private final MinioClient minioClient;
 
+  /**
+   * 创建项目材料存储实例。
+   *
+   * @param properties 配置属性
+   * @param minioClient MinIO 客户端
+   */
   public ProjectMaterialStorage(JobBuddyProperties properties, MinioClient minioClient) {
     this.properties = properties;
     this.minioClient = minioClient;
   }
 
+  /**
+   * 上传项目材料存储。
+   *
+   * @param file 上传文件
+   * @param objectName 对象名称
+   * @param contentType 内容类型
+   * @throws IOException 文件读写失败时抛出
+   */
   public void upload(MultipartFile file, String objectName, String contentType) throws IOException {
     try {
       ensureBucketExists();
@@ -40,6 +56,12 @@ public class ProjectMaterialStorage {
     }
   }
 
+  /**
+   * 打开项目材料存储。
+   *
+   * @param objectName 对象名称
+   * @return 打开
+   */
   public InputStream open(String objectName) {
     try {
       return minioClient.getObject(
@@ -52,6 +74,11 @@ public class ProjectMaterialStorage {
     }
   }
 
+  /**
+   * 删除项目材料存储。
+   *
+   * @param objectName 对象名称
+   */
   public void delete(String objectName) {
     if (objectName == null || objectName.isBlank()) return;
     try {
@@ -65,6 +92,11 @@ public class ProjectMaterialStorage {
     }
   }
 
+  /**
+   * 确保存储桶存在。
+   *
+   * @throws IOException 文件读写失败时抛出
+   */
   private void ensureBucketExists() throws IOException {
     try {
       String bucket = properties.getMinio().getBucket();

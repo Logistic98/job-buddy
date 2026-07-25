@@ -46,6 +46,11 @@ import ResumeIconModal from '../components/resume-writer/ResumeIconModal.vue'
 import ResumePhotoModal from '../components/resume-writer/ResumePhotoModal.vue'
 import katexCss from 'katex/dist/katex.min.css?raw'
 
+/**
+ * 管理简历撰写器的编辑、预览、版本、照片、工作区恢复与导出生命周期。
+ *
+ * @returns 页面模板所需的响应式状态、计算值和操作方法
+ */
 export function useResumeWriterPage() {
   const WRITER_STATE_KEY = 'resume.writer'
   const AUTO_VERSION_INTERVAL = 5 * 60 * 1000
@@ -260,6 +265,7 @@ export function useResumeWriterPage() {
     if (!files.length) return
     photoUploading.value = true
     try {
+      // 整批文件先完成类型、大小和数量校验，避免部分上传后才发现非法文件。
       if (files.length > 10) throw new Error('单次最多上传 10 张照片')
       for (const file of files)
         validateFile(file, '照片', {
@@ -281,6 +287,7 @@ export function useResumeWriterPage() {
         )
       ).filter(Boolean)
       if (uploaded.length) {
+        // 新上传照片置顶并按地址去重，首张自动成为当前照片。
         photoLibrary.value = [
           ...uploaded,
           ...photoLibrary.value.filter((item) => !uploaded.some((row) => row.url === item.url)),

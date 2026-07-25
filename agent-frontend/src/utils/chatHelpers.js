@@ -1,5 +1,4 @@
-// Pure, side-effect-free helpers shared by the chat store. Extracted from the store so the
-// logic can be unit-tested in isolation and the store file stays focused on state and effects.
+// Chat Store 共用的无副作用辅助函数，使数据转换可独立测试，Store 只管理状态与副作用。
 
 export function normalizeMessageText(message) {
   return String(message || '')
@@ -32,6 +31,7 @@ export function extractErrorMessage(error, fallback = '请求失败，请稍后�
     return text && text !== '[object Object]' ? text : fallback
   }
   if (typeof error === 'object') {
+    // 按常见错误字段递归提取消息，并限制深度防止循环对象耗尽调用栈。
     for (const key of ['message', 'detail', 'summary', 'error', 'reason']) {
       const value = error[key]
       if (value !== null && value !== undefined && value !== error) {
@@ -195,7 +195,6 @@ function conciseScalar(value) {
   return text.length <= 180 ? text : ''
 }
 
-/** 从工具 payload 中按白名单精选少量可读字段，绝不回显原始 JSON。 */
 export function selectToolEventHighlights(item = {}) {
   const payload = item?.payload && typeof item.payload === 'object' ? item.payload : {}
   const directive = payload.directive && typeof payload.directive === 'object' ? payload.directive : {}

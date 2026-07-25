@@ -8,19 +8,30 @@ import java.util.Map;
 import org.springframework.stereotype.Repository;
 
 /**
- * Repository adapter for project deep-dive data.
+ * 项目深挖数据的仓储适配器。
  *
- * <p>Hydration is kept here so services can work with normalized timestamps, material previews, and
- * project aggregates without duplicating persistence details.
+ * <p>聚合装配集中在此处，避免 Service 重复处理时间、材料预览与持久化细节。
  */
 @Repository
 public class ProjectDeepDiveRepository {
   private final ProjectDeepDiveMapper mapper;
 
+  /**
+   * 创建项目深度分析存储访问实例。
+   *
+   * @param mapper 数据映射
+   */
   public ProjectDeepDiveRepository(ProjectDeepDiveMapper mapper) {
     this.mapper = mapper;
   }
 
+  /**
+   * 查询项目列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 项目列表
+   */
   public List<Map<String, Object>> listProjects(String tenantId, String userId) {
     List<Map<String, Object>> projects = mapper.listProjects(tenantId, userId);
     for (Map<String, Object> project : projects) {
@@ -30,10 +41,23 @@ public class ProjectDeepDiveRepository {
     return projects;
   }
 
+  /**
+   * 查找项目。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param projectId 项目标识
+   * @return 项目
+   */
   public Map<String, Object> findProject(String tenantId, String userId, String projectId) {
     return hydrateProject(tenantId, userId, mapper.findProject(tenantId, userId, projectId));
   }
 
+  /**
+   * 保存项目。
+   *
+   * @param project 项目
+   */
   public void saveProject(Map<String, Object> project) {
     Timestamp now = Timestamp.from(Instant.now());
     project.put("updatedAt", now);
@@ -49,16 +73,37 @@ public class ProjectDeepDiveRepository {
     }
   }
 
+  /**
+   * 删除项目。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param projectId 项目标识
+   */
   public void deleteProject(String tenantId, String userId, String projectId) {
     mapper.deleteProject(tenantId, userId, projectId, Timestamp.from(Instant.now()));
   }
 
+  /**
+   * 保存材料。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param material 材料
+   */
   public void saveMaterial(String tenantId, String userId, Map<String, Object> material) {
     material.put("createdAt", Timestamp.from(Instant.now()));
     mapper.insertMaterial(material);
     touchProject(tenantId, userId, String.valueOf(material.get("projectId")));
   }
 
+  /**
+   * 删除材料。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param materialId 材料标识
+   */
   public void deleteMaterial(String tenantId, String userId, String materialId) {
     Map<String, Object> material = findMaterial(tenantId, userId, materialId);
     mapper.deleteMaterial(tenantId, userId, materialId);
@@ -67,12 +112,29 @@ public class ProjectDeepDiveRepository {
     }
   }
 
+  /**
+   * 查找材料。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param materialId 材料标识
+   * @return 材料
+   */
   public Map<String, Object> findMaterial(String tenantId, String userId, String materialId) {
     Map<String, Object> material = mapper.findMaterial(tenantId, userId, materialId);
     normalizeTime(material, "createdAt");
     return material;
   }
 
+  /**
+   * 按 SHA-256 摘要查找材料。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param projectId 项目标识
+   * @param sha256 文件 SHA-256 摘要
+   * @return 相同 SHA-256 的材料
+   */
   public Map<String, Object> findMaterialBySha256(
       String tenantId, String userId, String projectId, String sha256) {
     Map<String, Object> material = mapper.findMaterialBySha256(tenantId, userId, projectId, sha256);
@@ -80,6 +142,14 @@ public class ProjectDeepDiveRepository {
     return material;
   }
 
+  /**
+   * 查询材料列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param projectId 项目标识
+   * @return 材料列表
+   */
   public List<Map<String, Object>> listMaterials(String tenantId, String userId, String projectId) {
     List<Map<String, Object>> rows = mapper.listMaterials(tenantId, userId, projectId);
     for (Map<String, Object> row : rows) {
@@ -88,6 +158,14 @@ public class ProjectDeepDiveRepository {
     return rows;
   }
 
+  /**
+   * 替换题目列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param projectId 项目标识
+   * @param questions 题目列表
+   */
   public void replaceQuestions(
       String tenantId, String userId, String projectId, List<Map<String, Object>> questions) {
     mapper.deleteQuestions(tenantId, userId, projectId);
@@ -100,18 +178,41 @@ public class ProjectDeepDiveRepository {
     touchProject(tenantId, userId, projectId);
   }
 
+  /**
+   * 查找题目。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param questionId 题目标识
+   * @return 题目
+   */
   public Map<String, Object> findQuestion(String tenantId, String userId, String questionId) {
     Map<String, Object> question = mapper.findQuestion(tenantId, userId, questionId);
     normalizeTime(question, "createdAt");
     return question;
   }
 
+  /**
+   * 保存题目。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param question 题目
+   */
   public void saveQuestion(String tenantId, String userId, Map<String, Object> question) {
     question.put("createdAt", Timestamp.from(Instant.now()));
     mapper.insertQuestion(question);
     touchProject(tenantId, userId, String.valueOf(question.get("projectId")));
   }
 
+  /**
+   * 更新题目。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param projectId 项目标识
+   * @param question 题目
+   */
   public void updateQuestion(
       String tenantId, String userId, String projectId, Map<String, Object> question) {
     question.put("tenantId", tenantId);
@@ -120,6 +221,13 @@ public class ProjectDeepDiveRepository {
     touchProject(tenantId, userId, projectId);
   }
 
+  /**
+   * 删除题目。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param questionId 题目标识
+   */
   public void deleteQuestion(String tenantId, String userId, String questionId) {
     Map<String, Object> question = mapper.findQuestion(tenantId, userId, questionId);
     mapper.deleteQuestion(tenantId, userId, questionId);
@@ -128,6 +236,14 @@ public class ProjectDeepDiveRepository {
     }
   }
 
+  /**
+   * 查询题目列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param projectId 项目标识
+   * @return 题目列表
+   */
   public List<Map<String, Object>> listQuestions(String tenantId, String userId, String projectId) {
     List<Map<String, Object>> rows = mapper.listQuestions(tenantId, userId, projectId);
     for (Map<String, Object> row : rows) {
@@ -136,10 +252,25 @@ public class ProjectDeepDiveRepository {
     return rows;
   }
 
+  /**
+   * 刷新项目。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param projectId 项目标识
+   */
   private void touchProject(String tenantId, String userId, String projectId) {
     mapper.touchProject(tenantId, userId, projectId, Timestamp.from(Instant.now()));
   }
 
+  /**
+   * 补全项目。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param item 数据项
+   * @return 补全后的记录
+   */
   private Map<String, Object> hydrateProject(
       String tenantId, String userId, Map<String, Object> item) {
     if (item == null) {
@@ -153,6 +284,11 @@ public class ProjectDeepDiveRepository {
     return item;
   }
 
+  /**
+   * 补全材料。
+   *
+   * @param item 数据项
+   */
   private void hydrateMaterial(Map<String, Object> item) {
     normalizeTime(item, "createdAt");
     if (item.get("sizeBytes") == null) {
@@ -166,6 +302,12 @@ public class ProjectDeepDiveRepository {
     item.remove("sha256");
   }
 
+  /**
+   * 规范化时间。
+   *
+   * @param item 数据项
+   * @param key 键
+   */
   private void normalizeTime(Map<String, Object> item, String key) {
     if (item != null && item.get(key) instanceof Timestamp) {
       item.put(key, ((Timestamp) item.get(key)).toInstant().toString());

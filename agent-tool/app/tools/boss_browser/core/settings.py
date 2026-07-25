@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 class BossConfig(BaseModel):
     # Boss 城市名→城市编码（LID）映射。Boss 搜索用数字编码，不认中文名。
+
     city_codes: dict[str, str] = Field(default_factory=dict)
 
 

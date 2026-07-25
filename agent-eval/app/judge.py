@@ -52,6 +52,7 @@ def judge_run(run: dict, expected: dict | None = None) -> dict:
     """
 
     config = judge_config()
+    # 未配置裁判时显式返回不可用，不能误判为评审通过。
     if not judge_enabled(config):
         return {
             "enabled": False,
@@ -72,6 +73,7 @@ def judge_run(run: dict, expected: dict | None = None) -> dict:
     url = f"{config['base_url']}/chat/completions"
 
     last_error = ""
+    # 仅对限流、服务端错误和网络瞬断重试，协议错误直接返回失败证据。
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
             response = httpx.post(url, json=payload, headers=headers, timeout=config["timeout_seconds"])
@@ -87,6 +89,7 @@ def judge_run(run: dict, expected: dict | None = None) -> dict:
                     "raw": str(body)[:500],
                 }
             verdict = _parse_verdict(content)
+            # 裁判输出仍是不可信数据，必须通过固定 JSON 结构解析。
             if verdict is None:
                 return {
                     "enabled": True,

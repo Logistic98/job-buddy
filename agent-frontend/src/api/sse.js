@@ -1,5 +1,6 @@
 import { apiFetch } from './http'
 
+// 统一处理 SSE 解帧、心跳超时、显式终态与可选指数退避重连。
 const DEFAULT_MAX_RETRIES = parseEnvInt(import.meta.env.VITE_STREAM_RETRY_MAX, 5)
 const DEFAULT_BASE_DELAY_MS = parseEnvInt(import.meta.env.VITE_STREAM_RETRY_BASE_DELAY_MS, 500)
 const DEFAULT_MAX_DELAY_MS = parseEnvInt(import.meta.env.VITE_STREAM_RETRY_MAX_DELAY_MS, 5000)
@@ -218,6 +219,7 @@ async function readErrorBody(response) {
 export function dispatchSse(raw, handlers) {
   let event = 'message'
   const dataLines = []
+  // 合并多行 data 字段，并保留服务端显式事件类型。
   for (const line of raw.split('\n')) {
     if (line.startsWith('event:')) event = line.slice(6).trim()
     if (line.startsWith('data:')) {
@@ -232,6 +234,7 @@ export function dispatchSse(raw, handlers) {
     data = JSON.parse(text)
   } catch (_) {}
   const isDone = event === 'done' || (event === 'message' && data === '[DONE]')
+  // 通用监听器与事件专属监听器相互隔离，单个回调异常不终止流读取。
   try {
     handlers.onEvent?.(event, data)
     if (event === 'heartbeat' || event === 'ping') {

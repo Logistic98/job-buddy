@@ -26,14 +26,23 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 
+/**
+ * 验证 BossCliServiceImpl 的核心行为、异常路径与边界条件。
+ */
 class BossCliServiceImplTest {
   private static final JsonCodec JSON = new JsonCodec();
 
+  /**
+   * 清理请求级认证作用域。
+   */
   @AfterEach
   void clearScope() {
     AuthenticationScope.clear();
   }
 
+  /**
+   * 验证 BossCliServiceImpl 中岗位的流式生命周期与中断边界。
+   */
   @Test
   void searchJobsAcceptsHttpStyleSuccessEnvelope() {
     BossBrowserClient browserClient = mock(BossBrowserClient.class);
@@ -59,6 +68,9 @@ class BossCliServiceImplTest {
     assertEquals("大模型应用开发", jobs.get(0).get("jobName"));
   }
 
+  /**
+   * 验证 BossCliServiceImpl 中岗位的数量、长度与分页边界。
+   */
   @Test
   void favoriteJobsReadsOnlyRequestedPageAndNormalizesCards() {
     AuthenticationScope.set("tenant-a", "user-a");
@@ -89,6 +101,9 @@ class BossCliServiceImplTest {
     verify(browserClient, times(2)).post(eq("/favorites"), anyMap());
   }
 
+  /**
+   * 验证在线简历同步兼容 HTTP 成功响应封装。
+   */
   @Test
   void fetchOnlineProfileAcceptsHttpStyleSuccessEnvelope() {
     BossBrowserClient browserClient = mock(BossBrowserClient.class);
@@ -103,6 +118,9 @@ class BossCliServiceImplTest {
     assertEquals("测试候选人", result.get("name"));
   }
 
+  /**
+   * 验证 BossCliServiceImpl 中凭据的身份认证与会话边界。
+   */
   @Test
   void qrStatusShouldReturnCredentialOnlyAlongCurrentCallStack() {
     BossBrowserClient browserClient = mock(BossBrowserClient.class);
@@ -121,6 +139,9 @@ class BossCliServiceImplTest {
     assertEquals("{\"cookies\":{\"wt2\":\"persisted\"}}", resultData.get("credential_json"));
   }
 
+  /**
+   * 验证 BossCliServiceImpl 中认证的输入校验与拒绝边界。
+   */
   @Test
   void statusDependencyFailureShouldNotLookLikeAuthRequired() {
     BossBrowserClient browserClient = mock(BossBrowserClient.class);
@@ -133,6 +154,9 @@ class BossCliServiceImplTest {
     assertFalse(Boolean.TRUE.equals(result.get("authenticated")));
   }
 
+  /**
+   * 验证 BossCliServiceImpl 中岗位的输入校验与拒绝边界。
+   */
   @Test
   void searchJobsStillRoutesAuthRequiredEnvelope() {
     BossBrowserClient browserClient = mock(BossBrowserClient.class);
@@ -144,11 +168,25 @@ class BossCliServiceImplTest {
         BossAuthRequiredException.class, () -> service.searchJobsPage(new IntentResult(), 1));
   }
 
+  /**
+   * 验证新建服务。
+   *
+   * @param browserClient 浏览器客户端
+   * @return 服务
+   */
   private BossCliServiceImpl newService(BossBrowserClient browserClient) {
     return new BossCliServiceImpl(
         browserClient, mock(ApplicationEventPublisher.class), new JobBuddyProperties());
   }
 
+  /**
+   * 验证响应封装。
+   *
+   * @param code 编码
+   * @param message 消息内容
+   * @param data 数据
+   * @return 模拟下游响应
+   */
   private Map<String, Object> envelope(int code, String message, Object data) {
     Map<String, Object> envelope = new LinkedHashMap<String, Object>();
     envelope.put("code", code);

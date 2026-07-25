@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Check local prerequisites for the job-buddy automation harness.
-# This script is intentionally read-only and safe to run before starting goals or loops.
+# 检查 job-buddy 自动化 Harness 的本地前置条件。
+# 脚本只读，可在启动 Goal 或 Loop 前安全执行。
 
 set -euo pipefail
 

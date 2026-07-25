@@ -1,6 +1,4 @@
-// Converts an image URL to a data: URL so exported resumes embed the photo inline.
-// Kept out of components so the network/FileReader logic stays testable and there are no
-// stray fetch() calls scattered through .vue files. fetchImpl is injectable for tests.
+// 将图片 URL 转为 data URL，供导出简历内嵌照片；fetchImpl 可注入以便独立测试。
 
 export async function imageUrlToDataUrl(url, fetchImpl) {
   if (!url || url.startsWith('data:')) return url || ''

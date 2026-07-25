@@ -13,12 +13,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/** SSE 事件下发器：统一负责事件写出、取消检查、助手消息终态下发与增量下发， 保证"先推前端、再异步落库"的顺序在所有链路一致。 */
+/**
+ * SSE 事件下发器：统一负责事件写出、取消检查、助手消息终态下发与增量下发， 保证"先推前端、再异步落库"的顺序在所有链路一致。
+ */
 class ChatSseEventSender {
   private static final Logger log = LoggerFactory.getLogger(ChatSseEventSender.class);
   private final ConcurrentMap<SseEmitter, AtomicBoolean> emitterCancelled;
   private final ChatPersistenceCoordinator persistence;
 
+  /**
+   * 创建对话 SSE 事件发送器实例。
+   *
+   * @param emitterCancelled 发送器是否取消
+   * @param persistence 持久化协调器
+   */
   ChatSseEventSender(
       ConcurrentMap<SseEmitter, AtomicBoolean> emitterCancelled,
       ChatPersistenceCoordinator persistence) {
@@ -26,6 +34,14 @@ class ChatSseEventSender {
     this.persistence = persistence;
   }
 
+  /**
+   * 发送 SSE 事件。
+   *
+   * @param emitter SSE 事件发送器
+   * @param event 事件名称
+   * @param data 业务数据
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void send(SseEmitter emitter, String event, Object data) throws IOException {
     AtomicBoolean cancelled = emitterCancelled.get(emitter);
     if (cancelled != null && cancelled.get()) {
@@ -35,6 +51,11 @@ class ChatSseEventSender {
     emitter.send(SseEmitter.event().name(event).data(data));
   }
 
+  /**
+   * 静默完成异步结果。
+   *
+   * @param emitter SSE 事件发送器
+   */
   void completeQuietly(SseEmitter emitter) {
     try {
       emitter.complete();
@@ -44,11 +65,30 @@ class ChatSseEventSender {
     }
   }
 
+  /**
+   * 发送助手。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param value 输入值
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void sendAssistant(SseEmitter emitter, String sessionId, ChatSessionState state, String value)
       throws IOException {
     sendAssistant(emitter, sessionId, state, value, null);
   }
 
+  /**
+   * 发送助手。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param value 输入值
+   * @param metadata 扩展元数据
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void sendAssistant(
       SseEmitter emitter,
       String sessionId,
@@ -84,7 +124,15 @@ class ChatSseEventSender {
     persistence.saveStateAsync(state);
   }
 
-  /** 下发答案 Token 增量，前端按 assistantId 追加到在途助手消息，不落库（终态 message 落库）。 */
+  /**
+   * 下发答案 Token 增量，前端按 assistantId 追加到在途助手消息，不落库（终态 message 落库）。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param assistantId 助手消息标识
+   * @param delta 增量内容
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void sendMessageDelta(SseEmitter emitter, String sessionId, String assistantId, String delta)
       throws IOException {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
@@ -94,7 +142,15 @@ class ChatSseEventSender {
     send(emitter, "message_delta", data);
   }
 
-  /** 下发推理过程增量，前端按 assistantId 追加到在途助手消息的推理过程，不落库（终态 message 携带完整推理过程落库）。 */
+  /**
+   * 下发推理过程增量，前端按 assistantId 追加到在途助手消息的推理过程，不落库（终态 message 携带完整推理过程落库）。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param assistantId 助手消息标识
+   * @param delta 增量内容
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void sendReasoningDelta(SseEmitter emitter, String sessionId, String assistantId, String delta)
       throws IOException {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
@@ -104,6 +160,15 @@ class ChatSseEventSender {
     send(emitter, "reasoning_delta", data);
   }
 
+  /**
+   * 发送工具状态。
+   *
+   * @param emitter SSE 事件发送器
+   * @param sessionId 会话标识
+   * @param state 状态
+   * @param status 状态
+   * @throws IOException 文件或网络读写失败时抛出
+   */
   void sendToolStatus(
       SseEmitter emitter, String sessionId, ChatSessionState state, Map<String, Object> status)
       throws IOException {

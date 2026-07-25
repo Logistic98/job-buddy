@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure this checkout to use the repository-owned Git hooks.
+# 配置当前检出使用仓库自带 Git Hooks。
 
 set -euo pipefail
 

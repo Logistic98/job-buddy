@@ -1,3 +1,5 @@
+"""将脱敏且有界的 Trace 事件写入内存、JSONL 与可选导出器。"""
+
 import asyncio
 import contextvars
 import json
@@ -17,6 +19,8 @@ _trace_context: contextvars.ContextVar[Optional[Dict[str, str]]] = contextvars.C
 
 
 def bind_trace_context(**fields: Optional[str]) -> contextvars.Token:
+    """合并并绑定当前异步上下文的 Trace 关联字段。"""
+
     if not fields:
         return _trace_context.set(_trace_context.get())
     source = _trace_context.get() or {}
@@ -29,10 +33,14 @@ def bind_trace_context(**fields: Optional[str]) -> contextvars.Token:
 
 
 def unbind_trace_context(token: contextvars.Token):
+    """恢复绑定前的 Trace 上下文。"""
+
     _trace_context.reset(token)
 
 
 def current_trace_context() -> Dict[str, str]:
+    """返回当前 Trace 上下文的隔离副本。"""
+
     return dict(_trace_context.get() or {})
 
 

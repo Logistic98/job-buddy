@@ -1,3 +1,5 @@
+"""在异步 Runtime 执行中跟踪请求级模型用量。"""
+
 import contextvars
 from typing import Any, Dict, Optional
 
@@ -17,6 +19,8 @@ def start_usage_tracking() -> Dict[str, int]:
 
 
 def current_usage() -> Optional[Dict[str, int]]:
+    """返回当前异步上下文的模型用量累计器。"""
+
     return _run_usage.get()
 
 

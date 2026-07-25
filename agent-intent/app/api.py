@@ -1,3 +1,5 @@
+"""提供轻量意图分类与高风险 Transcript 复核接口。"""
+
 import uuid
 
 from fastapi import FastAPI

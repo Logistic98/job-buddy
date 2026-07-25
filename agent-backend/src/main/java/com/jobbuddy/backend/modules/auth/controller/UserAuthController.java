@@ -19,13 +19,20 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 用户认证接口，提供登录、当前用户查询和退出登录能力。 */
+/**
+ * 用户认证接口，提供登录、当前用户查询和退出登录能力。
+ */
 @Tag(name = "用户认证接口")
 @RestController
 @RequestMapping("/api/auth")
 public class UserAuthController {
   private final UserLoginService userLoginService;
 
+  /**
+   * 创建用户认证接口实例。
+   *
+   * @param userLoginService 用户登录服务
+   */
   public UserAuthController(UserLoginService userLoginService) {
     this.userLoginService = userLoginService;
   }
@@ -33,6 +40,9 @@ public class UserAuthController {
   /**
    * 用户登录。
    *
+   * @param body 请求体
+   * @param request 请求对象
+   * @param response 响应对象
    * @return 统一接口响应
    */
   @Operation(summary = "用户登录", description = "使用全局唯一用户名和密码登录；成功后同时返回令牌并写入会话 Cookie。")
@@ -50,6 +60,7 @@ public class UserAuthController {
   /**
    * 获取当前登录用户。
    *
+   * @param request 请求对象
    * @return 统一接口响应
    */
   @Operation(summary = "获取当前登录用户")
@@ -63,6 +74,8 @@ public class UserAuthController {
   /**
    * 退出登录。
    *
+   * @param request 请求对象
+   * @param response 响应对象
    * @return 统一接口响应
    */
   @Operation(summary = "退出登录")

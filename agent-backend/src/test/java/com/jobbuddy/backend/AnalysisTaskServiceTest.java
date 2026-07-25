@@ -21,14 +21,23 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * 验证 AnalysisTaskService 的核心行为、异常路径与边界条件。
+ */
 class AnalysisTaskServiceTest {
   private AnalysisTaskServiceImpl service;
 
+  /**
+   * 清理测试创建的资源与上下文。
+   */
   @AfterEach
   void tearDown() {
     if (service != null) service.shutdown();
   }
 
+  /**
+   * 验证 AnalysisTaskService 中岗位的去重与幂等边界。
+   */
   @Test
   void shouldReuseActiveTaskForSameOwnedResourceIncludingLongEncryptedJobKey() {
     AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
@@ -57,6 +66,9 @@ class AnalysisTaskServiceTest {
     verify(mapper, never()).insert(org.mockito.ArgumentMatchers.any(AnalysisTask.class));
   }
 
+  /**
+   * 验证 AnalysisTaskService 的权限与租户隔离边界。
+   */
   @Test
   void shouldRejectCrossOwnerTaskLookup() {
     AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
@@ -75,6 +87,9 @@ class AnalysisTaskServiceTest {
     assertEquals("分析任务不存在", error.getMessage());
   }
 
+  /**
+   * 验证 AnalysisTaskService 的流式生命周期与中断边界。
+   */
   @Test
   void shouldCancelOnlyAnOwnedActiveTask() {
     AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
@@ -100,6 +115,9 @@ class AnalysisTaskServiceTest {
     verify(mapper).markCancelled("task-1");
   }
 
+  /**
+   * 验证 AnalysisTaskService 的权限与租户隔离边界。
+   */
   @Test
   void shouldRejectCrossOwnerCancellationWithoutChangingTaskState() {
     AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
@@ -117,6 +135,9 @@ class AnalysisTaskServiceTest {
     verify(mapper, never()).markCancelled(anyString());
   }
 
+  /**
+   * 验证 AnalysisTaskService 的输入校验与拒绝边界。
+   */
   @Test
   void shouldRejectUnsupportedTaskTypeBeforeQueryingLatest() {
     AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
@@ -133,6 +154,17 @@ class AnalysisTaskServiceTest {
     verify(mapper, never()).findLatest(anyString(), anyString(), anyString(), anyString());
   }
 
+  /**
+   * 验证任务。
+   *
+   * @param taskId 任务标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param type 类型
+   * @param resourceKey 资源键
+   * @param status 状态
+   * @return 测试任务
+   */
   private AnalysisTask task(
       String taskId,
       String tenantId,

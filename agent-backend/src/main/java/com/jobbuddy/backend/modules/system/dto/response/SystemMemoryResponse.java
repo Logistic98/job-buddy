@@ -4,6 +4,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import java.util.List;
 import lombok.Data;
 
+/**
+ * 承载系统记忆响应数据。
+ */
 @Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class SystemMemoryResponse {

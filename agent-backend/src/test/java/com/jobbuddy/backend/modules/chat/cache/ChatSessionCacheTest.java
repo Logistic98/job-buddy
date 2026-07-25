@@ -15,8 +15,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+/**
+ * 验证 ChatSessionCache 的核心行为、异常路径与边界条件。
+ */
 class ChatSessionCacheTest {
 
+  /**
+   * 验证 ChatSessionCache 的失败恢复、超时与降级边界。
+   */
   @Test
   void shouldSkipRedisDuringFailureCooldown() {
     StringRedisTemplate redis = mock(StringRedisTemplate.class);
@@ -32,6 +38,9 @@ class ChatSessionCacheTest {
     verify(values, times(1)).get("job-buddy:chat-session:s1");
   }
 
+  /**
+   * 验证 ChatSessionCache 的失败恢复、超时与降级边界。
+   */
   @Test
   void shouldRetryAndRecoverWhenCooldownExpires() {
     StringRedisTemplate redis = mock(StringRedisTemplate.class);

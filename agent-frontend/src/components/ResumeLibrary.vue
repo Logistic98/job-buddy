@@ -446,7 +446,7 @@ async function hydratePickerResumes(items) {
         const detail = await getResume(item.resumeId)
         if (version === pickerLoadVersion) pickerDetails.value = { ...pickerDetails.value, [item.resumeId]: detail }
       } catch (_) {
-        // Keep the lightweight list item and use the structured summary fallback.
+        // 保留轻量列表项，并使用结构化摘要兜底。
       } finally {
         if (version === pickerLoadVersion) {
           const next = new Set(pickerDetailLoadingIds.value)

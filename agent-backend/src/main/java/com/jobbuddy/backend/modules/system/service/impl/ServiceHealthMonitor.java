@@ -11,7 +11,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Owns service endpoint projections and bounded health history. */
+/**
+ * 管理服务端点投影与有界健康历史。
+ */
 public class ServiceHealthMonitor {
   private static final int HEALTH_TIMEOUT_MILLIS = 1500;
   private static final int HEALTH_HISTORY_LIMIT = 60;
@@ -21,6 +23,12 @@ public class ServiceHealthMonitor {
   private final JsonCodec jsonCodec;
   private Map<String, Object> monitoredStatuses = new LinkedHashMap<String, Object>();
 
+  /**
+   * 创建服务健康状态监视器实例。
+   *
+   * @param agentProperties Agent 配置属性
+   * @param jobProperties 岗位配置属性
+   */
   public ServiceHealthMonitor(
       AgentServiceProperties agentProperties, JobBuddyProperties jobProperties) {
     this.agentProperties = agentProperties;
@@ -28,6 +36,11 @@ public class ServiceHealthMonitor {
     this.jsonCodec = new JsonCodec();
   }
 
+  /**
+   * 获取服务默认值。
+   *
+   * @return 服务默认值
+   */
   public Map<String, Object> serviceDefaults() {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("intentUrl", agentProperties.getIntentUrl());
@@ -41,6 +54,11 @@ public class ServiceHealthMonitor {
     return data;
   }
 
+  /**
+   * 获取运行时设置。
+   *
+   * @return 运行时设置
+   */
   public Map<String, Object> runtimeSettings() {
     Map<String, Object> data = serviceDefaults();
     data.put("maxJobsPerRecommend", jobProperties.getMaxJobsPerRecommend());
@@ -60,11 +78,21 @@ public class ServiceHealthMonitor {
     return data;
   }
 
+  /**
+   * 获取状态。
+   *
+   * @return 状态
+   */
   public synchronized Map<String, Object> statuses() {
     if (monitoredStatuses.isEmpty()) refresh();
     return copyStatuses(monitoredStatuses);
   }
 
+  /**
+   * 刷新服务健康状态。
+   *
+   * @return 刷新结果
+   */
   public synchronized ServiceStatusesResponse refresh() {
     Map<String, Object> checkedStatuses = probeStatuses();
     for (Map.Entry<String, Object> entry : checkedStatuses.entrySet()) {
@@ -88,6 +116,11 @@ public class ServiceHealthMonitor {
     return new ServiceStatusesResponse(jsonCodec.toTree(copyStatuses(monitoredStatuses)));
   }
 
+  /**
+   * 探测服务状态。
+   *
+   * @return 服务探测结果
+   */
   private Map<String, Object> probeStatuses() {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("intent", status("intent", "Intent Service", agentProperties.getIntentUrl()));
@@ -99,6 +132,13 @@ public class ServiceHealthMonitor {
     return data;
   }
 
+  /**
+   * 获取上一轮健康历史。
+   *
+   * @param serviceId 服务标识
+   * @param currentUrl 当前地址
+   * @return 上一轮健康历史
+   */
   @SuppressWarnings("unchecked")
   private List<Map<String, Object>> previousHistory(String serviceId, Object currentUrl) {
     Object previousValue = monitoredStatuses.get(serviceId);
@@ -116,6 +156,12 @@ public class ServiceHealthMonitor {
     return history;
   }
 
+  /**
+   * 复制状态。
+   *
+   * @param statuses 服务状态列表
+   * @return 服务状态副本
+   */
   @SuppressWarnings("unchecked")
   private Map<String, Object> copyStatuses(Map<String, Object> statuses) {
     Map<String, Object> copy = new LinkedHashMap<String, Object>();
@@ -137,6 +183,14 @@ public class ServiceHealthMonitor {
     return copy;
   }
 
+  /**
+   * 获取状态。
+   *
+   * @param id 标识
+   * @param name 名称
+   * @param baseUrl 服务基础地址
+   * @return 当前状态
+   */
   private Map<String, Object> status(String id, String name, String baseUrl) {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("id", id);
@@ -171,6 +225,12 @@ public class ServiceHealthMonitor {
     return data;
   }
 
+  /**
+   * 获取健康状态地址。
+   *
+   * @param baseUrl 服务基础地址
+   * @return 健康状态地址
+   */
   private String healthUrl(String baseUrl) {
     String value = baseUrl.trim();
     if (value.endsWith("/")) value = value.substring(0, value.length() - 1);

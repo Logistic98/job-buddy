@@ -1,3 +1,5 @@
+"""查询已配置搜索服务并规范化有界结果摘要。"""
+
 import html
 import json
 import re
@@ -11,6 +13,8 @@ from app.core.tool.base import BaseTool, ToolExecutionContext, ValidationResult
 
 
 class WebSearchTool(BaseTool):
+    """查询搜索服务，但不将返回摘要视为可信指令。"""
+
     name = "web_search"
     aliases = ["search_web", "bocha_web_search", "bocha_ai_search"]
     search_hint = "联网 搜索 Web 资料 查询 当前 信息 博查 Bocha 面试 题库 趋势 新闻"

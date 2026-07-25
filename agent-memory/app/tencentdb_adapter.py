@@ -1,3 +1,5 @@
+"""将可选腾讯云记忆网关适配为本地记忆服务契约。"""
+
 import os
 import time
 from typing import Any, Dict, List, Optional

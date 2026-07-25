@@ -1,3 +1,5 @@
+"""定义经过校验的能力、Profile、会话捷径与工具范围模型。"""
+
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator

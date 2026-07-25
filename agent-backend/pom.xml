@@ -167,8 +167,15 @@
                         <googleJavaFormat>
                             <version>${google-java-format.version}</version>
                             <style>GOOGLE</style>
-                            <formatJavadoc>true</formatJavadoc>
+                            <formatJavadoc>false</formatJavadoc>
                         </googleJavaFormat>
+                        <replaceRegex>
+                            <name>expand-single-line-javadocs</name>
+                            <searchRegex>(?m)^([ \t]*)/\*\* ([^\r\n]*?) \*/$</searchRegex>
+                            <replacement>$1/**
+$1 * $2
+$1 */</replacement>
+                        </replaceRegex>
                         <replaceRegex>
                             <name>expand-empty-type-bodies</name>
                             <searchRegex>(?m)^(\s*public\s+(?:(?:final|abstract|static)\s+)*(?:class|interface|record|enum)\s+[^\{\n]*\S)\s*\{\}$</searchRegex>

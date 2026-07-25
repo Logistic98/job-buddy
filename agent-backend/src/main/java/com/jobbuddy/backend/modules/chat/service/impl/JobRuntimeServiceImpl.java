@@ -25,6 +25,11 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 
+/**
+ * 执行 Backend 负责的岗位召回、过滤、详情补全与 Runtime 匹配。
+ *
+ * <p>渐进式召回遵守 Boss 分页和风控限制，推荐结果仅在满足匹配质量标准后输出。
+ */
 @Service
 public class JobRuntimeServiceImpl implements JobRuntimeService {
   private static final int RESUME_MATCH_BATCH_SIZE = 15;
@@ -45,6 +50,16 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   private final SystemSettingsService settingsService;
   private final JobCandidateFilter candidateFilter;
 
+  /**
+   * 创建岗位运行时服务实例。
+   *
+   * @param runtimeToolClient 运行时工具客户端
+   * @param properties 配置属性
+   * @param bossAuthService Boss 认证服务
+   * @param jsonCodec JSON 编解码器
+   * @param bossCliService Boss CLI 服务
+   * @param settingsService 设置服务
+   */
   public JobRuntimeServiceImpl(
       RuntimeToolClient runtimeToolClient,
       JobBuddyProperties properties,
@@ -61,6 +76,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     this.candidateFilter = new JobCandidateFilter(settingsService);
   }
 
+  /**
+   * 启动 Boss 登录。
+   *
+   * @param sessionId 会话标识
+   * @return 启动后的 Boss 登录
+   */
   public Map<String, Object> startBossLogin(String sessionId) {
     Map<String, Object> login = jsonCodec.toMap(bossAuthService.startQrLogin(sessionId));
     // 登录态有效时清除残留冷却，确保登录成功后可立即继续搜索。
@@ -70,6 +91,11 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return login;
   }
 
+  /**
+   * 判断是否存在可用的 Boss 凭据。
+   *
+   * @return 是否存在可用状态 Boss 凭据
+   */
   public boolean hasUsableBossCredential() {
     // BossBrowserClient 会按当前 AuthenticationScope 从数据库读取并解密凭据，
     // 不再把任意用户的凭据恢复到进程级共享内存。
@@ -78,10 +104,25 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return authenticated;
   }
 
+  /**
+   * 推荐岗位。
+   *
+   * @param intent 意图
+   * @param sessionId 会话标识
+   * @return 推荐岗位列表
+   */
   public List<Map<String, Object>> recommendJobs(IntentResult intent, String sessionId) {
     return recommendJobs(intent, sessionId, null);
   }
 
+  /**
+   * 推荐岗位。
+   *
+   * @param intent 意图
+   * @param sessionId 会话标识
+   * @param consumer 结果消费函数
+   * @return 推荐岗位列表
+   */
   public List<Map<String, Object>> recommendJobs(
       IntentResult intent, String sessionId, final JobProgressConsumer consumer) {
     final Map<String, Object> slots =
@@ -94,6 +135,14 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return recommendJobsWithTarget(intent, target, limit, consumer);
   }
 
+  /**
+   * 推荐岗位快速结果。
+   *
+   * @param intent 意图
+   * @param sessionId 会话标识
+   * @param consumer 结果消费函数
+   * @return 快速推荐岗位列表
+   */
   public List<Map<String, Object>> recommendJobsFast(
       IntentResult intent, String sessionId, final JobProgressConsumer consumer) {
     final Map<String, Object> slots =
@@ -122,7 +171,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return slice;
   }
 
-  /** 首次搜索：先抓最小页数，再按配置补抓有限页数，使过滤后的候选尽量覆盖质量门评估批次。 */
+  /**
+   * 首次搜索：先抓最小页数，再按配置补抓有限页数，使过滤后的候选尽量覆盖质量门评估批次。
+   *
+   * @param intent 意图
+   * @param slots 候选槽位
+   * @param needed 所需数量
+   * @param cacheKey 缓存键
+   * @return 初始候选池
+   */
   private CacheEntry buildInitialPool(
       IntentResult intent, Map<String, Object> slots, int needed, String cacheKey) {
     int firstPaintPages = envInt("BOSS_SEARCH_FIRST_PAINT_PAGES", 1, 1, 3);
@@ -145,7 +202,16 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return warmed;
   }
 
-  /** 换一批：候选池不足以覆盖消费游标时，只追抓尚未访问的后续页并追加到池尾。 */
+  /**
+   * 换一批：候选池不足以覆盖消费游标时，只追抓尚未访问的后续页并追加到池尾。
+   *
+   * @param intent 意图
+   * @param slots 候选槽位
+   * @param needed 所需数量
+   * @param cacheKey 缓存键
+   * @param entry 数据条目
+   * @return 覆盖目标偏移量的候选池
+   */
   private CacheEntry ensurePoolCoversOffset(
       IntentResult intent,
       Map<String, Object> slots,
@@ -162,7 +228,16 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return appendPoolBatch(intent, slots, cacheKey, entry, pagesToFetch);
   }
 
-  /** 从候选池下一页起追加一个有界批次；只过滤、追加新增岗位，不改变已展示岗位的分页顺序。 */
+  /**
+   * 从候选池下一页起追加一个有界批次；只过滤、追加新增岗位，不改变已展示岗位的分页顺序。
+   *
+   * @param intent 意图
+   * @param slots 候选槽位
+   * @param cacheKey 缓存键
+   * @param entry 数据条目
+   * @param pagesToFetch 待抓取页数
+   * @return 追加后的候选池
+   */
   private CacheEntry appendPoolBatch(
       IntentResult intent,
       Map<String, Object> slots,
@@ -190,7 +265,14 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return updated;
   }
 
-  /** 抓取候选页并附带登录态副作用：抓取成功记忆凭证、清除冷却；未登录刷新登录态；风控信号进入冷却。 */
+  /**
+   * 抓取候选页并附带登录态副作用：抓取成功记忆凭证、清除冷却；未登录刷新登录态；风控信号进入冷却。
+   *
+   * @param intent 意图
+   * @param startPage 开始页码
+   * @param pagesToFetch 待抓取页数
+   * @return 带副作用的候选批次
+   */
   private PoolFetch fetchPoolBatchWithSideEffects(
       IntentResult intent, int startPage, int pagesToFetch) {
     PoolFetch fetch;
@@ -216,12 +298,26 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return fetch;
   }
 
+  /**
+   * 执行候选岗位筛选流水线。
+   *
+   * @param rawJobs 原始岗位列表
+   * @param slots 候选槽位
+   * @return 过滤后的候选列表
+   */
   private List<Map<String, Object>> applyFilterPipeline(
       List<Map<String, Object>> rawJobs, Map<String, Object> slots) {
     return candidateFilter.apply(rawJobs, slots);
   }
 
-  /** 从显式候选游标切片；候选耗尽时返回空列表，禁止回绕旧岗位。 */
+  /**
+   * 从显式候选游标切片；候选耗尽时返回空列表，禁止回绕旧岗位。
+   *
+   * @param pool 候选池
+   * @param offset 起始偏移量
+   * @param limit 数量上限
+   * @return 候选分页切片
+   */
   private List<Map<String, Object>> pageSlice(
       List<Map<String, Object>> pool, int offset, int limit) {
     if (pool == null || pool.isEmpty()) return new ArrayList<Map<String, Object>>();
@@ -231,6 +327,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return copyJobs(pool.subList(from, to));
   }
 
+  /**
+   * 收集有效标识。
+   *
+   * @param rows 查询行列表
+   * @return 标识集合
+   */
   private java.util.Set<String> collectIds(List<Map<String, Object>> rows) {
     java.util.Set<String> ids = new java.util.LinkedHashSet<String>();
     if (rows == null) return ids;
@@ -241,11 +343,21 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return ids;
   }
 
+  /**
+   * 获取字符串槽位。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 字符串槽位
+   */
   private String stringSlot(Object value, String fallback) {
     String text = value == null ? "" : String.valueOf(value).trim();
     return text.isEmpty() ? fallback : text;
   }
 
+  /**
+   * 校验 Boss 检索是否处于冷却期。
+   */
   private void assertBossSearchNotCoolingDown() {
     String scopeKey = currentScopeKey();
     Long until = bossSearchCooldownUntil.get(scopeKey);
@@ -258,16 +370,30 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     throw new RuntimeException("Boss 搜索触发风控保护，约 " + seconds + " 秒后重试。登录有效时搜索成功会自动解除冷却。");
   }
 
+  /**
+   * 启动 Boss 检索冷却计时。
+   *
+   * @param reason 原因
+   */
   private void startBossSearchCooldown(String reason) {
     int minutes = bounded(properties.getBossSearchCooldownMinutesOnRisk(), 1, 24 * 60);
     long until = System.currentTimeMillis() + minutes * 60L * 1000L;
     bossSearchCooldownUntil.put(currentScopeKey(), until);
   }
 
+  /**
+   * 清除 Boss 检索冷却状态。
+   */
   private void clearBossSearchCooldown() {
     bossSearchCooldownUntil.remove(currentScopeKey());
   }
 
+  /**
+   * 判断是否为 Boss 风控提示。
+   *
+   * @param error 异常
+   * @return 是否为 Boss 风控提示
+   */
   private boolean looksLikeBossRisk(Throwable error) {
     String text = String.valueOf(error == null ? "" : error.getMessage()).toLowerCase();
     return text.contains("风控")
@@ -281,11 +407,23 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         || text.contains("环境异常");
   }
 
+  /**
+   * 获取快速检索缓存有效期。
+   *
+   * @return 快速检索缓存有效期
+   */
   private long fastSearchCacheTtlMillis() {
     int minutes = bounded(properties.getBossSearchCacheTtlMinutes(), 1, 24 * 60);
     return minutes * 60L * 1000L;
   }
 
+  /**
+   * 生成快速检索缓存键。
+   *
+   * @param slots 候选槽位
+   * @param limit 数量上限
+   * @return 快速检索缓存键
+   */
   private String fastSearchCacheKey(Map<String, Object> slots, int limit) {
     // 缓存键剔除 boss_page，使当前用户同一组检索条件下的所有翻页命中同一候选池；
     // 租户和用户前缀阻止条件相同的其他用户复用候选结果。
@@ -296,10 +434,21 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return currentScopeKey() + ":" + limit + ":" + keyed;
   }
 
+  /**
+   * 获取当前作用域键。
+   *
+   * @return 当前作用域键
+   */
   private String currentScopeKey() {
     return AuthenticationScope.tenantId() + ":" + AuthenticationScope.userId();
   }
 
+  /**
+   * 写入快速检索缓存。
+   *
+   * @param cacheKey 缓存键
+   * @param entry 数据条目
+   */
   private void putFastSearchCache(String cacheKey, CacheEntry entry) {
     long ttlMillis = fastSearchCacheTtlMillis();
     for (Map.Entry<String, CacheEntry> item : fastSearchCache.entrySet()) {
@@ -324,6 +473,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     fastSearchCache.put(cacheKey, entry);
   }
 
+  /**
+   * 计算整数槽位。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 整数槽位值
+   */
   private int intSlot(Object value, int fallback) {
     if (value instanceof Number) return Math.max(1, ((Number) value).intValue());
     try {
@@ -333,6 +489,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 解析非负整数槽位。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 非负整数槽位
+   */
   private int nonNegativeIntSlot(Object value, int fallback) {
     if (value instanceof Number) return Math.max(0, ((Number) value).intValue());
     try {
@@ -342,12 +505,27 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 获取候选岗位偏移量。
+   *
+   * @param slots 候选槽位
+   * @param page 页码
+   * @param candidateBatchSize 候选批次大小
+   * @return 候选岗位偏移量
+   */
   private int candidateOffset(Map<String, Object> slots, int page, int candidateBatchSize) {
     return slots.containsKey(CANDIDATE_OFFSET_SLOT)
         ? nonNegativeIntSlot(slots.get(CANDIDATE_OFFSET_SLOT), 0)
         : Math.max(0, page - 1) * candidateBatchSize;
   }
 
+  /**
+   * 获取带有候选项偏移量。
+   *
+   * @param source 源数据
+   * @param offset 起始偏移量
+   * @return 带有候选项偏移量
+   */
   private IntentResult withCandidateOffset(IntentResult source, int offset) {
     Map<String, Object> slots =
         source == null || source.getSlots() == null
@@ -382,6 +560,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return result;
   }
 
+  /**
+   * 合并统计计数器。
+   *
+   * @param target 累计计数器
+   * @param source 源数据
+   */
   private void mergeCounters(Map<String, Integer> target, Map<String, Integer> source) {
     for (Map.Entry<String, Integer> entry : source.entrySet()) {
       int value = entry.getValue() == null ? 0 : Math.max(0, entry.getValue().intValue());
@@ -389,6 +573,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 获取推荐候选批次大小。
+   *
+   * @param limit 数量上限
+   * @return 推荐候选批次大小
+   */
   private int recommendationCandidateBatchSize(int limit) {
     long expanded =
         (long) Math.max(1, limit) * Math.max(1, properties.getRecommendOverfetchFactor());
@@ -398,6 +588,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
             Math.max((long) Math.max(1, limit), expanded));
   }
 
+  /**
+   * 复制岗位。
+   *
+   * @param jobs 岗位列表
+   * @return 岗位列表副本
+   */
   private List<Map<String, Object>> copyJobs(List<Map<String, Object>> jobs) {
     List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
     if (jobs == null) return rows;
@@ -405,6 +601,9 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return rows;
   }
 
+  /**
+   * 定义缓存条目。
+   */
   private static class CacheEntry {
     final long createdAt = System.currentTimeMillis();
     final List<Map<String, Object>> jobs;
@@ -412,6 +611,14 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     final int nextPage;
     final boolean exhausted;
 
+    /**
+     * 创建缓存条目实例。
+     *
+     * @param jobs 岗位列表
+     * @param seenIds 已见标识集合
+     * @param nextPage 下一项分页
+     * @param exhausted 是否耗尽
+     */
     CacheEntry(
         List<Map<String, Object>> jobs,
         java.util.Set<String> seenIds,
@@ -423,17 +630,32 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       this.exhausted = exhausted;
     }
 
+    /**
+     * 判断会话是否过期。
+     *
+     * @param ttlMillis 有效期毫秒数
+     * @return 会话是否过期是否成立
+     */
     boolean expired(long ttlMillis) {
       return System.currentTimeMillis() - createdAt > ttlMillis;
     }
   }
 
-  /** 单次候选池抓取结果：累计去重后的原始岗位、下一次应抓取的 Boss 页码、上游是否已枯竭。 */
+  /**
+   * 单次候选池抓取结果：累计去重后的原始岗位、下一次应抓取的 Boss 页码、上游是否已枯竭。
+   */
   private static class PoolFetch {
     final List<Map<String, Object>> rows;
     final int nextPage;
     final boolean exhausted;
 
+    /**
+     * 创建并发抓取实例。
+     *
+     * @param rows 数据记录列表
+     * @param nextPage 下一项分页
+     * @param exhausted 是否耗尽
+     */
     PoolFetch(List<Map<String, Object>> rows, int nextPage, boolean exhausted) {
       this.rows = rows;
       this.nextPage = nextPage;
@@ -441,7 +663,14 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
-  /** 抓取从 startPage 起的若干页候选并去重累计，带超时保护；返回累计岗位、下一页码与上游枯竭标记。 */
+  /**
+   * 抓取从 startPage 起的若干页候选并去重累计，带超时保护；返回累计岗位、下一页码与上游枯竭标记。
+   *
+   * @param intent 意图
+   * @param startPage 开始页码
+   * @param pagesToFetch 待抓取页数
+   * @return 候选分页结果
+   */
   private PoolFetch fetchCandidatePages(
       final IntentResult intent, final int startPage, final int pagesToFetch) {
     final int timeoutSeconds = bossCandidatePoolTimeoutSeconds(pagesToFetch);
@@ -452,6 +681,11 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     java.util.concurrent.Future<PoolFetch> future =
         executor.submit(
             new java.util.concurrent.Callable<PoolFetch>() {
+              /**
+               * 执行当前异步任务。
+               *
+               * @return 下游调用结果
+               */
               @Override
               public PoolFetch call() {
                 AuthenticationScope.set(tenantId, userId);
@@ -523,6 +757,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 合并唯一岗位。
+   *
+   * @param target 合并后的岗位列表
+   * @param seen 已见岗位标识集合
+   * @param rows 查询行列表
+   */
   private void mergeUniqueJobs(
       List<Map<String, Object>> target, Map<String, Boolean> seen, List<Map<String, Object>> rows) {
     if (rows == null) return;
@@ -536,11 +777,22 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 计算 Boss 候选项线程池超时秒数。
+   *
+   * @return Boss 候选池超时秒数
+   */
   public int bossCandidatePoolTimeoutSeconds() {
     int firstPaintPages = envInt("BOSS_SEARCH_FIRST_PAINT_PAGES", 1, 1, 3);
     return bossCandidatePoolTimeoutSeconds(firstPaintPages);
   }
 
+  /**
+   * 计算 Boss 候选项线程池超时秒数。
+   *
+   * @param pagesToFetch 待抓取页数
+   * @return Boss 候选池超时秒数
+   */
   private int bossCandidatePoolTimeoutSeconds(int pagesToFetch) {
     int pages = Math.max(1, pagesToFetch);
     int requestTimeoutSeconds = envInt("BOSS_CLI_TIMEOUT_SECONDS", 20, 5, 60);
@@ -555,6 +807,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return envInt("BOSS_SEARCH_CANDIDATE_POOL_TIMEOUT_SECONDS", fallback, 15, 180);
   }
 
+  /**
+   * 读取整数环境变量。
+   *
+   * @param name 名称
+   * @param fallback 降级结果
+   * @param min 最小
+   * @param max 最大
+   * @return 环境变量整数值
+   */
   private int envInt(String name, int fallback, int min, int max) {
     String value = System.getenv(name);
     int configured = fallback;
@@ -568,10 +829,23 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return Math.max(min, Math.min(max, configured));
   }
 
+  /**
+   * 将数值限制在指定范围内。
+   *
+   * @param value 输入值
+   * @param min 最小
+   * @param max 最大
+   * @return 限制范围后的数值
+   */
   private int bounded(int value, int min, int max) {
     return Math.max(min, Math.min(max, value));
   }
 
+  /**
+   * 判断是否启用详情补全。
+   *
+   * @return 是否启用详情补全
+   */
   private boolean isDetailEnrichmentEnabled() {
     String value = System.getenv("BOSS_RECOMMEND_ENRICH_DETAILS");
     return value != null
@@ -580,6 +854,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
             || "yes".equalsIgnoreCase(value.trim()));
   }
 
+  /**
+   * 推荐岗位带有目标。
+   *
+   * @param intent 意图
+   * @param target 期望返回的岗位数量
+   * @param limit 数量上限
+   * @param consumer 结果消费函数
+   * @return 指定目标的推荐岗位列表
+   */
   private List<Map<String, Object>> recommendJobsWithTarget(
       IntentResult intent, int target, final int limit, final JobProgressConsumer consumer) {
     final Map<String, Object> slots =
@@ -591,6 +874,14 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
               intent,
               target,
               new BossCliService.JobBatchConsumer() {
+                /**
+                 * 接收并处理输入。
+                 *
+                 * @param accumulated 累计文本
+                 * @param latestBatch 最新候选批次
+                 * @param query 查询条件
+                 * @param page 页码
+                 */
                 @Override
                 public void accept(
                     List<Map<String, Object>> accumulated,
@@ -632,15 +923,33 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return jobs;
   }
 
+  /**
+   * 预校验推荐结果。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @return 预筛后的推荐岗位
+   */
   public JobRecommendationResult prequalifyRecommendations(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId) {
     return prequalifyRecommendations(
         resume, jobs, sessionId, Math.max(1, properties.getMaxJobsPerRecommend()));
   }
 
+  /**
+   * 预校验推荐结果。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @param desired 期望数量
+   * @return 预筛后的推荐岗位
+   */
   private JobRecommendationResult prequalifyRecommendations(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId, int desired) {
     int candidateCount = jobs == null ? 0 : jobs.size();
+    // 缺少简历或候选岗位时直接返回可解释空结果，不调用评分模型。
     if (resume == null || resume.getParsed() == null || resume.getParsed().isEmpty()) {
       return new JobRecommendationResult(
           Collections.<Map<String, Object>>emptyList(),
@@ -670,6 +979,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     desired = Math.max(1, desired);
     int scoringLimit = Math.min(candidateCount, Math.max(1, properties.getMaxJobsPerScoring()));
     int evaluated = 0;
+    // 按剩余展示槽位分批评分，避免消费尚无需评估的候选岗位。
     for (int from = 0; from < scoringLimit && qualified.size() < desired; ) {
       int remainingDisplaySlots = desired - qualified.size();
       int batchSize = Math.min(RESUME_MATCH_BATCH_SIZE, remainingDisplaySlots);
@@ -687,6 +997,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
           matchesById.put(stringValue(row.get("id")), row);
         }
       }
+      // 模型返回必须与输入岗位一一对应，再按分数、置信度和建议依次筛选。
       for (int i = 0; i < batch.size(); i++) {
         Map<String, Object> job = batch.get(i);
         if (job == null) continue;
@@ -725,6 +1036,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       evaluated += batch.size();
       from = to;
     }
+    // 合格岗位按匹配分稳定收口，并保留拒绝漏斗供前端与评估审计。
     qualified.sort(
         (left, right) ->
             Integer.compare(toScore(right.get("matchScore")), toScore(left.get("matchScore"))));
@@ -736,7 +1048,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return new JobRecommendationResult(qualified, evaluated, rejected, warnings);
   }
 
-  /** 在同一推荐任务内闭环执行“评分不足则继续检索”。每轮只消费实际完成评分的候选，并受总评分上限、 Boss 最大页深、单次补页数和上游枯竭状态共同约束。 */
+  /**
+   * 在同一推荐任务内闭环执行“评分不足则继续检索”。每轮只消费实际完成评分的候选，并受总评分上限、 Boss 最大页深、单次补页数和上游枯竭状态共同约束。
+   *
+   * @param resume 简历
+   * @param intent 意图
+   * @param initialJobs 初始岗位列表
+   * @param sessionId 会话标识
+   * @return 支持续搜的预筛结果
+   */
   public JobRecommendationResult prequalifyRecommendationsWithContinuation(
       ResumeRecord resume,
       IntentResult intent,
@@ -762,6 +1082,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     int consecutiveEmptyContinuations = 0;
     int emptyContinuationLimit = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
 
+    // 候选耗尽时继续向后翻页，连续空页达到边界后停止。
     while (evaluated < scoringLimit && qualified.size() < desired) {
       if (candidates.isEmpty()) {
         if (consecutiveEmptyContinuations >= emptyContinuationLimit) break;
@@ -777,6 +1098,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
           candidates.size() > remainingBudget
               ? new ArrayList<Map<String, Object>>(candidates.subList(0, remainingBudget))
               : candidates;
+      // 每轮只推进实际评分数量，防止空结果或提前收口导致偏移量跳跃。
       JobRecommendationResult batch =
           prequalifyRecommendations(resume, scoringBatch, sessionId, desired - qualified.size());
       int consumed = Math.max(0, batch.getCandidateCount());
@@ -805,11 +1127,28 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         qualified, evaluated, rejected, new ArrayList<String>(warnings));
   }
 
+  /**
+   * 匹配简历。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @return 简历匹配结果
+   */
   public Map<String, Object> matchResume(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId) {
     return matchResumeSections(resume, jobs, sessionId, Collections.<String>emptyList());
   }
 
+  /**
+   * 匹配简历章节。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @param sections 简历章节列表
+   * @return 简历章节匹配结果
+   */
   public Map<String, Object> matchResumeSections(
       ResumeRecord resume,
       List<Map<String, Object>> jobs,
@@ -819,6 +1158,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         invokeResumeMatch(resume, jobs, sessionId, sections, FULL_JD_ANALYSIS_MODE), true);
   }
 
+  /**
+   * 调用简历匹配结果。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @param sections 简历章节列表
+   * @return 简历匹配调用结果
+   */
   private Map<String, Object> invokeResumeMatch(
       ResumeRecord resume,
       List<Map<String, Object>> jobs,
@@ -827,6 +1175,16 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return invokeResumeMatch(resume, jobs, sessionId, sections, FULL_JD_ANALYSIS_MODE);
   }
 
+  /**
+   * 调用简历匹配结果。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @param sections 简历章节列表
+   * @param evaluationMode 是否为评估模式
+   * @return 简历匹配调用结果
+   */
   private Map<String, Object> invokeResumeMatch(
       ResumeRecord resume,
       List<Map<String, Object>> jobs,
@@ -864,7 +1222,15 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         : Collections.<String, Object>emptyMap();
   }
 
-  /** 推荐预筛要求 Runtime 对输入岗位逐一返回结果。首轮不完整时按更小批次拆分重试一次；未评分岗位既不能计为低分，也不能推进候选游标。 */
+  /**
+   * 推荐预筛要求 Runtime 对输入岗位逐一返回结果。首轮不完整时按更小批次拆分重试一次；未评分岗位既不能计为低分，也不能推进候选游标。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @param sections 简历章节列表
+   * @return 完整推荐批次评分结果
+   */
   private Map<String, Object> scoreCompleteRecommendationBatch(
       ResumeRecord resume,
       List<Map<String, Object>> jobs,
@@ -907,6 +1273,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 校验并获取完成状态推荐结果批次。
+   *
+   * @param raw 原始数据
+   * @param jobs 岗位列表
+   * @return 校验后的并获取完成状态推荐结果批次
+   */
   private Map<String, Object> requireCompleteRecommendationBatch(
       Map<String, Object> raw, List<Map<String, Object>> jobs) {
     Map<String, Object> normalized = normalizeResumeMatchEvidence(raw, false, false);
@@ -959,6 +1332,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return normalized;
   }
 
+  /**
+   * 判断是否为匹配信息不完整错误。
+   *
+   * @param error 异常
+   * @return 是否为匹配信息不完整错误
+   */
   private boolean isIncompleteMatchFailure(RuntimeException error) {
     if (error instanceof IncompleteMatchBatchException) return true;
     String message = error.getMessage() == null ? "" : error.getMessage();
@@ -967,6 +1346,11 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         || message.contains("missing");
   }
 
+  /**
+   * 校验匹配结果证据。
+   *
+   * @param jobs 岗位列表
+   */
   private void validateMatchEvidence(List<Map<String, Object>> jobs) {
     if (jobs == null || jobs.isEmpty()) {
       throw new IllegalArgumentException("缺少目标岗位证据，无法评估匹配度");
@@ -980,11 +1364,26 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 规范化简历匹配结果证据。
+   *
+   * @param match 匹配结果
+   * @param allowThresholdRelaxation 是否允许放宽阈值
+   * @return 规范化后的简历匹配结果证据
+   */
   private Map<String, Object> normalizeResumeMatchEvidence(
       Map<String, Object> match, boolean allowThresholdRelaxation) {
     return normalizeResumeMatchEvidence(match, allowThresholdRelaxation, true);
   }
 
+  /**
+   * 规范化简历匹配结果证据。
+   *
+   * @param match 匹配结果
+   * @param allowThresholdRelaxation 是否允许放宽阈值
+   * @param filterByRecommendationThreshold 是否按推荐阈值过滤
+   * @return 规范化后的简历匹配结果证据
+   */
   private Map<String, Object> normalizeResumeMatchEvidence(
       Map<String, Object> match,
       boolean allowThresholdRelaxation,
@@ -1026,6 +1425,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return normalized;
   }
 
+  /**
+   * 应用推荐阈值。
+   *
+   * @param normalized 规范化数据
+   * @param rows 查询行列表
+   * @param allowThresholdRelaxation 是否允许放宽阈值
+   */
   private void applyRecommendationThreshold(
       Map<String, Object> normalized,
       List<Map<String, Object>> rows,
@@ -1064,10 +1470,22 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     normalized.put("recommendation_threshold_relaxed", relaxed);
   }
 
+  /**
+   * 增加登录失败计数。
+   *
+   * @param counters 计数器映射
+   * @param key 业务键
+   */
   private void increment(Map<String, Integer> counters, String key) {
     counters.put(key, Integer.valueOf(counters.getOrDefault(key, Integer.valueOf(0)) + 1));
   }
 
+  /**
+   * 判断推荐结果是否已拒绝。
+   *
+   * @param recommendation 推荐结果
+   * @return 推荐结果是否已拒绝是否成立
+   */
   private boolean isRejectedRecommendation(String recommendation) {
     String value = recommendation == null ? "" : recommendation.trim();
     return value.isEmpty()
@@ -1076,6 +1494,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         || value.contains("谨慎");
   }
 
+  /**
+   * 判断是否存在岗位描述。
+   *
+   * @param job 岗位
+   * @return 是否存在岗位描述
+   */
   private boolean hasJobDescription(Map<String, Object> job) {
     return !stringValue(
             firstPresent(job, "jobDescription", "description", "postDescription", "jobRequire"))
@@ -1083,6 +1507,14 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         .isEmpty();
   }
 
+  /**
+   * 获取首组有效文本。
+   *
+   * @param primary 主值
+   * @param fallback 降级结果
+   * @param limit 数量上限
+   * @return 首组有效文本
+   */
   private List<String> firstTexts(Object primary, Object fallback, int limit) {
     Object source = primary instanceof List && !((List) primary).isEmpty() ? primary : fallback;
     if (!(source instanceof List)) return Collections.emptyList();
@@ -1108,6 +1540,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return result;
   }
 
+  /**
+   * 计算证据数量。
+   *
+   * @param row 查询行
+   * @return 证据数量
+   */
   private int evidenceCount(Map<String, Object> row) {
     int count = 0;
     Object evidence = row.get("evidence");
@@ -1119,6 +1557,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return count;
   }
 
+  /**
+   * 追加列表。
+   *
+   * @param value 输入值
+   * @param item 数据项
+   * @return 追加列表
+   */
   private List<Object> appendList(Object value, Object item) {
     List<Object> rows = new ArrayList<Object>();
     if (value instanceof List) rows.addAll((List) value);
@@ -1126,6 +1571,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return rows;
   }
 
+  /**
+   * 获取首个非空值。
+   *
+   * @param map 数据映射
+   * @param keys 键列表
+   * @return 首个有效值
+   */
   private Object firstPresent(Map<String, Object> map, String... keys) {
     for (String key : keys) {
       Object value = map.get(key);
@@ -1134,11 +1586,24 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return null;
   }
 
+  /**
+   * 获取岗位标识。
+   *
+   * @param job 岗位
+   * @param idx 索引
+   * @return 岗位标识
+   */
   private String jobId(Map<String, Object> job, int idx) {
     Object id = firstPresent(job, "securityId", "id", "jobId", "encryptJobId");
     return id == null ? "job_" + idx : String.valueOf(id);
   }
 
+  /**
+   * 转换为评分。
+   *
+   * @param value 输入值
+   * @return 转换后的评分
+   */
   private int toScore(Object value) {
     if (value instanceof Number) return Math.max(0, Math.min(100, ((Number) value).intValue()));
     try {
@@ -1148,6 +1613,13 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 获取整数值。
+   *
+   * @param value 输入值
+   * @param fallback 降级结果
+   * @return 整数值
+   */
   private int intValue(Object value, int fallback) {
     if (value instanceof Number) return ((Number) value).intValue();
     try {
@@ -1157,14 +1629,33 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 获取字符串值。
+   *
+   * @param value 输入值
+   * @return 字符串值
+   */
   private String stringValue(Object value) {
     return value == null ? "" : String.valueOf(value);
   }
 
+  /**
+   * 仅写入非空字段。
+   *
+   * @param map 数据映射
+   * @param key 业务键
+   * @param value 输入值
+   */
   private void putIfPresent(Map<String, Object> map, String key, Object value) {
     if (value != null && !String.valueOf(value).isEmpty()) map.put(key, value);
   }
 
+  /**
+   * 规范化 Boss 输出。
+   *
+   * @param output 输出数据
+   * @return 规范化后的 Boss 输出
+   */
   private Object normalizeBossOutput(Object output) {
     if (!(output instanceof Map)) return output;
     Map map = (Map) output;
@@ -1181,6 +1672,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return output;
   }
 
+  /**
+   * 确保 Boss 输出成功结果。
+   *
+   * @param output 输出数据
+   * @param sessionId 会话标识
+   */
   private void ensureBossOutputSuccess(Object output, String sessionId) {
     if (!(output instanceof Map)) return;
     Map map = (Map) output;
@@ -1198,6 +1695,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     }
   }
 
+  /**
+   * 获取认证失败结果来源。
+   *
+   * @param source 源数据
+   * @return 认证失败结果来源
+   */
   private Map<String, Object> authFailureSource(String source) {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("status", "auth_required");
@@ -1206,6 +1709,12 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return data;
   }
 
+  /**
+   * 提取岗位。
+   *
+   * @param output 输出数据
+   * @return 岗位
+   */
   private List<Map<String, Object>> extractJobs(Object output) {
     if (output instanceof List) return (List<Map<String, Object>>) output;
     if (output instanceof Map) {
@@ -1223,11 +1732,25 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     return new ArrayList<Map<String, Object>>();
   }
 
+  /**
+   * 表示不完整匹配批次异常。
+   */
   private static final class IncompleteMatchBatchException extends RuntimeException {
+    /**
+     * 创建不完整匹配批次异常实例。
+     *
+     * @param message 消息内容
+     */
     private IncompleteMatchBatchException(String message) {
       super(message);
     }
 
+    /**
+     * 创建不完整匹配批次异常实例。
+     *
+     * @param message 消息内容
+     * @param cause 异常原因
+     */
     private IncompleteMatchBatchException(String message, Throwable cause) {
       super(message, cause);
     }

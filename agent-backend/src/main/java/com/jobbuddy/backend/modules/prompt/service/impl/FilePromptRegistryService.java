@@ -16,6 +16,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
 
+/**
+ * 从外置目录、仓库资源目录或 Classpath 加载 Prompt 配置。
+ *
+ * <p>外置配置优先，读取失败时按固定顺序降级，保证默认 Profile 始终可用。
+ */
 @Service
 public class FilePromptRegistryService implements PromptRegistryService {
   private static final Logger log = LoggerFactory.getLogger(FilePromptRegistryService.class);
@@ -24,6 +29,9 @@ public class FilePromptRegistryService implements PromptRegistryService {
   private final Yaml yaml = new Yaml();
   private final JsonCodec jsonCodec = new JsonCodec();
 
+  /**
+   * 创建文件提示词注册表服务实例。
+   */
   public FilePromptRegistryService() {
     String configured = System.getenv("JOB_BUDDY_PROMPT_DIR");
     this.rootDir =
@@ -33,12 +41,23 @@ public class FilePromptRegistryService implements PromptRegistryService {
                 : configured.trim());
   }
 
+  /**
+   * 获取当前启用的画像。
+   *
+   * @return 当前启用的画像
+   */
   @Override
   public String activeProfile() {
     String value = System.getenv("JOB_BUDDY_PROMPT_PROFILE");
     return value == null || value.trim().isEmpty() ? DEFAULT_PROFILE : value.trim();
   }
 
+  /**
+   * 获取 Web 工作台提示词。
+   *
+   * @param profile 画像
+   * @return Web 工作台提示词
+   */
   @Override
   public JsonNode frontendWorkbench(String profile) {
     Map<String, Object> all = readYaml("frontend/workbench.yaml");
@@ -51,6 +70,12 @@ public class FilePromptRegistryService implements PromptRegistryService {
     return jsonCodec.toTree(data);
   }
 
+  /**
+   * 获取画像配置。
+   *
+   * @param profile 画像
+   * @return 画像配置
+   */
   @Override
   public JsonNode profileConfig(String profile) {
     String normalized = normalizeProfile(profile);
@@ -60,10 +85,22 @@ public class FilePromptRegistryService implements PromptRegistryService {
     return jsonCodec.toTree(data);
   }
 
+  /**
+   * 规范化画像。
+   *
+   * @param profile 画像
+   * @return 规范化后的画像
+   */
   private String normalizeProfile(String profile) {
     return profile == null || profile.trim().isEmpty() ? activeProfile() : profile.trim();
   }
 
+  /**
+   * 读取 YAML 配置。
+   *
+   * @param relativePath 相对路径
+   * @return YAML 配置
+   */
   private Map<String, Object> readYaml(String relativePath) {
     List<File> candidates =
         Arrays.asList(
@@ -100,12 +137,23 @@ public class FilePromptRegistryService implements PromptRegistryService {
     }
   }
 
+  /**
+   * 转换为映射。
+   *
+   * @param value 输入值
+   * @return 转换后的键值映射
+   */
   private Map<String, Object> asMap(Object value) {
     return value instanceof Map
         ? (Map<String, Object>) value
         : Collections.<String, Object>emptyMap();
   }
 
+  /**
+   * 获取降级结果工作台。
+   *
+   * @return 降级结果工作台
+   */
   private Map<String, Object> fallbackWorkbench() {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("title", "智能工作台");

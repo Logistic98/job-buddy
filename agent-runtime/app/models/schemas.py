@@ -1,3 +1,5 @@
+"""定义跨层请求、计划、任务理解、工具与结果模型。"""
+
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -58,6 +60,7 @@ class ToolResult(BaseModel):
 
     @model_validator(mode="after")
     def normalize(self) -> "ToolResult":
+        # 兼容旧 output 字段，并根据成功与权限元数据推导统一状态。
         if self.data is None:
             self.data = self.output
 
@@ -69,6 +72,7 @@ class ToolResult(BaseModel):
             else:
                 self.status = "error"
 
+        # 缺少摘要时按错误、成功和通用失败的优先级生成。
         if self.summary is None:
             if self.error:
                 self.summary = self.error

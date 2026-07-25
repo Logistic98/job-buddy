@@ -13,6 +13,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import org.springframework.stereotype.Service;
 
+/**
+ * 组合进程内会话缓存与 PostgreSQL 聊天仓储。
+ *
+ * <p>跨重启状态以仓储为准；缓存项按属主绑定并使用防御性副本。
+ */
 @Service
 public class ChatSessionStoreImpl implements ChatSessionStore {
 
@@ -21,12 +26,25 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
   private final ConcurrentMap<String, Owner> owners = new ConcurrentHashMap<String, Owner>();
   private final JsonCodec jsonCodec = new JsonCodec();
 
+  /**
+   * 创建对话会话存储实例。
+   *
+   * @param chatSessionRepository 对话会话存储访问
+   * @param chatSessionCache 对话会话缓存
+   */
   public ChatSessionStoreImpl(
       ChatSessionRepository chatSessionRepository, ChatSessionCache chatSessionCache) {
     this.chatSessionRepository = chatSessionRepository;
     this.chatSessionCache = chatSessionCache;
   }
 
+  /**
+   * 绑定属主。
+   *
+   * @param sessionId 会话标识
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   */
   @Override
   public void bindOwner(String sessionId, String tenantId, String userId) {
     String normalizedSessionId = requireValue(sessionId, "sessionId");
@@ -37,6 +55,12 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     }
   }
 
+  /**
+   * 获取或创建会话。
+   *
+   * @param sessionId 会话标识
+   * @return 或创建会话
+   */
   @Override
   public ChatSessionState getOrCreate(String sessionId) {
     ChatSessionState existing = get(sessionId);
@@ -48,6 +72,12 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     return created;
   }
 
+  /**
+   * 按标识读取数据。
+   *
+   * @param sessionId 会话标识
+   * @return 查询结果
+   */
   @Override
   public ChatSessionState get(String sessionId) {
     Owner owner = owner(sessionId);
@@ -59,6 +89,11 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     return loaded;
   }
 
+  /**
+   * 保存会话数据。
+   *
+   * @param state 状态
+   */
   @Override
   public void save(ChatSessionState state) {
     if (state == null || state.sessionId == null) return;
@@ -69,12 +104,27 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     chatSessionCache.put(state);
   }
 
+  /**
+   * 追加消息。
+   *
+   * @param sessionId 会话标识
+   * @param role 角色
+   * @param content 内容
+   */
   @Override
   public void appendMessage(String sessionId, String role, String content) {
     Owner owner = owner(sessionId);
     chatSessionRepository.appendMessage(owner.tenantId, owner.userId, sessionId, role, content);
   }
 
+  /**
+   * 追加消息。
+   *
+   * @param sessionId 会话标识
+   * @param role 角色
+   * @param content 内容
+   * @param metadata 扩展元数据
+   */
   @Override
   public void appendMessage(
       String sessionId, String role, String content, Map<String, Object> metadata) {
@@ -83,6 +133,14 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
         owner.tenantId, owner.userId, sessionId, role, content, metadata);
   }
 
+  /**
+   * 仅追加一次用户消息。
+   *
+   * @param sessionId 会话标识
+   * @param turnId 对话轮次标识
+   * @param content 内容
+   * @return 消息是否首次写入
+   */
   @Override
   public boolean appendUserMessageOnce(String sessionId, String turnId, String content) {
     Owner owner = owner(sessionId);
@@ -90,6 +148,14 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
         owner.tenantId, owner.userId, sessionId, turnId, content);
   }
 
+  /**
+   * 替换最新助手岗位消息。
+   *
+   * @param sessionId 会话标识
+   * @param jobs 岗位列表
+   * @param toolEvents 工具事件列表
+   * @return 更新后的消息列表
+   */
   @Override
   public boolean replaceLatestAssistantJobMessage(
       String sessionId, List<Map<String, Object>> jobs, List<Map<String, Object>> toolEvents) {
@@ -98,6 +164,12 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
         owner.tenantId, owner.userId, sessionId, jobs, filterMemoryNoiseEvents(toolEvents));
   }
 
+  /**
+   * 新增或更新工具事件。
+   *
+   * @param sessionId 会话标识
+   * @param event 事件名称
+   */
   @Override
   public void upsertToolEvent(String sessionId, Map<String, Object> event) {
     if (event == null || event.get("id") == null) return;
@@ -120,6 +192,12 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     save(state);
   }
 
+  /**
+   * 更新简历匹配结果。
+   *
+   * @param sessionId 会话标识
+   * @param match 匹配结果
+   */
   @Override
   public void updateResumeMatch(String sessionId, Map<String, Object> match) {
     ChatSessionState state = getOrCreate(sessionId);
@@ -127,12 +205,27 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     save(state);
   }
 
+  /**
+   * 查询会话列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 会话列表
+   */
   @Override
   public List<ChatSessionResponse> listSessions(String tenantId, String userId) {
     return jsonCodec.convertList(
         chatSessionRepository.listSessions(tenantId, userId), ChatSessionResponse.class);
   }
 
+  /**
+   * 查询消息列表。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @return 消息列表
+   */
   @Override
   public List<ChatMessageResponse> listMessages(String tenantId, String userId, String sessionId) {
     bindOwner(sessionId, tenantId, userId);
@@ -177,6 +270,13 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     return jsonCodec.convertList(rows, ChatMessageResponse.class);
   }
 
+  /**
+   * 清理会话数据。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   */
   @Override
   public void clear(String tenantId, String userId, String sessionId) {
     bindOwner(sessionId, tenantId, userId);
@@ -185,6 +285,12 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     owners.remove(sessionId, new Owner(tenantId, userId));
   }
 
+  /**
+   * 获取属主。
+   *
+   * @param sessionId 会话标识
+   * @return 属主
+   */
   private Owner owner(String sessionId) {
     String normalizedSessionId = requireValue(sessionId, "sessionId");
     Owner owner = owners.get(normalizedSessionId);
@@ -192,6 +298,13 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     return owner;
   }
 
+  /**
+   * 校验并获取值。
+   *
+   * @param value 输入值
+   * @param field 字段名称
+   * @return 校验后的并获取值
+   */
   private static String requireValue(String value, String field) {
     if (value == null || value.trim().isEmpty()) {
       throw new IllegalArgumentException(field + " 不能为空");
@@ -199,19 +312,40 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     return value.trim();
   }
 
+  /**
+   * 定义属主。
+   */
   private static final class Owner {
     private final String tenantId;
     private final String userId;
 
+    /**
+     * 创建属主实例。
+     *
+     * @param tenantId 租户标识
+     * @param userId 用户标识
+     */
     private Owner(String tenantId, String userId) {
       this.tenantId = requireValue(tenantId, "tenantId");
       this.userId = requireValue(userId, "userId");
     }
 
+    /**
+     * 判断岗位是否命中黑名单规则。
+     *
+     * @param state 状态
+     * @return 岗位是否命中黑名单规则是否成立
+     */
     private boolean matches(ChatSessionState state) {
       return state != null && tenantId.equals(state.tenantId) && userId.equals(state.userId);
     }
 
+    /**
+     * 比较字段值是否相等。
+     *
+     * @param other 另一比较对象
+     * @return 两个对象是否相等
+     */
     @Override
     public boolean equals(Object other) {
       if (!(other instanceof Owner)) return false;
@@ -219,12 +353,23 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
       return tenantId.equals(value.tenantId) && userId.equals(value.userId);
     }
 
+    /**
+     * 计算会话属主哈希值。
+     *
+     * @return 对象哈希值
+     */
     @Override
     public int hashCode() {
       return 31 * tenantId.hashCode() + userId.hashCode();
     }
   }
 
+  /**
+   * 过滤记忆噪声事件。
+   *
+   * @param events 事件列表
+   * @return 过滤后的记忆事件
+   */
   private List<Map<String, Object>> filterMemoryNoiseEvents(List<Map<String, Object>> events) {
     List<Map<String, Object>> rows = new java.util.ArrayList<Map<String, Object>>();
     if (events == null) return rows;
@@ -234,6 +379,12 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     return rows;
   }
 
+  /**
+   * 判断是否为记忆噪声事件。
+   *
+   * @param event 事件名称
+   * @return 是否为记忆噪声事件
+   */
   private boolean isMemoryNoiseEvent(Map<String, Object> event) {
     if (event == null) return false;
     // 仅按稳定标识字段（id/name）判定记忆读取类噪声步骤；不要匹配 title/summary 等展示文案，

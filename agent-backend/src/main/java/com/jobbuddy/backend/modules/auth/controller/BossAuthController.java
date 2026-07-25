@@ -13,13 +13,20 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Boss 直聘认证接口，提供二维码登录、登录状态查询和取消登录能力。 */
+/**
+ * Boss 直聘认证接口，提供二维码登录、登录状态查询和取消登录能力。
+ */
 @Tag(name = "Boss 直聘认证接口")
 @RestController
 @RequestMapping("/api/boss")
 public class BossAuthController {
   private final BossAuthService bossAuthService;
 
+  /**
+   * 创建 Boss 认证接口实例。
+   *
+   * @param bossAuthService Boss 认证服务
+   */
   public BossAuthController(BossAuthService bossAuthService) {
     this.bossAuthService = bossAuthService;
   }
@@ -27,6 +34,7 @@ public class BossAuthController {
   /**
    * 获取 Boss 登录二维码。
    *
+   * @param sessionId 会话标识
    * @return 统一接口响应
    */
   @Operation(summary = "获取 Boss 登录二维码")
@@ -39,6 +47,8 @@ public class BossAuthController {
   /**
    * 查询 Boss 登录状态。
    *
+   * @param sessionId 会话标识
+   * @param qrSessionId 二维码会话标识
    * @return 统一接口响应
    */
   @Operation(summary = "查询 Boss 登录状态")
@@ -52,6 +62,8 @@ public class BossAuthController {
   /**
    * 取消 Boss 登录。
    *
+   * @param sessionId 会话标识
+   * @param qrSessionId 二维码会话标识
    * @return 统一接口响应
    */
   @Operation(summary = "取消 Boss 登录")

@@ -2,6 +2,7 @@ import { apiFetch, parseApiResponse } from './http'
 
 export async function listQuestions(params = {}) {
   const query = new URLSearchParams()
+  // 仅传递有值的筛选项，避免空参数改变后端默认查询语义。
   if (params.keyword) query.set('keyword', params.keyword)
   if (params.bankType) query.set('bankType', params.bankType)
   if (params.category) query.set('category', params.category)
@@ -11,6 +12,7 @@ export async function listQuestions(params = {}) {
   if (params._ts) query.set('_ts', params._ts)
   const path = `/interview/questions${query.toString() ? `?${query}` : ''}`
   const data = await fetchWithStartupRetry(path, '笔试题库加载失败')
+  // 兼容旧接口直接返回数组的结构，并补齐标准分页字段。
   return Array.isArray(data) ? { items: data, total: data.length, page: 1, size: data.length || 20, pages: 1 } : data
 }
 

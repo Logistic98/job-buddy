@@ -17,7 +17,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 提示词接口，提供前端提示词配置和用户画像上下文查询能力。 */
+/**
+ * 提示词接口，提供前端提示词配置和用户画像上下文查询能力。
+ */
 @Tag(name = "提示词接口")
 @RestController
 @RequirePermission(PermissionCodes.CHAT_USE)
@@ -26,6 +28,12 @@ public class PromptController {
   private final PromptRegistryService promptRegistryService;
   private final ProfileContextService profileContextService;
 
+  /**
+   * 创建提示词接口实例。
+   *
+   * @param promptRegistryService 提示词注册表服务
+   * @param profileContextService 画像上下文服务
+   */
   public PromptController(
       PromptRegistryService promptRegistryService, ProfileContextService profileContextService) {
     this.promptRegistryService = promptRegistryService;
@@ -35,6 +43,7 @@ public class PromptController {
   /**
    * 获取前端提示词配置。
    *
+   * @param profile 画像
    * @return 统一接口响应
    */
   @Operation(summary = "获取前端提示词配置")
@@ -55,6 +64,8 @@ public class PromptController {
   /**
    * 获取用户画像上下文。
    *
+   * @param request 请求对象
+   * @param resumeId 简历标识
    * @return 统一接口响应
    */
   @Operation(summary = "获取用户画像上下文")
