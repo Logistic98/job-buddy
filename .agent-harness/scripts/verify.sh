@@ -221,11 +221,11 @@ run_environment_file_location_check() {
 
 run_deployment_config_check() {
   log "deployment configuration"
-  need_cmd python3 "Environment configuration verification"
-  python3 -m py_compile scripts/sync-env.py \
+  need_cmd awk "Environment configuration verification"
+  sh -n scripts/sync-env.sh \
     || fail "Environment synchronization script syntax check failed"
   if [[ -f .env ]]; then
-    python3 scripts/sync-env.py || fail ".env and .env.example keys differ"
+    scripts/sync-env.sh || fail ".env and .env.example keys differ"
   fi
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
     env -u COMPOSE_PROJECT_NAME docker compose --env-file .env.example -f docker-compose-infra.yml config --quiet \

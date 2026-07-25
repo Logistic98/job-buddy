@@ -112,7 +112,7 @@ Flyway 只维护结构、共享系统元数据和受控默认身份；简历、�
 
 ```bash
 cp .env.example .env
-./scripts/sync-env.py
+./scripts/sync-env.sh
 ```
 
 ### Docker Compose 部署
@@ -121,7 +121,7 @@ Docker Engine 与 Compose 可用时，先填写 `.env` 并校验键集合：
 
 ```bash
 cp .env.example .env
-./scripts/sync-env.py
+./scripts/sync-env.sh
 unset COMPOSE_PROJECT_NAME
 ```
 
