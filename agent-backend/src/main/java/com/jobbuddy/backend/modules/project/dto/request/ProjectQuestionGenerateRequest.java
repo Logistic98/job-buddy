@@ -6,4 +6,5 @@ import lombok.Data;
 public class ProjectQuestionGenerateRequest {
   private Integer count;
   private String focus;
+  private String requirements;
 }

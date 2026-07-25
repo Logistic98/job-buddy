@@ -8,8 +8,10 @@ import com.jobbuddy.backend.common.security.AuthenticatedUserContext;
 import com.jobbuddy.backend.common.security.PermissionCodes;
 import com.jobbuddy.backend.common.security.RequirePermission;
 import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionGenerateRequest;
+import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionImportRequest;
 import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionRequest;
 import com.jobbuddy.backend.modules.project.dto.request.ProjectRequest;
+import com.jobbuddy.backend.modules.project.dto.response.ProjectQuestionResponse;
 import com.jobbuddy.backend.modules.project.dto.response.ProjectResponse;
 import com.jobbuddy.backend.modules.project.service.ProjectDeepDiveService;
 import com.jobbuddy.backend.modules.project.service.ProjectMaterialFile;
@@ -288,12 +290,31 @@ public class ProjectDeepDiveController {
    */
   @Operation(summary = "生成项目面试题")
   @PostMapping("/projects/{projectId}/generate")
-  public ApiResponse<ProjectResponse> generate(
+  public ApiResponse<List<ProjectQuestionResponse>> generate(
       @PathVariable String projectId,
       @RequestBody ProjectQuestionGenerateRequest payload,
       HttpServletRequest request) {
     return ApiResponse.success(
         service.generateQuestions(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
+            projectId,
+            payload));
+  }
+
+  /**
+   * 将用户审核并选择的候选问题添加到项目题库。
+   *
+   * @return 统一接口响应
+   */
+  @Operation(summary = "导入项目问题候选")
+  @PostMapping("/projects/{projectId}/questions/import")
+  public ApiResponse<ProjectResponse> importQuestions(
+      @PathVariable String projectId,
+      @RequestBody ProjectQuestionImportRequest payload,
+      HttpServletRequest request) {
+    return ApiResponse.success(
+        service.importQuestions(
             AuthenticatedUserContext.tenantId(request),
             AuthenticatedUserContext.userId(request),
             projectId,

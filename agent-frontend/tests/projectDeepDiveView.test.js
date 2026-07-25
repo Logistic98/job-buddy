@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   deleteMaterial: vi.fn(),
   addMaterial: vi.fn(),
   generateQuestions: vi.fn(),
+  importQuestions: vi.fn(),
   addQuestion: vi.fn(),
   updateQuestion: vi.fn(),
   deleteQuestion: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../src/api/projectDeepDive', () => ({
   deleteProjectMaterial: mocks.deleteMaterial,
   addProjectMaterial: mocks.addMaterial,
   generateProjectQuestions: mocks.generateQuestions,
+  importProjectQuestions: mocks.importQuestions,
   projectMaterialFileUrl: (materialId) => `/api/project-materials/${materialId}/file`,
   projectMaterialBatchDownloadUrl: (materialIds) =>
     `/api/project-materials/batch-file?${materialIds.map((id) => `materialIds=${id}`).join('&')}`,
@@ -582,17 +584,24 @@ describe('ProjectDeepDive two-level workflow', () => {
 
   it('uses one add-question modal for generated and manual questions', async () => {
     mocks.route.query = { project: 'p1', stage: 'questions' }
-    mocks.generateQuestions.mockResolvedValue({
+    const candidates = [
+      {
+        question: '智能生成的问题一',
+        answer: '生成答案一',
+        category: '架构设计',
+        difficulty: '困难',
+      },
+      {
+        question: '智能生成的问题二',
+        answer: '生成答案二',
+        category: '性能稳定性',
+        difficulty: '中等',
+      },
+    ]
+    mocks.generateQuestions.mockResolvedValue(candidates)
+    mocks.importQuestions.mockResolvedValue({
       ...detail,
-      questions: [
-        {
-          questionId: 'q-ai',
-          question: '智能生成的问题',
-          answer: '生成答案',
-          category: '架构设计',
-          difficulty: '深入',
-        },
-      ],
+      questions: [{ ...candidates[1], questionId: 'q-ai', source: 'generated' }, ...detail.questions],
     })
     const wrapper = mount(ProjectDeepDive)
     await flushPromises()
@@ -607,16 +616,39 @@ describe('ProjectDeepDive two-level workflow', () => {
     expect(wrapper.findAll('.question-create-methods button')[0].classes()).toContain('active')
     expect(wrapper.find('.question-generate-form input[type="number"]').element.value).toBe('')
     expect(wrapper.find('.question-generate-form input[type="number"]').attributes('placeholder')).toBe(
-      '请输入 4-40 的整数',
+      '请输入 1-100 的整数',
     )
     expect(wrapper.find('.question-generate-form input:not([type])').element.value).toBe('')
+    expect(wrapper.find('.question-generate-form textarea').attributes('maxlength')).toBe('1000')
     expect(wrapper.findAll('.question-editor-card .modal-actions button')).toHaveLength(1)
     expect(wrapper.find('.question-editor-card .modal-actions').text()).not.toContain('取消')
     await wrapper.find('.question-generate-form input[type="number"]').setValue(12)
+    await wrapper
+      .find('.question-generate-form textarea')
+      .setValue('重点考察架构取舍，问题由浅入深，参考答案包含量化结果')
     await wrapper.find('.question-editor-card .modal-actions .question-add-btn').trigger('click')
     await flushPromises()
 
-    expect(mocks.generateQuestions).toHaveBeenCalledWith('p1', expect.objectContaining({ count: 12 }))
+    expect(mocks.generateQuestions).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({
+        count: 12,
+        requirements: '重点考察架构取舍，问题由浅入深，参考答案包含量化结果',
+      }),
+    )
+    expect(wrapper.find('.question-editor-card').exists()).toBe(true)
+    expect(wrapper.findAll('.generated-question-candidate')).toHaveLength(2)
+    expect(wrapper.text()).toContain('检查生成结果')
+    expect(wrapper.text()).toContain('已选择 2 / 2 道')
+
+    await wrapper.findAll('.generated-question-candidate input[type="checkbox"]')[0].setValue(false)
+    expect(wrapper.text()).toContain('已选择 1 / 2 道')
+    await wrapper.find('.question-editor-card .modal-actions .question-add-btn').trigger('click')
+    await flushPromises()
+
+    expect(mocks.importQuestions).toHaveBeenCalledWith('p1', [
+      expect.objectContaining({ question: '智能生成的问题二' }),
+    ])
     expect(wrapper.find('.question-editor-card').exists()).toBe(false)
   })
 
@@ -630,7 +662,7 @@ describe('ProjectDeepDive two-level workflow', () => {
           question: '手动补充的问题',
           answer: '手动答案',
           category: '自定义',
-          difficulty: '常规',
+          difficulty: '中等',
           source: 'manual',
         },
         ...detail.questions,
@@ -644,9 +676,18 @@ describe('ProjectDeepDive two-level workflow', () => {
     await flushPromises()
 
     expect(wrapper.find('.question-editor-card').text()).not.toContain('必填')
-    expect(wrapper.find('.question-editor-card select').element.value).toBe('')
+    expect(wrapper.find('.question-editor-card [aria-label="问题难度"]').exists()).toBe(true)
+    expect(
+      wrapper.findAll('.question-editor-card [aria-label="问题难度"] button').map((button) => button.text()),
+    ).toEqual(['简单', '中等', '困难'])
+    expect(wrapper.find('.question-editor-card [aria-label="问题难度"] .active').exists()).toBe(false)
+    expect(wrapper.find('.question-editor-card').text()).not.toContain('Markdown 源码')
+    expect(wrapper.find('.question-editor-head > .close').exists()).toBe(true)
+    expect(wrapper.find('.question-editor-scroll > .close').exists()).toBe(false)
+    expect(wrapper.find('.question-content-input').exists()).toBe(true)
+    expect(wrapper.find('.question-editor-card select').exists()).toBe(false)
     await wrapper.find('.question-editor-card textarea').setValue('手动补充的问题')
-    await wrapper.find('.question-editor-card select').setValue('常规')
+    await wrapper.findAll('.question-editor-card [aria-label="问题难度"] button')[0].trigger('click')
     await wrapper.find('.question-editor-card .modal-actions .question-add-btn').trigger('click')
     await flushPromises()
 
@@ -687,6 +728,7 @@ describe('ProjectDeepDive two-level workflow', () => {
 
     expect(wrapper.find('#project-question-answer-markdown').exists()).toBe(true)
     expect(wrapper.find('[aria-label="参考答案 Markdown 预览"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="问题难度"] .active').text()).toBe('中等')
     wrapper.unmount()
   })
 

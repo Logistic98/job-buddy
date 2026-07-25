@@ -2,8 +2,10 @@ package com.jobbuddy.backend.modules.project.service.impl;
 
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionGenerateRequest;
+import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionImportRequest;
 import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionRequest;
 import com.jobbuddy.backend.modules.project.dto.request.ProjectRequest;
+import com.jobbuddy.backend.modules.project.dto.response.ProjectQuestionResponse;
 import com.jobbuddy.backend.modules.project.dto.response.ProjectResponse;
 import com.jobbuddy.backend.modules.project.repository.ProjectDeepDiveRepository;
 import com.jobbuddy.backend.modules.project.service.ProjectDeepDiveService;
@@ -21,6 +23,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -146,23 +149,48 @@ public class ProjectDeepDiveServiceImpl implements ProjectDeepDiveService {
     repository.deleteMaterial(tenantId, userId, materialId);
   }
 
-  public ProjectResponse generateQuestions(
+  public List<ProjectQuestionResponse> generateQuestions(
       String tenantId, String userId, String projectId, ProjectQuestionGenerateRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
     Map<String, Object> project = repository.findProject(tenantId, userId, projectId);
     if (project == null) throw new IllegalArgumentException("项目不存在");
     int count = intValue(payload == null ? null : payload.get("count"), 12);
-    count = Math.max(4, Math.min(count, 40));
+    count = Math.max(1, Math.min(count, 100));
     String focus =
         defaultString(payload == null ? null : payload.get("focus"), "架构设计、技术难点、项目结果、排障复盘");
+    String requirements =
+        limitedString(
+            payload == null ? null : payload.get("requirements"), 1000, "生成要求不能超过 1000 个字符");
     String materialText = projectEvidenceText(project);
     List<Map<String, Object>> questions = new ArrayList<Map<String, Object>>();
     String[] categories = new String[] {"项目背景", "架构设计", "技术难点", "业务价值", "性能稳定性", "协作复盘"};
     for (int i = 0; i < count; i++) {
       String category = categories[i % categories.length];
-      questions.add(question(project, category, focus, materialText, i + 1));
+      questions.add(question(project, category, focus, requirements, materialText, i + 1));
     }
-    repository.replaceQuestions(tenantId, userId, projectId, questions);
+    return jsonCodec.convertList(questions, ProjectQuestionResponse.class);
+  }
+
+  @Transactional
+  public ProjectResponse importQuestions(
+      String tenantId, String userId, String projectId, ProjectQuestionImportRequest request) {
+    if (repository.findProject(tenantId, userId, projectId) == null)
+      throw new IllegalArgumentException("项目不存在");
+    List<ProjectQuestionRequest> candidates = request == null ? null : request.getQuestions();
+    if (candidates == null || candidates.isEmpty()) throw new IllegalArgumentException("请至少选择一道问题");
+    if (candidates.size() > 100) throw new IllegalArgumentException("单次最多添加 100 道问题");
+    for (ProjectQuestionRequest candidate : candidates) {
+      Map<String, Object> payload = jsonCodec.toMap(candidate);
+      Map<String, Object> question = new LinkedHashMap<String, Object>();
+      question.put("questionId", "pdq_" + randomId());
+      question.put("projectId", projectId);
+      question.put("question", required(payload, "question", "问题内容不能为空"));
+      question.put("answer", defaultString(payload.get("answer"), ""));
+      question.put("category", defaultString(payload.get("category"), "自定义"));
+      question.put("difficulty", defaultString(payload.get("difficulty"), "中等"));
+      question.put("source", "generated");
+      repository.saveQuestion(tenantId, userId, question);
+    }
     return projectResponse(repository.findProject(tenantId, userId, projectId));
   }
 
@@ -177,7 +205,7 @@ public class ProjectDeepDiveServiceImpl implements ProjectDeepDiveService {
     question.put("question", required(payload, "question", "问题内容不能为空"));
     question.put("answer", defaultString(payload.get("answer"), ""));
     question.put("category", defaultString(payload.get("category"), "自定义"));
-    question.put("difficulty", defaultString(payload.get("difficulty"), "常规"));
+    question.put("difficulty", defaultString(payload.get("difficulty"), "中等"));
     question.put("source", "manual");
     repository.saveQuestion(tenantId, userId, question);
     return projectResponse(repository.findProject(tenantId, userId, projectId));
@@ -197,7 +225,7 @@ public class ProjectDeepDiveServiceImpl implements ProjectDeepDiveService {
         defaultString(payload.get("category"), defaultString(existing.get("category"), "自定义")));
     question.put(
         "difficulty",
-        defaultString(payload.get("difficulty"), defaultString(existing.get("difficulty"), "常规")));
+        defaultString(payload.get("difficulty"), defaultString(existing.get("difficulty"), "中等")));
     // 用户编辑过的问题归为 manual，重新生成时不会被替换
     question.put("source", "manual");
     repository.updateQuestion(
@@ -211,7 +239,12 @@ public class ProjectDeepDiveServiceImpl implements ProjectDeepDiveService {
   }
 
   private Map<String, Object> question(
-      Map<String, Object> project, String category, String focus, String materialText, int index) {
+      Map<String, Object> project,
+      String category,
+      String focus,
+      String requirements,
+      String materialText,
+      int index) {
     String name = String.valueOf(project.get("name"));
     String role = defaultString(project.get("role"), "核心开发");
     String tech = defaultString(project.get("techStack"), "项目相关技术栈");
@@ -244,12 +277,12 @@ public class ProjectDeepDiveServiceImpl implements ProjectDeepDiveService {
       question = "复盘这个项目，你觉得还有哪些不足？如果重做会如何优化？";
       answer = "可以从架构边界、测试覆盖、可观测性、数据模型、自动化交付和团队协作角度复盘。重点体现成长和工程判断。材料依据：" + evidence;
     }
+    if (!requirements.isBlank()) answer = answer + "\n回答约束：" + requirements;
     Map<String, Object> item = new LinkedHashMap<String, Object>();
-    item.put("questionId", "pdq_" + randomId());
     item.put("question", question);
     item.put("answer", answer);
     item.put("category", category);
-    item.put("difficulty", index % 3 == 0 ? "深入" : "常规");
+    item.put("difficulty", new String[] {"简单", "中等", "困难"}[(index - 1) % 3]);
     item.put("source", "generated");
     return item;
   }
@@ -293,6 +326,12 @@ public class ProjectDeepDiveServiceImpl implements ProjectDeepDiveService {
   private String defaultString(Object value, String fallback) {
     String text = stringValue(value);
     return text == null || text.trim().isEmpty() ? fallback : text.trim();
+  }
+
+  private String limitedString(Object value, int maxLength, String message) {
+    String text = defaultString(value, "");
+    if (text.length() > maxLength) throw new IllegalArgumentException(message);
+    return text;
   }
 
   private Map<String, Object> requireMaterial(String tenantId, String userId, String materialId) {

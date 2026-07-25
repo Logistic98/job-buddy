@@ -6,6 +6,7 @@ import {
   deleteProjectMaterial,
   deleteProjectQuestion,
   generateProjectQuestions,
+  importProjectQuestions,
   getDeepDiveProject,
   listDeepDiveProjects,
   projectMaterialBatchDownloadUrl,
@@ -56,8 +57,41 @@ describe('project deep-dive API uses PostgreSQL backend only', () => {
 
   it('returns generated questions on success', async () => {
     const data = { questions: [{ question: '介绍一下项目架构' }] }
-    vi.stubGlobal('fetch', mockFetchResponse({ body: { code: 0, message: 'success', data } }))
-    await expect(generateProjectQuestions('p1', {})).resolves.toEqual(data)
+    const fetch = mockFetchResponse({ body: { code: 0, message: 'success', data } })
+    vi.stubGlobal('fetch', fetch)
+    await expect(
+      generateProjectQuestions('p1', {
+        count: 5,
+        focus: '架构设计',
+        requirements: '问题由浅入深，答案包含量化结果',
+      }),
+    ).resolves.toEqual(data)
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/project-deep-dive/projects/p1/generate',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          count: 5,
+          focus: '架构设计',
+          requirements: '问题由浅入深，答案包含量化结果',
+        }),
+      }),
+    )
+  })
+
+  it('imports reviewed project questions', async () => {
+    const project = { projectId: 'p1', questions: [{ questionId: 'q1' }] }
+    const fetch = mockFetchResponse({ body: { code: 0, message: 'success', data: project } })
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(importProjectQuestions('p1', [{ question: '审核后的问题' }])).resolves.toEqual(project)
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/project-deep-dive/projects/p1/questions/import'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ questions: [{ question: '审核后的问题' }] }),
+      }),
+    )
   })
 
   it('uploads an arbitrary file with multipart form data', async () => {

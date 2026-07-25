@@ -10,6 +10,7 @@ import {
   deleteProjectQuestion,
   generateProjectQuestions,
   getDeepDiveProject,
+  importProjectQuestions,
   listDeepDiveProjects,
   projectMaterialBatchDownloadUrl,
   projectMaterialFileUrl,
@@ -17,6 +18,14 @@ import {
   updateProjectQuestion,
 } from '../api/projectDeepDive'
 import PracticeMarkdown from '../components/interview/PracticeMarkdown.vue'
+
+const projectQuestionDifficulties = ['简单', '中等', '困难']
+const legacyProjectQuestionDifficulties = { 常规: '中等', 深入: '困难' }
+
+function normalizeProjectQuestionDifficulty(value, fallback = '') {
+  const normalized = legacyProjectQuestionDifficulties[value] || value
+  return projectQuestionDifficulties.includes(normalized) ? normalized : fallback
+}
 
 export function useProjectDeepDivePage() {
   const route = useRoute()
@@ -61,7 +70,9 @@ export function useProjectDeepDivePage() {
     outcomes: '',
   })
   const form = reactive(emptyProjectForm())
-  const generateForm = reactive({ count: '', focus: '' })
+  const generateForm = reactive({ count: '', focus: '', requirements: '' })
+  const generatedQuestionCandidates = ref([])
+  const selectedGeneratedCandidateIds = ref([])
   const deleteDialog = reactive({ visible: false, projectId: '', name: '' })
   const questionModal = reactive({
     visible: false,
@@ -122,7 +133,11 @@ export function useProjectDeepDivePage() {
     const query = questionKeyword.value.trim().toLowerCase()
     return query
       ? questions.filter((item) =>
-          [item.question, item.category, item.difficulty].filter(Boolean).join(' ').toLowerCase().includes(query),
+          [item.question, item.category, normalizeProjectQuestionDifficulty(item.difficulty, item.difficulty)]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase()
+            .includes(query),
         )
       : questions
   })
@@ -146,6 +161,12 @@ export function useProjectDeepDivePage() {
     ),
   )
   const canGenerate = computed(() => materialCount(selectedProject.value) > 0)
+  const reviewingGeneratedQuestions = computed(() => generatedQuestionCandidates.value.length > 0)
+  const allGeneratedCandidatesSelected = computed(
+    () =>
+      reviewingGeneratedQuestions.value &&
+      generatedQuestionCandidates.value.every((item) => selectedGeneratedCandidateIds.value.includes(item.localId)),
+  )
   const allMaterialsSelected = computed(() => {
     const materials = selectedProject.value?.materials || []
     return materials.length > 0 && materials.every((item) => selectedMaterialIds.value.includes(item.materialId))
@@ -160,13 +181,16 @@ export function useProjectDeepDivePage() {
   const questionModalSubmitDisabled = computed(() => {
     if (saving.value || generating.value) return true
     if (questionModal.mode === 'edit' || questionModal.entryType === 'manual') return false
+    if (reviewingGeneratedQuestions.value) return selectedGeneratedCandidateIds.value.length === 0
     return !canGenerate.value
   })
   const questionModalSubmitText = computed(() => {
     if (questionModal.mode === 'edit') return saving.value ? '保存中' : '保存修改'
     if (questionModal.entryType === 'manual') return saving.value ? '保存中' : '添加问题'
+    if (reviewingGeneratedQuestions.value)
+      return saving.value ? '添加中' : `添加 ${selectedGeneratedCandidateIds.value.length} 道到题库`
     if (generating.value) return '正在生成'
-    return selectedProject.value?.questions?.length ? '重新生成' : '生成问题'
+    return '生成问题'
   })
 
   watch(
@@ -527,8 +551,9 @@ export function useProjectDeepDivePage() {
   async function generateQuestions() {
     if (!selectedProject.value || !canGenerate.value) return
     try {
-      validateInteger(generateForm.count, '生成数量', { min: 4, max: 40 })
+      validateInteger(generateForm.count, '生成数量', { min: 1, max: 100 })
       validateLength(generateForm.focus, '关注方向', { max: 500 })
+      validateLength(generateForm.requirements, '生成要求', { max: 1000 })
     } catch (err) {
       questionModal.error = err.message
       return
@@ -537,16 +562,55 @@ export function useProjectDeepDivePage() {
     questionModal.error = ''
     questionActionError.value = ''
     try {
-      const updated = await generateProjectQuestions(selectedProject.value.projectId, generateForm)
-      replaceProject(updated)
-      questionKeyword.value = ''
-      questionPage.value = 1
-      selectedQuestionId.value = updated.questions?.[0]?.questionId || ''
-      questionModal.visible = false
+      const candidates = (await generateProjectQuestions(selectedProject.value.projectId, generateForm)) || []
+      generatedQuestionCandidates.value = candidates.map((item, index) => ({
+        ...item,
+        difficulty: normalizeProjectQuestionDifficulty(item.difficulty, '中等'),
+        localId: `generated-${index + 1}`,
+      }))
+      selectedGeneratedCandidateIds.value = generatedQuestionCandidates.value.map((item) => item.localId)
+      if (!generatedQuestionCandidates.value.length) questionModal.error = '未生成可审核的问题，请调整关注方向后重试'
     } catch (e) {
       questionModal.error = e.message || '生成失败'
     } finally {
       generating.value = false
+    }
+  }
+  function toggleAllGeneratedCandidates() {
+    selectedGeneratedCandidateIds.value = allGeneratedCandidatesSelected.value
+      ? []
+      : generatedQuestionCandidates.value.map((item) => item.localId)
+  }
+  function restartQuestionGeneration() {
+    generatedQuestionCandidates.value = []
+    selectedGeneratedCandidateIds.value = []
+    questionModal.error = ''
+  }
+  async function importGeneratedQuestions() {
+    if (!selectedProject.value) return
+    const selectedIds = new Set(selectedGeneratedCandidateIds.value)
+    const questions = generatedQuestionCandidates.value
+      .filter((item) => selectedIds.has(item.localId))
+      .map(({ localId: _localId, questionId: _questionId, projectId: _projectId, source: _source, ...item }) => item)
+    if (!questions.length) {
+      questionModal.error = '请至少选择一道问题'
+      return
+    }
+    saving.value = true
+    questionModal.error = ''
+    try {
+      const updated = await importProjectQuestions(selectedProject.value.projectId, questions)
+      replaceProject(updated)
+      questionKeyword.value = ''
+      questionPage.value = 1
+      selectedQuestionId.value = updated.questions?.[0]?.questionId || ''
+      questionActionError.value = ''
+      questionModal.visible = false
+      restartQuestionGeneration()
+    } catch (e) {
+      questionModal.error = e.message || '问题添加到题库失败'
+    } finally {
+      saving.value = false
     }
   }
   function replaceProject(updated) {
@@ -587,7 +651,7 @@ export function useProjectDeepDivePage() {
             question: question.question || '',
             answer: question.answer || '',
             category: question.category || '',
-            difficulty: ['常规', '深入'].includes(question.difficulty) ? question.difficulty : '',
+            difficulty: normalizeProjectQuestionDifficulty(question.difficulty),
             error: '',
           }
         : {
@@ -602,7 +666,8 @@ export function useProjectDeepDivePage() {
             error: '',
           },
     )
-    if (!question) Object.assign(generateForm, { count: '', focus: '' })
+    if (!question) Object.assign(generateForm, { count: '', focus: '', requirements: '' })
+    restartQuestionGeneration()
     await nextTick()
     if (questionModal.mode === 'edit' || questionModal.entryType === 'manual') questionInput.value?.focus()
   }
@@ -610,6 +675,7 @@ export function useProjectDeepDivePage() {
     if (questionModal.entryType === entryType) return
     questionModal.entryType = entryType
     questionModal.error = ''
+    restartQuestionGeneration()
     answerEditorMode.value = 'edit'
     if (entryType === 'manual') {
       await nextTick()
@@ -617,11 +683,16 @@ export function useProjectDeepDivePage() {
     }
   }
   function closeQuestionModal() {
-    if (!saving.value && !generating.value) questionModal.visible = false
+    if (!saving.value && !generating.value) {
+      questionModal.visible = false
+      restartQuestionGeneration()
+    }
   }
   async function submitQuestionModal() {
-    if (questionModal.mode === 'create' && questionModal.entryType === 'generate') await generateQuestions()
-    else await saveQuestionModal()
+    if (questionModal.mode === 'create' && questionModal.entryType === 'generate') {
+      if (reviewingGeneratedQuestions.value) await importGeneratedQuestions()
+      else await generateQuestions()
+    } else await saveQuestionModal()
   }
   async function saveQuestionModal() {
     try {
@@ -737,6 +808,8 @@ export function useProjectDeepDivePage() {
     emptyProjectForm,
     form,
     generateForm,
+    generatedQuestionCandidates,
+    selectedGeneratedCandidateIds,
     deleteDialog,
     questionModal,
     questionDeleteDialog,
@@ -759,12 +832,16 @@ export function useProjectDeepDivePage() {
     selectedQuestion,
     questionPosition,
     canGenerate,
+    reviewingGeneratedQuestions,
+    allGeneratedCandidatesSelected,
     allMaterialsSelected,
     answerMarkdown,
     followUpMarkdown,
     evidenceMarkdown,
     questionModalSubmitDisabled,
     questionModalSubmitText,
+    toggleAllGeneratedCandidates,
+    restartQuestionGeneration,
     loadProjects,
     loadProjectDetail,
     openProject,

@@ -95,3 +95,12 @@ export async function generateProjectQuestions(projectId, payload) {
   })
   return parseApiResponse(response, '项目深挖问题生成失败')
 }
+
+export async function importProjectQuestions(projectId, questions) {
+  const response = await apiFetch(`/project-deep-dive/projects/${encodeURIComponent(projectId)}/questions/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questions }),
+  })
+  return parseApiResponse(response, '问题添加到题库失败')
+}

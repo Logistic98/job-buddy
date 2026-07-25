@@ -1,8 +1,10 @@
 package com.jobbuddy.backend.modules.project.service;
 
 import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionGenerateRequest;
+import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionImportRequest;
 import com.jobbuddy.backend.modules.project.dto.request.ProjectQuestionRequest;
 import com.jobbuddy.backend.modules.project.dto.request.ProjectRequest;
+import com.jobbuddy.backend.modules.project.dto.response.ProjectQuestionResponse;
 import com.jobbuddy.backend.modules.project.dto.response.ProjectResponse;
 import java.io.IOException;
 import java.util.List;
@@ -25,8 +27,11 @@ public interface ProjectDeepDiveService {
 
   void deleteMaterial(String tenantId, String userId, String materialId);
 
-  ProjectResponse generateQuestions(
+  List<ProjectQuestionResponse> generateQuestions(
       String tenantId, String userId, String projectId, ProjectQuestionGenerateRequest request);
+
+  ProjectResponse importQuestions(
+      String tenantId, String userId, String projectId, ProjectQuestionImportRequest request);
 
   ProjectResponse addQuestion(
       String tenantId, String userId, String projectId, ProjectQuestionRequest request);

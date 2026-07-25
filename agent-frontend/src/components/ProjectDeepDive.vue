@@ -313,7 +313,7 @@
                     <div class="question-card-head">
                       <span class="question-index">Q{{ (questionPage - 1) * questionPageSize + index + 1 }}</span
                       ><b>{{ item.category || '综合追问' }}</b
-                      ><em>{{ item.difficulty || '常规' }}</em>
+                      ><em>{{ projectQuestionDifficultyLabel(item.difficulty) }}</em>
                     </div>
                     <h3>{{ item.question }}</h3>
                   </button>
@@ -331,7 +331,7 @@
                       <h3>{{ selectedQuestion.question }}</h3>
                       <div class="question-tags">
                         <span>{{ selectedQuestion.category || '综合追问' }}</span
-                        ><span>{{ selectedQuestion.difficulty || '常规' }}</span
+                        ><span>{{ projectQuestionDifficultyLabel(selectedQuestion.difficulty) }}</span
                         ><span v-if="isManualQuestion(selectedQuestion)" class="manual-tag">手动维护</span>
                       </div>
                     </div>
@@ -570,144 +570,218 @@
 
     <div v-if="questionModal.visible" class="modal-mask" @click.self="closeQuestionModal">
       <div class="modal-card project-modal-card question-editor-card">
-        <button class="close" aria-label="关闭" @click="closeQuestionModal">×</button>
-        <p class="eyebrow">{{ questionModal.mode === 'edit' ? 'Edit Question' : 'Add Question' }}</p>
-        <h2>{{ questionModal.mode === 'edit' ? '编辑问题' : '添加问题' }}</h2>
-        <p>
-          {{
-            questionModal.mode === 'edit'
-              ? '修改问题内容与参考答案，保存后立即生效。'
-              : '选择智能生成或手动录入，所有新增问题都从这里开始。'
-          }}
-        </p>
+        <header class="question-editor-head">
+          <div>
+            <p class="eyebrow">{{ questionModal.mode === 'edit' ? 'Edit Question' : 'Add Question' }}</p>
+            <h2>{{ questionModal.mode === 'edit' ? '编辑问题' : '添加问题' }}</h2>
+            <p>
+              {{
+                questionModal.mode === 'edit'
+                  ? '修改问题内容与参考答案，保存后立即生效。'
+                  : '选择智能生成或手动录入，所有新增问题都从这里开始。'
+              }}
+            </p>
+          </div>
+          <button type="button" class="close" aria-label="关闭" @click="closeQuestionModal">×</button>
+        </header>
 
-        <div
-          v-if="questionModal.mode === 'create'"
-          class="question-create-methods"
-          role="tablist"
-          aria-label="添加问题方式"
-        >
-          <button
-            type="button"
-            :class="{ active: questionModal.entryType === 'generate' }"
-            :disabled="!canGenerate"
-            @click="setQuestionEntryType('generate')"
+        <div class="question-editor-scroll">
+          <div
+            v-if="questionModal.mode === 'create' && !reviewingGeneratedQuestions"
+            class="question-create-methods"
+            role="tablist"
+            aria-label="添加问题方式"
           >
-            <b>智能生成</b><span>根据项目材料批量生成问题和参考答案</span
-            ><small v-if="!canGenerate">需要先添加项目材料</small>
-          </button>
-          <button
-            type="button"
-            :class="{ active: questionModal.entryType === 'manual' }"
-            @click="setQuestionEntryType('manual')"
-          >
-            <b>手动录入</b><span>自行填写一道问题、分类和参考答案</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              :class="{ active: questionModal.entryType === 'generate' }"
+              :disabled="!canGenerate"
+              @click="setQuestionEntryType('generate')"
+            >
+              <b>智能生成</b><span>根据项目材料批量生成问题和参考答案</span
+              ><small v-if="!canGenerate">需要先添加项目材料</small>
+            </button>
+            <button
+              type="button"
+              :class="{ active: questionModal.entryType === 'manual' }"
+              @click="setQuestionEntryType('manual')"
+            >
+              <b>手动录入</b><span>自行填写一道问题、分类和参考答案</span>
+            </button>
+          </div>
 
-        <div
-          v-if="questionModal.mode === 'create' && questionModal.entryType === 'generate'"
-          class="question-generate-form"
-        >
-          <label
-            ><span class="form-required">生成数量</span
-            ><input
-              v-model.number="generateForm.count"
-              aria-required="true"
-              type="number"
-              min="4"
-              max="40"
-              step="1"
-              placeholder="请输入 4-40 的整数"
-          /></label>
-          <label
-            ><span>关注方向</span
-            ><input v-model.trim="generateForm.focus" placeholder="Agent 架构、RAG、模型评测、性能优化"
-          /></label>
-          <p v-if="selectedProject.questions?.length" class="question-generate-notice">
-            重新生成会替换智能生成的问题，手动添加或编辑过的问题会保留。
-          </p>
-        </div>
-
-        <div v-else class="form-grid compact-form modal-form-grid question-manual-form">
-          <label class="wide"
-            ><span class="form-required">问题</span
-            ><textarea
-              ref="questionInput"
-              aria-required="true"
-              v-model.trim="questionModal.question"
-              maxlength="500"
-              rows="2"
-              placeholder="例如：这个 Agent 如何进行工具选择与失败恢复？"
-            />
-          </label>
-          <label
-            ><span>分类</span
-            ><input v-model.trim="questionModal.category" maxlength="40" placeholder="Agent 架构 / 模型评测"
-          /></label>
-          <label
-            ><span class="form-required">难度</span
-            ><select v-model="questionModal.difficulty" aria-required="true">
-              <option value="" disabled>请选择难度</option>
-              <option value="常规">常规</option>
-              <option value="深入">深入</option>
-            </select></label
+          <div
+            v-if="
+              questionModal.mode === 'create' && questionModal.entryType === 'generate' && !reviewingGeneratedQuestions
+            "
+            class="question-generate-form"
           >
-          <div class="wide project-answer-editor markdown-editor-field markdown-answer-editor">
-            <div class="markdown-editor-head">
-              <span>参考答案</span>
-              <div class="markdown-editor-tabs" role="tablist" aria-label="参考答案编辑模式">
-                <button
-                  type="button"
-                  role="tab"
-                  :aria-selected="answerEditorMode === 'edit'"
-                  :class="{ active: answerEditorMode === 'edit' }"
-                  @click="answerEditorMode = 'edit'"
+            <label
+              ><span class="form-required">生成数量</span
+              ><input
+                v-model.number="generateForm.count"
+                aria-required="true"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                placeholder="请输入 1-100 的整数"
+            /></label>
+            <label
+              ><span>关注方向</span
+              ><input v-model.trim="generateForm.focus" placeholder="Agent 架构、RAG、模型评测、性能优化"
+            /></label>
+            <label class="wide"
+              ><span>生成要求</span
+              ><textarea
+                v-model.trim="generateForm.requirements"
+                maxlength="1000"
+                rows="3"
+                placeholder="例如：重点考察架构取舍，问题由浅入深，参考答案包含量化结果"
+              /><small>{{ generateForm.requirements.length }} / 1000</small></label
+            >
+          </div>
+
+          <section v-else-if="reviewingGeneratedQuestions" class="generated-question-review" aria-label="生成问题审核">
+            <div class="generated-question-review-head">
+              <div>
+                <b>检查生成结果</b>
+                <span
+                  >已选择 {{ selectedGeneratedCandidateIds.length }} / {{ generatedQuestionCandidates.length }} 道</span
                 >
-                  编辑
-                </button>
+              </div>
+              <label>
+                <input
+                  type="checkbox"
+                  :checked="allGeneratedCandidatesSelected"
+                  @change="toggleAllGeneratedCandidates"
+                />
+                全选
+              </label>
+            </div>
+            <div class="generated-question-list">
+              <label
+                v-for="(candidate, index) in generatedQuestionCandidates"
+                :key="candidate.localId"
+                class="generated-question-candidate"
+                :class="{ selected: selectedGeneratedCandidateIds.includes(candidate.localId) }"
+              >
+                <input v-model="selectedGeneratedCandidateIds" type="checkbox" :value="candidate.localId" />
+                <span class="generated-question-index">{{ index + 1 }}</span>
+                <span class="generated-question-content">
+                  <span class="generated-question-meta">
+                    <b>{{ candidate.category || '自定义' }}</b>
+                    <em>{{ projectQuestionDifficultyLabel(candidate.difficulty) }}</em>
+                  </span>
+                  <strong>{{ candidate.question }}</strong>
+                  <span class="generated-question-answer">{{ candidate.answer || '暂无参考答案' }}</span>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <div v-else class="form-grid compact-form modal-form-grid question-manual-form">
+            <label class="wide"
+              ><span class="form-required">问题</span
+              ><textarea
+                ref="questionInput"
+                aria-required="true"
+                v-model.trim="questionModal.question"
+                class="question-content-input"
+                maxlength="500"
+                rows="2"
+                placeholder="例如：这个 Agent 如何进行工具选择与失败恢复？"
+              />
+            </label>
+            <label
+              ><span>分类</span
+              ><input v-model.trim="questionModal.category" maxlength="40" placeholder="Agent 架构 / 模型评测"
+            /></label>
+            <div class="question-difficulty-field">
+              <span class="form-required">难度</span>
+              <div class="question-segmented-control" role="group" aria-label="问题难度">
                 <button
+                  v-for="difficulty in projectQuestionDifficultyOptions"
+                  :key="difficulty"
                   type="button"
-                  role="tab"
-                  :aria-selected="answerEditorMode === 'preview'"
-                  :class="{ active: answerEditorMode === 'preview' }"
-                  @click="answerEditorMode = 'preview'"
+                  :class="{ active: questionModal.difficulty === difficulty }"
+                  :aria-pressed="questionModal.difficulty === difficulty"
+                  @click="questionModal.difficulty = difficulty"
                 >
-                  预览
+                  {{ difficulty }}
                 </button>
               </div>
             </div>
-            <label
-              v-if="answerEditorMode === 'edit'"
-              class="markdown-editor-pane markdown-source-pane"
-              for="project-question-answer-markdown"
-            >
-              <span>Markdown 源码</span>
-              <textarea
-                id="project-question-answer-markdown"
-                v-model="questionModal.answer"
-                class="question-answer-input"
-                maxlength="8000"
-                placeholder="支持 Markdown：**加粗**、- 列表、`代码` 等"
-              />
-              <small class="field-hint">{{ questionModal.answer.length }} / 8000</small>
-            </label>
-            <section v-else class="markdown-editor-pane markdown-preview-pane" aria-label="参考答案 Markdown 预览">
-              <span>渲染预览</span>
-              <div class="markdown-preview-content">
-                <PracticeMarkdown
-                  :content="questionModal.answer"
-                  custom-id="project-question-answer-preview"
-                  empty-text="输入 Markdown 后可在这里查看答案效果"
-                />
+            <div class="wide project-answer-editor markdown-editor-field markdown-answer-editor">
+              <div class="markdown-editor-head">
+                <span>参考答案</span>
+                <div class="markdown-editor-tabs" role="tablist" aria-label="参考答案编辑模式">
+                  <button
+                    type="button"
+                    role="tab"
+                    :aria-selected="answerEditorMode === 'edit'"
+                    :class="{ active: answerEditorMode === 'edit' }"
+                    @click="answerEditorMode = 'edit'"
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    :aria-selected="answerEditorMode === 'preview'"
+                    :class="{ active: answerEditorMode === 'preview' }"
+                    @click="answerEditorMode = 'preview'"
+                  >
+                    预览
+                  </button>
+                </div>
               </div>
-            </section>
+              <label
+                v-if="answerEditorMode === 'edit'"
+                class="markdown-editor-pane markdown-source-pane"
+                for="project-question-answer-markdown"
+              >
+                <textarea
+                  id="project-question-answer-markdown"
+                  v-model="questionModal.answer"
+                  class="question-answer-input"
+                  maxlength="8000"
+                  aria-label="参考答案"
+                  placeholder="支持 Markdown：**加粗**、- 列表、`代码` 等"
+                />
+                <small class="field-hint">{{ questionModal.answer.length }} / 8000</small>
+              </label>
+              <section v-else class="markdown-editor-pane markdown-preview-pane" aria-label="参考答案 Markdown 预览">
+                <span>渲染预览</span>
+                <div class="markdown-preview-content">
+                  <PracticeMarkdown
+                    :content="questionModal.answer"
+                    custom-id="project-question-answer-preview"
+                    empty-text="输入 Markdown 后可在这里查看答案效果"
+                  />
+                </div>
+              </section>
+            </div>
           </div>
+          <p
+            v-if="questionModal.error"
+            class="error settings-error form-error-alert"
+            role="alert"
+            aria-live="assertive"
+          >
+            {{ questionModal.error }}
+          </p>
         </div>
-        <p v-if="questionModal.error" class="error settings-error form-error-alert" role="alert" aria-live="assertive">
-          {{ questionModal.error }}
-        </p>
-        <div class="modal-actions">
+        <div class="modal-actions question-editor-actions">
+          <button
+            v-if="reviewingGeneratedQuestions"
+            type="button"
+            class="secondary-btn"
+            :disabled="saving"
+            @click="restartQuestionGeneration"
+          >
+            重新生成
+          </button>
           <button class="question-add-btn" :disabled="questionModalSubmitDisabled" @click="submitQuestionModal">
             {{ questionModalSubmitText }}
           </button>
@@ -776,6 +850,13 @@
 import ProjectLibraryPanel from './project-deep-dive/ProjectLibraryPanel.vue'
 import { useProjectDeepDivePage } from '../composables/useProjectDeepDivePage'
 
+const projectQuestionDifficultyOptions = ['简单', '中等', '困难']
+const legacyProjectQuestionDifficulties = { 常规: '中等', 深入: '困难' }
+function projectQuestionDifficultyLabel(value) {
+  const normalized = legacyProjectQuestionDifficulties[value] || value
+  return projectQuestionDifficultyOptions.includes(normalized) ? normalized : '中等'
+}
+
 const {
   loading,
   detailLoading,
@@ -799,6 +880,8 @@ const {
   questionPageSize,
   form,
   generateForm,
+  generatedQuestionCandidates,
+  selectedGeneratedCandidateIds,
   deleteDialog,
   questionModal,
   questionDeleteDialog,
@@ -820,12 +903,16 @@ const {
   selectedQuestion,
   questionPosition,
   canGenerate,
+  reviewingGeneratedQuestions,
+  allGeneratedCandidatesSelected,
   allMaterialsSelected,
   answerMarkdown,
   followUpMarkdown,
   evidenceMarkdown,
   questionModalSubmitDisabled,
   questionModalSubmitText,
+  toggleAllGeneratedCandidates,
+  restartQuestionGeneration,
   loadProjects,
   loadProjectDetail,
   openProject,
