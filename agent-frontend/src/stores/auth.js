@@ -51,6 +51,15 @@ export const useAuthStore = defineStore('auth', {
     hasPermission(permission) {
       return this.permissions.includes(permission)
     },
+    async refresh() {
+      const sessionRevision = this.sessionRevision
+      const user = await currentUser()
+      if (this.sessionRevision !== sessionRevision) return null
+      this.user = user
+      this.initialized = true
+      saveAuthUser(this.user)
+      return user
+    },
     async login(username, password) {
       this.loading = true
       this.error = ''

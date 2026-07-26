@@ -68,4 +68,18 @@ describe('auth store initialization', () => {
     expect(logout).toHaveBeenCalledWith()
     expect(auth.isLoggedIn).toBe(false)
   })
+
+  it('refreshes menu authorization without clearing the current session', async () => {
+    const auth = useAuthStore()
+    auth.user = { username: 'admin', menus: [{ menuCode: 'old-menu' }] }
+    auth.initialized = true
+    const refreshed = { username: 'admin', menus: [{ menuCode: 'new-menu' }] }
+    currentUser.mockResolvedValue(refreshed)
+
+    await auth.refresh()
+
+    expect(auth.user).toEqual(refreshed)
+    expect(auth.isLoggedIn).toBe(true)
+    expect(JSON.parse(window.sessionStorage.getItem('job_buddy_auth_user'))).toEqual(refreshed)
+  })
 })

@@ -38,4 +38,13 @@ public interface UserLoginService {
    * @param userId 用户标识
    */
   void invalidateUserSessions(String userId);
+
+  /**
+   * 清理用户的短期认证缓存，但保留仍然有效的持久会话。
+   *
+   * <p>角色、权限或菜单元数据变更后调用，使下一次请求立即从数据库重建授权上下文，而不会要求用户重新登录。
+   *
+   * @param userId 用户标识
+   */
+  void evictUserSessionCache(String userId);
 }

@@ -112,6 +112,29 @@ class UserLoginServiceCacheTest {
   }
 
   /**
+   * 验证授权元数据变更只刷新缓存，不撤销仍有效的数据库会话。
+   */
+  @Test
+  void authorizationCacheEvictionShouldKeepSessionAndReloadCurrentUser() {
+    UserAuthRepository repository = mock(UserAuthRepository.class);
+    when(repository.findUserByToken("token-3")).thenReturn(userRow());
+    when(repository.findPermissions("admin"))
+        .thenReturn(Arrays.asList("menus:manage"))
+        .thenReturn(Arrays.asList("menus:manage", "jobs:use"));
+    UserLoginService service = new UserLoginServiceImpl(repository, loginGuard());
+
+    AuthenticatedUser before = service.currentUser("token-3");
+    service.evictUserSessionCache("admin");
+    AuthenticatedUser after = service.currentUser("token-3");
+
+    assertEquals(Arrays.asList("menus:manage"), before.getPermissions().stream().toList());
+    assertEquals(
+        Arrays.asList("menus:manage", "jobs:use"), after.getPermissions().stream().toList());
+    verify(repository, times(2)).findUserByToken("token-3");
+    verify(repository, never()).deleteSessionsByUserId("admin");
+  }
+
+  /**
    * 验证用户记录。
    *
    * @return 当前认证用户 Row

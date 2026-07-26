@@ -176,7 +176,7 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     } catch (DataIntegrityViolationException exception) {
       throw new IllegalArgumentException("角色编码已存在或数据不合法");
     }
-    invalidateUsers(affected);
+    evictAuthorizationCaches(affected);
     return requiredRole(tenantId, roleId);
   }
 
@@ -203,7 +203,7 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     List<String> affected = mapper.findUserIdsByRole(tenantId, roleId);
     replaceRoleMenusInternal(tenantId, roleId, normalized);
     protectManagementAccess(tenantId);
-    invalidateUsers(affected);
+    evictAuthorizationCaches(affected);
     return requiredRole(tenantId, roleId);
   }
 
@@ -328,7 +328,7 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     } catch (DataIntegrityViolationException exception) {
       throw new IllegalArgumentException("菜单编码已存在或菜单数据不合法");
     }
-    invalidateUsers(affected);
+    evictAuthorizationCaches(affected);
     return menuResponse(requiredMenuRow(tenantId, menuId));
   }
 
@@ -398,7 +398,7 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
     Instant now = Instant.now();
     for (String roleId : normalized) mapper.insertUserRole(tenantId, userId, roleId, now);
     protectManagementAccess(tenantId);
-    loginService.invalidateUserSessions(userId);
+    loginService.evictUserSessionCache(userId);
   }
 
   /**
@@ -641,9 +641,9 @@ public class DynamicRbacServiceImpl implements DynamicRbacService {
    *
    * @param users 用户列表
    */
-  private void invalidateUsers(List<String> users) {
+  private void evictAuthorizationCaches(List<String> users) {
     for (String userId : new LinkedHashSet<String>(users))
-      loginService.invalidateUserSessions(userId);
+      loginService.evictUserSessionCache(userId);
   }
 
   /**

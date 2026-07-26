@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import MenuManagement from '../src/components/MenuManagement.vue'
+import { useAuthStore } from '../src/stores/auth'
 
-const { listMenus, listPermissionDefinitions } = vi.hoisted(() => ({
+const { listMenus, listPermissionDefinitions, updateMenu } = vi.hoisted(() => ({
   listMenus: vi.fn(),
   listPermissionDefinitions: vi.fn(),
+  updateMenu: vi.fn(),
 }))
 
 vi.mock('../src/api/users', () => ({
@@ -12,7 +15,7 @@ vi.mock('../src/api/users', () => ({
   deleteMenu: vi.fn(),
   listMenus,
   listPermissionDefinitions,
-  updateMenu: vi.fn(),
+  updateMenu,
 }))
 
 const menus = [
@@ -23,6 +26,7 @@ const menus = [
     menuName: '平台设置',
     menuType: 'page',
     routePath: '/settings',
+    componentKey: 'settings',
     permissionCode: '',
     displayOrder: 10,
     visible: true,
@@ -45,6 +49,8 @@ const menus = [
 
 describe('menu management semantics', () => {
   beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
     listMenus.mockResolvedValue(menus)
     listPermissionDefinitions.mockResolvedValue([{ permissionCode: 'users:manage', permissionName: '管理用户' }])
   })
@@ -86,6 +92,22 @@ describe('menu management semantics', () => {
       '外链',
     ])
 
+    wrapper.unmount()
+  })
+
+  it('refreshes the current navigation immediately after editing a menu', async () => {
+    const wrapper = mount(MenuManagement, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.find('.rbac-action-btn').trigger('click')
+    const auth = useAuthStore()
+    auth.refresh = vi.fn().mockResolvedValue(true)
+
+    await new DOMWrapper(document.body.querySelector('.rbac-modal-actions .primary-btn')).trigger('click')
+    await flushPromises()
+
+    expect(updateMenu).toHaveBeenCalledWith('menu-settings', expect.objectContaining({ menuName: '平台设置' }))
+    expect(auth.refresh).toHaveBeenCalledOnce()
+    expect(wrapper.find('.rbac-error').exists()).toBe(false)
     wrapper.unmount()
   })
 })

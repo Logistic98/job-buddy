@@ -149,6 +149,35 @@ class DynamicRbacServiceTest {
   }
 
   /**
+   * 验证菜单修改立即刷新授权缓存，同时保留用户的有效登录会话。
+   */
+  @Test
+  void updatingMenuEvictsAuthorizationCacheWithoutInvalidatingSessions() {
+    RbacMapper mapper = mock(RbacMapper.class);
+    UserLoginService loginService = mock(UserLoginService.class);
+    Map<String, Object> menu = menu("menu-a", "");
+    menu.put("menuCode", "menu-code");
+    menu.put("menuName", "Menu");
+    menu.put("menuType", "page");
+    menu.put("routePath", "/chat");
+    menu.put("componentKey", "chat");
+    menu.put("displayOrder", 1);
+    when(mapper.findMenu("tenant-a", "menu-a")).thenReturn(menu);
+    when(mapper.findUserIdsByMenu("tenant-a", "menu-a")).thenReturn(List.of("admin"));
+    when(mapper.countManagementUsers("tenant-a")).thenReturn(1);
+    RbacMenuRequest request = request("");
+    request.setRoutePath("/chat");
+    request.setComponentKey("chat");
+    DynamicRbacService service =
+        new DynamicRbacServiceImpl(mapper, loginService, mock(RbacDelegationPolicy.class));
+
+    service.updateMenu("tenant-a", actor(), "menu-a", request);
+
+    verify(loginService).evictUserSessionCache("admin");
+    verify(loginService, never()).invalidateUserSessions("admin");
+  }
+
+  /**
    * 验证 DynamicRbacService 中权限的权限与租户隔离边界。
    */
   @Test

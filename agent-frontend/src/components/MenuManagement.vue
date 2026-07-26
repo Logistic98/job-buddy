@@ -212,8 +212,10 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { createMenu, deleteMenu, listMenus, listPermissionDefinitions, updateMenu } from '../api/users'
+import { useAuthStore } from '../stores/auth'
 import { validateCode, validateHttpUrl, validateInteger, validateLength } from '../utils/formValidation'
 
+const auth = useAuthStore()
 const menus = ref([])
 const permissions = ref([])
 const error = ref('')
@@ -349,6 +351,7 @@ async function save() {
     if (payload.externalUrl) payload.externalUrl = validateHttpUrl(payload.externalUrl, '外部地址')
     if (modal.value === 'create') await createMenu(payload)
     else await updateMenu(selected.value.menuId, payload)
+    await auth.refresh()
     close()
     await load()
   } catch (e) {
@@ -361,6 +364,7 @@ async function remove(menu) {
   if (!confirm(`确认删除菜单「${menu.menuName}」？包含子菜单或仍被角色引用时系统会拒绝。`)) return
   try {
     await deleteMenu(menu.menuId)
+    await auth.refresh()
     await load()
   } catch (e) {
     error.value = e?.message || '删除失败'

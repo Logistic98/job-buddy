@@ -144,8 +144,19 @@ public class UserLoginServiceImpl implements UserLoginService {
   @Override
   public void invalidateUserSessions(String userId) {
     if (userId == null || userId.trim().isEmpty()) return;
-    sessionCache.entrySet().removeIf(entry -> userId.equals(entry.getValue().user.getUserId()));
+    evictUserSessionCache(userId);
     repository.deleteSessionsByUserId(userId);
+  }
+
+  /**
+   * 清理用户的短期认证缓存，并保留数据库中的有效会话。
+   *
+   * @param userId 用户标识
+   */
+  @Override
+  public void evictUserSessionCache(String userId) {
+    if (userId == null || userId.trim().isEmpty()) return;
+    sessionCache.entrySet().removeIf(entry -> userId.equals(entry.getValue().user.getUserId()));
   }
 
   /**
