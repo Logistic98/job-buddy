@@ -33,6 +33,17 @@ describe('ResumeLibrary analysis report', () => {
     vi.restoreAllMocks()
   })
 
+  it('shows zero for every summary metric when no resume is selected', () => {
+    const wrapper = mount(ResumeLibrary)
+
+    expect(wrapper.findAll('.analysis-summary-metric').map((item) => item.text())).toEqual([
+      '综合评分0',
+      '优势点0',
+      '劣势点0',
+      '深挖点0',
+    ])
+  })
+
   it('keeps a white loading layer visible until the PDF viewer has painted', async () => {
     vi.useFakeTimers()
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {

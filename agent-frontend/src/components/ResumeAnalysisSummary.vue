@@ -41,7 +41,7 @@ const props = defineProps({
 
 const count = (value) => (Array.isArray(value) ? value.length : value ? 1 : 0)
 const metrics = computed(() => [
-  { key: 'score', label: '综合评分', value: props.analysis.overall_score ?? '-', tone: 'score' },
+  { key: 'score', label: '综合评分', value: props.analysis.overall_score ?? 0, tone: 'score' },
   { key: 'advantage', label: '优势点', value: count(props.analysis.advantages), tone: 'advantage' },
   { key: 'disadvantage', label: '劣势点', value: count(props.analysis.disadvantages), tone: 'disadvantage' },
   { key: 'deepDive', label: '深挖点', value: count(props.analysis.interview_deep_dive_points), tone: 'deep-dive' },
