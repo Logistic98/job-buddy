@@ -16,7 +16,7 @@
 | `DELETE /v1/memories?scope=long_term`           | 按 scope 批量清理      |
 | `POST /v1/memories/purge-expired`               | 清理过期记忆及相关历史 |
 
-写入与召回采用 BM25、时间衰减和可选向量信号的 RRF 融合排序（详见 `app/relevance.py`），不包含图数据库召回。每条记忆带 `kind`（step / task / long_term / semantic）、`category`、`source`、`enabled`、`operator_id` 与 `version` 字段；禁用条目不会进入搜索结果，`PUT` 更新会在覆盖前留存历史版本，`POST .../rollback` 回滚到上一版本内容。列表和批量清理同样按请求头中的租户、操作者及 scope 隔离。
+写入与召回采用 BM25、时间衰减和可选向量信号的 RRF 融合排序（详见 `app/relevance.py`），不包含图数据库召回。每条记忆带 `kind`（step / task / long_term / semantic）、`source`、`enabled`、`operator_id` 与 `version` 字段，不再按内容类型分类；禁用条目不会进入搜索结果，`PUT` 更新会在覆盖前留存历史版本，`POST .../rollback` 回滚到上一版本内容。列表和批量清理同样按请求头中的租户、操作者及 scope 隔离。
 
 所有写类与召回接口只从受信的 `X-Tenant-Id`、`X-Operator-Id` 请求头解析所有权；请求模型中的 `operator_id` 兼容字段不参与身份判定，缺少操作者请求头时进入匿名隔离分区。服务通过 Loguru `audit="memory"` 绑定字段输出审计日志，覆盖创建、检索、更新、回滚、删除与过期清理，便于按操作者还原记忆变更链路。跨模块边界与排序策略见[记忆管理与混合检索](../agent-doc/核心能力/记忆管理与混合检索.md)。
 

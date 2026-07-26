@@ -1,6 +1,6 @@
 package com.jobbuddy.backend.modules.chat.service.impl;
 
-import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.classifyMemoryType;
+import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.shouldCaptureLongTermMemory;
 
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import java.util.concurrent.Executor;
@@ -60,14 +60,13 @@ class ChatMemoryWriter {
    */
   private void captureLongTermMemory(String tenantId, String userId, String message) {
     if (message == null || message.trim().isEmpty()) return;
-    String tier = classifyMemoryType(message);
     // 只有判定为长期记忆的稳定信息才写入持久化记忆，普通对话仅留在会话短期记忆中，不污染长期记忆。
-    if (tier == null) return;
+    if (!shouldCaptureLongTermMemory(message)) return;
     try {
-      settingsService.writeLocalMemory(tenantId, userId, tier, message.trim(), "chat");
+      settingsService.writeLocalMemory(tenantId, userId, message.trim(), "chat");
     } catch (Exception e) {
       // 长期记忆写入失败不阻断问答主链路，但需留痕以便排查记忆丢失。
-      log.warn("写入长期记忆失败 tier={}", tier, e);
+      log.warn("写入长期记忆失败", e);
     }
   }
 }

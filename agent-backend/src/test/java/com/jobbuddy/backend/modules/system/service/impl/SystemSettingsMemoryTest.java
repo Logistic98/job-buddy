@@ -35,12 +35,30 @@ class SystemSettingsMemoryTest {
    * 验证 SystemSettingsMemory 中记忆的核心业务契约。
    */
   @Test
-  void autoMemoryShouldStayDisabledByDefault() {
+  void autoMemoryShouldPersistStableSignalsByDefault() {
     AgentMemoryClient client = statefulClient();
     SystemSettingsServiceImpl service =
         newService(statefulMapper(new LinkedHashMap<String, String>()), client);
 
-    service.writeLocalMemory("tenant-a", "user-a", "preference", "我希望做后端", "chat");
+    service.writeLocalMemory("tenant-a", "user-a", "我希望做后端", "chat");
+
+    assertEquals(1, service.listMemories("tenant-a", "user-a").size());
+  }
+
+  /**
+   * 验证用户显式关闭自动保存后不写入长期记忆。
+   */
+  @Test
+  void autoMemoryShouldRespectExplicitlyDisabledPolicy() {
+    Map<String, String> stored = new LinkedHashMap<String, String>();
+    stored.put(
+        key("global", "settings"),
+        "{\"memory\":{\"enabled\":true,\"autoSaveChat\":false,"
+            + "\"autoUseMemory\":true,\"maxItems\":200,\"items\":[]}}");
+    AgentMemoryClient client = statefulClient();
+    SystemSettingsServiceImpl service = newService(statefulMapper(stored), client);
+
+    service.writeLocalMemory("tenant-a", "user-a", "我希望做后端", "chat");
 
     verify(client, never()).create(anyString(), anyString(), any(SystemMemoryRequest.class));
   }
@@ -53,26 +71,25 @@ class SystemSettingsMemoryTest {
     AgentMemoryClient client = statefulClient();
     SystemSettingsServiceImpl service = newService(statefulMapper(memoryEnabledState()), client);
 
-    service.writeLocalMemory("tenant-a", "user-a", "preference", "我希望做后端", "chat");
-    service.writeLocalMemory("tenant-a", "user-a", "constraint", "排除外包岗位", "chat");
-    service.writeLocalMemory("tenant-a", "user-a", "preference", "我希望做后端", "chat");
+    service.writeLocalMemory("tenant-a", "user-a", "我希望做后端", "chat");
+    service.writeLocalMemory("tenant-a", "user-a", "排除外包岗位", "chat");
+    service.writeLocalMemory("tenant-a", "user-a", "我希望做后端", "chat");
 
     List<SystemMemoryResponse> items = service.listMemories("tenant-a", "user-a");
     assertEquals(2, items.size());
-    assertEquals("constraint", items.get(0).getType());
-    assertEquals("preference", items.get(1).getType());
+    assertEquals("排除外包岗位", items.get(0).getContent());
+    assertEquals("我希望做后端", items.get(1).getContent());
   }
 
   /**
    * 验证 SystemSettingsMemory 中记忆的输入校验与拒绝边界。
    */
   @Test
-  void autoMemoryShouldRejectUnclassifiedTypesAndTinyContent() {
+  void autoMemoryShouldRejectTinyContent() {
     AgentMemoryClient client = statefulClient();
     SystemSettingsServiceImpl service = newService(statefulMapper(memoryEnabledState()), client);
 
-    service.writeLocalMemory("tenant-a", "user-a", "conversation", "帮我分析这个岗位", "chat");
-    service.writeLocalMemory("tenant-a", "user-a", "preference", "喜欢", "chat");
+    service.writeLocalMemory("tenant-a", "user-a", "喜欢", "chat");
 
     assertTrue(service.listMemories("tenant-a", "user-a").isEmpty());
   }
@@ -85,7 +102,6 @@ class SystemSettingsMemoryTest {
     AgentMemoryClient client = statefulClient();
     SystemSettingsServiceImpl service = newService(statefulMapper(memoryEnabledState()), client);
     SystemMemoryRequest item = new SystemMemoryRequest();
-    item.setType("preference");
     item.setContent("只属于 tenant-a/user-a");
 
     service.addMemory("tenant-a", "user-a", item);
@@ -228,7 +244,6 @@ class SystemSettingsMemoryTest {
               SystemMemoryRequest request = invocation.getArgument(2);
               SystemMemoryResponse response = new SystemMemoryResponse();
               response.setId("mem_test" + sequence.incrementAndGet());
-              response.setType(request.getType());
               response.setContent(request.getContent());
               response.setSource(request.getSource());
               response.setEnabled(request.getEnabled());

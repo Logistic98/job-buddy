@@ -29,24 +29,22 @@ public final class ChatSseSupport {
   private ChatSseSupport() {}
 
   /**
-   * 判定一条用户消息是否值得写入长期记忆，并返回长期记忆类型；普通对话返回 null（只进短期记忆）。
-   * 约束类（排除/不要/不考虑/约束）优先于偏好类（偏好/优先/目标/期望/希望/喜欢/倾向）。
+   * 判定一条用户消息是否值得写入长期记忆；普通对话只进入短期记忆。
    *
    * @param message 消息内容
-   * @return 记忆类型
+   * @return 是否包含稳定长期信息
    */
-  public static String classifyMemoryType(String message) {
+  public static boolean shouldCaptureLongTermMemory(String message) {
     String text = message == null ? "" : message;
     if (text.contains("排除") || text.contains("不要") || text.contains("不考虑") || text.contains("约束"))
-      return "constraint";
-    if (text.contains("偏好")
+      return true;
+    return text.contains("偏好")
         || text.contains("优先")
         || text.contains("目标")
         || text.contains("期望")
         || text.contains("希望")
         || text.contains("喜欢")
-        || text.contains("倾向")) return "preference";
-    return null;
+        || text.contains("倾向");
   }
 
   /**

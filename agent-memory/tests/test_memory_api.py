@@ -50,14 +50,13 @@ def test_list_and_clear_long_term_memories(monkeypatch):
         json={
             "scope": "long_term",
             "kind": "long_term",
-            "category": "constraint",
             "source": "manual",
             "content": "排除外包岗位",
         },
         headers=headers,
     ).json()["data"]
 
-    assert created["category"] == "constraint"
+    assert "category" not in created
     assert created["source"] == "manual"
     listed = client.get("/v1/memories", params={"scope": "long_term"}, headers=headers).json()["data"]
     assert [item["id"] for item in listed] == [created["id"]]

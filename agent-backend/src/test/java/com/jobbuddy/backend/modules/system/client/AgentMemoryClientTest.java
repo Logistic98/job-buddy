@@ -43,7 +43,7 @@ class AgentMemoryClientTest {
         .andRespond(
             withSuccess(
                 "{\"code\":200,\"message\":\"success\",\"data\":[{"
-                    + "\"id\":\"mem_1\",\"scope\":\"long_term\",\"category\":\"constraint\","
+                    + "\"id\":\"mem_1\",\"scope\":\"long_term\","
                     + "\"content\":\"排除外包岗位\",\"source\":\"manual\",\"enabled\":true,"
                     + "\"created_at\":\"2026-07-24T00:00:00Z\"}]}",
                 MediaType.APPLICATION_JSON));
@@ -51,7 +51,6 @@ class AgentMemoryClientTest {
     List<SystemMemoryResponse> items = client.list("tenant-a", "user-a");
 
     assertEquals(1, items.size());
-    assertEquals("constraint", items.get(0).getType());
     assertEquals("manual", items.get(0).getSource());
     server.verify();
   }
@@ -72,18 +71,16 @@ class AgentMemoryClientTest {
         .andRespond(
             withSuccess(
                 "{\"code\":200,\"message\":\"success\",\"data\":{"
-                    + "\"id\":\"mem_2\",\"scope\":\"long_term\",\"category\":\"preference\","
+                    + "\"id\":\"mem_2\",\"scope\":\"long_term\","
                     + "\"content\":\"优先远程岗位\",\"source\":\"manual\",\"enabled\":true}}",
                 MediaType.APPLICATION_JSON));
     SystemMemoryRequest request = new SystemMemoryRequest();
-    request.setType("preference");
     request.setContent("优先远程岗位");
     request.setSource("manual");
 
     SystemMemoryResponse created = client.create("tenant-a", "user-a", request);
 
     assertEquals("mem_2", created.getId());
-    assertEquals("preference", created.getType());
     server.verify();
   }
 
@@ -120,7 +117,6 @@ class AgentMemoryClientTest {
         .andExpect(method(HttpMethod.POST))
         .andRespond(withServerError());
     SystemMemoryRequest request = new SystemMemoryRequest();
-    request.setType("preference");
     request.setContent("优先远程岗位");
 
     assertThrows(IllegalStateException.class, () -> client.create("tenant-a", "user-a", request));

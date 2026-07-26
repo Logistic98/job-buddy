@@ -616,9 +616,9 @@ class ChatSseCollaboratorsTest {
     writer.captureLongTermMemoryAsync("tenant-a", "user-a", "帮我看下这个岗位");
     writer.captureLongTermMemoryAsync("tenant-a", "user-a", "  ");
     writer.captureLongTermMemoryAsync("tenant-a", "user-a", null);
-    verify(settings).writeLocalMemory("tenant-a", "user-a", "constraint", "排除外包岗位", "chat");
+    verify(settings).writeLocalMemory("tenant-a", "user-a", "排除外包岗位", "chat");
     verify(settings, never())
-        .writeLocalMemory(eq("tenant-a"), eq("user-a"), eq("preference"), anyString(), anyString());
+        .writeLocalMemory(eq("tenant-a"), eq("user-a"), eq("帮我看下这个岗位"), anyString());
   }
 
   /**
@@ -629,9 +629,9 @@ class ChatSseCollaboratorsTest {
     SystemSettingsService settings = mock(SystemSettingsService.class);
     doThrow(new RuntimeException("disk full"))
         .when(settings)
-        .writeLocalMemory(anyString(), anyString(), anyString(), anyString(), anyString());
+        .writeLocalMemory(anyString(), anyString(), anyString(), anyString());
     ChatMemoryWriter writer = new ChatMemoryWriter(settings, DIRECT);
     writer.captureLongTermMemoryAsync("tenant-a", "user-a", "我希望做后端");
-    verify(settings).writeLocalMemory("tenant-a", "user-a", "preference", "我希望做后端", "chat");
+    verify(settings).writeLocalMemory("tenant-a", "user-a", "我希望做后端", "chat");
   }
 }

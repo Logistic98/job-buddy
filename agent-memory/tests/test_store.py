@@ -20,7 +20,6 @@ async def test_list_clear_and_disabled_search():
         "long_term",
         "优先远程岗位",
         kind="long_term",
-        category="preference",
         source="manual",
     )
     store.add("long_term", "排除外包岗位", enabled=False)

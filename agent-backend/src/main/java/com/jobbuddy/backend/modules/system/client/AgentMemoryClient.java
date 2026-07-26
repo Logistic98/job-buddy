@@ -104,7 +104,6 @@ public class AgentMemoryClient {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
     payload.put("scope", LONG_TERM_SCOPE);
     payload.put("kind", LONG_TERM_SCOPE);
-    payload.put("category", normalizedType(request == null ? null : request.getType()));
     payload.put("content", request == null ? "" : request.getContent());
     payload.put(
         "source",
@@ -278,7 +277,6 @@ public class AgentMemoryClient {
   private SystemMemoryResponse memory(Map<String, Object> item) {
     SystemMemoryResponse response = new SystemMemoryResponse();
     response.setId(text(item, "id"));
-    response.setType(normalizedType(firstText(item, "category", "type")));
     response.setContent(text(item, "content"));
     String source = text(item, "source");
     response.setSource(source == null || source.trim().isEmpty() ? "agent-memory" : source);
@@ -316,17 +314,6 @@ public class AgentMemoryClient {
         || userId.trim().isEmpty()) {
       throw new IllegalArgumentException("长期记忆读写必须提供 tenantId 和 userId");
     }
-  }
-
-  /**
-   * 规范化记忆类型。
-   *
-   * @param value 待处理值
-   * @return 规范化类型
-   */
-  private String normalizedType(String value) {
-    String type = value == null ? "" : value.trim().toLowerCase();
-    return type.matches("preference|constraint|interview|conversation") ? type : "preference";
   }
 
   /**

@@ -2,7 +2,6 @@ package com.jobbuddy.backend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
@@ -23,14 +22,14 @@ class ChatSseSupportTest {
    * 验证 ChatSseSupport 中记忆的核心业务契约。
    */
   @Test
-  void classifyMemoryTypeShouldPreferConstraintThenPreference() {
-    assertEquals("constraint", ChatSseSupport.classifyMemoryType("排除外包岗位，偏好大厂"));
-    assertEquals("constraint", ChatSseSupport.classifyMemoryType("不要外包"));
-    assertEquals("preference", ChatSseSupport.classifyMemoryType("我希望做后端"));
-    assertEquals("preference", ChatSseSupport.classifyMemoryType("我喜欢远程办公"));
-    assertEquals("preference", ChatSseSupport.classifyMemoryType("我倾向 Java 后端开发"));
-    assertNull(ChatSseSupport.classifyMemoryType("帮我看下这个岗位"));
-    assertNull(ChatSseSupport.classifyMemoryType(null));
+  void shouldCaptureLongTermMemoryOnlyForStableSignals() {
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("排除外包岗位，偏好大厂"));
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("不要外包"));
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("我希望做后端"));
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("我喜欢远程办公"));
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("我倾向 Java 后端开发"));
+    assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory("帮我看下这个岗位"));
+    assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory(null));
   }
 
   /**

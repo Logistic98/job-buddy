@@ -115,7 +115,6 @@ class MemoryItem:
     created_at: str
     tenant_id: str = "default-tenant"
     kind: str = DEFAULT_MEMORY_KIND
-    category: str = "preference"
     source: str = "agent-memory"
     enabled: bool = True
     operator_id: str | None = None
@@ -163,7 +162,6 @@ class MemoryStore:
         content: str,
         ttl_seconds: int | None = None,
         kind: str | None = None,
-        category: str | None = None,
         source: str | None = None,
         enabled: bool = True,
         operator_id: str | None = None,
@@ -176,7 +174,6 @@ class MemoryStore:
             created_at=_now().isoformat(),
             tenant_id=tenant_id,
             kind=normalize_kind(kind),
-            category=(category or "preference").strip() or "preference",
             source=(source or "agent-memory").strip() or "agent-memory",
             enabled=enabled,
             operator_id=operator_id or "anonymous",
@@ -441,7 +438,6 @@ class PostgresMemoryStore:
                     scope TEXT NOT NULL,
                     content TEXT NOT NULL,
                     kind TEXT NOT NULL DEFAULT 'task',
-                    category TEXT NOT NULL DEFAULT 'preference',
                     source TEXT NOT NULL DEFAULT 'agent-memory',
                     enabled BOOLEAN NOT NULL DEFAULT TRUE,
                     operator_id TEXT NOT NULL DEFAULT 'anonymous',
@@ -470,11 +466,11 @@ class PostgresMemoryStore:
                     ON agent_memory_items (LOWER(content) text_pattern_ops);
 
                 ALTER TABLE agent_memory_items
-                    ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'preference';
-                ALTER TABLE agent_memory_items
                     ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'agent-memory';
                 ALTER TABLE agent_memory_items
                     ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+                ALTER TABLE agent_memory_items
+                    DROP COLUMN IF EXISTS category;
                 """
             )
 
@@ -512,7 +508,6 @@ class PostgresMemoryStore:
         content: str,
         ttl_seconds: int | None = None,
         kind: str | None = None,
-        category: str | None = None,
         source: str | None = None,
         enabled: bool = True,
         operator_id: str | None = None,
@@ -525,13 +520,13 @@ class PostgresMemoryStore:
             row = await conn.fetchrow(
                 """
                 INSERT INTO agent_memory_items (
-                    id, tenant_id, scope, content, kind, category, source, enabled, operator_id, expires_at
+                    id, tenant_id, scope, content, kind, source, enabled, operator_id, expires_at
                 )
                 VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9,
-                    CASE WHEN $10::int IS NULL THEN NULL ELSE NOW() + ($10::int * INTERVAL '1 second') END
+                    $1, $2, $3, $4, $5, $6, $7, $8,
+                    CASE WHEN $9::int IS NULL THEN NULL ELSE NOW() + ($9::int * INTERVAL '1 second') END
                 )
-                RETURNING id, tenant_id, scope, content, kind, category, source, enabled,
+                RETURNING id, tenant_id, scope, content, kind, source, enabled,
                           operator_id, version, created_at, updated_at, expires_at
                 """,
                 item_id,
@@ -539,7 +534,6 @@ class PostgresMemoryStore:
                 scope,
                 content,
                 normalize_kind(kind),
-                (category or "preference").strip() or "preference",
                 (source or "agent-memory").strip() or "agent-memory",
                 enabled,
                 operator_id or "anonymous",
@@ -560,7 +554,7 @@ class PostgresMemoryStore:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT id, tenant_id, scope, content, kind, category, source, enabled,
+                SELECT id, tenant_id, scope, content, kind, source, enabled,
                        operator_id, version, created_at, updated_at, expires_at
                 FROM agent_memory_items
                 WHERE tenant_id = $1 AND operator_id = $2
@@ -594,7 +588,7 @@ class PostgresMemoryStore:
             if patterns:
                 rows = await conn.fetch(
                     """
-                    SELECT id, tenant_id, scope, content, kind, category, source, enabled,
+                    SELECT id, tenant_id, scope, content, kind, source, enabled,
                            operator_id, version, created_at, updated_at, expires_at
                     FROM agent_memory_items
                     WHERE tenant_id = $1 AND operator_id = $2
@@ -614,7 +608,7 @@ class PostgresMemoryStore:
             else:
                 rows = await conn.fetch(
                     """
-                    SELECT id, tenant_id, scope, content, kind, category, source, enabled,
+                    SELECT id, tenant_id, scope, content, kind, source, enabled,
                            operator_id, version, created_at, updated_at, expires_at
                     FROM agent_memory_items
                     WHERE tenant_id = $1 AND operator_id = $2
@@ -681,7 +675,7 @@ class PostgresMemoryStore:
                         version = version + 1,
                         expires_at = CASE WHEN $5::int IS NULL THEN expires_at ELSE NOW() + ($5::int * INTERVAL '1 second') END
                     WHERE id = $1 AND tenant_id = $2 AND operator_id = $3
-                    RETURNING id, tenant_id, scope, content, kind, category, source, enabled,
+                    RETURNING id, tenant_id, scope, content, kind, source, enabled,
                               operator_id, version, created_at, updated_at, expires_at
                     """,
                     item_id,
@@ -722,7 +716,7 @@ class PostgresMemoryStore:
                         version = version + 1
                     WHERE id = $1 AND tenant_id = $2 AND operator_id = $3
                       AND (expires_at IS NULL OR expires_at > NOW())
-                    RETURNING id, tenant_id, scope, content, kind, category, source, enabled,
+                    RETURNING id, tenant_id, scope, content, kind, source, enabled,
                               operator_id, version, created_at, updated_at, expires_at
                     """,
                     item_id,
@@ -854,7 +848,6 @@ class PostgresMemoryStore:
             created_at=iso(row["created_at"]),
             tenant_id=row["tenant_id"] if "tenant_id" in row else "default-tenant",
             kind=row["kind"] if "kind" in row else DEFAULT_MEMORY_KIND,
-            category=row["category"] if "category" in row else "preference",
             source=row["source"] if "source" in row else "agent-memory",
             enabled=row["enabled"] if "enabled" in row else True,
             operator_id=row["operator_id"] if "operator_id" in row else None,

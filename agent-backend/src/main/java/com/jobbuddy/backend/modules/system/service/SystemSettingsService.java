@@ -67,11 +67,10 @@ public interface SystemSettingsService {
    *
    * @param tenantId 租户标识
    * @param userId 用户标识
-   * @param type 类型
    * @param content 内容
    * @param source 源数据
    */
-  void writeLocalMemory(String tenantId, String userId, String type, String content, String source);
+  void writeLocalMemory(String tenantId, String userId, String content, String source);
 
   /**
    * 删除记忆。

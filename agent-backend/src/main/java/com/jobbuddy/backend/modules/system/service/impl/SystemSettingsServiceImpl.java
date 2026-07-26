@@ -227,21 +227,19 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
    *
    * @param tenantId 租户标识
    * @param userId 用户标识
-   * @param type 类型
    * @param content 内容
    * @param source 源数据
    */
   public synchronized void writeLocalMemory(
-      String tenantId, String userId, String type, String content, String source) {
+      String tenantId, String userId, String content, String source) {
     requireMemoryOwner(tenantId, userId);
     if (content == null || content.trim().length() < 2) return;
-    if (!shouldAutoWriteMemory(type, content)) return;
+    if (!shouldAutoWriteMemory(content)) return;
     Map<String, Object> policy = memoryPolicy();
     if (!booleanValue(policy.get("enabled"), true)
-        || !booleanValue(policy.get("autoSaveChat"), false)) return;
+        || !booleanValue(policy.get("autoSaveChat"), true)) return;
     migrateLegacyMemories(tenantId, userId);
     SystemMemoryRequest request = new SystemMemoryRequest();
-    request.setType(type);
     request.setContent(content);
     request.setSource(source);
     request.setEnabled(Boolean.TRUE);
@@ -366,7 +364,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private Map<String, Object> memoryDefaults() {
     Map<String, Object> data = new LinkedHashMap<String, Object>();
     data.put("enabled", true);
-    data.put("autoSaveChat", false);
+    data.put("autoSaveChat", true);
     data.put("autoUseMemory", true);
     data.put("maxItems", 200);
     data.put("items", new ArrayList<Map<String, Object>>());
@@ -815,9 +813,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
       throw new IllegalArgumentException("记忆内容不能为空");
     }
     SystemMemoryRequest normalized = new SystemMemoryRequest();
-    String type = request.getType() == null ? "" : request.getType().trim().toLowerCase();
-    normalized.setType(
-        type.matches("preference|constraint|interview|conversation") ? type : "preference");
     normalized.setContent(request.getContent().trim());
     normalized.setSource(
         request.getSource() == null || request.getSource().trim().isEmpty()
@@ -836,9 +831,9 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
    */
   private SystemMemoryResponse findSameMemory(
       List<SystemMemoryResponse> items, SystemMemoryRequest target) {
-    String targetKey = memoryKey(target.getType(), target.getContent());
+    String targetKey = memoryKey(target.getContent());
     for (SystemMemoryResponse item : items) {
-      if (targetKey.equals(memoryKey(item.getType(), item.getContent()))) return item;
+      if (targetKey.equals(memoryKey(item.getContent()))) return item;
     }
     return null;
   }
@@ -871,14 +866,11 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   /**
    * 获取记忆键。
    *
-   * @param type 类型
    * @param content 内容
    * @return 记忆键
    */
-  private String memoryKey(String type, String content) {
-    String normalizedContent = normalizeMemoryText(content);
-    if (normalizedContent.isEmpty()) return "";
-    return normalizeMemoryText(type == null ? "preference" : type) + "|" + normalizedContent;
+  private String memoryKey(String content) {
+    return normalizeMemoryText(content);
   }
 
   /**
@@ -902,15 +894,12 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   /**
    * 判断是否自动写入记忆。
    *
-   * @param type 类型
    * @param content 内容
    * @return 是否自动写入记忆
    */
-  private boolean shouldAutoWriteMemory(String type, String content) {
-    String memoryType = type == null ? "" : type.trim().toLowerCase();
-    if (!"preference".equals(memoryType) && !"constraint".equals(memoryType)) return false;
+  private boolean shouldAutoWriteMemory(String content) {
     String text = content == null ? "" : content.trim();
-    // 文本是否为稳定信号由 ChatSseSupport.classifyMemoryType 统一判断；此处只保留最终写入边界，避免重复关键词规则漂移。
+    // 文本是否为稳定信号由 ChatSseSupport.shouldCaptureLongTermMemory 统一判断；此处只保留最终写入边界。
     return normalizeMemoryText(text).length() >= 4;
   }
 

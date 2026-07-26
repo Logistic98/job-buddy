@@ -41,7 +41,6 @@ class MemoryCreateRequest(BaseModel):
     content: str = Field(min_length=1)
     role: str = "user"
     kind: str | None = None
-    category: str = "preference"
     source: str = "agent-memory"
     enabled: bool = True
     operator_id: str | None = None
@@ -81,7 +80,6 @@ async def add_local_memory(
     content: str,
     ttl_seconds: int | None = None,
     kind: str | None = None,
-    category: str | None = None,
     source: str | None = None,
     enabled: bool = True,
     operator_id: str | None = None,
@@ -93,7 +91,6 @@ async def add_local_memory(
             content,
             ttl_seconds,
             kind,
-            category,
             source,
             enabled,
             operator_id,
@@ -105,7 +102,6 @@ async def add_local_memory(
             content,
             ttl_seconds,
             kind,
-            category,
             source,
             enabled,
             operator_id,
@@ -208,7 +204,6 @@ async def create_memory(
         request.content,
         request.ttl_seconds,
         kind,
-        request.category,
         request.source,
         request.enabled,
         operator_id,
