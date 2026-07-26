@@ -258,7 +258,9 @@ export function useBossResumePage() {
       role: textValue(item.role),
       startDate: normalizeMonth(item.startDate || item.start_date),
       endDate: normalizeMonth(item.endDate || item.end_date),
-      background: textValue(item.background),
+      background: textValue(
+        item.background || item.introduction || item.projectIntroduction || item.project_introduction || item.summary,
+      ),
       techStack: arrayText(item.techStack || item.tech_stack),
       responsibility: textValue(item.responsibility || item.description || fallback),
       achievement: textValue(item.achievement),
@@ -510,6 +512,9 @@ export function useBossResumePage() {
       if (![item.name, item.role, item.startDate, item.endDate].some(Boolean)) continue
       validateLength(item.name, '项目名称', { max: 120 })
       validateLength(item.role, '项目角色', { max: 120 })
+      validateLength(item.background, '项目简介', { max: 5000 })
+      validateLength(item.responsibility, '项目职责', { max: 5000 })
+      validateLength(item.achievement, '主要贡献', { max: 5000 })
       validateMonthRange(item.startDate, item.endDate, '项目经历')
     }
   }

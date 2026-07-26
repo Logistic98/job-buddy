@@ -44,6 +44,7 @@ const profile = {
         startDate: '2024-01',
         endDate: '',
         techStack: 'Agent, RAG, LangGraph, Spring Boot, Redis',
+        background: '面向企业知识服务的示例知识库助手',
         responsibility: '负责平台架构设计',
         achievement: '推动平台按期交付',
       },
@@ -271,7 +272,7 @@ describe('BossResumePage project experience', () => {
     expect(cards[0].text()).toContain('+1')
   })
 
-  it('edits project dates and tech tags and saves responsibilities separately from contributions', async () => {
+  it('edits project dates and tech tags and saves introductions, responsibilities and contributions separately', async () => {
     const wrapper = mount(BossResumePage)
     await flushPromises()
     const projectTab = wrapper
@@ -287,8 +288,18 @@ describe('BossResumePage project experience', () => {
     expect(startField.getComponent({ name: 'AppDatePicker' }).exists()).toBe(true)
     expect(endField.getComponent({ name: 'AppDatePicker' }).exists()).toBe(true)
     expect(card.find('input[type="month"]').exists()).toBe(false)
+    expect(card.text()).toContain('项目简介')
     expect(card.text()).toContain('项目职责')
     expect(card.text()).toContain('主要贡献')
+    const projectTextareas = Object.fromEntries(
+      card
+        .findAll('label')
+        .filter((label) => ['项目简介', '项目职责', '主要贡献'].includes(label.find('span').text()))
+        .map((label) => [label.find('span').text(), label.get('textarea')]),
+    )
+    expect(projectTextareas['项目简介'].attributes('rows')).toBe('3')
+    expect(projectTextareas['项目职责'].attributes('rows')).toBe('2')
+    expect(projectTextareas['主要贡献'].attributes('rows')).toBe('8')
 
     await card.get('.profile-project-tech-input-row input').setValue('ClickHouse')
     await card.get('.profile-project-tech-input-row button').trigger('click')
@@ -303,8 +314,35 @@ describe('BossResumePage project experience', () => {
     expect(savedProject.endDate).toBe('')
     expect(savedProject.techStack).toContain('ClickHouse')
     expect(savedProject).not.toHaveProperty('techDraft')
+    expect(savedProject.background).toBe('面向企业知识服务的示例知识库助手')
     expect(savedProject.responsibility).toBe('负责平台架构设计')
     expect(savedProject.achievement).toBe('推动平台按期交付')
+  })
+
+  it('loads a historical project introduction alias into the dedicated field', async () => {
+    mocks.getJobProfile.mockResolvedValueOnce({
+      resumeId: 'profile-project-introduction',
+      parsed: {
+        project_experiences: [
+          {
+            name: '历史项目',
+            project_introduction: '历史字段中的项目简介',
+          },
+        ],
+      },
+    })
+    const wrapper = mount(BossResumePage)
+    await flushPromises()
+    const projectTab = wrapper
+      .findAll('.profile-section-nav button')
+      .find((button) => button.text().includes('项目经历'))
+    await projectTab.trigger('click')
+
+    const card = wrapper.get('.profile-project-card')
+    card.element.open = true
+    await card.trigger('toggle')
+    const introduction = card.findAll('label').find((label) => label.text().includes('项目简介'))
+    expect(introduction.get('textarea').element.value).toBe('历史字段中的项目简介')
   })
 
   it('allows multiple project cards to stay expanded', async () => {

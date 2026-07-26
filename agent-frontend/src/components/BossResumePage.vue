@@ -511,10 +511,18 @@
                   </div>
                 </div>
                 <label class="wide"
+                  ><span>项目简介</span
+                  ><textarea
+                    v-model="item.background"
+                    rows="3"
+                    placeholder="概括项目背景、目标、服务对象和核心能力，建议 1-3 句"
+                  />
+                </label>
+                <label class="wide"
                   ><span>项目职责</span
                   ><textarea
                     v-model="item.responsibility"
-                    rows="4"
+                    rows="2"
                     placeholder="负责模块、技术方案、协作方式，建议 3-5 条"
                   />
                 </label>
@@ -522,7 +530,7 @@
                   ><span>主要贡献</span
                   ><textarea
                     v-model="item.achievement"
-                    rows="4"
+                    rows="8"
                     placeholder="关键成果、量化价值、难点突破，建议 2-4 条"
                   />
                 </label>

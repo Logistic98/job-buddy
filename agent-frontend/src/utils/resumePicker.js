@@ -68,7 +68,7 @@ export function resumePickerSummary(item, loading = false) {
   const workRows = parsed.work_experiences || parsed.workExperiences || parsed.experiences || []
   const projectRows = parsed.project_experiences || parsed.projectExperiences || parsed.projects || []
   const detail = [...(Array.isArray(workRows) ? workRows : []), ...(Array.isArray(projectRows) ? projectRows : [])]
-    .map((row) => firstText(row, ['description', 'content', 'detail', 'responsibility', 'achievement']))
+    .map((row) => firstText(row, ['description', 'background', 'content', 'detail', 'responsibility', 'achievement']))
     .find(Boolean)
   if (detail) return truncate(detail)
 
