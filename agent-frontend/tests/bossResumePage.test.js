@@ -66,6 +66,33 @@ beforeEach(() => {
 })
 
 describe('BossResumePage profile overview', () => {
+  it('counts only experience entries containing a non-blank field', async () => {
+    mocks.getJobProfile.mockResolvedValueOnce({
+      resumeId: 'profile-empty',
+      parsed: {
+        education_experiences: [],
+        work_experiences: [],
+        project_experiences: [],
+      },
+    })
+    const wrapper = mount(BossResumePage)
+    await flushPromises()
+    const sectionTab = (label) =>
+      wrapper.findAll('.profile-section-nav button').find((button) => button.text().includes(label))
+
+    expect(sectionTab('教育经历').get('small').text()).toBe('0')
+    expect(sectionTab('工作经历').get('small').text()).toBe('0')
+    expect(sectionTab('项目经历').get('small').text()).toBe('0')
+
+    await sectionTab('教育经历').trigger('click')
+    const schoolInput = wrapper.get('.profile-experience-section input[placeholder="学校名称"]')
+    await schoolInput.setValue('   ')
+    expect(sectionTab('教育经历').get('small').text()).toBe('0')
+
+    await schoolInput.setValue('示例理工大学')
+    expect(sectionTab('教育经历').get('small').text()).toBe('1')
+  })
+
   it('moves the overview out of section navigation and opens it from the page header', async () => {
     const wrapper = mount(BossResumePage)
     await flushPromises()
@@ -180,7 +207,7 @@ describe('BossResumePage editable profile fields', () => {
     expect(industryField.get('input').element.value).toBe('大模型应用')
   })
 
-  it('uses unbounded month inputs for education and supports college', async () => {
+  it('uses the shared unbounded month picker for education and supports college', async () => {
     const wrapper = mount(BossResumePage)
     await flushPromises()
     const educationTab = wrapper
@@ -192,9 +219,9 @@ describe('BossResumePage editable profile fields', () => {
     const startField = educationCard.findAll('label').find((label) => label.text().includes('入学时间'))
     const endField = educationCard.findAll('label').find((label) => label.text().includes('毕业时间'))
 
-    expect(startField.get('input').attributes('type')).toBe('month')
-    expect(startField.get('input').attributes('max')).toBeUndefined()
-    expect(endField.get('input').attributes('max')).toBeUndefined()
+    expect(startField.get('.app-date-picker-trigger').attributes('aria-label')).toBe('请选择入学时间')
+    expect(endField.get('.app-date-picker-trigger').attributes('aria-label')).toBe('请选择毕业时间')
+    expect(startField.find('input[type="month"]').exists()).toBe(false)
     expect(educationCard.findAll('label').map((label) => label.find('span').text())).toEqual([
       '学校名称',
       '学院',
@@ -210,9 +237,10 @@ describe('BossResumePage editable profile fields', () => {
 
     const collegeField = educationCard.findAll('label').find((label) => label.text().includes('学院'))
     await collegeField.get('input').setValue('计算机学院')
-    await startField.get('input').setValue('2031-09')
-    await endField.get('input').setValue('2032-06')
-    expect(startField.get('input').element.value).toBe('2031-09')
+    startField.getComponent({ name: 'AppDatePicker' }).vm.$emit('update:modelValue', '2031-09')
+    endField.getComponent({ name: 'AppDatePicker' }).vm.$emit('update:modelValue', '2032-06')
+    await wrapper.vm.$nextTick()
+    expect(startField.get('.app-date-picker-trigger').text()).toContain('2031年9月')
 
     await wrapper.get('.profile-save-state .primary-btn').trigger('click')
     await flushPromises()
@@ -256,9 +284,9 @@ describe('BossResumePage project experience', () => {
     await card.trigger('toggle')
     const startField = card.findAll('label').find((label) => label.text().includes('开始时间'))
     const endField = card.findAll('label').find((label) => label.text().includes('结束时间'))
-    expect(startField.get('input').attributes('type')).toBe('month')
-    expect(startField.get('input').attributes('max')).toBeUndefined()
-    expect(endField.get('input').attributes('max')).toBeUndefined()
+    expect(startField.getComponent({ name: 'AppDatePicker' }).exists()).toBe(true)
+    expect(endField.getComponent({ name: 'AppDatePicker' }).exists()).toBe(true)
+    expect(card.find('input[type="month"]').exists()).toBe(false)
     expect(card.text()).toContain('项目职责')
     expect(card.text()).toContain('主要贡献')
 

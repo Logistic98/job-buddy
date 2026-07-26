@@ -757,13 +757,23 @@
 .login-brand .login-tagline {
   white-space: nowrap;
 }
-/* 侧边栏底部：系统状态与退出登录 */
+/* 侧边栏底部：当前账号、系统状态与退出登录 */
 .sidebar-footer-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   width: 100%;
+}
+.account-name {
+  min-width: 0;
+  max-width: 108px;
+  overflow: hidden;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar-logout-btn {
   height: 28px;

@@ -24,6 +24,7 @@ describe('dynamic RBAC navigation', () => {
   it('renders sidebar entries from backend menus instead of fixed account navigation', async () => {
     const auth = useAuthStore()
     auth.user = {
+      displayName: '管理员',
       permissions: ['chat:use', 'users:manage'],
       menus: [
         {
@@ -64,6 +65,8 @@ describe('dynamic RBAC navigation', () => {
 
     expect(wrapper.text()).toContain('动态对话入口')
     expect(wrapper.text()).toContain('平台设置')
+    expect(wrapper.find('.account-name').text()).toBe('管理员')
+    expect(wrapper.text()).not.toContain('就绪')
     expect(wrapper.text()).not.toContain('用户管理')
     expect(wrapper.text()).not.toContain('账号管理')
   })

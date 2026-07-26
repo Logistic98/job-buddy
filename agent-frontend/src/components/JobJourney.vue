@@ -399,11 +399,11 @@
             /></label>
             <label
               ><span>面试时间</span
-              ><input
+              ><AppDatePicker
                 v-model="form.interviewTime"
-                type="datetime-local"
-                :class="{ 'is-placeholder': !form.interviewTime }"
+                type="datetime"
                 aria-label="请选择面试时间"
+                placeholder="请选择面试日期和时间"
             /></label>
             <label
               ><span>形式</span
@@ -494,6 +494,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
+import AppDatePicker from './AppDatePicker.vue'
 import {
   analyzeJourneyProgress,
   createJourneyRecord,

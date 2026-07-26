@@ -10,10 +10,7 @@
         ×
       </button>
       <header class="boss-favorite-import-head">
-        <div>
-          <h2 id="boss-import-title">从 BOSS 直聘导入岗位</h2>
-          <p>导入会按选择顺序补全职位描述并保存，不会自动分析；遇到登录、风控或网络异常时会停止后续导入。</p>
-        </div>
+        <h2 id="boss-import-title">从 BOSS 直聘导入岗位</h2>
       </header>
 
       <BossLoginQrModal

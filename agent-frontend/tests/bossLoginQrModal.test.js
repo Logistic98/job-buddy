@@ -37,7 +37,7 @@ describe('BossLoginQrModal embedded mode', () => {
     expect(wrapper.find('.boss-login-modal-mask').exists()).toBe(false)
     expect(wrapper.find('.boss-login-modal-card').exists()).toBe(false)
     expect(wrapper.find('.close').exists()).toBe(false)
-    expect(wrapper.text()).toContain('当前未登录')
+    expect(wrapper.text()).not.toContain('当前未登录')
   })
 
   it('waits for a slow status request before scheduling the next poll', async () => {

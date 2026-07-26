@@ -170,16 +170,28 @@
   color: #3157ff;
   font-size: 11px;
   font-weight: 900;
+  line-height: 18px;
   white-space: nowrap;
 }
 .profile-experience-chevron {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
   color: #667085;
-  font-size: 22px;
-  line-height: 1;
+  font-size: 0;
+}
+.profile-experience-chevron::before {
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentcolor;
+  border-bottom: 2px solid currentcolor;
+  content: '';
+  transform: rotate(-45deg);
   transition: transform 0.16s;
 }
-.profile-experience-card[open] .profile-experience-chevron {
-  transform: rotate(90deg);
+.profile-experience-card[open] .profile-experience-chevron::before {
+  transform: rotate(45deg);
 }
 .profile-experience-delete {
   opacity: 0.68;
@@ -294,7 +306,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .boss-resume-page .profile-experience-card,
-  .profile-experience-chevron,
+  .profile-experience-chevron::before,
   .profile-project-chevron,
   .boss-resume-page .profile-section-title > button {
     transition: none !important;
@@ -1163,8 +1175,7 @@
   color: #98a2b3;
   opacity: 1;
 }
-.journey-modal select.is-placeholder,
-.journey-modal input[type='datetime-local'].is-placeholder {
+.journey-modal select.is-placeholder {
   color: #98a2b3;
 }
 .journey-modal select option {
@@ -1238,11 +1249,7 @@
   padding-right: 38px;
 }
 .boss-favorite-import-head h2 {
-  margin: 4px 0 8px;
-}
-.boss-favorite-import-head p:last-child {
-  margin: 0;
-  color: #667085;
+  margin: 4px 0 0;
 }
 .boss-favorite-import-limit {
   flex: none;

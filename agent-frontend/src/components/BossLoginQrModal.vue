@@ -3,13 +3,7 @@
     <div :class="embedded ? 'boss-login-embedded-card' : 'modal-card boss-login-modal-card'">
       <button v-if="!embedded" class="close" @click="handleClose">×</button>
       <h2>Boss 直聘扫码登录</h2>
-      <p>
-        {{
-          embedded
-            ? '当前未登录。使用 Boss 直聘 App 扫码确认，完成后将直接加载可选岗位。'
-            : '使用 Boss 直聘 App 扫码确认，系统会保存登录态并继续搜索。'
-        }}
-      </p>
+      <p v-if="!embedded">使用 Boss 直聘 App 扫码确认，系统会保存登录态并继续搜索。</p>
 
       <div v-if="state.imageBase64" class="qr-wrap">
         <img :src="qrImageSrc" alt="Boss 登录二维码" />

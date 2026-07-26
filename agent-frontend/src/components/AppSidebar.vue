@@ -41,7 +41,7 @@
       <div class="sidebar-footer-row">
         <div :class="['system-health', healthClass]" :title="healthTitle">
           <span class="pulse"></span>
-          <span class="health-label">{{ healthLabel }}</span>
+          <span class="account-name">{{ auth.displayName }}</span>
         </div>
         <button class="sidebar-logout-btn" type="button" title="退出登录" @click="$emit('logout')">退出登录</button>
       </div>
@@ -88,8 +88,10 @@ const healthLabel = computed(
 const healthClass = computed(() => `health-${healthState.value.status || 'checking'}`)
 const healthTitle = computed(
   () =>
-    healthState.value.error ||
-    (healthState.value.detail ? JSON.stringify(healthState.value.detail) : healthLabel.value),
+    `当前账号：${auth.displayName}；${
+      healthState.value.error ||
+      (healthState.value.detail ? JSON.stringify(healthState.value.detail) : healthLabel.value)
+    }`,
 )
 
 const icons = {

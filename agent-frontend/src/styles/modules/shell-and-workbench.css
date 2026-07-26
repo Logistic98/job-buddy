@@ -222,7 +222,7 @@ button:disabled {
 }
 .app-sidebar.collapsed .nav-label,
 .app-sidebar.collapsed .nav-item b,
-.app-sidebar.collapsed .health-label {
+.app-sidebar.collapsed .account-name {
   display: none;
 }
 .nav-item.compact {
@@ -1869,8 +1869,7 @@ button:disabled {
 .journey-modal .close {
   z-index: 2;
 }
-.journey-modal .form-grid select,
-.journey-modal .form-grid input[type='datetime-local'] {
+.journey-modal .form-grid select {
   height: 40px;
   border: 1px solid #dfe6f2;
   border-radius: 11px;
@@ -1879,8 +1878,7 @@ button:disabled {
   padding: 0 11px;
   outline: 0;
 }
-.journey-modal .form-grid select:focus,
-.journey-modal .form-grid input[type='datetime-local']:focus {
+.journey-modal .form-grid select:focus {
   border-color: #3157ff;
   box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.12);
 }

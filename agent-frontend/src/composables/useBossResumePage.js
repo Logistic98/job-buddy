@@ -29,9 +29,9 @@ export function useBossResumePage() {
   const profile = computed(() => resume.jobProfile || null)
   const profileSections = computed(() => [
     { key: 'profile', label: '个人简介' },
-    { key: 'education', label: '教育经历', count: form.educationExperiences.length },
-    { key: 'work', label: '工作经历', count: form.workExperiences.length },
-    { key: 'projects', label: '项目经历', count: form.projectExperiences.length },
+    { key: 'education', label: '教育经历', count: filledRows(form.educationExperiences).length },
+    { key: 'work', label: '工作经历', count: filledRows(form.workExperiences).length },
+    { key: 'projects', label: '项目经历', count: filledRows(form.projectExperiences).length },
   ])
   const skillTags = computed(() => skillListValue(form.skills))
   const summaryStatus = computed(() => (form.summary.trim() ? '已生成，可编辑' : '待 AI 提取'))

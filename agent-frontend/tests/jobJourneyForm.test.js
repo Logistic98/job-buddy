@@ -106,7 +106,7 @@ describe('JobJourney form placeholders', () => {
     expect(wrapper.find('input[placeholder="请选择或输入面试结果"]').exists()).toBe(true)
     expect(wrapper.find('input[placeholder="请选择或输入当前状态"]').exists()).toBe(true)
     expect(wrapper.find('input[placeholder="请选择或输入优先级"]').exists()).toBe(true)
-    expect(wrapper.find('input[aria-label="请选择面试时间"]').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="请选择面试时间"]').exists()).toBe(true)
 
     await wrapper.findAll('.journey-modal-groups button')[2].trigger('click')
     expect(wrapper.find('textarea[placeholder="请输入面试或笔试内容、题型和过程"]').exists()).toBe(true)
@@ -219,6 +219,7 @@ describe('JobJourney form placeholders', () => {
     for (const field of wrapper.findAll('.journey-group-form input')) {
       expect(field.element.value).toBe('')
     }
-    expect(wrapper.find('input[type="datetime-local"]').classes()).toContain('is-placeholder')
+    expect(wrapper.find('input[type="datetime-local"]').exists()).toBe(false)
+    expect(wrapper.get('.app-date-picker-trigger').classes()).toContain('is-placeholder')
   })
 })

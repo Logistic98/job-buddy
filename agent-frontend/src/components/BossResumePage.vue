@@ -312,8 +312,14 @@
                     <option v-for="degree in degreeOptions" :key="degree">{{ degree }}</option>
                   </select></label
                 >
-                <label><span>入学时间</span><input v-model="item.startDate" type="month" /></label>
-                <label><span>毕业时间</span><input v-model="item.endDate" type="month" /></label>
+                <label
+                  ><span>入学时间</span
+                  ><AppDatePicker v-model="item.startDate" aria-label="请选择入学时间" placeholder="请选择入学年月"
+                /></label>
+                <label
+                  ><span>毕业时间</span
+                  ><AppDatePicker v-model="item.endDate" aria-label="请选择毕业时间" placeholder="请选择毕业年月"
+                /></label>
                 <label
                   ><span>是否全日制</span
                   ><select v-model="item.fullTime">
@@ -475,8 +481,14 @@
                 <label
                   ><span>项目角色</span><input v-model="item.role" placeholder="例如：Agent 应用开发负责人"
                 /></label>
-                <label><span>开始时间</span><input v-model="item.startDate" type="month" /></label>
-                <label><span>结束时间</span><input v-model="item.endDate" type="month" /></label>
+                <label
+                  ><span>开始时间</span
+                  ><AppDatePicker v-model="item.startDate" aria-label="请选择项目开始时间" placeholder="请选择开始年月"
+                /></label>
+                <label
+                  ><span>结束时间</span
+                  ><AppDatePicker v-model="item.endDate" aria-label="请选择项目结束时间" placeholder="请选择结束年月"
+                /></label>
                 <div class="wide profile-project-tech-editor">
                   <span class="profile-project-field-label">技术栈</span>
                   <div v-if="projectTechTags(item.techStack).length" class="profile-project-tech-tag-list">
@@ -653,6 +665,7 @@
 </template>
 
 <script setup>
+import AppDatePicker from './AppDatePicker.vue'
 import { useBossResumePage } from '../composables/useBossResumePage'
 
 const {
