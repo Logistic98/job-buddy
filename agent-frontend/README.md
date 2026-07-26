@@ -1,27 +1,19 @@
 # agent-frontend
 
-`agent-frontend` 是 `job-buddy` 的 Vue 3 + Vite 前端工作台，围绕完整求职流程组织页面和交互，并通过 Vite proxy 将 `/api` 转发到 `agent-backend`。
+`agent-frontend` 是 `job-buddy` 的 Web 工作台，采用 Vue 3 + Vite 构建，围绕完整求职流程组织页面和交互，并通过 Vite proxy 将 `/api` 转发到 `agent-backend`。
 
 ## 页面能力
 
-- 登录中心与登录态维护。
-- Boss 登录二维码弹窗和扫码状态轮询。
+- 登录与认证：账号登录、登录态恢复、Boss 二维码和扫码状态轮询。
 - 聊天工作台：普通问答、SSE 流式输出、会话历史、Trace/意图/计划展示。
 - 简历能力：简历库、简历管理、求职画像、Boss 在线简历同步、简历写作、资源弹窗。
-- 岗位能力：岗位卡片、收藏岗位、详情懒加载、岗位分析。
-- 求职旅程：目标、记录、进展分析。
-- 面试题库：题库、练习、笔试/机试相关页面。
-- 项目深挖：项目材料维护和项目面试题生成。
+- 岗位与旅程：岗位卡片、收藏与详情、岗位分析、求职目标、投递记录和进展分析。
+- 面试与项目：题库、练习、隔离判题、项目材料和项目面试题生成。
 - 设置中心：系统设置和记忆管理。
 
 ## 技术栈
 
-- Vue 3
-- Vite 7
-- Pinia
-- Vitest
-- ESLint
-- 原生 CSS
+前端使用 Vue 3、Vite 7、Pinia、Vitest、ESLint 和原生 CSS。
 
 ## 主要目录
 
@@ -43,7 +35,7 @@ agent-frontend/
 
 ## 本地启动
 
-当前本地验证环境为 Node.js 22.16.0 / npm 10.9.x。由于 Vite 7 要求 Node `^20.19.0 || >=22.12.0`，推荐使用 Node.js 22.16+，最低使用 Node.js 20.19+。
+Vite 7 要求 Node.js `^20.19.0 || >=22.12.0`。本项目不依赖特定 npm 小版本，使用与所选 Node.js 版本配套的 npm 即可。
 
 ```bash
 cd agent-frontend
@@ -65,7 +57,7 @@ cp .env.example .env
 VITE_PROXY_TARGET=http://localhost:8080 npm run dev
 ```
 
-根目录一键启动会自动注入 `FRONTEND_PORT` 和 `VITE_PROXY_TARGET`：
+另开终端并在仓库根目录执行一键启动脚本；脚本会自动注入 `FRONTEND_PORT` 和 `VITE_PROXY_TARGET`：
 
 ```bash
 ./scripts/start-all.sh
@@ -86,6 +78,7 @@ npm test         # Vitest
 前端普通改动至少执行：
 
 ```bash
+npm run format:check
 npm run lint
 npm test
 npm run build

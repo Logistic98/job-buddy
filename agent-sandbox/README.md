@@ -1,4 +1,4 @@
-# job-buddy-sandbox
+# agent-sandbox
 
 基于 [anthropic-experimental/sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime) 的 Python SDK 封装，用于在 Python 项目中通过 `srt` CLI 对任意命令、CLI 工具、脚本和代码片段进行沙箱执行。
 
@@ -15,7 +15,7 @@ Linux 还需要按上游项目说明安装 `bubblewrap`、`socat`、`ripgrep`；
 ## 工程结构
 
 ```text
-job-buddy-sandbox/
+agent-sandbox/
 ├── app/
 │   ├── core/              # 配置、模型、策略、异常、底层 srt runtime
 │   ├── sdk/               # 面向业务方的高层 SandboxClient
@@ -93,21 +93,27 @@ config = workspace_only_config("/path/to/workspace", allow_write=False)
 本项目只保留服务态入口，根目录启动文件为 `server.py`：
 
 ```bash
-python server.py
+uv sync --extra dev
+uv run python server.py
 ```
 
 默认仅监听 `127.0.0.1:8061`，可通过环境变量调整。监听任何非回环地址（包括
 Compose 容器内的 `0.0.0.0`）时必须配置 `AGENT_INTERNAL_SERVICE_TOKEN`，否则服务拒绝启动：
 
 ```bash
-AGENT_INTERNAL_SERVICE_TOKEN=replace-with-a-random-token HOST=0.0.0.0 PORT=8061 python server.py
+AGENT_INTERNAL_SERVICE_TOKEN=replace-with-a-random-token HOST=0.0.0.0 PORT=8061 uv run python server.py
 ```
 
-底层 Runtime 将 stdout/stderr 写入临时文件并按上限读取，避免不可信代码通过大输出耗尽服务内存。默认每个输出流最多读取 1MB，可在 4KB 至 16MB 范围内配置：
+`production` / `prod` 环境即使绑定回环地址也必须配置该令牌。配置后除 `/health` 外的接口都要求 `X-Internal-Service-Token`。
+
+底层 Runtime 将 stdout/stderr 写入临时文件并按字节上限读取，避免不可信代码通过大输出耗尽内存；HTTP 层再按字符上限截断响应。两层限制分别配置：
 
 ```bash
 AGENT_SANDBOX_MAX_CAPTURE_BYTES=1048576
+AGENT_SANDBOX_MAX_OUTPUT_CHARS=200000
 ```
+
+服务并发由 `AGENT_SANDBOX_MAX_CONCURRENCY` 控制，默认 4；超出时返回繁忙错误，不创建无界执行线程。
 
 主要接口：
 
@@ -123,39 +129,28 @@ AGENT_SANDBOX_MAX_CAPTURE_BYTES=1048576
 构建镜像：
 
 ```bash
-docker build -t job-buddy-sandbox:latest .
+docker build -t job-buddy-sandbox:1.0.0 .
 ```
 
 运行基础校验：
 
 ```bash
-docker run --rm -p 127.0.0.1:8061:8061 job-buddy-sandbox:latest
+docker run --rm \
+  -e AGENT_INTERNAL_SERVICE_TOKEN=replace-with-a-random-token \
+  -p 127.0.0.1:8061:8061 \
+  job-buddy-sandbox:1.0.0
 ```
 
-进入容器执行测试：
-
-```bash
-docker run --rm job-buddy-sandbox:latest pytest
-```
+生产镜像只包含运行依赖和服务源码，不复制测试目录，也不安装 `pytest`。单元测试应在源码目录使用下文命令执行；容器验证以镜像启动、`GET /health` 和受鉴权执行接口为准。
 
 注意：上游 `sandbox-runtime` 在 Linux 下依赖 `bubblewrap`、`socat`、`ripgrep`，Dockerfile 已内置这些依赖。部分宿主机或容器运行时可能需要额外放开 user namespace 能力，具体限制以运行环境安全策略为准。
 
 ## 测试
 
 ```bash
-pytest -q
+uv run python -m pytest -q
 ```
 
 测试用例中提供了 fake `srt` fixture，会模拟 `srt --settings <file> <command...>` 的调用方式，因此单元测试不依赖真实的 `@anthropic-ai/sandbox-runtime` 安装。真实沙箱能力仍需安装上游 `srt` 后在集成环境中验证。
 
-当前测试覆盖：
-
-- 任意 argv 命令执行
-- 字符串命令执行
-- CLI 工具执行
-- shell 命令执行
-- Python 代码片段执行
-- Python 脚本文件执行
-- 临时代码文件执行
-- cwd/env 透传
-- 非零退出码异常处理
+测试覆盖 argv、字符串、CLI、Shell、Python 片段与脚本、临时代码文件、cwd/env 透传、非零退出码，以及输出截断和服务并发边界。

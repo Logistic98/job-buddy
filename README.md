@@ -1,6 +1,6 @@
 # JobBuddy
 
-智能求职协同平台是一款覆盖求职全流程的本地 Agent 应用。平台将简历管理、岗位筛选、投递跟踪、面试准备和项目复盘集中在一个工作台，并由 Agent 串联信息检索、分析判断与任务执行。
+智能求职协同平台是一款覆盖求职全流程的本地 Agent 应用。平台将简历管理、岗位筛选、投递跟踪、面试准备和项目复盘集中在 Web 工作台，并由 Agent 串联信息检索、分析判断与任务执行。
 
 系统采用 Vue 3、Spring Boot 和 Python Agent Runtime 构建。前端只访问 Java Backend；业务数据和事务由 Backend 管理，智能任务由 Runtime 执行，外部能力通过独立工具服务接入。
 
@@ -16,15 +16,17 @@
 ## 系统架构
 
 ```mermaid
-graph LR
+graph TD
     USER(["用户"]) --> FE["Web 工作台"]
     FE -->|HTTP / SSE| BE["业务后端 / BFF"]
     BE -->|任务委派| RT["Agent Runtime"]
-    BE -->|业务调用| SERVICES["Intent · Memory · Tool · Sandbox"]
-    RT -->|能力调用| SERVICES
+    BE -->|前置分类| INTENT["Intent"]
+    RT -->|上下文检索| MEMORY["Memory"]
+    RT -->|隔离执行| SANDBOX["Sandbox"]
+    RT -->|受治理工具| TOOL["Tool"]
     BE --> DATA[("PostgreSQL · Redis · MinIO")]
-    RT --> MODEL["模型服务"]
-    SERVICES -->|Tool| BOSS["Boss 直聘"]
+    RT -->|模型调用| MODEL["模型服务"]
+    TOOL -->|低频访问| BOSS["Boss 直聘"]
 
     classDef actor fill:#F8FAFC,stroke:#64748B,color:#0F172A,stroke-width:1.5px;
     classDef entry fill:#EAF2FF,stroke:#2563EB,color:#172554,stroke-width:1.5px;
@@ -35,10 +37,11 @@ graph LR
     class USER actor;
     class FE,BE entry;
     class RT core;
-    class SERVICES service;
+    class INTENT,MEMORY,SANDBOX,TOOL service;
     class DATA,MODEL,BOSS resource;
 ```
 
+- 总图展示常规在线主链路；Backend 对 Memory、Sandbox 的专项调用以及 Tool 的内部依赖见详细架构文档。
 - 浏览器不直接访问内部 Agent 服务。
 - Backend 负责认证、权限、业务事务、文件与数据管理。
 - Runtime 负责任务理解、规划、上下文装配、工具治理和执行状态。
@@ -57,13 +60,10 @@ graph TD
     ROUTE -->|稳定业务| BUSINESS["Backend 业务编排"]
     ROUTE -->|开放任务| PLAN
 
-    subgraph AGENT_LOOP["Agent Loop"]
-        direction LR
-        PLAN["上下文装配与计划"] --> GUARD["工具搜索、权限与预算检查"]
-        GUARD --> EXECUTE["执行与观察"]
-        EXECUTE --> VERIFY{"目标是否满足"}
-        VERIFY -->|继续| PLAN
-    end
+    PLAN["上下文装配与计划"] --> GUARD["工具搜索、权限与预算检查"]
+    GUARD -->|允许| EXECUTE["执行与观察"]
+    EXECUTE --> VERIFY{"目标是否满足"}
+    VERIFY -->|继续| PLAN
 
     BUSINESS --> RESULT(["SSE 明确终态"])
     VERIFY -->|完成| RESULT
@@ -90,7 +90,7 @@ Agent Loop 同时受最大轮次、工具调用数、失败次数和 Token 预�
 
 | 模块                                         | 默认端口 | 技术与职责                                                             |
 | -------------------------------------------- | -------: | ---------------------------------------------------------------------- |
-| [`agent-frontend`](agent-frontend/README.md) |     5173 | Vue 3、Vite、Pinia；工作台、状态管理和 SSE 增量渲染                    |
+| [`agent-frontend`](agent-frontend/README.md) |     5173 | Vue 3、Vite、Pinia；Web 工作台、状态管理和 SSE 增量渲染                |
 | [`agent-backend`](agent-backend/README.md)   |     8080 | Java 17、Spring Boot；认证、RBAC、业务 API、文件与数据管理             |
 | [`agent-runtime`](agent-runtime/README.md)   |     8010 | FastAPI、LangGraph；任务理解、Planner、Agent Loop、Trace 与 Checkpoint |
 | [`agent-intent`](agent-intent/README.md)     |     8020 | FastAPI；意图预分类、澄清提示和高风险 Transcript 复核                  |
@@ -111,7 +111,7 @@ Agent Loop 同时受最大轮次、工具调用数、失败次数和 Token 预�
 | Maven         | 3.8+；仓库不提供 Maven Wrapper          |
 | Python        | 3.10+；`agent-runtime` 固定使用 3.10.16 |
 | Python 包管理 | `uv`                                    |
-| Node.js       | 20.19+ 或 22.16+                        |
+| Node.js       | `^20.19.0` 或 `>=22.12.0`               |
 | 数据服务      | PostgreSQL、Redis、MinIO                |
 | 容器运行      | Docker Engine 与 Docker Compose，可选   |
 
@@ -189,25 +189,11 @@ docker compose --env-file .env -f docker-compose-infra.yml down
 
 日志写入 `.run/logs/YYYYMMDD/`，PID 写入 `.run/pids/`。启停脚本会检查端口占用进程的仓库归属，不会主动终止其他项目或系统服务。各服务的独立启动方式见“模块一览”中的对应 README。
 
-## Boss 直聘集成
+## 关键安全边界
 
-- 登录方式：默认使用二维码登录；浏览器 Cookie 导入默认关闭。
-- 凭据存储：Backend 使用 AES-256-GCM 加密 Cookie，并保存到 PostgreSQL `auth_state`。
-- 调用边界：调用工具时，凭据仅注入 `agent-tool` 进程内存，不创建本地凭证目录。
-- 访问风控：真实访问保持人工低频；出现验证码、安全验证、限速或账号异常时立即停止。
+Boss 默认使用二维码或恢复 Backend 已保存的登录态，浏览器 Cookie 导入默认关闭。Cookie 由 Backend 使用 AES-256-GCM 加密后保存到 PostgreSQL `auth_state`，调用时仅注入 agent-tool 内存，不创建本地凭证目录；真实访问保持人工低频，遇到验证码、限速或账号异常立即停止。完整契约见 [Boss 直聘集成与岗位检索](agent-doc/业务功能/Boss直聘集成与岗位检索.md)。
 
-Runtime 只负责 `boss_browser` 的工具选择、权限治理和代理调用，具体实现位于 `agent-tool`。
-
-完整设计见 [Boss 直聘集成与岗位检索](agent-doc/业务功能/Boss直聘集成与岗位检索.md)。
-
-## 数据库迁移
-
-Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`，并遵循以下规则：
-
-- 已发布迁移不可修改、删除、重命名或复用版本号。
-- 数据库结构变更只能追加更高版本迁移。
-- 禁止使用 repair、baseline 或手工覆盖绕过校验。
-- 用户简历、岗位、聊天、项目和认证状态不得作为迁移种子提交。
+Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。已发布迁移不可修改、删除、重命名或复用版本，结构变化只能追加更高版本；禁止通过 repair、baseline 或手工历史表绕过校验，用户私有业务数据不得作为迁移种子。
 
 提交迁移前运行：
 

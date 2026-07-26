@@ -8,6 +8,8 @@
 - `POST /v1/intent/classify`
 - `POST /v1/intent/review-transcript`：返回 `approve`、`require_human_confirmation` 或 `deny`。
 
+配置 `AGENT_INTERNAL_SERVICE_TOKEN` 后，除 `/health` 外的接口都必须携带 `X-Internal-Service-Token`；`production` / `prod` 环境缺少令牌时服务拒绝启动。
+
 ## 启动
 
 ```bash

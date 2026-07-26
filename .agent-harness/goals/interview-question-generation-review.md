@@ -14,7 +14,7 @@ verify_cmd: ./.agent-harness/scripts/gate.sh all --quick
 ## 开发文档
 
 - 已阅读的开发文档：`agent-doc/架构设计/系统架构与核心链路.md`
-- 本次需要更新的开发文档：`agent-doc/业务能力/面试题库与模拟练习.md`
+- 本次需要更新的开发文档：`agent-doc/业务功能/面试题库与模拟练习.md`
 - 记录要点：LeetCode 来源边界、Runtime 结构化生成、生成零持久化、人工审核和事务导入。
 
 ## 目标模块
@@ -46,7 +46,7 @@ verify_cmd: ./.agent-harness/scripts/gate.sh all --quick
 - `agent-frontend/src/utils/interviewForm.js`
 - `agent-frontend/src/styles/modules/practice-and-project.css`
 - `agent-frontend/tests/`
-- `agent-doc/业务能力/面试题库与模拟练习.md`
+- `agent-doc/业务功能/面试题库与模拟练习.md`
 
 ## 禁止事项
 

@@ -21,6 +21,8 @@
 - `POST /v1/eval/latency`：按 TTFB、TTFT 和总时延预算执行确定性评分。
 - `POST /v1/eval/judge`：LLM Judge 开放质量评审，与规则评分互补。通过环境变量 `AGENT_EVAL_JUDGE_BASE_URL`（OpenAI 兼容地址）、`AGENT_EVAL_JUDGE_MODEL`、`AGENT_EVAL_JUDGE_API_KEY`、`AGENT_EVAL_JUDGE_TIMEOUT_SECONDS` 配置；未配置或调用失败时返回 `code=503` 且 `data.enabled/ok` 标记不可用，调用方不得将其视为评审通过。
 
+配置 `AGENT_INTERNAL_SERVICE_TOKEN` 后，除 `/health` 外的接口都必须携带 `X-Internal-Service-Token`；`production` / `prod` 环境缺少令牌时服务拒绝启动。
+
 `/v1/eval/run` 请求示例：
 
 ```json
@@ -80,7 +82,11 @@
         "id": "resume.match",
         "execution_intent": "compare_analyze",
         "required_tools": ["resume_match"],
-        "evidence_requirements": ["已解析简历", "真实岗位列表或完整 JD", "逐条匹配证据"]
+        "evidence_requirements": [
+          "已解析简历",
+          "真实岗位列表或完整 JD",
+          "逐条匹配证据"
+        ]
       },
       {
         "id": "interview.prepare",

@@ -9,9 +9,11 @@ verify_cmd: ./.agent-harness/scripts/gate.sh <module> --quick
 # Goal: <用一句话描述目标>
 
 ## 背景
+
 <为什么做、上下文是什么、涉及哪些模块、对其他模块的影响。>
 
 ## 开发文档
+
 - 已阅读的开发文档：`<agent-doc/对应主题目录/语义化文件名.md>`
 - 本次需要新增或更新的开发文档：`<agent-doc/对应主题目录/语义化文件名.md 或 无>`
 - 记录要点：`<为什么做、方案是什么、怎么做、注意事项、验证方式>`
@@ -19,9 +21,11 @@ verify_cmd: ./.agent-harness/scripts/gate.sh <module> --quick
 关键改动必须先阅读 `agent-doc` 对应主题目录下的文档；若缺少对应文档，必须先新增语义化命名的主题文档再改代码。涉及 Agent 架构、Prompt 迁移、Java 后端瘦身或 Runtime 代理执行时，必须先阅读 `agent-doc/架构设计/系统架构与核心链路.md`。
 
 ## 目标模块
+
 - `<module>`，可通过 `./.agent-harness/scripts/verify.sh --list` 查看。
 
 ## 完成条件（必须可通过命令或证据验证）
+
 1. `<具体测试命令>` 退出码为 0，并输出通过摘要。
 2. `./.agent-harness/scripts/gate.sh <module> --quick` 退出码为 0。
 3. 新增或更新必要测试，覆盖 <主流程 / 边界 / 异常路径>。
@@ -30,11 +34,13 @@ verify_cmd: ./.agent-harness/scripts/gate.sh <module> --quick
 6. 若涉及前端、工作台交互、登录/扫码弹窗、SSE、岗位卡片、原岗位预览或用户可见状态变化，必须启动本地服务并完成浏览器验证，记录访问地址、用户路径和观察结果。
 
 ## 允许修改的范围
+
 - `<module>/...`
 - `<必要文档路径>`
 - 关键改动对应的 `agent-doc/对应主题目录/语义化文件名.md`
 
 ## 禁止事项
+
 - 不允许为通过测试删除、跳过或弱化已有测试。
 - 不允许提交真实密钥、账号、生产地址或敏感日志。
 - 不允许跨越允许范围做顺手重构。
@@ -42,11 +48,13 @@ verify_cmd: ./.agent-harness/scripts/gate.sh <module> --quick
 - 不允许引入未锁版本的新依赖；确需新增依赖时必须说明理由并更新锁定文件。
 
 ## 预算与停止条件
+
 - 最大轮次：见 front matter `max_turns`。
 - 最长运行时间：见 front matter `max_minutes`。
 - 若连续两轮遇到同一阻塞，先收敛现场，不要扩大改动范围。
 
 ## 浏览器验证记录（涉及前端/交互时必填）
+
 - 访问地址：`<http://localhost:5173 或其他地址>`
 - 启动命令：`<默认使用 ./scripts/start-all.sh；如有差异请记录>`
 - 用户路径：`<逐步描述实际点击/输入/等待过程>`
@@ -54,7 +62,9 @@ verify_cmd: ./.agent-harness/scripts/gate.sh <module> --quick
 - 未覆盖项及原因：`<如无则填“无”>`
 
 ## 软着陆报告
+
 预算耗尽或无法继续时停止，并输出：
+
 1. 已完成的工作。
 2. 当前失败原因。
 3. 已尝试的方案。

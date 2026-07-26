@@ -9,7 +9,15 @@ Mermaid 使用标准围栏语法：
 ````text
 ```mermaid
 graph LR
-    A[输入] --> B[输出]
+    A[输入] --> B[处理]
+    B --> C[输出]
+
+    classDef input fill:#EAF2FF,stroke:#2563EB,color:#172554;
+    classDef process fill:#F3E8FF,stroke:#7C3AED,color:#3B0764;
+    classDef output fill:#ECFDF5,stroke:#059669,color:#064E3B;
+    class A input;
+    class B process;
+    class C output;
 ```
 ````
 

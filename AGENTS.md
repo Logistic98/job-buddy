@@ -99,7 +99,7 @@ uv run python server.py
 
 ### Boss 按需工具
 
-Boss 具体实现位于 `agent-tool` 的 `boss_browser` 工具中，`agent-runtime` 只保留工具选择、权限和代理调用。底层取数复用 jackwener/boss-cli（PyPI 包 `kabi-boss-cli`）的本地 Cookie 提取、HTTP API Client、请求抖动、退避和上游异常归类能力。推荐先复用本机常用浏览器的 Boss 登录态；二维码扫码登录作为兜底能力，dispatch 后若缺少必要 Web Cookie，会临时拉起一次性 headless Chromium 补齐 Cookie 后立即关闭。该步骤由 `BOSS_CLI_HEADLESS_COOKIE`（默认开启）控制，详见 [`agent-doc/业务能力/Boss直聘集成与岗位检索.md`](agent-doc/业务能力/Boss直聘集成与岗位检索.md)。
+Boss 具体实现位于 `agent-tool` 的 `boss_browser` 工具中，`agent-runtime` 只保留工具选择、权限和代理调用。底层取数复用 jackwener/boss-cli（PyPI 包 `kabi-boss-cli`）的 Cookie、HTTP API Client、请求抖动、退避和上游异常归类能力。默认使用二维码登录或恢复 Backend 已保存的凭据；浏览器 Cookie 导入默认关闭，只有用户明确接受钥匙串授权时才可开启。二维码 dispatch 后若缺少必要 Web Cookie，可由 `BOSS_CLI_HEADLESS_COOKIE` 控制的一次性 headless Chromium 使用当前凭据补齐并立即关闭。详见 [`agent-doc/业务功能/Boss直聘集成与岗位检索.md`](agent-doc/业务功能/Boss直聘集成与岗位检索.md)。
 
 默认推荐二维码登录。登录成功后的 Cookie 由后端持久化到 PostgreSQL `auth_state`，每次调用时通过请求载荷注入 agent-tool 内存；禁止创建本地凭证目录或 `credential.json`。浏览器 Cookie 导入默认关闭，只有明确接受钥匙串授权时才能显式开启。
 
@@ -158,7 +158,7 @@ uv run python server.py
 uv run python -m pytest
 ```
 
-服务提供 `GET /health`、`POST /v1/eval/trace`（Trace 规则评分）、`POST /v1/eval/run`（用例批量评估）、`POST /v1/eval/capabilities`（能力评估）与 `POST /v1/eval/judge`（裁判评估）。修改核心链路节点、Trace 字段、工具事件、意图路由或 Agent 输出结构时，必须同步更新 `agent-eval/app/grader.py`、`agent-eval/cases/` 与 `agent-eval/tests/`。
+服务提供 `GET /health`、`POST /v1/eval/trace`（Trace 规则评分）、`POST /v1/eval/run`（用例批量评估）、`POST /v1/eval/capabilities`（能力评估）、`POST /v1/eval/latency`（时延预算评估）与 `POST /v1/eval/judge`（裁判评估）。修改核心链路节点、Trace 字段、工具事件、意图路由或 Agent 输出结构时，必须同步更新 `agent-eval/app/grader.py`、`agent-eval/cases/` 与 `agent-eval/tests/`。
 
 ### .agent-harness
 
@@ -315,7 +315,7 @@ uv run python -m pytest
 
 ## Agent 设计原则
 
-以下原则提炼自 [`系统架构与核心链路`](agent-doc/架构设计/系统架构与核心链路.md)、[`意图路由与工具安全`](agent-doc/运行时能力/意图路由与工具安全.md) 和 [`记忆管理与混合检索`](agent-doc/运行时能力/记忆管理与混合检索.md)，在涉及 Agent 运行时、工具、检索、记忆、权限、观测等改动时必须遵守。
+以下原则提炼自 [`系统架构与核心链路`](agent-doc/架构设计/系统架构与核心链路.md)、[`意图路由与工具安全`](agent-doc/核心能力/意图路由与工具安全.md) 和 [`记忆管理与混合检索`](agent-doc/核心能力/记忆管理与混合检索.md)，在涉及 Agent 运行时、工具、检索、记忆、权限、观测等改动时必须遵守。
 
 ### 运行时与 Agent Loop
 
@@ -468,7 +468,7 @@ Harness 联动规则：
 - 不同环境维护独立配置文件，禁止把生产配置写死在代码或镜像中。
 - 环境变量通过 `-e` 或 `.env` 注入，敏感信息走 Secret 或配置中心。
 - 镜像标签不允许只用 `latest`，应包含版本号、提交哈希或构建时间。
-- 上线前必须确认回滚路径：保留上一版镜像、保留上一版配置、数据库变更具备回滚脚本。
+- 上线前必须确认回退路径：保留上一版镜像和配置；数据库变更采用向前兼容设计，故障修复通过更高版本补偿迁移完成，不修改已发布 Flyway 脚本。
 
 ## 安全与合规
 

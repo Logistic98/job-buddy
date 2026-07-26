@@ -1,32 +1,26 @@
 # agent-backend
 
-`agent-backend` 是 `JobBuddy`（智能求职协同平台）的 Java 17 + Spring Boot 3 业务后端和 BFF/API 入口，负责业务 API、认证、文件与数据管理，并编排 `agent-runtime`、`agent-intent`、`agent-memory`、`agent-tool`、`agent-eval` 等服务。Boss 直聘能力由 `agent-tool` 的 `boss_browser` 工具提供，并由 Runtime 统一治理。
+`agent-backend` 是 JobBuddy 的 Java 17 + Spring Boot 3 业务后端和 BFF/API 入口，负责认证授权、业务事务、关系数据、对象文件、会话持久化及下游编排。Boss 工具的具体实现位于 agent-tool，Backend 的业务请求经 Runtime 工具代理统一治理。
 
 ## 能力范围
 
-- 健康检查与统一响应：`GET /api/health`，响应结构为 `code`、`message`、`data`。
-- 多租户用户登录：`/api/auth/login`、`/api/auth/me`、`/api/auth/logout`，登录只提交全局唯一用户名和密码，租户由账号记录自动解析。
-- 动态 RBAC 管理：平台设置通过 `/api/admin/users` 与 `/api/admin/rbac` 管理本租户用户、多角色、动态菜单和角色菜单授权；管理能力按权限码判断，不能访问其他用户业务数据。
-- Boss 登录代理：`/api/boss/login-qr`、`/api/boss/login-status`、`/api/boss/login-cancel`。
-- 对话问答：`/api/chat/ask`、`/api/chat/stream`、会话列表、消息列表、删除会话。
-- 简历管理：求职画像、简历上传解析、Boss 在线简历同步、资源上传、预览、缩略图、下载、分析、删除。
-- 岗位能力：收藏岗位保存/查询/分析/删除，岗位详情懒加载。
-- 求职旅程：求职目标、投递/面试记录、进展分析。
-- 面试题库：题库分页、元数据、导入、生成、批量处理、练习/考试、代码样例运行。
-- 项目深挖：项目管理、材料管理、项目面试题生成，以及问题的手动新增、编辑、删除；重新生成仅替换 AI 生成的问题，手动维护（`source=manual`）的问题会保留。
-- Prompt 与设置：前端提示词、用户画像上下文、系统设置、记忆列表管理。
+| 领域         | 主要入口与职责                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| 基础与认证   | `/api/health`、`/api/auth/**`、`/api/admin/**`；统一响应、会话、动态 RBAC 和租户隔离                |
+| 对话与 Agent | `/api/chat/**`、`/api/analysis-tasks/**`；Intent/Runtime 编排、SSE 中继、消息与任务恢复             |
+| Boss 与岗位  | `/api/boss/**`、`/api/jobs/**`；登录状态、候选业务编排、收藏、详情和分析                            |
+| 简历与旅程   | `/api/resume/**`、`/api/journey/**`；画像、PDF 与资源、撰写版本、投递台账                           |
+| 练习与项目   | `/api/interview/**`、`/api/project-deep-dive/**`；题库、判题、项目材料和问题管理                    |
+| 平台能力     | `/api/settings/**`、`/api/prompts/**`、`/api/workspace/**`；动态参数、记忆代理、Prompt 与工作区状态 |
 
 ## 技术栈
 
-- JDK 17+（当前本地验证版本为 17.0.6；Maven 编译目标和 Docker 构建/运行镜像均为 Java 17）
-- Spring Boot 3.5.16
-- MyBatis Plus
-- Flyway
-- PostgreSQL
-- Redis
-- MinIO
-- SpringDoc OpenAPI / Knife4j UI（禁用增强定制器）
-- Maven 3.8+（验证版本 3.8.6；仓库不提供 `mvnw`）
+| 类别       | 选型                                          |
+| ---------- | --------------------------------------------- |
+| 运行与构建 | Java 17、Maven 3.8+；仓库不提供 `mvnw`        |
+| Web 与数据 | Spring Boot 3.5.16、MyBatis Plus、Flyway      |
+| 基础设施   | PostgreSQL、Redis、MinIO                      |
+| API 文档   | SpringDoc OpenAPI、Knife4j UI；增强定制器关闭 |
 
 ## 主要目录
 
@@ -54,13 +48,13 @@ agent-backend/
 
 ## 本地启动
 
-在仓库根目录准备 `.env`：
+先在仓库根目录准备 `.env`：
 
 ```bash
-cp ../.env.example ../.env
+cp .env.example .env
 ```
 
-然后按需修改 PostgreSQL、Redis、MinIO、Runtime、Boss 浏览器按需工具等配置。Flyway 会初始化 `admin` 管理员和 `user` 普通用户，初始密码均为 `12345678`；应先在受控开发环境通过平台设置的用户管理重置两个密码，再设置 `JOB_BUDDY_ENVIRONMENT=production`，否则 Backend 会拒绝启动。生产环境同时禁止将 `JOB_BUDDY_AUTH_ENABLED` 设为 `false`。需要使用 Boss 登录时，还必须通过 `openssl rand -base64 32` 生成并长期保存 `JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY`，缺少该密钥时 Boss 凭据持久化会安全关闭。
+配置 PostgreSQL、Redis、MinIO 和 Agent 服务地址后再启动。Flyway 创建 `admin` 与 `user`，初始密码均为 `12345678`；应在受控环境通过用户管理立即重置，再切换到 `JOB_BUDDY_ENVIRONMENT=production`，否则 Backend 会拒绝启动。生产环境也禁止关闭认证。Boss 凭据持久化还要求以 `openssl rand -base64 32` 生成并稳定保存 `JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY`。
 
 单独启动：
 
@@ -70,7 +64,7 @@ java -version  # 必须为 17 或更高版本
 mvn spring-boot:run
 ```
 
-使用根目录一键脚本启动时，会自动注入 `SERVER_PORT`、`AGENT_SANDBOX_URL`、`AGENT_RUNTIME_URL` 等运行参数；Boss 能力通过 Runtime 的 `boss_browser` 工具按需执行：
+使用根目录一键脚本启动时，会自动注入 `SERVER_PORT`、`AGENT_SANDBOX_URL`、`AGENT_RUNTIME_URL` 等运行参数；Boss 能力通过 Runtime 的 `boss_browser` 工具按需执行。以下命令同样在仓库根目录运行：
 
 ```bash
 ./scripts/start-all.sh
@@ -82,7 +76,7 @@ mvn spring-boot:run
 - Knife4j 文档：<http://localhost:8080/doc.html>
 - OpenAPI JSON：<http://localhost:8080/v3/api-docs>
 
-## 常用接口
+## 最小接口验证
 
 ```bash
 curl http://localhost:8080/api/health
@@ -91,62 +85,17 @@ curl -X POST http://localhost:8080/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"12345678"}'
 
-curl -X POST http://localhost:8080/api/chat/ask \
-  -H 'Authorization: Bearer <token>' \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"请分析我的求职状态"}'
-
 curl -N -X POST http://localhost:8080/api/chat/stream \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"message":"帮我分析收藏岗位"}'
-
-# 项目概要列表只返回计数，材料和问题通过详情接口按需加载
-curl http://localhost:8080/api/project-deep-dive/projects \
-  -H 'Authorization: Bearer <token>'
-
-curl http://localhost:8080/api/project-deep-dive/projects/<projectId> \
-  -H 'Authorization: Bearer <token>'
-
-# 手动新增问题，编辑/删除按 questionId 操作；手动维护的问题在重新生成时保留
-curl -X POST http://localhost:8080/api/project-deep-dive/projects/<projectId>/questions \
-  -H 'Authorization: Bearer <token>' \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"这个模块的幂等是怎么保证的？","answer":"**要点：**\n- 唯一键约束\n- 重试去重","category":"技术难点","difficulty":"深入"}'
-
-curl -X PUT http://localhost:8080/api/project-deep-dive/questions/<questionId> \
-  -H 'Authorization: Bearer <token>' \
-  -H 'Content-Type: application/json' \
-  -d '{"question":"编辑后的问题","answer":"编辑后的参考答案"}'
-
-curl -X DELETE http://localhost:8080/api/project-deep-dive/questions/<questionId> \
-  -H 'Authorization: Bearer <token>'
 ```
 
-完整接口以 Controller 和 Knife4j 文档为准。
+完整契约以 Controller、OpenAPI JSON 和 Knife4j 为准。
 
 ## 配置说明
 
-关键环境变量在根目录 [.env.example](../.env.example) 中维护：
-
-- `SERVER_PORT`
-- `SPRING_DATASOURCE_URL`
-- `SPRING_DATASOURCE_USERNAME`
-- `SPRING_DATASOURCE_PASSWORD`
-- `SPRING_REDIS_HOST`
-- `SPRING_REDIS_PORT`
-- `AGENT_RUNTIME_URL`
-- `AGENT_INTENT_URL`
-- `AGENT_MEMORY_URL`
-- `AGENT_TOOL_URL`
-- `AGENT_EVAL_URL`
-- `BOSS_CLI_*`（Runtime `boss_browser` 工具使用，包含 Cookie、请求和限速参数）
-- `JOB_BUDDY_MINIO_*`
-- `JOB_BUDDY_DEFAULT_USER_ID`
-- `JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY`：32 字节随机密钥的 Base64 编码，用于 AES-256-GCM 加密 Boss Cookie；必须稳定保存并通过受控流程轮换
-- `JOB_BUDDY_RESUME_RUNTIME_WORKSPACE`
-
-新增、删除或重命名配置项时，必须同步更新 `.env.example` 和相关 README。
+根目录 [.env.example](../.env.example) 是配置键的唯一模板：`SPRING_DATASOURCE_*` 与 `SPRING_REDIS_*` 管理数据服务，`AGENT_*_URL` 管理下游地址，`JOB_BUDDY_MINIO_*` 管理对象存储，`JOB_BUDDY_BOSS_CREDENTIAL_ENCRYPTION_KEY` 管理 Boss 凭据加密，`JOB_BUDDY_RESUME_RUNTIME_WORKSPACE` 管理 Runtime 共享工作区。Boss 请求与限速参数使用 `BOSS_CLI_*`。配置变化必须同步模板与相应主题文档，不在本 README 复制默认值全集。
 
 ## 验证
 
@@ -162,4 +111,4 @@ mvn test
 ../.agent-harness/scripts/gate.sh agent-backend --quick
 ```
 
-修改聊天主链路、SSE、Runtime 代理、Trace、Intent、工具调用或评估字段时，还需要检查 `.agent-harness/scripts/evaluate.sh`、`agent-eval` 用例和评分器是否需要同步更新。
+聊天主链路、SSE、Runtime 代理、Trace、Intent、工具或评估字段变化时，还要同步检查 `.agent-harness/scripts/evaluate.sh`、agent-eval 用例和评分器。跨模块设计见[系统架构与核心链路](../agent-doc/架构设计/系统架构与核心链路.md)，认证和接口细节见[账号认证与权限体系](../agent-doc/架构设计/账号认证与权限体系.md)。

@@ -4,19 +4,23 @@
 
 ## 接口
 
-- `GET /health`
-- `POST /v1/memories`
-- `GET /v1/memories?scope=long_term&limit=1000`
-- `GET /v1/memories/search?q=trace&scope=session`
-- `PUT /v1/memories/{memory_id}`
-- `POST /v1/memories/{memory_id}/rollback`
-- `DELETE /v1/memories/{memory_id}`
-- `DELETE /v1/memories?scope=long_term`
-- `POST /v1/memories/purge-expired`
+| 方法与路径                                      | 用途                   |
+| ----------------------------------------------- | ---------------------- |
+| `GET /health`                                   | 健康检查               |
+| `POST /v1/memories`                             | 创建记忆               |
+| `GET /v1/memories?scope=long_term&limit=1000`   | 按 scope 列出记忆      |
+| `GET /v1/memories/search?q=trace&scope=session` | 检索并融合排序         |
+| `PUT /v1/memories/{memory_id}`                  | 更新并保留历史版本     |
+| `POST /v1/memories/{memory_id}/rollback`        | 回滚到上一版本         |
+| `DELETE /v1/memories/{memory_id}`               | 删除单条记忆           |
+| `DELETE /v1/memories?scope=long_term`           | 按 scope 批量清理      |
+| `POST /v1/memories/purge-expired`               | 清理过期记忆及相关历史 |
 
 写入与召回采用 BM25、时间衰减和可选向量信号的 RRF 融合排序（详见 `app/relevance.py`），不包含图数据库召回。每条记忆带 `kind`（step / task / long_term / semantic）、`category`、`source`、`enabled`、`operator_id` 与 `version` 字段；禁用条目不会进入搜索结果，`PUT` 更新会在覆盖前留存历史版本，`POST .../rollback` 回滚到上一版本内容。列表和批量清理同样按请求头中的租户、操作者及 scope 隔离。
 
-所有写类与召回接口只从受信的 `X-Tenant-Id`、`X-Operator-Id` 请求头解析所有权；为兼容旧客户端，请求模型中的 `operator_id` 字段暂时保留但不参与身份判定，缺少操作者请求头时进入匿名隔离分区。服务通过 Loguru `audit="memory"` 绑定字段输出审计日志，覆盖创建、检索、更新、回滚、删除与过期清理，便于按操作者还原记忆变更链路。
+所有写类与召回接口只从受信的 `X-Tenant-Id`、`X-Operator-Id` 请求头解析所有权；请求模型中的 `operator_id` 兼容字段不参与身份判定，缺少操作者请求头时进入匿名隔离分区。服务通过 Loguru `audit="memory"` 绑定字段输出审计日志，覆盖创建、检索、更新、回滚、删除与过期清理，便于按操作者还原记忆变更链路。跨模块边界与排序策略见[记忆管理与混合检索](../agent-doc/核心能力/记忆管理与混合检索.md)。
+
+配置 `AGENT_INTERNAL_SERVICE_TOKEN` 后，除 `/health` 外的接口都必须携带 `X-Internal-Service-Token`；`production` / `prod` 环境缺少令牌时服务拒绝启动。服务令牌只证明内部调用方身份，租户和操作者请求头仍须独立传递。
 
 ## 启动与验证
 
