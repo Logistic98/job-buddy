@@ -324,6 +324,7 @@ class PostgresMemoryStore:
             or ""
         ).strip()
         self.pool: asyncpg.Pool | None = None
+        self._schema_recovery_lock = asyncio.Lock()
 
     @property
     def enabled(self) -> bool:
@@ -475,6 +476,34 @@ class PostgresMemoryStore:
                 ALTER TABLE agent_memory_items
                     ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
                 """
+            )
+
+    async def ensure_ready(self) -> None:
+        """验证数据库连接和服务自有表，并在表被外部重置后幂等恢复 Schema。"""
+        if self.pool is None:
+            raise RuntimeError("PostgreSQL memory store 未连接")
+        if await self._schema_exists():
+            return
+
+        async with self._schema_recovery_lock:
+            if await self._schema_exists():
+                return
+            logger.warning("agent-memory PostgreSQL Schema 缺失，正在执行幂等恢复")
+            await self.init_schema()
+            if not await self._schema_exists():
+                raise RuntimeError("agent-memory PostgreSQL Schema 初始化后仍不可用")
+
+    async def _schema_exists(self) -> bool:
+        if self.pool is None:
+            return False
+        async with self.pool.acquire() as conn:
+            return bool(
+                await conn.fetchval(
+                    """
+                    SELECT to_regclass('public.agent_memory_items') IS NOT NULL
+                       AND to_regclass('public.agent_memory_revisions') IS NOT NULL
+                    """
+                )
             )
 
     async def add(

@@ -1,4 +1,5 @@
 import os
+from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
@@ -24,6 +25,21 @@ def test_create_and_search_via_local_backend(monkeypatch):
     found = client.get("/v1/memories/search", params={"q": "远程", "scope": "session"}).json()
     assert found["code"] == 200
     assert len(found["data"]) == 1
+
+
+def test_health_returns_503_when_postgres_is_not_ready(monkeypatch):
+    client = make_client(monkeypatch)
+    monkeypatch.setattr(server.postgres_store, "dsn", "postgresql://configured")
+    monkeypatch.setattr(
+        server.postgres_store,
+        "ensure_ready",
+        AsyncMock(side_effect=RuntimeError("database unavailable")),
+    )
+
+    response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json()["data"]["status"] == "DOWN"
 
 
 def test_list_and_clear_long_term_memories(monkeypatch):

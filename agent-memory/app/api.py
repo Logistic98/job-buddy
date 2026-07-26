@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header
+from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -136,7 +137,24 @@ def local_backend_status() -> dict:
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health():
+    if postgres_store.enabled:
+        try:
+            await postgres_store.ensure_ready()
+        except Exception as exc:
+            logger.error("agent-memory PostgreSQL 未就绪: error_type={}", type(exc).__name__)
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "code": 503,
+                    "message": "agent-memory PostgreSQL unavailable",
+                    "data": {
+                        "status": "DOWN",
+                        "service": "agent-memory",
+                        **local_backend_status(),
+                    },
+                },
+            )
     if not adapter.enabled:
         return {
             "code": 200,

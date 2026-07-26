@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import asyncpg
 import pytest
@@ -176,3 +176,48 @@ async def test_postgres_connect_rejects_invalid_retry_config_before_io(monkeypat
         await store.connect()
 
     create_pool.assert_not_awaited()
+
+
+async def test_postgres_readiness_recovers_missing_service_schema():
+    connection = MagicMock()
+    connection.fetchval = AsyncMock(side_effect=[False, False, True])
+
+    class Acquire:
+        async def __aenter__(self):
+            return connection
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    pool = MagicMock()
+    pool.acquire.side_effect = lambda: Acquire()
+    store = PostgresMemoryStore("postgresql://job_buddy@db.example:5433/job_buddy")
+    store.pool = pool
+    store.init_schema = AsyncMock()
+
+    await store.ensure_ready()
+
+    store.init_schema.assert_awaited_once()
+    assert connection.fetchval.await_count == 3
+
+
+async def test_postgres_readiness_skips_schema_initialization_when_ready():
+    connection = MagicMock()
+    connection.fetchval = AsyncMock(return_value=True)
+
+    class Acquire:
+        async def __aenter__(self):
+            return connection
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    pool = MagicMock()
+    pool.acquire.side_effect = lambda: Acquire()
+    store = PostgresMemoryStore("postgresql://job_buddy@db.example:5433/job_buddy")
+    store.pool = pool
+    store.init_schema = AsyncMock()
+
+    await store.ensure_ready()
+
+    store.init_schema.assert_not_awaited()
