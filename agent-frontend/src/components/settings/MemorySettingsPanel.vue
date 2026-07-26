@@ -11,30 +11,29 @@
       <div class="setting-card">
         <div>
           <h3>记忆策略</h3>
-          <p>长期记忆统一存入 agent-memory，并按当前租户和用户隔离；服务不可用时不会回退到本地副本。</p>
+          <p>
+            长期记忆用于保存稳定偏好、求职约束和面试复盘，并按当前租户和用户隔离，帮助工作台在后续任务中读取并使用相关信息。
+          </p>
         </div>
         <div class="form-grid">
-          <label
-            ><span>启用记忆</span
-            ><select v-model="memory.enabled">
-              <option :value="true">启用</option>
-              <option :value="false">关闭</option>
-            </select></label
-          >
-          <label
-            ><span>自动保存稳定偏好</span
-            ><select v-model="memory.autoSaveChat">
-              <option :value="true">启用</option>
-              <option :value="false">关闭</option>
-            </select></label
-          >
-          <label
-            ><span>按需使用相关记忆</span
-            ><select v-model="memory.autoUseMemory">
-              <option :value="true">启用</option>
-              <option :value="false">关闭</option>
-            </select></label
-          >
+          <AppSwitch v-model="memory.enabled" class="memory-switch-field" aria-label="启用记忆">
+            <span class="switch-text">
+              <strong>{{ memory.enabled ? '记忆已启用' : '记忆已关闭' }}</strong>
+              <small>保存长期偏好与求职信息，并在后续任务中按需使用。</small>
+            </span>
+          </AppSwitch>
+          <AppSwitch v-model="memory.autoSaveChat" class="memory-switch-field" aria-label="自动保存稳定偏好">
+            <span class="switch-text">
+              <strong>{{ memory.autoSaveChat ? '自动保存已启用' : '自动保存已关闭' }}</strong>
+              <small>从对话中识别稳定偏好，并自动沉淀为长期记忆。</small>
+            </span>
+          </AppSwitch>
+          <AppSwitch v-model="memory.autoUseMemory" class="memory-switch-field" aria-label="按需使用相关记忆">
+            <span class="switch-text">
+              <strong>{{ memory.autoUseMemory ? '按需使用已启用' : '按需使用已关闭' }}</strong>
+              <small>执行任务时检索与当前请求相关的记忆，减少重复说明。</small>
+            </span>
+          </AppSwitch>
           <label
             ><span class="form-required">最大记忆条数</span
             ><input
@@ -58,23 +57,13 @@
         </div>
         <div class="memory-editor">
           <label class="memory-editor-field">
-            <span class="form-required">记忆类型</span>
-            <select v-model="form.type" aria-label="记忆类型" aria-required="true">
-              <option value="" disabled>请选择记忆类型</option>
-              <option value="preference">偏好</option>
-              <option value="constraint">约束</option>
-              <option value="interview">面试复盘</option>
-              <option value="conversation">对话</option>
-            </select>
-          </label>
-          <label class="memory-editor-field">
             <span class="form-required">记忆内容</span>
             <input
               v-model.trim="form.content"
               maxlength="2000"
               aria-label="记忆内容"
               aria-required="true"
-              placeholder="例如：优先看上海 Java 大模型应用开发岗，薪资 40-50k，排除外包驻场（最多 2000 字）"
+              placeholder="例如：优先看上海 Java 大模型应用开发岗，薪资 40-50k，排除外包驻场"
               @keyup.enter="create"
             />
           </label>
@@ -83,8 +72,7 @@
         <div class="source-list memory-list">
           <article v-for="item in memories" :key="item.id" class="source-item memory-item">
             <div>
-              <strong>{{ typeText(item.type) }}</strong>
-              <p>{{ item.content }}</p>
+              <strong>{{ item.content }}</strong>
               <small>{{ item.source || 'manual' }} · {{ formatTime(item.updatedAt || item.createdAt) }}</small>
             </div>
             <div class="source-badges">
@@ -109,11 +97,12 @@ import { onMounted, ref, watch } from 'vue'
 import { addMemory, clearMemories, deleteMemory, listMemories } from '../../api/settings'
 import { useScopedSettings } from '../../composables/useScopedSettings'
 import { validateInteger, validateLength } from '../../utils/formValidation'
+import AppSwitch from '../AppSwitch.vue'
 
 const emit = defineEmits(['state-change'])
 const normalizeMemory = (value) => ({
   enabled: value?.enabled ?? true,
-  autoSaveChat: value?.autoSaveChat ?? false,
+  autoSaveChat: value?.autoSaveChat ?? true,
   autoUseMemory: value?.autoUseMemory ?? true,
   maxItems: Number(value?.maxItems) || 200,
 })
@@ -127,7 +116,7 @@ const {
   save: saveMemory,
 } = useScopedSettings('memory', normalizeMemory)
 const memories = ref([])
-const form = ref({ type: '', content: '' })
+const form = ref({ content: '' })
 
 watch(
   [dirty, saving, loading],
@@ -157,7 +146,6 @@ async function save() {
 
 async function create() {
   try {
-    if (!form.value.type) throw new Error('请选择记忆类型')
     validateLength(form.value.content, '记忆内容', { max: 2000, required: true })
     const item = await addMemory({ ...form.value, source: 'manual', enabled: true })
     const key = memoryKey(item)
@@ -168,15 +156,12 @@ async function create() {
   }
 }
 function memoryKey(item) {
-  const type = String(item?.type || 'preference')
-    .toLowerCase()
-    .replace(/[\s　]+/g, '')
   const content = String(item?.content || '')
     .toLowerCase()
     .replace(/[\s　]+/g, '')
     .replace(/，/g, ',')
     .replace(/。/g, '.')
-  return `${type}|${content}`
+  return content
 }
 async function remove(memoryId) {
   try {
@@ -194,9 +179,6 @@ async function clearAll() {
   } catch (err) {
     error.value = err.message || '记忆清空失败'
   }
-}
-function typeText(type) {
-  return { preference: '偏好', constraint: '约束', interview: '面试复盘', conversation: '对话' }[type] || type || '记忆'
 }
 function formatTime(value) {
   return value

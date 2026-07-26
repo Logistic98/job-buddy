@@ -11,8 +11,8 @@ vi.mock('../src/api/settings', () => ({
 }))
 
 vi.mock('../src/composables/useScopedSettings', () => ({
-  useScopedSettings: () => ({
-    value: ref({ enabled: true, autoSaveChat: false, autoUseMemory: true, maxItems: 200 }),
+  useScopedSettings: (_scope, normalize) => ({
+    value: ref(normalize({})),
     loading: ref(false),
     saving: ref(false),
     error: ref(''),
@@ -23,16 +23,33 @@ vi.mock('../src/composables/useScopedSettings', () => ({
 }))
 
 describe('MemorySettingsPanel', () => {
+  it('shows a title and description beside each memory switch', async () => {
+    const wrapper = mount(MemorySettingsPanel)
+    await flushPromises()
+
+    const switches = wrapper.findAll('.memory-switch-field')
+    expect(switches).toHaveLength(3)
+    expect(switches.map((item) => item.find('.switch-text strong').text())).toEqual([
+      '记忆已启用',
+      '自动保存已启用',
+      '按需使用已启用',
+    ])
+    expect(switches.map((item) => item.find('.switch-text small').text())).toEqual([
+      '保存长期偏好与求职信息，并在后续任务中按需使用。',
+      '从对话中识别稳定偏好，并自动沉淀为长期记忆。',
+      '执行任务时检索与当前请求相关的记忆，减少重复说明。',
+    ])
+  })
+
   it('shows required markers and a red error when a new memory is incomplete', async () => {
     const wrapper = mount(MemorySettingsPanel)
     await flushPromises()
 
-    expect(wrapper.find('.memory-editor select').element.value).toBe('')
-    expect(wrapper.find('.memory-editor select').attributes('aria-required')).toBe('true')
+    expect(wrapper.find('.memory-editor select').exists()).toBe(false)
     expect(wrapper.find('.memory-editor input').attributes('aria-required')).toBe('true')
-    expect(wrapper.findAll('.memory-editor-field .form-required')).toHaveLength(2)
+    expect(wrapper.findAll('.memory-editor-field .form-required')).toHaveLength(1)
     expect(wrapper.find('.memory-editor button').attributes()).not.toHaveProperty('disabled')
     await wrapper.find('.memory-editor button').trigger('click')
-    expect(wrapper.find('.form-error-alert[role="alert"]').text()).toBe('请选择记忆类型')
+    expect(wrapper.find('.form-error-alert[role="alert"]').text()).toBe('请填写记忆内容')
   })
 })

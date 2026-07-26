@@ -17,16 +17,14 @@
           <span v-if="dirty" class="blacklist-dirty-hint">有未保存修改</span>
         </div>
         <div class="blacklist-master">
-          <label class="switch-field">
-            <input v-model="blacklist.enabled" type="checkbox" />
-            <span class="switch-track" aria-hidden="true"></span>
+          <AppSwitch v-model="blacklist.enabled" class="switch-field" aria-label="岗位屏蔽">
             <span class="switch-text"
               ><strong>{{ blacklist.enabled ? '岗位屏蔽已启用' : '岗位屏蔽已关闭' }}</strong
               ><small>{{
                 blacklist.enabled ? '命中规则的岗位会在推荐和打分前过滤。' : '规则暂不生效，下方修改仍会保留。'
               }}</small></span
             >
-          </label>
+          </AppSwitch>
           <div class="blacklist-match-mode"><strong>公司规则</strong><small>仅匹配公司或品牌名称。</small></div>
           <div class="blacklist-match-mode">
             <strong>关键词规则</strong><small>仅匹配岗位名称、描述、标签和福利信息。</small>
@@ -98,8 +96,12 @@
                 <span :class="['source-state', item.enabled ? 'enabled' : 'disabled']">{{
                   item.enabled ? '启用' : '停用'
                 }}</span
-                ><button class="secondary-btn" @click="toggleItem(item)">{{ item.enabled ? '停用' : '启用' }}</button
-                ><button v-if="item.source !== 'system'" class="danger-text" @click="removeItem(item)">删除</button>
+                ><AppSwitch
+                  :model-value="item.enabled"
+                  :aria-label="`${item.name}启用状态`"
+                  @update:model-value="toggleItem(item, $event)"
+                />
+                <button v-if="item.source !== 'system'" class="danger-text" @click="removeItem(item)">删除</button>
               </div>
             </article>
             <div v-if="!visibleItems(type.key).length" class="empty-state compact">
@@ -122,6 +124,7 @@ import {
 } from '../../composables/useCompanyBlacklist'
 import { useScopedSettings } from '../../composables/useScopedSettings'
 import { validateLength } from '../../utils/formValidation'
+import AppSwitch from '../AppSwitch.vue'
 
 const emit = defineEmits(['state-change'])
 const normalizeBlacklist = (value) => ({
@@ -226,8 +229,8 @@ function addItem(type) {
   }
   forms.value[type] = ''
 }
-function toggleItem(item) {
-  item.enabled = !item.enabled
+function toggleItem(item, enabled) {
+  item.enabled = enabled
   setFeedback(item.type, 'success', `「${item.name}」已${item.enabled ? '启用' : '停用'}，保存设置后生效。`)
 }
 function removeItem(item) {

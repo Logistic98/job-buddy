@@ -130,8 +130,9 @@
                       autocomplete="new-password"
                       minlength="8"
                       maxlength="16"
-                      placeholder="请输入 8-16 位初始密码" /></label
-                  ><label v-if="modal === 'edit'" class="rbac-field"
+                      placeholder="请输入 8-16 位初始密码"
+                  /></label>
+                  <label v-if="modal === 'edit'" class="rbac-field"
                     ><span class="form-required">账号状态</span
                     ><select v-model="form.enabled" aria-required="true">
                       <option :value="true">启用</option>

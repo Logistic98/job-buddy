@@ -635,7 +635,7 @@
     flex-wrap: wrap;
   }
 }
-/* 平台设置：偏好设置与记忆管理 */
+/* 平台设置：记忆管理 */
 .memory-card-head {
   display: flex;
   align-items: flex-start;
@@ -644,7 +644,7 @@
 }
 .memory-editor {
   display: grid;
-  grid-template-columns: 140px minmax(260px, 1fr) auto;
+  grid-template-columns: minmax(260px, 1fr) auto;
   align-items: end;
   gap: 10px;
   margin-top: 14px;
@@ -658,7 +658,6 @@
   font-size: 12px;
   font-weight: 800;
 }
-.memory-editor select,
 .memory-editor input {
   width: 100%;
   border: 1px solid #dfe6f2;
@@ -668,8 +667,7 @@
   padding: 10px 11px;
   outline: 0;
 }
-.memory-editor input:focus,
-.memory-editor select:focus {
+.memory-editor input:focus {
   border-color: #3157ff;
   box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.12);
 }
@@ -828,43 +826,6 @@
   min-width: 280px;
   position: relative;
   padding: 10px 0;
-}
-.switch-field input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.switch-track {
-  flex: none;
-  width: 44px;
-  height: 24px;
-  margin-top: 2px;
-  border-radius: 999px;
-  background: #d0d7e2;
-  position: relative;
-  transition: background 0.2s;
-}
-.switch-track::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.2);
-  transition: left 0.2s;
-}
-.switch-field input:checked + .switch-track {
-  background: #3157ff;
-}
-.switch-field input:checked + .switch-track::after {
-  left: 23px;
-}
-.switch-field input:focus-visible + .switch-track {
-  box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.2);
 }
 .switch-text strong {
   display: block;

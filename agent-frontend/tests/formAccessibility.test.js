@@ -26,7 +26,7 @@ describe('platform form accessibility contract', () => {
     ['components/UserManagement.vue', ['新密码', '全局唯一用户名', '显示名称', '初始密码', '账号状态']],
     ['components/RoleManagement.vue', ['角色编码', '角色名称', '角色状态']],
     ['components/MenuManagement.vue', ['菜单编码', '菜单名称', '菜单类型', '排序值', '前台显示', '菜单状态']],
-    ['components/settings/MemorySettingsPanel.vue', ['最大记忆条数', '记忆类型', '记忆内容']],
+    ['components/settings/MemorySettingsPanel.vue', ['最大记忆条数', '记忆内容']],
   ])('%s marks every registered required field', (path, labels) => {
     expectRequiredLabels(source(path), labels)
   })
@@ -74,5 +74,18 @@ describe('platform form accessibility contract', () => {
     expect(css).toContain("content: '*'")
     expect(css).toContain('.form-error-alert')
     expect(css).toContain('color: #b42318 !important')
+  })
+
+  it('uses switches for settings and selects for management forms', () => {
+    expect(source('components/settings/MemorySettingsPanel.vue')).toContain('<AppSwitch')
+    for (const path of [
+      'components/UserManagement.vue',
+      'components/RoleManagement.vue',
+      'components/MenuManagement.vue',
+    ]) {
+      const content = source(path)
+      expect(content).not.toContain('<AppSwitch')
+      expect(content).toMatch(/<option[^>]+:value=["'](?:true|false)["']/)
+    }
   })
 })

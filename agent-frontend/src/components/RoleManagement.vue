@@ -86,8 +86,9 @@
                   ><input
                     v-model.trim="form.description"
                     maxlength="500"
-                    placeholder="说明该角色的职责和适用范围，最多 500 字" /></label
-                ><label class="rbac-field"
+                    placeholder="说明该角色的职责和适用范围，最多 500 字"
+                /></label>
+                <label class="rbac-field"
                   ><span class="form-required">角色状态</span
                   ><select v-model="form.enabled" aria-required="true">
                     <option :value="null" disabled>请选择角色状态</option>

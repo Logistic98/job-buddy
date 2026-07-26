@@ -179,7 +179,8 @@
                       {{ item.permissionName }}（{{ item.permissionCode }}）
                     </option>
                   </select></label
-                ><label class="rbac-field"
+                >
+                <label class="rbac-field"
                   ><span class="form-required">前台显示</span
                   ><select v-model="form.visible" aria-required="true">
                     <option :value="null" disabled>请选择显示状态</option>
