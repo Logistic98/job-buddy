@@ -5,6 +5,7 @@ __pycache__
 *.log
 *.local
 .env
+.env.server
 .DS_Store
 node_modules/
 dist/

@@ -1,4 +1,5 @@
-name: ${INFRASTRUCTURE_COMPOSE_PROJECT_NAME:-job-buddy-infrastructure}
+# 完整部署覆盖文件；必须在 docker-compose.yml 之后加载。
+# 新增 PostgreSQL、Redis、MinIO，并把应用连接覆盖为容器内部 DNS。
 
 x-infrastructure-service: &infrastructure-service
   restart: unless-stopped
@@ -57,9 +58,30 @@ services:
       timeout: 5s
       retries: 20
 
-networks:
-  job-buddy:
-    name: ${JOB_BUDDY_NETWORK_NAME:-job-buddy-network}
+  agent-memory:
+    environment:
+      AGENT_MEMORY_DATABASE_URL: ""
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_APP_DB:-job_buddy}
+      AGENT_MEMORY_DB_SSL_MODE: disable
+
+  agent-runtime:
+    environment:
+      AGENT_RUNTIME_DATABASE_URL: postgresql://${SPRING_DATASOURCE_USERNAME:-job_buddy}:${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD in .env}@postgres:5432/${POSTGRES_APP_DB:-job_buddy}
+
+  agent-backend:
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_APP_DB:-job_buddy}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      JOB_BUDDY_MINIO_ENDPOINT: http://minio:9000
+      JOB_BUDDY_MINIO_SECURE: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
 volumes:
   postgres-data:

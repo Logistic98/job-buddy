@@ -5,7 +5,7 @@ ENV MAVEN_REPO_URL=${MAVEN_REPO_URL}
 WORKDIR /app
 COPY pom.xml settings.docker.xml ./
 COPY src ./src
-RUN mvn -q -s settings.docker.xml -DskipTests package
+RUN mvn -s settings.docker.xml -DskipTests package
 
 FROM ${DOCKER_REGISTRY}/library/eclipse-temurin:17-jre-ubi9-minimal
 WORKDIR /app
@@ -16,6 +16,6 @@ RUN groupadd --system app \
 COPY --from=build --chown=app:app /app/target/agent-backend-1.0.0.jar app.jar
 EXPOSE 8080
 USER app
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=3 \
   CMD wget -q -O - http://127.0.0.1:8080/actuator/health | grep -q '"status":"UP"' || exit 1
 ENTRYPOINT ["java", "-jar", "app.jar"]

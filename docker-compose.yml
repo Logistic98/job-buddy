@@ -42,9 +42,9 @@ services:
       context: ./agent-memory
       args: *build-args
     environment:
-      AGENT_MEMORY_DATABASE_URL: ""
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_APP_DB:-job_buddy}
-      AGENT_MEMORY_DB_SSL_MODE: disable
+      AGENT_MEMORY_DATABASE_URL: ${AGENT_MEMORY_DATABASE_URL:?Set AGENT_MEMORY_DATABASE_URL in the environment file}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:?Set SPRING_DATASOURCE_URL in the environment file}
+      AGENT_MEMORY_DB_SSL_MODE: ${AGENT_MEMORY_DB_SSL_MODE:-require}
     depends_on:
       agent-backend:
         condition: service_healthy
@@ -57,8 +57,8 @@ services:
       context: ./agent-tool
       args: *build-args
     environment:
-      AGENT_TOOL_MEMORY_BASE_URL: http://agent-memory:8030
-      AGENT_TOOL_SANDBOX_BASE_URL: http://agent-sandbox:8061
+      AGENT_TOOL_MEMORY_BASE_URL: ${JOB_BUDDY_INTERNAL_MEMORY_URL:-http://agent-memory:8030}
+      AGENT_TOOL_SANDBOX_BASE_URL: ${JOB_BUDDY_INTERNAL_SANDBOX_URL:-http://agent-sandbox:8061}
     depends_on:
       agent-memory:
         condition: service_healthy
@@ -73,11 +73,11 @@ services:
       context: ./agent-runtime
       args: *build-args
     environment:
-      AGENT_RUNTIME_DATABASE_URL: postgresql://${SPRING_DATASOURCE_USERNAME:-job_buddy}:${SPRING_DATASOURCE_PASSWORD:?Set SPRING_DATASOURCE_PASSWORD in .env}@postgres:5432/${POSTGRES_APP_DB:-job_buddy}
-      AGENT_TOOL_URL: http://agent-tool:8040
-      JOB_BUDDY_MEMORY_BASE_URL: http://agent-memory:8030
-      JOB_BUDDY_SANDBOX_BASE_URL: http://agent-sandbox:8061
-      JOB_BUDDY_TRANSCRIPT_REVIEW_BASE_URL: http://agent-intent:8020
+      AGENT_RUNTIME_DATABASE_URL: ${AGENT_RUNTIME_DATABASE_URL:?Set AGENT_RUNTIME_DATABASE_URL in the environment file}
+      AGENT_TOOL_URL: ${JOB_BUDDY_INTERNAL_TOOL_URL:-http://agent-tool:8040}
+      JOB_BUDDY_MEMORY_BASE_URL: ${JOB_BUDDY_INTERNAL_MEMORY_URL:-http://agent-memory:8030}
+      JOB_BUDDY_SANDBOX_BASE_URL: ${JOB_BUDDY_INTERNAL_SANDBOX_URL:-http://agent-sandbox:8061}
+      JOB_BUDDY_TRANSCRIPT_REVIEW_BASE_URL: ${JOB_BUDDY_INTERNAL_INTENT_URL:-http://agent-intent:8020}
       JOB_BUDDY_RUNTIME_WORKSPACE_DIR: /workspace
     volumes:
       - runtime-workspace:/workspace
@@ -114,18 +114,18 @@ services:
       args: *build-args
     environment:
       SERVER_PORT: 8080
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_APP_DB:-job_buddy}
-      SPRING_REDIS_HOST: redis
-      SPRING_REDIS_PORT: 6379
-      JOB_BUDDY_MINIO_ENDPOINT: http://minio:9000
-      JOB_BUDDY_MINIO_SECURE: "false"
-      AGENT_RUNTIME_URL: http://agent-runtime:8010
-      AGENT_INTENT_URL: http://agent-intent:8020
-      AGENT_MEMORY_URL: http://agent-memory:8030
-      AGENT_TOOL_URL: http://agent-tool:8040
-      AGENT_EVAL_URL: http://agent-eval:8050
-      AGENT_SANDBOX_URL: http://agent-sandbox:8061
-      JOB_BUDDY_MEMORY_BASE_URL: http://agent-memory:8030
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:?Set SPRING_DATASOURCE_URL in the environment file}
+      SPRING_REDIS_HOST: ${SPRING_REDIS_HOST:?Set SPRING_REDIS_HOST in the environment file}
+      SPRING_REDIS_PORT: ${SPRING_REDIS_PORT:-6379}
+      JOB_BUDDY_MINIO_ENDPOINT: ${JOB_BUDDY_MINIO_ENDPOINT:?Set JOB_BUDDY_MINIO_ENDPOINT in the environment file}
+      JOB_BUDDY_MINIO_SECURE: ${JOB_BUDDY_MINIO_SECURE:-true}
+      AGENT_RUNTIME_URL: ${JOB_BUDDY_INTERNAL_RUNTIME_URL:-http://agent-runtime:8010}
+      AGENT_INTENT_URL: ${JOB_BUDDY_INTERNAL_INTENT_URL:-http://agent-intent:8020}
+      AGENT_MEMORY_URL: ${JOB_BUDDY_INTERNAL_MEMORY_URL:-http://agent-memory:8030}
+      AGENT_TOOL_URL: ${JOB_BUDDY_INTERNAL_TOOL_URL:-http://agent-tool:8040}
+      AGENT_EVAL_URL: ${JOB_BUDDY_INTERNAL_EVAL_URL:-http://agent-eval:8050}
+      AGENT_SANDBOX_URL: ${JOB_BUDDY_INTERNAL_SANDBOX_URL:-http://agent-sandbox:8061}
+      JOB_BUDDY_MEMORY_BASE_URL: ${JOB_BUDDY_INTERNAL_MEMORY_URL:-http://agent-memory:8030}
       JOB_BUDDY_RESUME_RUNTIME_WORKSPACE: /workspace
     volumes:
       - runtime-workspace:/workspace
@@ -149,7 +149,6 @@ services:
 
 networks:
   job-buddy:
-    external: true
     name: ${JOB_BUDDY_NETWORK_NAME:-job-buddy-network}
 
 volumes:

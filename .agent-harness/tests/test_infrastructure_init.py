@@ -9,34 +9,53 @@ APPLICATION_COMPOSE = REPO_ROOT / "docker-compose.yml"
 INFRASTRUCTURE_COMPOSE = REPO_ROOT / "docker-compose-infra.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 START_ALL = REPO_ROOT / "scripts" / "start-all.sh"
+BACKEND_DOCKERFILE = REPO_ROOT / "agent-backend" / "Dockerfile"
 
 
 class InfrastructureInitializationTest(unittest.TestCase):
-    def test_backend_and_memory_share_application_database(self):
+    def test_application_compose_uses_configured_external_infrastructure(self):
         compose = APPLICATION_COMPOSE.read_text(encoding="utf-8")
+
+        self.assertIn("SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:?", compose)
+        self.assertIn("SPRING_REDIS_HOST: ${SPRING_REDIS_HOST:?", compose)
+        self.assertIn("JOB_BUDDY_MINIO_ENDPOINT: ${JOB_BUDDY_MINIO_ENDPOINT:?", compose)
+        self.assertIn("AGENT_RUNTIME_DATABASE_URL: ${AGENT_RUNTIME_DATABASE_URL:?", compose)
+        self.assertIn("AGENT_MEMORY_DATABASE_URL: ${AGENT_MEMORY_DATABASE_URL:?", compose)
+        self.assertNotIn("external: true", compose)
+        self.assertNotIn("POSTGRES_MEMORY_DB", compose)
+        for service in ("INTENT", "MEMORY", "TOOL", "EVAL", "RUNTIME", "SANDBOX"):
+            self.assertIn(f"JOB_BUDDY_INTERNAL_{service}_URL", compose)
+
+    def test_full_compose_uses_one_postgres_database(self):
+        compose = INFRASTRUCTURE_COMPOSE.read_text(encoding="utf-8")
+        env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
         expected_url = "jdbc:postgresql://postgres:5432/${POSTGRES_APP_DB:-job_buddy}"
 
         self.assertEqual(2, compose.count(expected_url))
         self.assertNotIn("POSTGRES_MEMORY_DB", compose)
-
-    def test_infrastructure_does_not_initialize_separate_memory_database(self):
-        compose = INFRASTRUCTURE_COMPOSE.read_text(encoding="utf-8")
-        env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
-
-        self.assertNotIn("POSTGRES_MEMORY_DB", compose)
         self.assertNotIn("docker-entrypoint-initdb.d", compose)
         self.assertNotIn("POSTGRES_MEMORY_DB", env_example)
 
-    def test_backend_initializes_shared_schema_before_memory_in_compose(self):
-        compose = APPLICATION_COMPOSE.read_text(encoding="utf-8")
-        memory_block = compose.split("  agent-memory:", 1)[1].split("\n  agent-tool:", 1)[0]
+    def test_full_compose_waits_for_infrastructure_and_backend_schema(self):
+        application_compose = APPLICATION_COMPOSE.read_text(encoding="utf-8")
+        infrastructure_compose = INFRASTRUCTURE_COMPOSE.read_text(encoding="utf-8")
+        memory_block = application_compose.split("  agent-memory:", 1)[1].split(
+            "\n  agent-tool:", 1
+        )[0]
         backend_service_marker = "\n  agent-backend:\n    <<: *agent-service"
-        backend_block = compose.split(backend_service_marker, 1)[1].split("\n  agent-frontend:", 1)[0]
+        backend_block = application_compose.split(backend_service_marker, 1)[1].split(
+            "\n  agent-frontend:", 1
+        )[0]
+        infrastructure_backend_block = infrastructure_compose.split(
+            "\n  agent-backend:", 1
+        )[1].split("\nvolumes:", 1)[0]
 
         self.assertIn("depends_on:", memory_block)
         self.assertIn("agent-backend:", memory_block)
         self.assertIn("condition: service_healthy", memory_block)
         self.assertNotIn("depends_on:", backend_block)
+        for service in ("postgres:", "redis:", "minio:"):
+            self.assertIn(service, infrastructure_backend_block)
 
     def test_backend_starts_before_memory_in_local_start_script(self):
         start_script = START_ALL.read_text(encoding="utf-8")
@@ -47,6 +66,10 @@ class InfrastructureInitializationTest(unittest.TestCase):
         self.assertLess(backend_position, memory_position)
         self.assertIn('${START_ALL_READY_TIMEOUT_SECONDS:-300}', start_script)
 
+    def test_backend_container_allows_for_slow_server_startup(self):
+        dockerfile = BACKEND_DOCKERFILE.read_text(encoding="utf-8")
+
+        self.assertIn("--start-period=300s", dockerfile)
 
 if __name__ == "__main__":
     unittest.main()

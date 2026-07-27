@@ -13,6 +13,7 @@ EXTRA_IGNORE_PATTERNS=(
 )
 REMOVE_IGNORE_PATTERNS=(
   ".env"
+  ".env.server"
 )
 
 OUTPUT_PATH=""
@@ -23,8 +24,8 @@ usage() {
 Usage: scripts/archive-source.sh [options]
 
 Create a ZIP source archive using the repository root .gitignore rules.
-By default, .git is additionally ignored and .env is removed from the ignore
-rules, so the root .env file is included when it exists.
+By default, .git is additionally ignored and .env plus .env.server are removed
+from the ignore rules, so both root environment files are included when present.
 
 Options:
   -o, --output PATH          ZIP output path

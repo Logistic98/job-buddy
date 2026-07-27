@@ -146,22 +146,38 @@ cp .env.example .env
 
 全部配置项及说明以 [.env.example](.env.example) 为准。
 
-### 2. 启动完整容器环境
+### 2. 启动容器环境
 
-基础设施与应用使用独立 Compose 项目，并通过共享网络通信。先启动 PostgreSQL、Redis 和 MinIO，再启动八个应用服务：
+如果 PostgreSQL、Redis 和 MinIO 已独立部署，`docker-compose.yml` 会直接使用环境文件中的外部连接，仅启动八个应用服务：
 
 ```bash
 unset COMPOSE_PROJECT_NAME
-docker compose --env-file .env -f docker-compose-infra.yml up -d --wait
 docker compose --env-file .env -f docker-compose.yml up -d --build --wait
 ```
 
-停止应用和基础设施不会删除持久卷：
+如果需要同时部署 PostgreSQL、Redis 和 MinIO，叠加 `docker-compose-infra.yml`，一次启动完整的 11 个服务：
 
 ```bash
-docker compose --env-file .env -f docker-compose.yml down
-docker compose --env-file .env -f docker-compose-infra.yml down
+unset COMPOSE_PROJECT_NAME
+docker compose --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose-infra.yml \
+  up -d --build --wait
 ```
+
+停止时使用与启动相同的文件组合；默认不会删除 PostgreSQL、Redis 和 MinIO 的命名卷：
+
+```bash
+docker compose --env-file .env \
+  -f docker-compose.yml \
+  -f docker-compose-infra.yml \
+  down
+```
+
+仅应用模式直接使用 `.env` 中的 `SPRING_DATASOURCE_URL`、`SPRING_REDIS_HOST`、
+`JOB_BUDDY_MINIO_ENDPOINT`、`AGENT_RUNTIME_DATABASE_URL` 和
+`AGENT_MEMORY_DATABASE_URL`，地址必须能从 Docker 容器访问，不能填写容器自身的
+`127.0.0.1` 或 `localhost`。
 
 生产环境的网络、密钥、持久卷和备份要求见 [应用与基础设施容器化部署](agent-doc/运维部署/应用与基础设施容器化部署.md)。
 

@@ -223,35 +223,40 @@ run_deployment_config_check() {
     scripts/sync-env.sh || fail ".env and .env.example keys differ"
   fi
   if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-    env -u COMPOSE_PROJECT_NAME docker compose --env-file .env.example -f docker-compose-infra.yml config --quiet \
-      || fail "Infrastructure Docker Compose configuration is invalid"
     JOB_BUDDY_ENV_FILE=.env.example env -u COMPOSE_PROJECT_NAME \
       docker compose --env-file .env.example -f docker-compose.yml config --quiet \
       || fail "Application Docker Compose configuration is invalid"
+    JOB_BUDDY_ENV_FILE=.env.example env -u COMPOSE_PROJECT_NAME \
+      docker compose --env-file .env.example \
+      -f docker-compose.yml \
+      -f docker-compose-infra.yml \
+      config --quiet \
+      || fail "Full Docker Compose configuration is invalid"
 
-    local infrastructure_name application_name infrastructure_services application_services overlapping_services
-    infrastructure_name="$(env -u COMPOSE_PROJECT_NAME -u INFRASTRUCTURE_COMPOSE_PROJECT_NAME \
-      -u APPLICATION_COMPOSE_PROJECT_NAME docker compose --env-file .env.example \
-      -f docker-compose-infra.yml config | awk '/^name:/ { print $2; exit }')"
-    application_name="$(JOB_BUDDY_ENV_FILE=.env.example env -u COMPOSE_PROJECT_NAME \
-      -u INFRASTRUCTURE_COMPOSE_PROJECT_NAME -u APPLICATION_COMPOSE_PROJECT_NAME \
-      docker compose --env-file .env.example -f docker-compose.yml config | awk '/^name:/ { print $2; exit }')"
-    [[ -n "$infrastructure_name" && -n "$application_name" && "$infrastructure_name" != "$application_name" ]] \
-      || fail "Infrastructure and application Compose project names must be non-empty and distinct"
-
-    infrastructure_services="$(env -u COMPOSE_PROJECT_NAME -u INFRASTRUCTURE_COMPOSE_PROJECT_NAME \
-      -u APPLICATION_COMPOSE_PROJECT_NAME docker compose --env-file .env.example \
-      -f docker-compose-infra.yml config --services | sort)"
+    local application_services full_services missing_application_services added_infrastructure_services
     application_services="$(JOB_BUDDY_ENV_FILE=.env.example env -u COMPOSE_PROJECT_NAME \
-      -u INFRASTRUCTURE_COMPOSE_PROJECT_NAME -u APPLICATION_COMPOSE_PROJECT_NAME \
-      docker compose --env-file .env.example -f docker-compose.yml config --services)"
-    overlapping_services="$(
-      comm -12 \
-        <(printf '%s\n' "$infrastructure_services" | sed '/^$/d' | sort) \
-        <(printf '%s\n' "$application_services" | sed '/^$/d' | sort)
+      -u APPLICATION_COMPOSE_PROJECT_NAME \
+      docker compose --env-file .env.example -f docker-compose.yml config --services | sort)"
+    full_services="$(JOB_BUDDY_ENV_FILE=.env.example env -u COMPOSE_PROJECT_NAME \
+      -u APPLICATION_COMPOSE_PROJECT_NAME \
+      docker compose --env-file .env.example \
+      -f docker-compose.yml \
+      -f docker-compose-infra.yml \
+      config --services | sort)"
+    missing_application_services="$(
+      comm -23 \
+        <(printf '%s\n' "$application_services" | sed '/^$/d') \
+        <(printf '%s\n' "$full_services" | sed '/^$/d')
     )"
-    if [[ -n "$overlapping_services" ]]; then
-      fail "Application Compose duplicates infrastructure services: $overlapping_services"
+    [[ -z "$missing_application_services" ]] \
+      || fail "Full Compose omits application services: $missing_application_services"
+    added_infrastructure_services="$(
+      comm -13 \
+        <(printf '%s\n' "$application_services" | sed '/^$/d') \
+        <(printf '%s\n' "$full_services" | sed '/^$/d')
+    )"
+    if [[ "$added_infrastructure_services" != $'minio\npostgres\nredis' ]]; then
+      fail "Full Compose must add exactly postgres, redis, and minio"
     fi
   else
     log "docker compose unavailable: skipping Compose render check"
