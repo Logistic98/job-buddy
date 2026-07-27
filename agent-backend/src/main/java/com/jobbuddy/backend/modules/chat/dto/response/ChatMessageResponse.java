@@ -15,6 +15,7 @@ public class ChatMessageResponse {
   private String role;
   private String content;
   private JsonNode metadata;
+  private JsonNode attachments;
   private JsonNode jobCards;
   private JsonNode resumeMatch;
   private JsonNode toolEvents;

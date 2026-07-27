@@ -81,7 +81,7 @@ public interface ChatSessionMapper {
    * @param turnId 轮次标识
    * @return 指定轮次的用户消息内容
    */
-  String findUserMessageContentByTurnId(
+  Map<String, Object> findUserMessageByTurnId(
       @Param("tenantId") String tenantId,
       @Param("userId") String userId,
       @Param("sessionId") String sessionId,

@@ -158,6 +158,25 @@ class InterviewDocumentTextExtractorTest {
   }
 
   /**
+   * 验证共享解析器保留默认 10MB 限制，同时允许调用入口声明更大的边界。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void shouldHonorCallerSpecificSizeLimit() throws Exception {
+    MultipartFile file = mock(MultipartFile.class);
+    when(file.isEmpty()).thenReturn(false);
+    when(file.getSize()).thenReturn(InterviewDocumentTextExtractorImpl.MAX_FILE_SIZE_BYTES + 1);
+    when(file.getOriginalFilename()).thenReturn("large.txt");
+    when(file.getContentType()).thenReturn("text/plain");
+    when(file.getBytes()).thenReturn("valid content".getBytes(StandardCharsets.UTF_8));
+
+    InterviewDocumentExtractResponse response = extractor.extract(file, 128L * 1024L * 1024L);
+
+    assertEquals("valid content", response.getText());
+  }
+
+  /**
    * 验证 InterviewDocumentTextExtractor 的输入校验与拒绝边界。
    */
   @Test

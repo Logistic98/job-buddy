@@ -75,8 +75,11 @@ class ChatSessionStoreTest {
     when(mapper.appendUserMessageOnce(
             eq("tenant-a"), eq("user-a"), eq("session-a"), eq("turn-a"), eq("筛选岗位"), any(), any()))
         .thenReturn(1, 0);
-    when(mapper.findUserMessageContentByTurnId("tenant-a", "user-a", "session-a", "turn-a"))
-        .thenReturn("筛选岗位");
+    when(mapper.findUserMessageByTurnId("tenant-a", "user-a", "session-a", "turn-a"))
+        .thenReturn(
+            java.util.Map.of(
+                "content", "筛选岗位",
+                "metadataJson", "null"));
     ChatSessionRepository repository = new ChatSessionRepository(mapper, new JsonCodec());
 
     assertTrue(
@@ -93,8 +96,11 @@ class ChatSessionStoreTest {
     ChatSessionMapper mapper = mock(ChatSessionMapper.class);
     when(mapper.appendUserMessageOnce(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(0);
-    when(mapper.findUserMessageContentByTurnId("tenant-a", "user-a", "session-a", "turn-a"))
-        .thenReturn("原消息");
+    when(mapper.findUserMessageByTurnId("tenant-a", "user-a", "session-a", "turn-a"))
+        .thenReturn(
+            java.util.Map.of(
+                "content", "原消息",
+                "metadataJson", "null"));
     ChatSessionRepository repository = new ChatSessionRepository(mapper, new JsonCodec());
 
     assertThrows(

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jobbuddy.backend.modules.chat.mapper.ChatAttachmentMapper">
+  <sql id="columns">
+    attachment_id AS "attachmentId",
+    tenant_id AS "tenantId",
+    user_id AS "userId",
+    session_id AS "sessionId",
+    turn_id AS "turnId",
+    file_name AS "fileName",
+    content_type AS "contentType",
+    suffix,
+    storage_path AS "storagePath",
+    size_bytes AS "sizeBytes",
+    sha256,
+    parse_status AS "parseStatus",
+    parse_error AS "parseError",
+    extracted_text AS "extractedText",
+    character_count AS "characterCount",
+    truncated,
+    created_at AS "createdAt",
+    bound_at AS "boundAt"
+  </sql>
+
+  <insert id="insert">
+    INSERT INTO chat_attachment(
+      attachment_id,tenant_id,user_id,session_id,turn_id,file_name,content_type,suffix,
+      storage_path,size_bytes,sha256,parse_status,parse_error,extracted_text,
+      character_count,truncated,created_at,bound_at
+    ) VALUES(
+      #{attachment.attachmentId},#{attachment.tenantId},#{attachment.userId},
+      #{attachment.sessionId},#{attachment.turnId},#{attachment.fileName},
+      #{attachment.contentType},#{attachment.suffix},#{attachment.storagePath},
+      #{attachment.sizeBytes},#{attachment.sha256},#{attachment.parseStatus},
+      #{attachment.parseError},#{attachment.extractedText},#{attachment.characterCount},
+      #{attachment.truncated},#{attachment.createdAt},#{attachment.boundAt}
+    )
+  </insert>
+
+  <select id="findByOwner" resultType="com.jobbuddy.backend.modules.chat.entity.ChatAttachment">
+    SELECT <include refid="columns"/>
+    FROM chat_attachment
+    WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND attachment_id=#{attachmentId}
+  </select>
+
+  <update id="bindToTurn">
+    UPDATE chat_attachment
+    SET session_id=#{sessionId},turn_id=#{turnId},bound_at=#{boundAt}
+    WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND attachment_id=#{attachmentId}
+      AND parse_status='ready'
+      AND (
+        (session_id IS NULL AND turn_id IS NULL)
+        OR (session_id=#{sessionId} AND turn_id=#{turnId})
+      )
+  </update>
+
+  <select id="listBySession" resultType="com.jobbuddy.backend.modules.chat.entity.ChatAttachment">
+    SELECT <include refid="columns"/>
+    FROM chat_attachment
+    WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId}
+    ORDER BY created_at,attachment_id
+  </select>
+
+  <delete id="deleteUnbound">
+    DELETE FROM chat_attachment
+    WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND attachment_id=#{attachmentId}
+      AND session_id IS NULL AND turn_id IS NULL
+  </delete>
+
+  <delete id="deleteBySession">
+    DELETE FROM chat_attachment
+    WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId}
+  </delete>
+</mapper>

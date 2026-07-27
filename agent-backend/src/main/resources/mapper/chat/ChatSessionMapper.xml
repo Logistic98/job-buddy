@@ -27,8 +27,8 @@
       WHERE role='user' AND turn_id IS NOT NULL
     DO NOTHING
   </insert>
-  <select id="findUserMessageContentByTurnId" resultType="string">
-    SELECT content FROM chat_message_log
+  <select id="findUserMessageByTurnId" resultType="map">
+    SELECT content,metadata_json AS "metadataJson" FROM chat_message_log
     WHERE tenant_id=#{tenantId} AND user_id=#{userId} AND session_id=#{sessionId}
       AND turn_id=#{turnId} AND role='user'
     LIMIT 1

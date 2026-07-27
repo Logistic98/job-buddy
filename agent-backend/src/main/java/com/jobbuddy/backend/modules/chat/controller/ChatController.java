@@ -10,6 +10,7 @@ import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
 import com.jobbuddy.backend.modules.chat.dto.response.ChatMessageResponse;
 import com.jobbuddy.backend.modules.chat.dto.response.ChatSessionResponse;
 import com.jobbuddy.backend.modules.chat.service.AgentFlowService;
+import com.jobbuddy.backend.modules.chat.service.ChatAttachmentService;
 import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
 import com.jobbuddy.backend.modules.chat.service.ChatSseService;
 import com.jobbuddy.backend.modules.chat.vo.ChatResponse;
@@ -39,6 +40,7 @@ public class ChatController {
   private final AgentFlowService agentFlowService;
   private final ChatSseService chatSseService;
   private final ChatSessionStore chatSessionStore;
+  private final ChatAttachmentService chatAttachmentService;
 
   /**
    * 创建对话接口实例。
@@ -50,10 +52,12 @@ public class ChatController {
   public ChatController(
       AgentFlowService agentFlowService,
       ChatSseService chatSseService,
-      ChatSessionStore chatSessionStore) {
+      ChatSessionStore chatSessionStore,
+      ChatAttachmentService chatAttachmentService) {
     this.agentFlowService = agentFlowService;
     this.chatSseService = chatSseService;
     this.chatSessionStore = chatSessionStore;
+    this.chatAttachmentService = chatAttachmentService;
   }
 
   /**
@@ -137,10 +141,10 @@ public class ChatController {
   @DeleteMapping("/chat/sessions/{sessionId}")
   public ApiResponse<SessionIdResponse> deleteSession(
       @PathVariable String sessionId, HttpServletRequest request) {
-    chatSessionStore.clear(
-        AuthenticatedUserContext.tenantId(request),
-        AuthenticatedUserContext.userId(request),
-        sessionId);
+    String tenantId = AuthenticatedUserContext.tenantId(request);
+    String userId = AuthenticatedUserContext.userId(request);
+    chatSessionStore.clear(tenantId, userId, sessionId);
+    chatAttachmentService.deleteSession(tenantId, userId, sessionId);
     return ApiResponse.success(new SessionIdResponse(sessionId));
   }
 

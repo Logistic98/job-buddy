@@ -98,6 +98,7 @@ class ChatSseLifecycleTest {
         sessionStore,
         integrationService,
         intentService,
+        mock(com.jobbuddy.backend.modules.chat.service.ChatAttachmentService.class),
         mock(ResumeStorageService.class),
         mock(BossCliService.class),
         mock(PersonalContextBuilder.class),

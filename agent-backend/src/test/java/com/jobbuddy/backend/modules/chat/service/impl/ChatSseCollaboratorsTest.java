@@ -590,6 +590,35 @@ class ChatSseCollaboratorsTest {
     assertEquals(Collections.emptyMap(), metadata.get("upstream_directive"));
   }
 
+  /**
+   * 验证 Runtime 直达合成请求保留本轮附件正文，不能只传公开引用。
+   */
+  @Test
+  void runtimeManagedMetadataShouldCarryAttachmentContent() {
+    RuntimeManagedRequestFactory factory =
+        new RuntimeManagedRequestFactory(
+            mock(AgentIntegrationService.class),
+            mock(PersonalContextBuilder.class),
+            new JobBuddyProperties());
+    ChatSessionState state = new ChatSessionState();
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    Map<String, Object> attachment = new LinkedHashMap<String, Object>();
+    attachment.put("attachmentId", "att-proof");
+    attachment.put("fileName", "project.md");
+    attachment.put("content", "BACKEND_ATTACHMENT_SENTINEL_91");
+    attachment.put("untrusted", true);
+    state.attachments = Collections.singletonList(attachment);
+
+    Map<String, Object> metadata =
+        factory.runtimeManagedMetadata("总结附件", state, Collections.<String, Object>emptyMap(), null);
+
+    List<?> attachments = (List<?>) metadata.get("attachments");
+    assertEquals(1, attachments.size());
+    assertEquals("BACKEND_ATTACHMENT_SENTINEL_91", ((Map<?, ?>) attachments.get(0)).get("content"));
+    assertEquals(Boolean.TRUE, ((Map<?, ?>) attachments.get(0)).get("untrusted"));
+  }
+
   // ---- ChatMemoryWriter ----
 
   private static final Executor DIRECT =

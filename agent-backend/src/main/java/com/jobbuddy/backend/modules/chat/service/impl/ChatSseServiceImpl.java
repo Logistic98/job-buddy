@@ -22,6 +22,8 @@ import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
 import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
+import com.jobbuddy.backend.modules.chat.service.ChatAttachmentService;
+import com.jobbuddy.backend.modules.chat.service.ChatAttachmentTurnResult;
 import com.jobbuddy.backend.modules.chat.service.ChatSessionStore;
 import com.jobbuddy.backend.modules.chat.service.ChatSseService;
 import com.jobbuddy.backend.modules.chat.service.IntentService;
@@ -84,6 +86,7 @@ public class ChatSseServiceImpl implements ChatSseService {
   private final ResumeFlowHandler resumeFlowHandler;
   private final JobRecommendHandler jobRecommendHandler;
   private final RuntimeManagedTaskHandler runtimeManagedTaskHandler;
+  private final ChatAttachmentService attachmentService;
 
   /**
    * 创建具名线程工厂。
@@ -129,6 +132,7 @@ public class ChatSseServiceImpl implements ChatSseService {
       ChatSessionStore sessionStore,
       AgentIntegrationService integrationService,
       IntentService intentService,
+      ChatAttachmentService attachmentService,
       ResumeStorageService resumeStorageService,
       BossCliService bossCliService,
       PersonalContextBuilder personalContextBuilder,
@@ -140,6 +144,7 @@ public class ChatSseServiceImpl implements ChatSseService {
     this.sessionStore = sessionStore;
     this.integrationService = integrationService;
     this.intentService = intentService;
+    this.attachmentService = attachmentService;
     this.properties = properties;
     this.agentServiceProperties = agentServiceProperties;
     this.admissionController = admissionController;
@@ -428,13 +433,38 @@ public class ChatSseServiceImpl implements ChatSseService {
     boolean hasLastSlots = state.lastSlots != null && !state.lastSlots.isEmpty();
     boolean resumeAfterAuth = resumeAfterAuthRequested && hasLastSlots;
     boolean flipJobs = flipJobsRequested && hasLastSlots;
+    String turnId = request.getTurnId() == null ? "" : request.getTurnId().trim();
+    boolean hasAttachments =
+        request.getAttachmentIds() != null && !request.getAttachmentIds().isEmpty();
+    state.attachments = new java.util.ArrayList<Map<String, Object>>();
+    if (resumeAfterAuthRequested && hasAttachments) {
+      state.attachments =
+          attachmentService.bindForTurn(
+              request.getAttachmentIds(),
+              request.getAuthenticatedTenantId(),
+              request.getAuthenticatedUserId(),
+              sessionId,
+              turnId);
+    }
     // 普通用户消息在任务理解和外部调用前按 turnId 原子落库；重复 turn 直接结束，不再次执行 Runtime/Boss。
     // 没有 turnId 的旧客户端保留顺序异步写入兼容。扫码续跑和换一批属于既有动作，继续跳过写入。
     if (!resumeAfterAuthRequested && !flipJobsRequested) {
-      String turnId = request.getTurnId() == null ? "" : request.getTurnId().trim();
       if (!turnId.isEmpty()) {
-        boolean accepted =
-            sessionStore.appendUserMessageOnce(sessionId, turnId, request.getMessage());
+        boolean accepted;
+        if (hasAttachments) {
+          ChatAttachmentTurnResult binding =
+              attachmentService.bindAndAppendUserMessage(
+                  request.getAttachmentIds(),
+                  request.getAuthenticatedTenantId(),
+                  request.getAuthenticatedUserId(),
+                  sessionId,
+                  turnId,
+                  request.getMessage());
+          state.attachments = binding.getAttachments();
+          accepted = binding.isAccepted();
+        } else {
+          accepted = sessionStore.appendUserMessageOnce(sessionId, turnId, request.getMessage());
+        }
         if (!accepted) return;
       } else {
         persistence.appendMessageAsync(sessionId, "user", request.getMessage(), null);
@@ -643,6 +673,11 @@ public class ChatSseServiceImpl implements ChatSseService {
             .metadata(
                 "current_jobs_count", state == null || state.jobs == null ? 0 : state.jobs.size())
             .metadata(
+                "attachments",
+                state == null || state.attachments == null
+                    ? Collections.emptyList()
+                    : attachmentReferences(state.attachments))
+            .metadata(
                 "personal_context", requestFactory.buildUnderstandingContext(message, null, state))
             .build();
     RuntimeRunResult runtimeResult = integrationService.runRuntime(request);
@@ -660,6 +695,27 @@ public class ChatSseServiceImpl implements ChatSseService {
     }
     directive.put("runtime_result", result == null ? Collections.emptyMap() : result);
     return directive;
+  }
+
+  /**
+   * 生成附件公开引用列表。
+   *
+   * @param attachments 运行时附件上下文
+   * @return 公开引用
+   */
+  private java.util.List<Map<String, Object>> attachmentReferences(
+      java.util.List<Map<String, Object>> attachments) {
+    java.util.List<Map<String, Object>> result = new java.util.ArrayList<Map<String, Object>>();
+    if (attachments == null) return result;
+    for (Map<String, Object> attachment : attachments) {
+      if (attachment == null) continue;
+      Map<String, Object> ref = new LinkedHashMap<String, Object>(attachment);
+      ref.remove("content");
+      ref.remove("untrusted");
+      ref.remove("injectionHits");
+      result.add(ref);
+    }
+    return result;
   }
 
   /**

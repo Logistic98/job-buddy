@@ -121,24 +121,44 @@ public class ChatSessionRepository {
    */
   public boolean appendUserMessageOnce(
       String tenantId, String userId, String sessionId, String turnId, String content) {
+    return appendUserMessageOnce(tenantId, userId, sessionId, turnId, content, null);
+  }
+
+  /**
+   * 用稳定 turnId 原子写入携带元数据的用户消息。重放时内容和元数据都必须一致。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param sessionId 会话标识
+   * @param turnId 轮次标识
+   * @param content 内容
+   * @param metadata 消息元数据
+   * @return 消息是否首次写入
+   */
+  public boolean appendUserMessageOnce(
+      String tenantId,
+      String userId,
+      String sessionId,
+      String turnId,
+      String content,
+      Map<String, Object> metadata) {
     String normalizedTurnId = turnId == null ? "" : turnId.trim();
     if (normalizedTurnId.isEmpty()) {
-      appendMessage(tenantId, userId, sessionId, "user", content);
+      appendMessage(tenantId, userId, sessionId, "user", content, metadata);
       return true;
     }
+    String metadataJson = jsonCodec.toJson(metadata);
     int inserted =
         mapper.appendUserMessageOnce(
-            tenantId,
-            userId,
-            sessionId,
-            normalizedTurnId,
-            content,
-            jsonCodec.toJson(null),
-            Instant.now());
+            tenantId, userId, sessionId, normalizedTurnId, content, metadataJson, Instant.now());
     if (inserted > 0) return true;
-    String existing =
-        mapper.findUserMessageContentByTurnId(tenantId, userId, sessionId, normalizedTurnId);
-    if (!java.util.Objects.equals(existing, content)) {
+    Map<String, Object> existing =
+        mapper.findUserMessageByTurnId(tenantId, userId, sessionId, normalizedTurnId);
+    String existingContent = existing == null ? null : string(existing.get("content"));
+    String existingMetadata = existing == null ? null : string(existing.get("metadataJson"));
+    if (!java.util.Objects.equals(existingContent, content)
+        || !java.util.Objects.equals(
+            jsonCodec.toMap(existingMetadata), jsonCodec.toMap(metadataJson))) {
       throw new IllegalArgumentException("同一 turnId 不能用于不同的用户消息");
     }
     return false;
@@ -213,6 +233,8 @@ public class ChatSessionRepository {
       Map<String, Object> metadata = jsonCodec.toMap(string(row.get("metadataJson")));
       if (metadata != null && !metadata.isEmpty()) {
         item.put("metadata", metadata);
+        if (metadata.containsKey("attachments"))
+          item.put("attachments", metadata.get("attachments"));
         if (metadata.containsKey("jobCards")) item.put("jobCards", metadata.get("jobCards"));
         if (metadata.containsKey("resumeMatch"))
           item.put("resumeMatch", metadata.get("resumeMatch"));

@@ -25,7 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @Service
 public class InterviewDocumentTextExtractorImpl implements InterviewDocumentTextExtractor {
-  public static final long MAX_FILE_SIZE_BYTES = 10L * 1024L * 1024L;
+  public static final long MAX_FILE_SIZE_BYTES = DEFAULT_MAX_FILE_SIZE_BYTES;
   public static final int MAX_TEXT_CHARACTERS = 20_000;
 
   private static final Set<String> ALLOWED_EXTENSIONS =
@@ -50,8 +50,8 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
    * @return 提取结果
    */
   @Override
-  public InterviewDocumentExtractResponse extract(MultipartFile file) {
-    validateFile(file);
+  public InterviewDocumentExtractResponse extract(MultipartFile file, long maxFileSizeBytes) {
+    validateFile(file, maxFileSizeBytes);
     String fileName = safeFileName(file.getOriginalFilename());
     String extension = extension(fileName);
     String contentType = normalizeContentType(file.getContentType());
@@ -86,18 +86,26 @@ public class InterviewDocumentTextExtractorImpl implements InterviewDocumentText
    *
    * @param file 上传文件
    */
-  private void validateFile(MultipartFile file) {
+  private void validateFile(MultipartFile file, long maxFileSizeBytes) {
     if (file == null || file.isEmpty() || file.getSize() <= 0) {
       throw new IllegalArgumentException("上传文档不能为空");
     }
-    if (file.getSize() > MAX_FILE_SIZE_BYTES) {
-      throw new IllegalArgumentException("文档大小不能超过 10MB");
+    if (maxFileSizeBytes <= 0) {
+      throw new IllegalArgumentException("文档大小上限配置无效");
+    }
+    if (file.getSize() > maxFileSizeBytes) {
+      throw new IllegalArgumentException("文档大小不能超过 " + formatFileSize(maxFileSizeBytes));
     }
     String fileName = safeFileName(file.getOriginalFilename());
     String extension = extension(fileName);
     if (!ALLOWED_EXTENSIONS.contains(extension)) {
       throw new IllegalArgumentException("仅支持 PDF、DOC、DOCX、TXT、MD、JSON、CSV 文件");
     }
+  }
+
+  private String formatFileSize(long bytes) {
+    long megabytes = bytes / 1024L / 1024L;
+    return megabytes > 0 && megabytes * 1024L * 1024L == bytes ? megabytes + "MB" : bytes + "B";
   }
 
   /**

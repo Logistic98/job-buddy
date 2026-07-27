@@ -74,6 +74,18 @@ public interface ChatSessionStore {
   boolean appendUserMessageOnce(String sessionId, String turnId, String content);
 
   /**
+   * 仅追加一次携带结构化元数据的用户消息。
+   *
+   * @param sessionId 会话标识
+   * @param turnId 对话轮次标识
+   * @param content 内容
+   * @param metadata 消息元数据
+   * @return 新增记录时为 {@code true}，幂等重放时为 {@code false}
+   */
+  boolean appendUserMessageOnce(
+      String sessionId, String turnId, String content, Map<String, Object> metadata);
+
+  /**
    * 替换最新助手岗位消息。
    *
    * @param sessionId 会话标识

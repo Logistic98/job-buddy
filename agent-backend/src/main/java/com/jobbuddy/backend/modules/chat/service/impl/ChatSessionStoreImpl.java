@@ -143,9 +143,15 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
    */
   @Override
   public boolean appendUserMessageOnce(String sessionId, String turnId, String content) {
+    return appendUserMessageOnce(sessionId, turnId, content, null);
+  }
+
+  @Override
+  public boolean appendUserMessageOnce(
+      String sessionId, String turnId, String content, Map<String, Object> metadata) {
     Owner owner = owner(sessionId);
     return chatSessionRepository.appendUserMessageOnce(
-        owner.tenantId, owner.userId, sessionId, turnId, content);
+        owner.tenantId, owner.userId, sessionId, turnId, content, metadata);
   }
 
   /**

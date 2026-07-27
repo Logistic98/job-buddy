@@ -227,7 +227,7 @@ class RuntimeManagedRequestFactory {
    * @param profile 画像
    * @param extraMetadata 附加元数据
    * @param stream 流式
-   * @return  Runtime 托管请求体，供流式与非流式入口共用，保证消息/预算/元数据一致
+   * @return Runtime 托管请求体，供流式与非流式入口共用，保证消息/预算/元数据一致
    */
   RuntimeRunRequest buildRuntimeManagedRequest(
       String sessionId,
@@ -280,6 +280,9 @@ class RuntimeManagedRequestFactory {
         "previous_slots",
         state == null || state.lastSlots == null ? Collections.emptyMap() : state.lastSlots);
     metadata.put("current_jobs_count", state == null || state.jobs == null ? 0 : state.jobs.size());
+    metadata.put(
+        "attachments",
+        state == null || state.attachments == null ? Collections.emptyList() : state.attachments);
     metadata.put("personal_context", buildPersonalContext(message, intent, state));
     Map<String, Object> upstreamDirective =
         directive == null
