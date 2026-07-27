@@ -84,6 +84,10 @@ def test_short_job_search_needs_clarification():
     assert result.intent == "job.recommend"
     assert result.needs_clarification is True
     assert "role" in result.slots["missing_slots"]
+    assert result.slots["clarification_question"] == (
+        "你想找哪类 Agent 开发岗位？例如 Agent 应用开发、Agent 平台、RAG 工程或大模型应用开发。"
+    )
+    assert "Java" not in result.slots["clarification_question"]
     assert result.next_action == "ask_job_search_clarification"
 
 
@@ -94,6 +98,15 @@ def test_city_role_phrase_is_job_search():
     assert result.needs_clarification is False
     assert result.slots["city"] == "上海"
     assert result.slots["role"] == "Java 后端"
+
+
+def test_agent_platform_role_is_job_search():
+    result = classify_intent("帮我找上海 3 年 Agent 平台开发岗位")
+    assert result.domain == "job"
+    assert result.intent == "job.recommend"
+    assert result.needs_clarification is False
+    assert result.slots["city"] == "上海"
+    assert result.slots["role"] == "大模型应用开发"
 
 
 def test_go_role_without_space():

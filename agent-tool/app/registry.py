@@ -29,7 +29,7 @@ TOOLS: list[dict] = [
         },
         "returns": "data 为记忆条目数组,每条含 id、scope、content、created_at",
         "errors": ["invalid_arguments", "memory_timeout", "memory_unavailable"],
-        "example": {"arguments": {"query": "Java 岗位偏好", "scope": "session"}},
+        "example": {"arguments": {"query": "Agent 开发岗位偏好", "scope": "session"}},
         "eval": "tests/test_tools.py::test_memory_search_requires_query",
     },
     {

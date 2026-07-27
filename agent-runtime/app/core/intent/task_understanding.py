@@ -501,6 +501,7 @@ class TaskUnderstandingService:
         "max_turns",
         "max_tool_calls",
         "personal_context",
+        "attachments",
     )
 
     def _safe_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:

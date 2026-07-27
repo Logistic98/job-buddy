@@ -21,9 +21,11 @@ from app.models.schemas import AgentRunRequest, BudgetConfig, ChatMessage, ToolC
 class _StreamingLlm:
     def __init__(self):
         self.max_tokens = None
+        self.messages = None
 
     async def stream_chat(self, messages, max_tokens=None):
         self.max_tokens = max_tokens
+        self.messages = messages
         yield {"type": "text", "text": "ok"}
 
     def get_cache_metrics(self):
@@ -91,6 +93,59 @@ async def test_direct_stream_applies_the_smaller_response_and_run_token_limit(mo
 
     assert any(event["event"] == "done" for event in events)
     assert llm.max_tokens == 1200
+
+
+@pytest.mark.asyncio
+async def test_direct_stream_sends_attachment_evidence_to_the_llm():
+    llm = _StreamingLlm()
+    executor = AgentExecutor(llm_client=llm, use_llm=False)
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="从附件中找出项目代号")],
+        metadata={
+            "runtime_execute": True,
+            "upstream_directive": {
+                "domain": "open_domain",
+                "intent": "document_qa",
+                "confidence": 0.97,
+                "router": "llm",
+                "next_action": "answer",
+                "task": {
+                    "profile": "job-buddy",
+                    "routing": {
+                        "selected_capability": {
+                            "capability_id": "document.qa",
+                        }
+                    },
+                },
+            },
+            "attachments": [
+                {
+                    "attachmentId": "att-contract",
+                    "fileName": "contract.txt",
+                    "contentType": "text/plain",
+                    "characterCount": 37,
+                    "truncated": False,
+                    "content": "FAST_PATH_ATTACHMENT_PROOF_7B9：项目代号是北极星。",
+                }
+            ],
+        },
+    )
+
+    events = [event async for event in executor.execute_stream(request)]
+
+    assert any(event["event"] == "done" for event in events)
+    assert llm.messages is not None
+    assert "FAST_PATH_ATTACHMENT_PROOF_7B9" in llm.messages[-1].content
+    assert "contract.txt" in llm.messages[-1].content
+    done = next(event["data"] for event in events if event["event"] == "done")
+    trace_events = done["trace_events"]
+    trace_names = [event["event"] for event in trace_events]
+    assert trace_names.index("task_understanding") < trace_names.index("capability_route")
+    task_event = next(event for event in trace_events if event["event"] == "task_understanding")
+    assert task_event["payload"]["intent"] == "document_qa"
+    assert task_event["payload"]["router"] == "llm"
+    context_event = next(event for event in trace_events if event["event"] == "context_collected")
+    assert context_event["payload"]["attachment_count"] == 1
 
 
 @pytest.mark.asyncio

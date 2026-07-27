@@ -78,7 +78,7 @@ slot_extractors:
     type: keyword_map
     values:
       - value: 大模型应用开发
-        aliases: ["大模型应用开发", "AI应用开发", "AI 应用开发", "Agent应用开发", "Agent 应用开发", "Agent工程师", "Agent 工程师", "RAG应用", "LLM应用", "大模型开发"]
+        aliases: ["大模型应用开发", "AI应用开发", "AI 应用开发", "Agent应用开发", "Agent 应用开发", "Agent平台", "Agent 平台", "Agent平台开发", "Agent 平台开发", "Agent Runtime", "Agent Runtime开发", "Agent工程师", "Agent 工程师", "RAG应用", "RAG 工程", "LLM应用", "大模型开发"]
         set_slots:
           role: 大模型应用开发
           secondary_queries: ["AI应用开发", "Agent工程师", "Python AI应用开发", "大模型开发"]
@@ -138,9 +138,9 @@ capabilities:
     description: 根据用户给出的城市、岗位方向、薪资、经验和偏好，触发岗位搜索或推荐工作流。只有用户明确要找、筛选、搜索、推荐岗位或职位机会时才选择该能力。
     examples:
       - "帮我筛选上海大模型应用开发 40-50K 岗位"
-      - "找一些上海 Java 大模型应用开发职位"
-      - "看看上海 Java 大模型应用开发 40-50K 机会"
-      - "有没有适合我的 Java Agent 应用开发岗位"
+      - "找一些上海 Agent 应用开发职位"
+      - "看看上海 Agent 平台开发 40-50K 机会"
+      - "有没有适合我的 Agent Runtime 开发岗位"
     negative_examples:
       - "分析当前简历是否匹配 Agent 应用开发岗位"
       - "帮我写一个 Python 脚本处理 CSV"
@@ -157,7 +157,7 @@ capabilities:
     secondary: ["needs_job_filters"]
     business_tags: ["job_search"]
     capability_tags: ["search", "recommendation", "stable_workflow"]
-    clarification_question: "你想找什么方向或岗位？例如 Java 后端、Python、前端或大模型应用开发。"
+    clarification_question: "你想找哪类 Agent 开发岗位？例如 Agent 应用开发、Agent 平台、RAG 工程或大模型应用开发。"
 
   - id: resume.match
     name: 简历与岗位匹配分析
@@ -173,7 +173,7 @@ capabilities:
       - "简历对比 JD 匹配度"
     negative_examples:
       - "帮我筛选上海大模型应用开发岗位"
-      - "找 Java 后端职位"
+      - "找 Agent 平台开发职位"
     keywords: ["简历", "履历", "CV", "匹配", "适合", "是否", "对比", "JD匹配", "JD 匹配", "当前简历"]
     negative_keywords: ["搜索", "推荐", "筛选", "找岗位"]
     optional_slots: ["role", "target_job_description", "city", "salary_min_k", "salary_max_k"]

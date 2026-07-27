@@ -23,10 +23,17 @@ class FakeIntentLLM:
 async def test_profile_capability_cards_are_loaded_from_yaml():
     registry = CapabilityRegistry()
     profile = registry.get_profile("job-buddy")
+    recommendation = profile.capability_by_id("job.recommend")
 
     assert profile.directive_type == "job_buddy_directive"
     assert profile.default_capability_id == "open_domain.general_qa"
-    assert profile.capability_by_id("job.recommend") is not None
+    assert recommendation is not None
+    assert all("java" not in example.lower() for example in recommendation.examples)
+    assert "Java" not in recommendation.clarification_question
+    assert "Agent 开发岗位" in recommendation.clarification_question
+    role_extractor = next(item for item in profile.slot_extractors if item.name == "role")
+    agent_role = next(item for item in role_extractor.values if item["value"] == "大模型应用开发")
+    assert "Agent 平台开发" in agent_role["aliases"]
     assert profile.capability_by_id("runtime.code_generation_task").next_action == "run_runtime_planner"
 
 

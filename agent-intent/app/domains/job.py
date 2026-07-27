@@ -61,6 +61,9 @@ ROLE_HINTS = {
     "qa": "测试",
     "产品": "产品",
     "后端": "后端",
+    "agent": "大模型应用开发",
+    "rag": "大模型应用开发",
+    "大模型": "大模型应用开发",
 }
 
 EXCLUDE_HINTS = ["外包", "驻场", "私企", "国企", "外企"]
@@ -240,7 +243,9 @@ def _build_clarification(slots: Dict[str, Any], missing_slots: list[str]) -> Int
     enriched_slots = dict(slots)
     enriched_slots["missing_slots"] = missing_slots
     if "role" not in slots:
-        enriched_slots["clarification_question"] = "你想找什么方向或岗位？例如 Java 后端、Python、前端或算法。"
+        enriched_slots["clarification_question"] = (
+            "你想找哪类 Agent 开发岗位？例如 Agent 应用开发、Agent 平台、RAG 工程或大模型应用开发。"
+        )
     elif "city" not in slots:
         enriched_slots["clarification_question"] = "你希望在哪个城市找岗位？也可以说明远程或不限城市。"
     else:
@@ -349,7 +354,7 @@ def classify_job(text: str) -> Optional[IntentResult]:
     has_search_verb = _has_any(text, ["找", "看看", "推荐", "筛选", "搜索", "有没有", "适合", "机会"])
 
     # 仅命中城市不足以判定为求职意图,避免把"今天上海天气怎么样"误归为 job。
-    # 但“上海 Java”“找工作”“20k 以上岗位”这类短句需要进入求职域，而不是落到 open_domain。
+    # 但“上海 Agent”“找工作”“20k 以上岗位”这类短句需要进入求职域，而不是落到 open_domain。
     looks_like_job_search = (
         matched_job
         or (has_city_signal and has_role_signal)
