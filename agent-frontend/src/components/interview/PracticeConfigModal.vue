@@ -134,6 +134,7 @@
 <script setup>
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { createRandomExam } from '../../api/interview'
+import { createUuid } from '../../utils/clientId'
 import { validatePracticeConfig } from '../../utils/interviewForm'
 
 // 创建成功后同时返回试卷和时长，由父组件启动计时。
@@ -177,7 +178,7 @@ function emptyExamConfig() {
   return { title: '', durationMinutes: '', answerMode: '', rules: [newExamRule()] }
 }
 function newExamRule() {
-  return { id: crypto.randomUUID(), bankType: '', category: '', difficulty: '中等', questionType: '', count: '' }
+  return { id: createUuid(), bankType: '', category: '', difficulty: '中等', questionType: '', count: '' }
 }
 function addExamRule() {
   examConfig.rules.push(newExamRule())

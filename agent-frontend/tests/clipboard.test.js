@@ -33,6 +33,15 @@ describe('copyText', () => {
     expect(document.querySelector('textarea')).toBeNull()
   })
 
+  it('falls back on an HTTP origin where the clipboard API is unavailable', async () => {
+    delete navigator.clipboard
+    document.execCommand = vi.fn().mockReturnValue(true)
+
+    await expect(copyText('http fallback')).resolves.toBe(true)
+    expect(document.execCommand).toHaveBeenCalledWith('copy')
+    expect(document.querySelector('textarea')).toBeNull()
+  })
+
   it('does not copy empty content', async () => {
     await expect(copyText('')).resolves.toBe(false)
   })

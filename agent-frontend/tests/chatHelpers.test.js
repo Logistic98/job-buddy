@@ -26,14 +26,19 @@ describe('normalizeMessageText', () => {
 
 describe('requestKey', () => {
   it('builds a stable key from parts', () => {
-    expect(requestKey('s1', 'r1', '  hi  ')).toBe('s1::r1::hi::')
+    expect(requestKey('s1', 'r1', '  hi  ')).toBe('s1::r1::hi::::')
   })
   it('falls back to placeholders and reads selected job identity', () => {
     const key = requestKey(null, null, 'x', { securityId: 'sec-9' })
-    expect(key).toBe('new::none::x::sec-9')
+    expect(key).toBe('new::none::x::sec-9::')
   })
   it('treats whitespace-different messages as the same key', () => {
     expect(requestKey('s', 'r', 'a b')).toBe(requestKey('s', 'r', 'a   b'))
+  })
+  it('sorts attachment ids so selection order does not change idempotency', () => {
+    expect(requestKey('s', 'r', 'x', null, ['file-2', 'file-1'])).toBe(
+      requestKey('s', 'r', 'x', null, ['file-1', 'file-2']),
+    )
   })
 })
 
@@ -109,6 +114,17 @@ describe('assistant presentation helpers', () => {
     expect(output).toContain('原样。。')
     expect(output).toContain('`内联。。`')
     expect(output).toContain('[说明。。](https://example.com/a..b)')
+  })
+
+  it('keeps local file names as text while preserving explicit links', () => {
+    const input =
+      '根据你上传的《智能问答组件项目-平台介绍.md》总结内容；本地：[项目介绍.md](项目介绍.md)；下载：[项目介绍.md](https://example.com/project.md)。'
+    const output = normalizeAssistantMarkdown(input)
+
+    expect(output).toContain('《智能问答组件项目-平台介绍\\.md》')
+    expect(output).toContain('本地：项目介绍\\.md')
+    expect(output).not.toContain('](项目介绍.md)')
+    expect(output).toContain('[项目介绍.md](https://example.com/project.md)')
   })
 
   it('selects readable resume match details without exposing raw payload', () => {

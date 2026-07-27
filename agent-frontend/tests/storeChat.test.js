@@ -6,13 +6,21 @@ vi.mock('../src/api/chat', () => ({
   listSessionMessages: vi.fn(async () => []),
   deleteSession: vi.fn(async () => ({})),
   streamChat: vi.fn(async () => {}),
+  uploadChatAttachment: vi.fn(async () => ({})),
+  deleteChatAttachment: vi.fn(async () => ({})),
 }))
 
 vi.mock('../src/api/boss', () => ({
   getBossLoginStatus: vi.fn(async () => ({ status: 'logged_in' })),
 }))
 
-import { listSessionMessages, listSessions, streamChat } from '../src/api/chat'
+import {
+  deleteChatAttachment,
+  listSessionMessages,
+  listSessions,
+  streamChat,
+  uploadChatAttachment,
+} from '../src/api/chat'
 import { getBossLoginStatus } from '../src/api/boss'
 import { useChatStore } from '../src/stores/chat'
 
@@ -32,6 +40,70 @@ describe('chat store - session lifecycle', () => {
     store.$reset()
 
     expect(store.lastJobCardsEvent).toEqual([])
+  })
+
+  it('uploads multiple attachments and removes an unsent attachment', async () => {
+    uploadChatAttachment
+      .mockResolvedValueOnce({
+        attachmentId: 'att-1',
+        fileName: 'one.pdf',
+        suffix: 'pdf',
+        sizeBytes: 10,
+        parseStatus: 'ready',
+      })
+      .mockResolvedValueOnce({
+        attachmentId: 'att-2',
+        fileName: 'two.docx',
+        suffix: 'docx',
+        sizeBytes: 20,
+        parseStatus: 'ready',
+      })
+    const store = useChatStore()
+
+    await store.addAttachments([
+      new File(['one'], 'one.pdf', { type: 'application/pdf' }),
+      new File(['two'], 'two.docx', {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
+    ])
+
+    expect(store.pendingAttachments.map((item) => item.attachmentId)).toEqual(['att-1', 'att-2'])
+    await store.removePendingAttachment(store.pendingAttachments[0])
+    expect(deleteChatAttachment).toHaveBeenCalledWith('att-1')
+    expect(store.pendingAttachments.map((item) => item.attachmentId)).toEqual(['att-2'])
+  })
+
+  it('keeps attachment validation errors separate from conversation service errors', async () => {
+    const store = useChatStore()
+    store.pendingAttachments = Array.from({ length: 5 }, (_, index) => ({
+      localId: `local-${index}`,
+      attachmentId: `att-${index}`,
+      status: 'ready',
+    }))
+
+    await store.addAttachments([new File(['six'], 'six.txt', { type: 'text/plain' })])
+
+    expect(store.attachmentError).toBe('每条消息最多上传 5 个附件。')
+    expect(store.serviceError).toBe('')
+    expect(store.pendingAttachments).toHaveLength(5)
+  })
+
+  it('does not send while a failed attachment card is unresolved', async () => {
+    const store = useChatStore()
+    store.pendingAttachments = [
+      {
+        localId: 'failed-attachment',
+        fileName: 'broken.pdf',
+        status: 'error',
+        error: '文件已损坏',
+      },
+    ]
+
+    await expect(store.send('总结文件')).resolves.toBe(false)
+
+    expect(streamChat).not.toHaveBeenCalled()
+    expect(store.attachmentError).toBe('请先移除上传失败的文件再发送。')
+    expect(store.serviceError).toBe('')
   })
 
   it('drops a late account-A session list after disposeForAuthChange', async () => {
@@ -212,6 +284,53 @@ describe('chat store - send', () => {
     expect(roles).toEqual(['user', 'assistant'])
     expect(store.messages[0].content).toBe('在吗')
     expect(store.messages[1].content).toBe('你好，世界')
+  })
+
+  it('moves ready attachments to the user bubble as soon as sending starts', async () => {
+    let finishStream
+    streamChat.mockImplementation(
+      (payload, handlers) =>
+        new Promise((resolve) => {
+          finishStream = () => {
+            handlers.session?.({ sessionId: payload.sessionId })
+            handlers.message?.({ content: '已完成附件总结' })
+            handlers.done?.({ ok: true })
+            resolve()
+          }
+        }),
+    )
+    const store = useChatStore()
+    store.pendingAttachments = [
+      {
+        localId: 'local-1',
+        attachmentId: 'att-1',
+        fileName: 'notes.md',
+        contentType: 'text/markdown',
+        suffix: 'md',
+        sizeBytes: 12,
+        parseStatus: 'ready',
+        status: 'ready',
+      },
+      {
+        localId: 'local-2',
+        attachmentId: 'att-2',
+        fileName: 'jd.doc',
+        contentType: 'application/msword',
+        suffix: 'doc',
+        sizeBytes: 24,
+        parseStatus: 'ready',
+        status: 'ready',
+      },
+    ]
+
+    const sendPromise = store.send('对比这两份文件')
+
+    expect(streamChat.mock.calls[0][0].attachmentIds).toEqual(['att-1', 'att-2'])
+    expect(store.messages[0].attachments.map((item) => item.fileName)).toEqual(['notes.md', 'jd.doc'])
+    expect(store.pendingAttachments).toEqual([])
+
+    finishStream()
+    await expect(sendPromise).resolves.toBe(true)
   })
 
   it('adds a new session to history immediately without waiting for the session event', async () => {

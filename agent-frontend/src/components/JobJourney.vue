@@ -499,8 +499,9 @@ import {
   updateJourneyRecord,
 } from '../api/journey'
 import { useJobStore } from '../stores/job'
-import { formatJourneyDateTime, toJourneyDateTimeLocalValue } from '../utils/journeyDateTime'
+import { copyText } from '../utils/clipboard'
 import { validateLength } from '../utils/formValidation'
+import { formatJourneyDateTime, toJourneyDateTimeLocalValue } from '../utils/journeyDateTime'
 import { journeyResultClass } from '../utils/journeyResult'
 
 const job = useJobStore()
@@ -839,8 +840,6 @@ async function runAnalysis() {
 async function copyFollowUp() {
   const text = analysis.value?.followUpMessage || ''
   if (!text) return
-  try {
-    await navigator.clipboard.writeText(text)
-  } catch (_) {}
+  await copyText(text)
 }
 </script>

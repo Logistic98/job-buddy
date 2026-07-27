@@ -72,7 +72,7 @@ class ContextAssembler:
         # checkpoint 恢复等场景下 state 已携带压缩快照，装配时保留五要素供 Planner 使用。
         if isinstance(compaction, dict) and compaction:
             payload["compaction"] = compaction
-        # 由 Java BFF 注入的求职画像/简历/求职进展等个人上下文，让 Planner 直接使用既有数据，
+        # 由 Java Backend 注入的求职画像/简历/求职进展等个人上下文，让 Planner 直接使用既有数据，
         # 避免在工作台问答里反复要求用户重新提供已知信息。
         personal_context = metadata.get("personal_context")
         if isinstance(personal_context, dict) and personal_context:

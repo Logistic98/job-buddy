@@ -1,6 +1,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { generateJobProfileSummary } from '../api/resume'
 import { useResumeStore } from '../stores/resume'
+import { createUuid } from '../utils/clientId'
 import { validateInteger, validateLength, validateMonthRange, validateTags } from '../utils/formValidation'
 
 /**
@@ -113,7 +114,7 @@ export function useBossResumePage() {
   }
   function newWork(data = {}) {
     return {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       company: '',
       position: '',
       startDate: '',
@@ -127,7 +128,7 @@ export function useBossResumePage() {
   }
   function newProject(data = {}) {
     return {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       name: '',
       role: '',
       startDate: '',
@@ -142,7 +143,7 @@ export function useBossResumePage() {
   }
   function newEducation(data = {}) {
     return {
-      id: crypto.randomUUID(),
+      id: createUuid(),
       school: '',
       college: '',
       major: '',

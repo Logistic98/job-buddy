@@ -33,6 +33,18 @@ describe('normalizeSessionRows', () => {
     expect(out[0].id).toBe('turn-1')
     expect(out[0].turnId).toBe('turn-1')
   })
+  it('restores attachment metadata from message history', () => {
+    const out = normalizeSessionRows('s1', [
+      {
+        turnId: 'turn-file',
+        role: 'user',
+        content: '总结附件',
+        attachments: [{ attachmentId: 'att-1', fileName: 'notes.md' }],
+      },
+    ])
+
+    expect(out[0].attachments).toEqual([{ attachmentId: 'att-1', fileName: 'notes.md' }])
+  })
   it('folds only consecutive legacy duplicate user rows before an assistant reply', () => {
     const rows = [
       { role: 'user', content: '重复问题' },

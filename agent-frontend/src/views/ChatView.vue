@@ -6,7 +6,6 @@
         ref="chatPanel"
         :resume-id="resume.current?.resumeId"
         :resume-name="currentResumeName"
-        @ask="ask"
         @select-resume="openResumePicker"
       />
     </div>
@@ -101,9 +100,6 @@ const showResumeModal = ref(false)
 
 const currentResumeName = computed(() => (resume.current ? resumeTitle(resume.current) : ''))
 
-function ask(text) {
-  chatPanel.value?.submitPrompt(text)
-}
 function goChat() {}
 function startNewChat() {
   chat.newSession()

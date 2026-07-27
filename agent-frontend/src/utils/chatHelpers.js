@@ -6,7 +6,7 @@ export function normalizeMessageText(message) {
     .trim()
 }
 
-export function requestKey(sessionId, resumeId, message, selectedJob = null) {
+export function requestKey(sessionId, resumeId, message, selectedJob = null, attachmentIds = []) {
   const selectedJobKey = selectedJob
     ? String(
         selectedJob.favoriteKey ||
@@ -17,7 +17,8 @@ export function requestKey(sessionId, resumeId, message, selectedJob = null) {
           '',
       )
     : ''
-  return `${sessionId || 'new'}::${resumeId || 'none'}::${normalizeMessageText(message)}::${selectedJobKey}`
+  const attachmentKey = Array.isArray(attachmentIds) ? attachmentIds.map(String).sort().join(',') : ''
+  return `${sessionId || 'new'}::${resumeId || 'none'}::${normalizeMessageText(message)}::${selectedJobKey}::${attachmentKey}`
 }
 
 export function isAbortError(error) {
@@ -117,9 +118,26 @@ const protectedMarkdownPattern =
 export function normalizeAssistantMarkdown(content) {
   const normalized = String(content || '')
     .split(protectedMarkdownPattern)
-    .map((part, index) => (index % 2 === 1 ? part : normalizeProsePunctuation(part)))
+    .map((part, index) =>
+      index % 2 === 1 ? normalizeProtectedMarkdownPart(part) : escapeUnlinkedFileNames(normalizeProsePunctuation(part)),
+    )
     .join('')
   return linkifyBareUrls(normalized)
+}
+
+function normalizeProtectedMarkdownPart(content) {
+  const markdownLink = String(content || '').match(/^!?\[([^\]\n]*)\]\(([^)\n]+)\)$/)
+  if (!markdownLink || /^https?:\/\//i.test(markdownLink[2].trim())) return content
+  return escapeUnlinkedFileNames(markdownLink[1])
+}
+
+function escapeUnlinkedFileNames(content) {
+  const localFilePattern =
+    /(^|[\s《〈「『“"'（(【\[])([^\\/\s<>[\]()《》〈〉「」『』“”"'，。；、！？：]{1,180})\.(pdf|docx?|txt|md)(?=$|[\s》〉」』”"'）)】\]，。；、！？：])/giu
+  return String(content || '').replace(
+    localFilePattern,
+    (_, prefix, fileName, suffix) => `${prefix}${fileName}\\.${suffix}`,
+  )
 }
 
 function normalizeProsePunctuation(content) {

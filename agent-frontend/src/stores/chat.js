@@ -1,6 +1,14 @@
-import { defineStore } from 'pinia'
-import { deleteSession, listSessionMessages, listSessions, streamChat } from '../api/chat'
+import { acceptHMRUpdate, defineStore } from 'pinia'
+import {
+  deleteChatAttachment,
+  deleteSession,
+  listSessionMessages,
+  listSessions,
+  streamChat,
+  uploadChatAttachment,
+} from '../api/chat'
 import { getBossLoginStatus } from '../api/boss'
+import { createUuid } from '../utils/clientId'
 import {
   filterVisibleToolEvents,
   formatSendError,
@@ -20,7 +28,7 @@ import {
 } from '../utils/chatSnapshots'
 
 const duplicateSubmitWindowMs = 1800
-const createTurnId = () => `turn_${crypto.randomUUID().replace(/-/g, '')}`
+const createTurnId = () => `turn_${createUuid().replace(/-/g, '')}`
 
 // 管理多会话 SSE 请求、乐观消息、认证续跑与持久化快照；每个在途请求按 sessionId 隔离。
 export const useChatStore = defineStore('chat', {
@@ -38,6 +46,7 @@ export const useChatStore = defineStore('chat', {
     lastPersonalContextEvent: null,
     toolEvents: [],
     serviceError: '',
+    attachmentError: '',
     pendingAuthRequest: null,
     bossAuthStatus: { checkedAt: 0, authenticated: false, raw: null },
     bossAuthCheckPromise: null,
@@ -48,6 +57,7 @@ export const useChatStore = defineStore('chat', {
     sessionSnapshots: {},
     sessionMessageRequests: {},
     pendingSessionEntries: {},
+    pendingAttachments: [],
     switchingSessionId: '',
     lastSubmitKey: '',
     lastSubmitAt: 0,
@@ -56,6 +66,7 @@ export const useChatStore = defineStore('chat', {
   actions: {
     disposeForAuthChange() {
       const nextRevision = this.lifecycleRevision + 1
+      this.discardPendingAttachments()
       Object.values(this.activeSessionRequests).forEach((request) => {
         try {
           request?.controller?.abort()
@@ -66,6 +77,7 @@ export const useChatStore = defineStore('chat', {
     },
     newSession() {
       this.snapshotCurrentSession()
+      this.discardPendingAttachments()
       this.sessionId = ''
       this.messages = []
       this.intent = null
@@ -76,9 +88,74 @@ export const useChatStore = defineStore('chat', {
       this.lastPersonalContextEvent = null
       this.toolEvents = []
       this.serviceError = ''
+      this.attachmentError = ''
       this.pendingAuthRequest = null
+      this.pendingAttachments = []
       // 新建会话只切换当前工作区，已有会话继续在后台生成，不再隐式取消请求。
       this.applyCurrentRequestProjection('')
+    },
+    async addAttachments(files = []) {
+      const selected = Array.from(files || [])
+      const remaining = Math.max(0, 5 - this.pendingAttachments.length)
+      this.attachmentError = ''
+      if (!remaining) {
+        this.attachmentError = '每条消息最多上传 5 个附件。'
+        return []
+      }
+      const accepted = selected.slice(0, remaining)
+      if (selected.length > remaining) this.attachmentError = '每条消息最多上传 5 个附件。'
+      const uploads = accepted.map(async (file) => {
+        const localId = `upload_${createUuid().replace(/-/g, '')}`
+        const entry = {
+          localId,
+          fileName: file.name || '未命名文件',
+          sizeBytes: Number(file.size || 0),
+          status: 'uploading',
+          error: '',
+        }
+        this.pendingAttachments.push(entry)
+        try {
+          const uploaded = await uploadChatAttachment(file)
+          const pendingEntry = this.pendingAttachments.find((item) => item.localId === localId)
+          if (!pendingEntry) {
+            if (uploaded?.attachmentId) deleteChatAttachment(uploaded.attachmentId).catch(() => {})
+            return { ...entry, ...uploaded, status: 'ready', error: '' }
+          }
+          Object.assign(pendingEntry, uploaded, { status: 'ready', error: '' })
+          return pendingEntry
+        } catch (error) {
+          const pendingEntry = this.pendingAttachments.find((item) => item.localId === localId)
+          if (!pendingEntry) return { ...entry, status: 'error', error: formatSendError(error) }
+          pendingEntry.status = 'error'
+          pendingEntry.error = formatSendError(error)
+          this.attachmentError = '部分文件上传或解析失败，请移除失败文件后重试。'
+          return pendingEntry
+        }
+      })
+      return Promise.all(uploads)
+    },
+    discardPendingAttachments() {
+      const pending = [...this.pendingAttachments]
+      this.pendingAttachments = []
+      this.attachmentError = ''
+      for (const attachment of pending) {
+        if (attachment.attachmentId && attachment.status === 'ready') {
+          deleteChatAttachment(attachment.attachmentId).catch(() => {})
+        }
+      }
+    },
+    async removePendingAttachment(entry) {
+      if (!entry) return
+      if (entry.attachmentId && entry.status === 'ready') {
+        try {
+          await deleteChatAttachment(entry.attachmentId)
+        } catch (error) {
+          this.serviceError = formatSendError(error)
+          return
+        }
+      }
+      this.pendingAttachments = this.pendingAttachments.filter((item) => item.localId !== entry.localId)
+      if (!this.pendingAttachments.some((item) => item.status === 'error')) this.attachmentError = ''
     },
     applyCurrentRequestProjection(sessionId = this.sessionId) {
       const request = sessionId ? this.activeSessionRequests[sessionId] : null
@@ -184,6 +261,7 @@ export const useChatStore = defineStore('chat', {
       if (!sessionId) return false
       if (this.loading && this.sessionId === sessionId) return false
       this.snapshotCurrentSession()
+      this.discardPendingAttachments()
       // 切换会话不再中止原会话的 SSE。后台请求按 sessionId 独立保存，回调也只允许更新所属会话。
       this.sessionId = sessionId
       this.applyCurrentRequestProjection(sessionId)
@@ -404,8 +482,20 @@ export const useChatStore = defineStore('chat', {
       const text = normalizeMessageText(message)
       if (!text) return false
       const selectedJob = options.selectedJob && typeof options.selectedJob === 'object' ? options.selectedJob : null
-      const requestSessionId = this.sessionId || `sess_${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`
-      const key = requestKey(requestSessionId, resumeId, text, selectedJob)
+      const attachments = Array.isArray(options.attachments)
+        ? options.attachments
+        : this.pendingAttachments.filter((item) => item.status === 'ready')
+      if (this.pendingAttachments.some((item) => item.status === 'uploading')) {
+        this.attachmentError = '请等待文件上传并解析完成后再发送。'
+        return false
+      }
+      if (this.pendingAttachments.some((item) => item.status === 'error')) {
+        this.attachmentError = '请先移除上传失败的文件再发送。'
+        return false
+      }
+      const attachmentIds = attachments.map((item) => item.attachmentId).filter(Boolean)
+      const requestSessionId = this.sessionId || `sess_${createUuid().replace(/-/g, '').slice(0, 12)}`
+      const key = requestKey(requestSessionId, resumeId, text, selectedJob, attachmentIds)
       const now = Date.now()
       if (this.activeSessionRequests[requestSessionId]) {
         this.serviceError = '当前会话的请求仍在处理中，请等待返回结果后再发送。'
@@ -433,8 +523,30 @@ export const useChatStore = defineStore('chat', {
       if (!options.replay) {
         const authReplayKey = `${text || ''}::${resumeId || ''}::${selectedJob ? key : ''}`
         this.bossAuthReplayKeys = this.bossAuthReplayKeys.filter((item) => item !== authReplayKey)
-        this.messages.push({ id: turnId, turnId, role: 'user', content: text })
+        this.messages.push({
+          id: turnId,
+          turnId,
+          role: 'user',
+          content: text,
+          attachments: attachments.map((item) => ({
+            attachmentId: item.attachmentId,
+            fileName: item.fileName,
+            contentType: item.contentType,
+            suffix: item.suffix,
+            sizeBytes: item.sizeBytes,
+            parseStatus: item.parseStatus,
+            characterCount: item.characterCount,
+            truncated: item.truncated,
+          })),
+        })
         this.snapshotCurrentSession()
+        if (attachmentIds.length) {
+          const submittedAttachmentIds = new Set(attachmentIds)
+          this.pendingAttachments = this.pendingAttachments.filter(
+            (item) => !submittedAttachmentIds.has(item.attachmentId),
+          )
+          if (!this.pendingAttachments.length) this.attachmentError = ''
+        }
       }
       const fallbackFlipAssistantId = options.flipJobs
         ? [...this.messages].reverse().find((item) => item.role === 'assistant' && item.jobCards?.length)?.id
@@ -479,7 +591,7 @@ export const useChatStore = defineStore('chat', {
       // 但后台会话的增量不得写入当前页面；用户切回后，后续增量与终态全文继续正常展示。
       const isStreamStale = () => streamSignal.aborted || requestRevision !== this.lifecycleRevision
       const isRequestVisible = () => this.sessionId === requestSessionId
-      const assistantId = reusableAssistantId || crypto.randomUUID()
+      const assistantId = reusableAssistantId || createUuid()
       requestAcc.assistantId = assistantId
       // 续跑/换一批复用同一条助手消息时，视为已存在，避免收尾逻辑误判为空消息或漏清 pending。
       let assistantCreated = !!(reusableAssistantId && this.messages.some((item) => item.id === assistantId))
@@ -547,6 +659,7 @@ export const useChatStore = defineStore('chat', {
             sessionId: requestSessionId,
             turnId,
             resumeId,
+            attachmentIds,
             resumeAfterAuth: !!options.resumeAfterAuth,
             flipJobs: !!options.flipJobs,
             selectedJob,
@@ -565,7 +678,9 @@ export const useChatStore = defineStore('chat', {
               this.snapshotCurrentSession()
             },
             intent: (data) => {
-              if (!isStreamStale() && isRequestVisible()) this.intent = data
+              if (!isStreamStale() && isRequestVisible()) {
+                this.intent = data
+              }
             },
             trace: (data) => {
               if (!isStreamStale() && isRequestVisible()) this.trace = data
@@ -609,7 +724,11 @@ export const useChatStore = defineStore('chat', {
             },
             auth_required: (data) => {
               if (!isStreamStale() && isRequestVisible())
-                this.handleBossAuthRequired(data, { message: text, resumeId, selectedJob, turnId }, assistantId)
+                this.handleBossAuthRequired(
+                  data,
+                  { message: text, resumeId, selectedJob, turnId, attachments },
+                  assistantId,
+                )
             },
             error: (data) => {
               if (errorAppended) return
@@ -828,6 +947,7 @@ export const useChatStore = defineStore('chat', {
         selectedJob: pending.selectedJob,
         assistantId: pending.assistantId,
         turnId: pending.turnId,
+        attachments: pending.attachments,
       })
     },
     upsertToolEvent(data, assistantId) {
@@ -861,3 +981,7 @@ export const useChatStore = defineStore('chat', {
     },
   },
 })
+
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useChatStore, import.meta.hot))
+}

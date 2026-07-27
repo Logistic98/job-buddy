@@ -4,6 +4,7 @@ import JobJourney from '../src/components/JobJourney.vue'
 
 const mocks = vi.hoisted(() => ({
   analyzeProgress: vi.fn(),
+  copyText: vi.fn(),
   createRecord: vi.fn(),
   listRecords: vi.fn(),
   loadFavorites: vi.fn(),
@@ -18,6 +19,10 @@ vi.mock('../src/api/journey', () => ({
   updateJourneyRecord: mocks.updateRecord,
 }))
 
+vi.mock('../src/utils/clipboard', () => ({
+  copyText: mocks.copyText,
+}))
+
 vi.mock('../src/stores/job', () => ({
   useJobStore: () => ({
     favorites: [],
@@ -27,6 +32,7 @@ vi.mock('../src/stores/job', () => ({
 
 beforeEach(() => {
   mocks.analyzeProgress.mockReset().mockResolvedValue({})
+  mocks.copyText.mockReset().mockResolvedValue(true)
   mocks.createRecord.mockReset().mockResolvedValue({ recordId: 'record-created' })
   mocks.listRecords.mockReset().mockResolvedValue([])
   mocks.loadFavorites.mockReset().mockResolvedValue()
@@ -40,6 +46,17 @@ async function mountJourney() {
 }
 
 describe('JobJourney form placeholders', () => {
+  it('copies follow-up text through the HTTP-compatible clipboard helper', async () => {
+    mocks.analyzeProgress.mockResolvedValue({ followUpMessage: '您好，想跟进一下本轮面试结果。' })
+    const wrapper = await mountJourney()
+
+    await wrapper.find('.history-header-actions .secondary-btn').trigger('click')
+    await flushPromises()
+    await wrapper.get('.followup-box button').trigger('click')
+
+    expect(mocks.copyText).toHaveBeenCalledWith('您好，想跟进一下本轮面试结果。')
+  })
+
   it('stretches the analysis loading state across the available modal body', async () => {
     let resolveAnalysis
     mocks.analyzeProgress.mockReturnValue(

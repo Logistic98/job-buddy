@@ -247,8 +247,8 @@ export function useResumeWriterPage() {
       markdown.value = String(module.default || '').trim()
       resetMarkdownUndoHistory()
       fileName.value = 'AI应用开发岗-脱敏示例简历'
-      fontSize.value = '12.5px'
-      lineHeight.value = '1.72'
+      fontSize.value = '12px'
+      lineHeight.value = '1.48'
       onePage.value = true
       photoUrl.value = ''
       photoSettings.value = normalizePhotoSettings()

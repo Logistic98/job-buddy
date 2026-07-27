@@ -93,8 +93,7 @@ class SpringBoot3ContractTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.openapi").exists())
         .andExpect(
-            jsonPath("$.info.description")
-                .value("Job Buddy 业务后端与 BFF 接口，统一响应结构包含 code、message 和 data。"))
+            jsonPath("$.info.description").value("Job Buddy 业务后端接口，统一响应结构包含 code、message 和 data。"))
         .andExpect(
             jsonPath("$.components.securitySchemes.Authorization.description")
                 .value("登录后获取的访问令牌，格式为 Bearer {token}"))

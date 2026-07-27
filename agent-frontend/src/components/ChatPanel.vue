@@ -1,20 +1,25 @@
 <template>
   <section class="chat-panel" :style="{ '--composer-space': `${composerSpace}px` }" @wheel.capture="handlePanelWheel">
-    <header class="panel-head">
-      <div class="bot-avatar">AI</div>
-      <div>
-        <h1>{{ workbenchCopy.title }}</h1>
-        <p>{{ workbenchCopy.description }}</p>
-      </div>
-    </header>
-
-    <div v-if="showQuickPrompts" class="quick-prompts">
-      <button v-for="item in prompts" :key="item" :disabled="chat.loading" @click="$emit('ask', item)">
-        {{ item }}
-      </button>
-    </div>
-
     <div ref="chatScroll" class="chat-scroll" @scroll.passive="syncAutoFollow">
+      <section v-if="showQuickPrompts" class="quick-prompts" aria-label="示例问题">
+        <div class="quick-prompts-card">
+          <p class="quick-prompts-guide">
+            您好，我会结合您的求职画像、简历、收藏岗位及求职进展，动态检索 Boss
+            直聘数据，为您提供岗位推荐、简历分析、面试辅导、技术答疑等服务。例如，您可以这样问：
+          </p>
+          <div class="quick-prompts-list">
+            <button
+              v-for="item in prompts"
+              :key="item"
+              type="button"
+              :disabled="chat.loading"
+              @click="applyPrompt(item)"
+            >
+              <span>{{ item }}</span>
+            </button>
+          </div>
+        </div>
+      </section>
       <div class="messages">
         <template v-for="msg in visibleMessages" :key="msg.id">
           <details
@@ -208,7 +213,23 @@
                   </div>
                 </div>
               </template>
-              <template v-else>{{ msg.content || '' }}</template>
+              <template v-else>
+                <div v-if="msg.attachments?.length" class="message-attachments">
+                  <span
+                    v-for="attachment in msg.attachments"
+                    :key="attachment.attachmentId || attachment.fileName"
+                    class="message-attachment"
+                  >
+                    <span class="message-attachment-type" aria-hidden="true">{{
+                      attachmentExtension(attachment)
+                    }}</span>
+                    <span class="message-attachment-name" :title="attachment.fileName">
+                      {{ attachment.fileName }}
+                    </span>
+                  </span>
+                </div>
+                <div class="user-message-text">{{ msg.content || '' }}</div>
+              </template>
             </div>
           </article>
         </template>
@@ -222,7 +243,13 @@
       </div>
     </div>
 
-    <form ref="composerEl" class="composer" :class="{ busy: chat.loading }" @submit.prevent="submit">
+    <form
+      ref="composerEl"
+      class="composer"
+      :class="{ busy: chat.loading }"
+      @submit.prevent="submit"
+      @keydown.esc="closeAttachmentMenu"
+    >
       <div class="composer-resume-bar">
         <button type="button" class="composer-resume-chip" @click="$emit('select-resume')">
           <span>当前简历</span>
@@ -230,7 +257,42 @@
         </button>
         <button type="button" class="composer-resume-action" @click="$emit('select-resume')">选择简历</button>
       </div>
+      <div v-if="!chat.loading && chat.pendingAttachments.length" class="composer-attachments" aria-live="polite">
+        <div
+          v-for="attachment in chat.pendingAttachments"
+          :key="attachment.localId"
+          :class="['composer-attachment', attachment.status]"
+        >
+          <span class="composer-attachment-type" aria-hidden="true">{{ attachmentExtension(attachment) }}</span>
+          <div class="composer-attachment-copy">
+            <strong :title="attachment.fileName">{{ attachment.fileName }}</strong>
+            <small v-if="attachment.status === 'uploading'">正在上传并读取内容</small>
+            <small v-else-if="attachment.status === 'error'">{{ attachment.error }}</small>
+            <small v-else>已就绪 · {{ formatAttachmentSize(attachment.sizeBytes) }}</small>
+          </div>
+          <button
+            type="button"
+            aria-label="移除附件"
+            :disabled="attachment.status === 'uploading'"
+            @click="chat.removePendingAttachment(attachment)"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+      <div v-if="chat.attachmentError" class="composer-file-notice" role="alert">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7.5v5.5M12 16.5h.01" />
+        </svg>
+        <span>{{ chat.attachmentError }}</span>
+        <button type="button" aria-label="关闭文件错误提示" @click="chat.attachmentError = ''">×</button>
+      </div>
+      <div v-if="chat.serviceError" class="composer-service-error" role="alert">
+        {{ chat.serviceError }}
+      </div>
       <textarea
+        ref="composerInput"
         v-model="input"
         :disabled="chat.loading"
         :placeholder="composerPlaceholder"
@@ -238,10 +300,59 @@
       />
       <p v-if="profileContextSummary" class="composer-profile-context">本次已使用：{{ profileContextSummary }}</p>
       <div class="composer-footer">
-        <span :class="{ error: chat.serviceError }">{{ footerText }}</span>
+        <div class="composer-left-actions">
+          <div class="attachment-control" @click.stop>
+            <button
+              type="button"
+              class="composer-add-button"
+              :class="{ active: attachmentMenuOpen }"
+              :disabled="chat.loading || attachmentsFull"
+              aria-label="添加文件"
+              :aria-expanded="attachmentMenuOpen"
+              @click="toggleAttachmentMenu"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+            <div v-if="attachmentMenuOpen" class="attachment-menu" role="menu">
+              <button type="button" role="menuitem" @click="openAttachmentPicker">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M8.5 12.5 14 7a3 3 0 0 1 4.24 4.24l-7.5 7.5a5 5 0 0 1-7.07-7.07l8-8a2.8 2.8 0 0 1 3.96 3.96l-8 8a.8.8 0 1 1-1.13-1.13l7.5-7.5"
+                  />
+                </svg>
+                <span>
+                  <strong>添加文件</strong>
+                  <small>从电脑上传</small>
+                </span>
+              </button>
+              <p>支持 PDF、DOC、DOCX、TXT、MD · 单个文件最大 128MB</p>
+            </div>
+            <input
+              ref="attachmentInput"
+              class="attachment-file-input"
+              type="file"
+              multiple
+              accept=".pdf,.doc,.docx,.txt,.md,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+              :disabled="chat.loading || attachmentsFull"
+              @change="pickAttachments"
+            />
+          </div>
+          <span v-if="footerText" class="composer-status">{{ footerText }}</span>
+        </div>
         <div class="composer-actions">
           <button v-if="canStop" type="button" class="stop-btn" @click="chat.stop">停止</button>
-          <button :disabled="chat.loading || !input.trim()">发送</button>
+          <button
+            class="composer-send-button"
+            :disabled="chat.loading || attachmentsBusy || attachmentsFailed || !input.trim()"
+            aria-label="发送"
+            title="发送"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m7 11 5-5 5 5M12 6v12" />
+            </svg>
+          </button>
         </div>
       </div>
     </form>
@@ -255,6 +366,7 @@ import { useChatStore } from '../stores/chat'
 import { useJobStore } from '../stores/job'
 import { fetchJobDetail } from '../api/jobs'
 import { firstJobDescriptionText, normalizeJobDescriptionText } from '../utils/jobText'
+import { validateFile } from '../utils/formValidation'
 import {
   activeToolSummary,
   normalizeAssistantMarkdown,
@@ -262,13 +374,16 @@ import {
   selectToolEventHighlights,
 } from '../utils/chatHelpers'
 import { bossDetailUrl } from '../utils/zhipinUrl'
-defineEmits(['ask', 'select-resume'])
+defineEmits(['select-resume'])
 const props = defineProps({ resumeId: { type: String, default: '' }, resumeName: { type: String, default: '' } })
 const chat = useChatStore()
 const job = useJobStore()
 const input = ref('')
+const composerInput = ref(null)
 const chatScroll = ref(null)
 const composerEl = ref(null)
+const attachmentInput = ref(null)
+const attachmentMenuOpen = ref(false)
 const composerSpace = ref(190)
 const nowTick = ref(Date.now())
 let elapsedTimer = null
@@ -284,16 +399,13 @@ const recommendationExpandedKeys = ref(new Set())
 // 本次会话中最近一条流式生成的助手消息 id，完成后其过程面板仍默认展开。
 const lastStreamedAssistantId = ref('')
 const defaultWorkbenchCopy = {
-  title: '智能求职协同平台',
-  description: '支持岗位推荐、简历分析、面试准备、笔试计划、项目深挖和求职进展梳理。',
   placeholder: '例如：筛选上海 Agent 与大模型应用开发 40-50K 岗位',
   quick_prompts: [
-    '筛选上海大模型应用开发 40-50K 岗位',
-    '分析当前简历与大模型应用开发岗位的匹配度',
-    '帮我准备大模型应用开发岗位面试准备清单',
+    '筛选上海 40-50K 大模型应用开发岗位',
+    '分析当前简历与目标岗位的匹配度',
+    '生成大模型应用开发面试准备清单',
   ],
 }
-const workbenchCopy = defaultWorkbenchCopy
 const profileContextSummary = computed(() => {
   const ctx = chat.lastPersonalContextEvent || {}
   const sources = Array.isArray(ctx.sources) ? ctx.sources : []
@@ -301,6 +413,9 @@ const profileContextSummary = computed(() => {
   return String(ctx.summary || '').slice(0, 80)
 })
 const prompts = computed(() => defaultWorkbenchCopy.quick_prompts)
+const attachmentsBusy = computed(() => chat.pendingAttachments.some((item) => item.status === 'uploading'))
+const attachmentsFailed = computed(() => chat.pendingAttachments.some((item) => item.status === 'error'))
+const attachmentsFull = computed(() => chat.pendingAttachments.length >= 5)
 
 const hasUserMessage = computed(() => chat.messages.some((msg) => msg.role === 'user'))
 const showQuickPrompts = computed(() => !hasUserMessage.value && !chat.loading)
@@ -370,12 +485,79 @@ const composerPlaceholder = computed(() =>
 )
 const resumeLabel = computed(() => props.resumeName || (props.resumeId ? '已关联简历' : '未选择简历'))
 const canStop = computed(() => chat.loading || !!chat.abortController)
+const attachmentMaxBytes = 128 * 1024 * 1024
 
 const footerText = computed(() => {
-  if (chat.serviceError) return chat.serviceError
   if (chat.loading) return loadingSummary.value
-  return props.resumeId ? '已关联当前简历' : '未关联简历，可先上传后做匹配'
+  if (attachmentsBusy.value) return '正在上传并解析附件'
+  if (attachmentsFailed.value) return '请处理失败文件'
+  if (chat.pendingAttachments.length) return `${chat.pendingAttachments.length} 个文件已就绪`
+  return props.resumeId ? '' : '未关联简历，可先上传后做匹配'
 })
+
+async function pickAttachments(event) {
+  const files = Array.from(event.target.files || [])
+  event.target.value = ''
+  attachmentMenuOpen.value = false
+  chat.attachmentError = ''
+  const valid = []
+  for (const file of files) {
+    try {
+      validateFile(file, '文件', {
+        extensions: ['pdf', 'doc', 'docx', 'txt', 'md'],
+        mimeTypes: [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'text/plain',
+          'text/markdown',
+          'text/x-markdown',
+          'application/octet-stream',
+        ],
+        maxBytes: attachmentMaxBytes,
+      })
+      valid.push(file)
+    } catch (error) {
+      chat.attachmentError = formatAttachmentValidationError(file, error)
+    }
+  }
+  if (valid.length) await chat.addAttachments(valid)
+}
+
+function formatAttachmentValidationError(file, error) {
+  const fileName = String(file?.name || '该文件').trim()
+  let reason = String(error?.message || '文件校验失败').trim()
+  reason = reason.replace(/^文件不能超过/, '文件大小不能超过')
+  return `未添加“${fileName}”：${reason}`
+}
+
+function toggleAttachmentMenu() {
+  if (chat.loading || attachmentsFull.value) return
+  attachmentMenuOpen.value = !attachmentMenuOpen.value
+}
+
+function closeAttachmentMenu() {
+  attachmentMenuOpen.value = false
+}
+
+function openAttachmentPicker() {
+  closeAttachmentMenu()
+  attachmentInput.value?.click()
+}
+
+function attachmentExtension(attachment) {
+  const suffix = String(attachment?.suffix || attachment?.fileName?.split('.').pop() || 'FILE')
+    .trim()
+    .toUpperCase()
+  return suffix.slice(0, 4) || 'FILE'
+}
+
+function formatAttachmentSize(value) {
+  const bytes = Number(value || 0)
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 function isMessageFinal(msg) {
   if (!msg || msg.role !== 'assistant') return true
   const lastAssistant = [...chat.messages].reverse().find((item) => item.role === 'assistant')
@@ -693,11 +875,13 @@ onMounted(() => {
     composerResizeObserver = new ResizeObserver(updateComposerSpace)
     composerResizeObserver.observe(composerEl.value)
   }
+  document.addEventListener('click', closeAttachmentMenu)
 })
 
 onBeforeUnmount(() => {
   if (elapsedTimer) window.clearInterval(elapsedTimer)
   if (composerResizeObserver) composerResizeObserver.disconnect()
+  document.removeEventListener('click', closeAttachmentMenu)
 })
 
 function updateComposerSpace() {
@@ -788,11 +972,17 @@ watch(
 
 async function submit() {
   const text = input.value.trim()
-  if (!text || chat.loading) return
+  if (!text || chat.loading || attachmentsBusy.value || attachmentsFailed.value) return
   input.value = ''
   const sent = await chat.send(text, props.resumeId)
   if (!sent && !chat.loading) input.value = text
 }
+
+function applyPrompt(text) {
+  input.value = text
+  nextTick(() => composerInput.value?.focus())
+}
+
 defineExpose({
   submitPrompt: async (text) => {
     if (!text || chat.loading) return false

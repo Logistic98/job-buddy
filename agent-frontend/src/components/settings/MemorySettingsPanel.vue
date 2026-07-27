@@ -63,7 +63,7 @@
               maxlength="2000"
               aria-label="记忆内容"
               aria-required="true"
-              placeholder="例如：优先看上海 Java 大模型应用开发岗，薪资 40-50k，排除外包驻场"
+              placeholder="例如：优先看上海 Agent 应用开发岗，薪资 40-50k，排除外包驻场"
               @keyup.enter="create"
             />
           </label>
@@ -73,7 +73,7 @@
           <article v-for="item in memories" :key="item.id" class="source-item memory-item">
             <div>
               <strong>{{ item.content }}</strong>
-              <small>{{ item.source || 'manual' }} · {{ formatTime(item.updatedAt || item.createdAt) }}</small>
+              <small>{{ memorySourceLabel(item.source) }} · {{ formatTime(item.updatedAt || item.createdAt) }}</small>
             </div>
             <div class="source-badges">
               <span :class="['source-state', item.enabled ? 'enabled' : 'disabled']">{{
@@ -117,6 +117,11 @@ const {
 } = useScopedSettings('memory', normalizeMemory)
 const memories = ref([])
 const form = ref({ content: '' })
+const memorySourceLabels = {
+  manual: '手动添加',
+  'agent-memory': '自动沉淀',
+  chat: '对话沉淀',
+}
 
 watch(
   [dirty, saving, loading],
@@ -162,6 +167,15 @@ function memoryKey(item) {
     .replace(/，/g, ',')
     .replace(/。/g, '.')
   return content
+}
+function memorySourceLabel(source) {
+  return (
+    memorySourceLabels[
+      String(source || '')
+        .trim()
+        .toLowerCase()
+    ] || '系统记录'
+  )
 }
 async function remove(memoryId) {
   try {

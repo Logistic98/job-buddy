@@ -36,6 +36,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { copyText } from '../../utils/clipboard'
 import { iconSvg } from '../../utils/resumeRender'
 import { sanitizeResumeHtml } from '../../utils/sanitizeHtml'
 
@@ -128,9 +129,7 @@ watch(iconPageCount, (count) => {
 
 async function copyIcon(icon) {
   const token = `icon:${icon}`
-  try {
-    await navigator.clipboard?.writeText(token)
-  } catch (_) {}
+  await copyText(token)
   emit('insert', `${token} `)
   iconCopied.value = token
 }

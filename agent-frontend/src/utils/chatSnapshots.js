@@ -15,6 +15,11 @@ function normalizeSessionRow(sessionId, row, idx, turnId) {
     ...(turnId ? { turnId } : {}),
     role: row.role,
     content: row.content,
+    attachments: Array.isArray(row.attachments)
+      ? row.attachments
+      : Array.isArray(row.metadata?.attachments)
+        ? row.metadata.attachments
+        : [],
     reasoning: typeof row.reasoning === 'string' ? row.reasoning : '',
     jobCards: Array.isArray(row.jobCards) ? row.jobCards : [],
     toolEvents: filterVisibleToolEvents(Array.isArray(row.toolEvents) ? row.toolEvents : []),
@@ -27,6 +32,7 @@ function mergeDuplicateRow(target, incoming) {
     target.reasoning = incoming.reasoning
   if (!target.jobCards?.length && incoming.jobCards?.length) target.jobCards = incoming.jobCards
   if (!target.toolEvents?.length && incoming.toolEvents?.length) target.toolEvents = incoming.toolEvents
+  if (!target.attachments?.length && incoming.attachments?.length) target.attachments = incoming.attachments
 }
 
 export function normalizeSessionRows(sessionId, rows = []) {
@@ -77,6 +83,7 @@ export function backfillFromPrevious(messages, previousMessages = []) {
     if (!String(item.reasoning || '').trim() && String(old.reasoning || '').trim()) item.reasoning = old.reasoning
     if (!item.toolEvents?.length && old.toolEvents?.length) item.toolEvents = old.toolEvents
     if (!item.jobCards?.length && old.jobCards?.length) item.jobCards = old.jobCards
+    if (!item.attachments?.length && old.attachments?.length) item.attachments = old.attachments
   })
   return messages
 }

@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import { listMemories } from '../src/api/settings'
 import MemorySettingsPanel from '../src/components/settings/MemorySettingsPanel.vue'
 
 vi.mock('../src/api/settings', () => ({
@@ -51,5 +52,37 @@ describe('MemorySettingsPanel', () => {
     expect(wrapper.find('.memory-editor button').attributes()).not.toHaveProperty('disabled')
     await wrapper.find('.memory-editor button').trigger('click')
     expect(wrapper.find('.form-error-alert[role="alert"]').text()).toBe('请填写记忆内容')
+  })
+
+  it('uses Agent-focused example copy and localized memory source labels', async () => {
+    listMemories.mockResolvedValueOnce([
+      {
+        id: 'manual-memory',
+        content: '优先看上海 Agent 应用开发岗',
+        source: 'manual',
+        enabled: true,
+        updatedAt: '2026-07-27T11:51:00Z',
+      },
+      {
+        id: 'automatic-memory',
+        content: '关注 Agent Runtime 与评测体系',
+        source: 'agent-memory',
+        enabled: true,
+        updatedAt: '2026-07-27T11:50:00Z',
+      },
+    ])
+
+    const wrapper = mount(MemorySettingsPanel)
+    await flushPromises()
+
+    const editor = wrapper.find('.memory-editor input')
+    expect(editor.attributes('placeholder')).toBe('例如：优先看上海 Agent 应用开发岗，薪资 40-50k，排除外包驻场')
+    expect(editor.attributes('placeholder').toLowerCase()).not.toContain('java')
+    expect(wrapper.findAll('.memory-item small').map((item) => item.text())).toEqual([
+      expect.stringContaining('手动添加'),
+      expect.stringContaining('自动沉淀'),
+    ])
+    expect(wrapper.text()).not.toContain('manual')
+    expect(wrapper.text()).not.toContain('agent-memory')
   })
 })

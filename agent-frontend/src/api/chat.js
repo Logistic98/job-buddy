@@ -16,6 +16,18 @@ export async function deleteSession(sessionId) {
   return parseApiResponse(response, '删除会话失败')
 }
 
+export async function uploadChatAttachment(file) {
+  const form = new FormData()
+  form.append('file', file)
+  const response = await apiFetch('/chat/attachments', { method: 'POST', body: form })
+  return parseApiResponse(response, '附件上传失败')
+}
+
+export async function deleteChatAttachment(attachmentId) {
+  const response = await apiFetch(`/chat/attachments/${encodeURIComponent(attachmentId)}`, { method: 'DELETE' })
+  return parseApiResponse(response, '附件删除失败')
+}
+
 export function streamChat(payload, handlers = {}) {
   return streamSse(
     '/chat/stream',

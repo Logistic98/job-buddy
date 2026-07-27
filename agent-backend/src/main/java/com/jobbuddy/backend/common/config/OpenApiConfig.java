@@ -37,7 +37,7 @@ public class OpenApiConfig {
             new Info()
                 .title("Job Buddy Backend API")
                 .version("1.0.0")
-                .description("Job Buddy 业务后端与 BFF 接口，统一响应结构包含 code、message 和 data。"))
+                .description("Job Buddy 业务后端接口，统一响应结构包含 code、message 和 data。"))
         .components(components)
         .addSecurityItem(securityRequirement);
   }

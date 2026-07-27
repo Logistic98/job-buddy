@@ -105,7 +105,7 @@ class ProfileDefinition(BaseModel):
     domain: str = "general"
     directive_type: Optional[str] = None
     default_capability_id: Optional[str] = None
-    # 哪些 BFF 入口允许 Runtime 继续进入 Agent Loop 托管执行；其余入口只返回 directive。
+    # 哪些 Backend 入口允许 Runtime 继续进入 Agent Loop 托管执行；其余入口只返回 directive。
     # 配置化此前散落在 Graph 节点中的 entrypoint 白名单与 chat.stream/intent.classify 硬编码。
     runtime_entrypoints: List[str] = Field(
         default_factory=lambda: ["chat.ask", "agent.run", "runtime.run", "runtime.execute"]

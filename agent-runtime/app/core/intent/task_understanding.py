@@ -139,7 +139,7 @@ class TaskUnderstandingService:
 
         selected = result.routing.selected_capability
         task_payload = result.model_dump()
-        # 构造 Java BFF 消费结构，并保留完整 TaskUnderstandingResult。
+        # 构造 Java Backend 消费结构，并保留完整 TaskUnderstandingResult。
         task_payload.setdefault("routing", {})
         capability_contract = (
             result.metadata.get("capability_contract", {})

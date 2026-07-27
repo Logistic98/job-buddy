@@ -119,8 +119,8 @@ describe('ResumeWriter initial content', () => {
 
     const content = wrapper.find('.resume-clean-editor textarea').element.value
     expect(content).toContain('上海')
-    expect(content).toContain('林知远（虚构示例） ｜ AI 应用开发工程师')
-    expect(content).toContain('40-50k')
+    expect(content).toContain('林知远（虚构示例） ｜ Agent 应用开发工程师')
+    expect(content).toContain('Agent Runtime')
     expect(content).toContain('零售经营分析 Agent')
     expect(content).toContain('售后工单质检 Agent')
     expect(content.indexOf('## 教育背景')).toBeLessThan(content.indexOf('## 职业概述'))
@@ -145,8 +145,8 @@ describe('ResumeWriter initial content', () => {
     }
     expect(wrapper.find('img.resume-photo').attributes('src')).toBe('/resume-photo-placeholder.svg')
     expect(wrapper.find('.resume-filename-field input').element.value).toBe('AI应用开发岗-脱敏示例简历')
-    expect(wrapper.find('input[aria-label="字号"]').element.value).toBe('12.5px')
-    expect(wrapper.find('input[aria-label="行距"]').element.value).toBe('1.72')
+    expect(wrapper.find('input[aria-label="字号"]').element.value).toBe('12px')
+    expect(wrapper.find('input[aria-label="行距"]').element.value).toBe('1.48')
     expect(mocks.saveWorkspaceState).toHaveBeenCalledWith(
       'resume.writer',
       expect.objectContaining({

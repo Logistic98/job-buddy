@@ -299,26 +299,33 @@
 }
 .chat-panel .composer {
   margin: 0 28px 14px;
-  padding: 9px 11px;
-  border-radius: 16px;
+  padding: 11px 12px;
+  border-radius: 20px;
   z-index: 2;
 }
 .chat-panel .composer-resume-bar {
   min-height: 34px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .chat-panel .composer textarea {
-  height: 46px;
+  height: 64px;
   line-height: 1.45;
-  font-size: 13px;
+  font-size: 14px;
 }
 .chat-panel .composer-footer {
-  padding-top: 6px;
+  padding-top: 4px;
 }
-.chat-panel .composer-footer span {
+.chat-panel .composer-status {
   font-size: 11px;
 }
-.chat-panel .composer button {
+.chat-panel .composer .composer-add-button,
+.chat-panel .composer .composer-send-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+}
+.chat-panel .composer .stop-btn {
   padding: 7px 13px;
   border-radius: 10px;
 }

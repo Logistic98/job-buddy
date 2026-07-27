@@ -77,8 +77,8 @@ class LoopController:
         """任务理解后分流：是否进入上下文装配与工具执行，还是只返回 directive。
 
         规则全部由协议与配置驱动：澄清/安全拦截直接收尾；无 directive 的通用 Profile 进入 Loop；
-        带 directive 的 BFF Profile 只有在能力显式要求 Runtime Planner、预算允许、且入口在
-        Profile.runtime_entrypoints 白名单内时才进入 Loop，否则只返回 directive 交由 BFF 执行。
+        带 directive 的业务 Profile 只有在能力显式要求 Runtime Planner、预算允许、且入口在
+        Profile.runtime_entrypoints 白名单内时才进入 Loop，否则只返回 directive 交由 Backend 执行。
         """
         task = state.get("task_understanding")
         if not task:

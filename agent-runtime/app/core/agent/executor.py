@@ -385,7 +385,7 @@ class AgentExecutor:
                 elif directive and directive.get("answer"):
                     short_answer = str(directive.get("answer"))
                 elif self._workflow_has_external_action(task):
-                    # external_action 属于 BFF/外部执行器职责。Runtime 仅返回 workflow/directive 元数据，
+                    # external_action 属于 Backend 或外部执行器职责。Runtime 仅返回 workflow/directive 元数据，
                     # 不把配置中的动作名解释为工具或函数调用。
                     short_answer = ""
                     graph_state = {
