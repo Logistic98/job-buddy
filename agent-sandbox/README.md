@@ -7,7 +7,7 @@
 `sandbox-runtime` 目前以 npm 包发布，Python 侧通过 CLI 调用：
 
 ```bash
-npm install -g @anthropic-ai/sandbox-runtime
+$ npm install -g @anthropic-ai/sandbox-runtime
 ```
 
 Linux 还需要按上游项目说明安装 `bubblewrap`、`socat`、`ripgrep`；macOS 需要 `ripgrep`。
@@ -93,8 +93,8 @@ config = workspace_only_config("/path/to/workspace", allow_write=False)
 本项目只保留服务态入口，根目录启动文件为 `server.py`：
 
 ```bash
-uv sync --extra dev
-uv run python server.py
+$ uv sync --extra dev
+$ uv run python server.py
 ```
 
 默认仅监听 `127.0.0.1:8061`，可通过环境变量调整。监听任何非回环地址（包括
@@ -129,13 +129,13 @@ AGENT_SANDBOX_MAX_OUTPUT_CHARS=200000
 构建镜像：
 
 ```bash
-docker build -t job-buddy-sandbox:1.0.0 .
+$ docker build -t job-buddy-sandbox:1.0.0 .
 ```
 
 运行基础校验：
 
 ```bash
-docker run --rm \
+$ docker run --rm \
   -e AGENT_INTERNAL_SERVICE_TOKEN=replace-with-a-random-token \
   -p 127.0.0.1:8061:8061 \
   job-buddy-sandbox:1.0.0
@@ -148,7 +148,7 @@ docker run --rm \
 ## 测试
 
 ```bash
-uv run python -m pytest -q
+$ uv run python -m pytest -q
 ```
 
 测试用例中提供了 fake `srt` fixture，会模拟 `srt --settings <file> <command...>` 的调用方式，因此单元测试不依赖真实的 `@anthropic-ai/sandbox-runtime` 安装。真实沙箱能力仍需安装上游 `srt` 后在集成环境中验证。

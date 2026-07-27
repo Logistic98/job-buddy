@@ -13,13 +13,13 @@
 ## 启动
 
 ```bash
-uv sync --extra dev
-uv run python server.py
+$ uv sync --extra dev
+$ uv run python server.py
 ```
 
 ## 验证
 
 ```bash
-uv run python -m pytest
-../.agent-harness/scripts/verify.sh agent-intent --quick
+$ uv run python -m pytest
+$ ../.agent-harness/scripts/verify.sh agent-intent --quick
 ```

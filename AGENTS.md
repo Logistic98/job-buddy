@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-`JobBuddy`（智能求职协同平台，仓库名 `job-buddy`）是面向求职场景的本地 Agent 应用，采用 Vue 前端、Spring Boot 业务后端、Python Agent Runtime、agent-tool 工具服务，以及意图识别、评估、记忆和沙箱服务组成的多服务架构。系统支持 Boss 在线简历同步、简历管理、岗位收藏与详情加载、岗位和简历分析、对话式问答、求职旅程、面试题库、项目深挖、系统设置与记忆管理。Agent 执行、规划、工具治理和上下文能力由 agent-runtime 承载；Java 后端负责业务 API、认证、文件与数据管理及下游服务编排；Boss 直聘浏览器能力由 agent-tool 提供。
+智能求职协同平台是面向求职场景的本地 Agent 应用，采用 Vue 前端、Spring Boot 业务后端、Python Agent Runtime、agent-tool 工具服务，以及意图识别、评估、记忆和沙箱服务组成的多服务架构。系统支持 Boss 在线简历同步、简历管理、岗位收藏与详情加载、岗位和简历分析、对话式问答、求职旅程、面试题库、项目深挖、系统设置与记忆管理。Agent 执行、规划、工具治理和上下文能力由 agent-runtime 承载；Java 后端负责业务 API、认证、文件与数据管理及下游服务编排；Boss 直聘浏览器能力由 agent-tool 提供。
 
 核心原则：
 
@@ -45,7 +45,7 @@ job-buddy/
 
 ### Java 后端模块（agent-backend）
 
-- agent-backend 采用 Java + Spring Boot，定位为业务后端、BFF/API 网关和 Agent Runtime 代理层，不再承载 Agent 核心调度逻辑。
+- agent-backend 采用 Java + Spring Boot，定位为业务后端、API 网关和 Agent Runtime 代理层，不再承载 Agent 核心调度逻辑。
 - 依赖通过 Maven 管理；仓库未提供 `mvnw` Wrapper，使用全局 `mvn` 执行构建与测试。新增依赖必须锁定版本或由 BOM 统一管理。
 - Controller 层负责参数校验和接口协议，Service 层负责业务编排，底层异常必须转换为统一响应结构。
 - Java 端应保留用户、Boss 登录态、简历、岗位收藏、投递旅程、面试题库、文件、数据库等业务能力；执行期权威任务理解、Planner、Agent Loop、工具路由、Prompt 编排、上下文装配等 Agent 核心逻辑应位于 agent-runtime，通过代理接口执行。agent-intent 保留为 Backend 调用的轻量前置分类与高风险复核服务，其结果只作路由提示和安全辅助，不能替代 Runtime 的执行期理解或授予工具权限。
@@ -82,17 +82,17 @@ job-buddy/
 ### agent-runtime
 
 ```bash
-cd agent-runtime
-uv sync --extra dev
-uv run uvicorn server:app --host 0.0.0.0 --port 8010 --reload
+$ cd agent-runtime
+$ uv sync --extra dev
+$ uv run uvicorn server:app --host 0.0.0.0 --port 8010 --reload
 ```
 
 ### agent-sandbox
 
 ```bash
-cd agent-sandbox
-uv sync
-uv run python server.py
+$ cd agent-sandbox
+$ uv sync
+$ uv run python server.py
 ```
 
 启动前需在本机安装上游依赖：`npm install -g @anthropic-ai/sandbox-runtime`，Linux 还需要 `bubblewrap`、`socat`、`ripgrep`。
@@ -104,8 +104,8 @@ Boss 具体实现位于 `agent-tool` 的 `boss_browser` 工具中，`agent-runti
 默认推荐二维码登录。登录成功后的 Cookie 由后端持久化到 PostgreSQL `auth_state`，每次调用时通过请求载荷注入 agent-tool 内存；禁止创建本地凭证目录或 `credential.json`。浏览器 Cookie 导入默认关闭，只有明确接受钥匙串授权时才能显式开启。
 
 ```bash
-cd agent-tool
-./scripts/start.sh
+$ cd agent-tool
+$ ./scripts/start.sh
 ```
 
 工具服务入口为 `POST /v1/tools/boss_browser/execute`；Runtime 代理入口为 `POST /v1/runtime/tools/boss_browser/invoke`。该工具负责登录态判断、岗位搜索、详情懒加载和在线简历读取。`status` 默认只读本地凭证，不主动请求 Boss；真实访问仍需要人工低频验证，命中验证码、安全验证、访问异常、限速或账号异常时立即停手。
@@ -113,16 +113,16 @@ cd agent-tool
 ### agent-backend
 
 ```bash
-cd agent-backend
-mvn spring-boot:run
+$ cd agent-backend
+$ mvn spring-boot:run
 ```
 
 ### agent-frontend
 
 ```bash
-cd agent-frontend
-npm install
-npm run dev
+$ cd agent-frontend
+$ npm install
+$ npm run dev
 ```
 
 ### 前端与交互改动的浏览器验证
@@ -133,12 +133,12 @@ npm run dev
 
 ```bash
 # 后端，Boss 凭证从 PostgreSQL auth_state 注入 Tool 内存
-cd agent-backend
-mvn spring-boot:run
+$ cd agent-backend
+$ mvn spring-boot:run
 
 # 前端
-cd agent-frontend
-npm run dev
+$ cd agent-frontend
+$ npm run dev
 ```
 
 浏览器验证至少覆盖：页面能打开、登录态判断符合预期、弹窗只在状态确认后出现、关键按钮可点击、SSE/加载态会结束、错误提示可见且不循环、用户可见结果符合需求。对于 Boss 直聘相关功能，还必须确认 `auth_state` 可恢复登录态、Tool 仅在内存中使用凭证、仓库和用户目录没有生成凭证文件。
@@ -152,10 +152,10 @@ npm run dev
 ### agent-eval
 
 ```bash
-cd agent-eval
-uv sync --extra dev
-uv run python server.py
-uv run python -m pytest
+$ cd agent-eval
+$ uv sync --extra dev
+$ uv run python server.py
+$ uv run python -m pytest
 ```
 
 服务提供 `GET /health`、`POST /v1/eval/trace`（Trace 规则评分）、`POST /v1/eval/run`（用例批量评估）、`POST /v1/eval/capabilities`（能力评估）、`POST /v1/eval/latency`（时延预算评估）与 `POST /v1/eval/judge`（裁判评估）。修改核心链路节点、Trace 字段、工具事件、意图路由或 Agent 输出结构时，必须同步更新 `agent-eval/app/grader.py`、`agent-eval/cases/` 与 `agent-eval/tests/`。
@@ -164,25 +164,25 @@ uv run python -m pytest
 
 ```bash
 # 依赖与 harness 自检
-./.agent-harness/scripts/doctor.sh
+$ ./.agent-harness/scripts/doctor.sh
 
 # 查看支持模块
-./.agent-harness/scripts/verify.sh --list
+$ ./.agent-harness/scripts/verify.sh --list
 
 # 分层验证：只跑测试/构建
-./.agent-harness/scripts/verify.sh agent-backend --quick
-./.agent-harness/scripts/verify.sh agent-frontend --quick
-./.agent-harness/scripts/verify.sh agent-runtime --quick
-./.agent-harness/scripts/verify.sh agent-eval --quick
+$ ./.agent-harness/scripts/verify.sh agent-backend --quick
+$ ./.agent-harness/scripts/verify.sh agent-frontend --quick
+$ ./.agent-harness/scripts/verify.sh agent-runtime --quick
+$ ./.agent-harness/scripts/verify.sh agent-eval --quick
 
 # 交付门禁：测试/构建 + 行为评估
-./.agent-harness/scripts/gate.sh all --quick
-./.agent-harness/scripts/gate.sh agent-backend --quick
+$ ./.agent-harness/scripts/gate.sh all --quick
+$ ./.agent-harness/scripts/gate.sh agent-backend --quick
 
 # 只跑评估层
-./.agent-harness/scripts/evaluate.sh agent-backend
-./.agent-harness/scripts/evaluate.sh agent-intent
-./.agent-harness/scripts/evaluate.sh agent-eval
+$ ./.agent-harness/scripts/evaluate.sh agent-backend
+$ ./.agent-harness/scripts/evaluate.sh agent-intent
+$ ./.agent-harness/scripts/evaluate.sh agent-eval
 ```
 
 `.agent-harness/scripts/gate.sh` 是交付前统一质量门禁，`verify.sh` 负责测试/构建，`evaluate.sh` 负责行为评估，`judge.sh` 负责独立裁判，`run_goal.sh` 和 `loop.sh` 用于 Goal / Loop 自动化执行。Harness 与 Eval 的同步维护规则见下文“测试、Harness 与评估联动”。
@@ -491,3 +491,4 @@ Harness 联动规则：
 8. 输出 Mermaid 图表时考虑低版本兼容，避免使用过新的语法特性。
 9. 输出项目材料类文字时使用正式语言，采用大段叙述而非碎片化列表。
 10. 默认使用中文回复，除非用户指定其他语言。
+11. 文档中面向人工执行的 Shell 命令统一使用 `$ ` 前缀；Shell 脚本源码、命令输出、日志、环境变量配置和命令续行不添加提示符。

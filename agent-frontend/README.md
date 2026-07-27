@@ -38,9 +38,9 @@ agent-frontend/
 Vite 7 要求 Node.js `^20.19.0 || >=22.12.0`。本项目不依赖特定 npm 小版本，使用与所选 Node.js 版本配套的 npm 即可。
 
 ```bash
-cd agent-frontend
-npm install
-npm run dev
+$ cd agent-frontend
+$ npm install
+$ npm run dev
 ```
 
 默认访问：<http://localhost:5173>
@@ -48,7 +48,7 @@ npm run dev
 环境变量统一维护在仓库根目录的 `.env` 和 `.env.example`，禁止在 `agent-frontend` 或其他子目录创建同名环境文件。首次启动前应在仓库根目录复制模板：
 
 ```bash
-cp .env.example .env
+$ cp .env.example .env
 ```
 
 默认代理目标为 `http://localhost:8080`。如需临时覆盖：
@@ -60,17 +60,17 @@ VITE_PROXY_TARGET=http://localhost:8080 npm run dev
 另开终端并在仓库根目录执行一键启动脚本；脚本会自动注入 `FRONTEND_PORT` 和 `VITE_PROXY_TARGET`：
 
 ```bash
-./scripts/start-all.sh
+$ ./scripts/start-all.sh
 ```
 
 ## 脚本
 
 ```bash
-npm run dev      # 本地开发
-npm run build    # 生产构建
-npm run preview  # 预览构建产物
-npm run lint     # ESLint
-npm test         # Vitest
+$ npm run dev      # 本地开发
+$ npm run build    # 生产构建
+$ npm run preview  # 预览构建产物
+$ npm run lint     # ESLint
+$ npm test         # Vitest
 ```
 
 ## 验证要求
@@ -78,16 +78,16 @@ npm test         # Vitest
 前端普通改动至少执行：
 
 ```bash
-npm run format:check
-npm run lint
-npm test
-npm run build
+$ npm run format:check
+$ npm run lint
+$ npm test
+$ npm run build
 ```
 
 也可以从仓库根目录执行：
 
 ```bash
-./.agent-harness/scripts/verify.sh agent-frontend --quick
+$ ./.agent-harness/scripts/verify.sh agent-frontend --quick
 ```
 
 涉及登录弹窗、Boss 扫码、SSE、岗位卡片、简历预览、会话恢复、状态管理或任何用户可见交互时，不能只跑构建和测试，还必须启动前后端并用浏览器验证关键路径。交付说明应写明访问地址、执行路径、观察结果和未覆盖项。

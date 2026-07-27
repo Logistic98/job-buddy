@@ -4,7 +4,7 @@
 
 ## 核心能力
 
-Runtime 以 LangGraph 组织“任务理解—上下文—Planner—工具搜索—权限与预算—执行观察—验证终态”。声明工具的任务进入完整状态图，无工具生成任务可走 direct synthesis，但仍受相同的预算、Trace 和安全约束。Profile、Workflow 与 Prompt 从 `config/` 加载；Workflow 只提供路由元数据，外部业务动作仍由 Backend/BFF 在事务边界内执行。
+Runtime 以 LangGraph 组织“任务理解—上下文—Planner—工具搜索—权限与预算—执行观察—验证终态”。声明工具的任务进入完整状态图，无工具生成任务可走 direct synthesis，但仍受相同的预算、Trace 和安全约束。Profile、Workflow 与 Prompt 从 `config/` 加载；Workflow 只提供路由元数据，外部业务动作仍由 Backend 在事务边界内执行。
 
 工具层提供注册、别名、搜索、权限和统一 Tool Runtime，`boss_browser` 仅为 agent-tool 的代理。高风险动作还要经过独立 Transcript 复核，Shell 受命令规则和 Sandbox 双重约束。
 
@@ -20,27 +20,27 @@ Runtime 以 LangGraph 组织“任务理解—上下文—Planner—工具搜索
 ## 本地运行
 
 ```shell
-uv sync --extra dev
-uv run uvicorn server:app --host 0.0.0.0 --port 8010 --reload
+$ uv sync --extra dev
+$ uv run uvicorn server:app --host 0.0.0.0 --port 8010 --reload
 ```
 
 `uv run python main.py` 只执行不调用外部模型的最小 Runtime 示例，不启动 HTTP 服务。开发服务也可以使用脚本启动：
 
 ```shell
-uv run ./scripts/run_dev.sh
+$ uv run ./scripts/run_dev.sh
 ```
 
 ## Docker 部署
 
 ```shell
-docker build -t job-buddy-runtime:1.0.0 .
-docker run --name job-buddy-runtime -p 8010:8010 -d job-buddy-runtime:1.0.0
+$ docker build -t job-buddy-runtime:1.0.0 .
+$ docker run --name job-buddy-runtime -p 8010:8010 -d job-buddy-runtime:1.0.0
 ```
 
 模型服务统一通过 [config/config.yaml](config/config.yaml) 声明配置结构，连接地址、密钥等敏感值通过环境变量注入；如需在容器中挂载外部配置文件：
 
 ```shell
-docker run --name job-buddy-runtime \
+$ docker run --name job-buddy-runtime \
   -p 8010:8010 \
   -v $(pwd)/config/config.yaml:/app/config/config.yaml \
   -d job-buddy-runtime:1.0.0
@@ -62,7 +62,7 @@ docker run --name job-buddy-runtime \
 最小运行示例：
 
 ```shell
-curl -X POST http://localhost:8010/v1/agent/runs \
+$ curl -X POST http://localhost:8010/v1/agent/runs \
   -H 'X-Internal-Service-Token: <internal-token>' \
   -H 'Content-Type: application/json' \
   -d '{"messages":[{"role":"user","content":"请回显 hello runtime"}]}'
@@ -71,7 +71,7 @@ curl -X POST http://localhost:8010/v1/agent/runs \
 通过 Runtime 代理调用 Boss 工具的只读限速状态：
 
 ```shell
-curl -X POST http://localhost:8010/v1/runtime/tools/boss_browser/invoke \
+$ curl -X POST http://localhost:8010/v1/runtime/tools/boss_browser/invoke \
   -H 'X-Internal-Service-Token: <internal-token>' \
   -H 'Content-Type: application/json' \
   -d '{"arguments":{"operation":"rate","payload":{}}}'
@@ -89,12 +89,12 @@ curl -X POST http://localhost:8010/v1/runtime/tools/boss_browser/invoke \
 默认读取 `config/config.yaml`。如需指定其他配置文件路径，可设置：
 
 ```shell
-export JOB_BUDDY_CONFIG=/path/to/config.yaml
+$ export JOB_BUDDY_CONFIG=/path/to/config.yaml
 ```
 
 运行中可通过接口重新加载配置文件，适合挂载配置更新后热切换：
 
 ```shell
-curl -X POST 'http://localhost:8010/v1/runtime/config/reload'
-curl -X POST 'http://localhost:8010/v1/runtime/config/reload?config_path=/path/to/config.yaml'
+$ curl -X POST 'http://localhost:8010/v1/runtime/config/reload'
+$ curl -X POST 'http://localhost:8010/v1/runtime/config/reload?config_path=/path/to/config.yaml'
 ```

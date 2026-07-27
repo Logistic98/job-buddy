@@ -103,19 +103,19 @@
 ## 启动与验证
 
 ```bash
-uv sync --extra dev
-uv run python server.py
-uv run python -m pytest -q
-../.agent-harness/scripts/evaluate.sh agent-runtime
+$ uv sync --extra dev
+$ uv run python server.py
+$ uv run python -m pytest -q
+$ ../.agent-harness/scripts/evaluate.sh agent-runtime
 ```
 
 Harness 默认运行评分器测试、Engine Eval 自检和无需外部模型的真实 Runtime 代码契约；`run_engine_eval.py` 则用于直连已启动 Runtime 执行真实流式效果与时延评估。部署配置了 `AGENT_INTERNAL_SERVICE_TOKEN` 时，runner 会从环境变量读取该令牌并仅通过 `X-Internal-Service-Token` 请求头传递，不写入用例载荷、日志或报告。运行本地真实回归前应先加载仓库根目录环境变量；例如只验证切换简历后复评上一岗位的上下文捷径：
 
 ```bash
-set -a
-source ../.env
-set +a
-uv run python scripts/run_engine_eval.py \
+$ set -a
+$ source ../.env
+$ set +a
+$ uv run python scripts/run_engine_eval.py \
   --runtime-url http://127.0.0.1:8010 \
   --cases cases/engine-eval-v1.yaml \
   --only resume_switch_reuses_selected_job

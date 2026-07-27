@@ -11,11 +11,11 @@ max_minutes: 10
 对仓库内 CI 与质量门禁配置执行一次只读健康巡检。检查 `.github/workflows/`、`.agent-harness/scripts/` 及各模块实际存在的构建配置，确认工作流引用的脚本、模块目录和验证命令仍然存在，并使用以下真实命令收集证据：
 
 ```bash
-git status --short
-git diff --check
-bash -n .agent-harness/scripts/*.sh
-./.agent-harness/scripts/doctor.sh
-./.agent-harness/scripts/verify.sh --list
+$ git status --short
+$ git diff --check
+$ bash -n .agent-harness/scripts/*.sh
+$ ./.agent-harness/scripts/doctor.sh
+$ ./.agent-harness/scripts/verify.sh --list
 ```
 
 只允许读取文件和执行不会修改源码、依赖、配置或外部系统状态的检查命令。不得运行 `loop.sh`、`run_goal.sh`、`gate.sh`、模块测试或构建，也不得安装依赖、访问生产服务或触发远程 CI。

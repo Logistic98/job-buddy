@@ -37,7 +37,7 @@ Boss 能力位于 [app/tools/boss_browser](app/tools/boss_browser)，对外使�
 非真实访问的限速状态验证会返回 `*_used_*` 与 `*_limit_*` 字段，可直接确认当前配置是否生效：
 
 ```bash
-curl -X POST http://localhost:8040/v1/tools/boss_browser/execute \
+$ curl -X POST http://localhost:8040/v1/tools/boss_browser/execute \
   -H 'X-Internal-Service-Token: <internal-token>' \
   -H 'Content-Type: application/json' \
   -d '{"arguments":{"operation":"rate","payload":{}},"confirm":true}'
@@ -52,7 +52,7 @@ curl -X POST http://localhost:8040/v1/tools/boss_browser/execute \
 ## 启动与验证
 
 ```bash
-uv sync --extra dev
-uv run python server.py
-uv run python -m pytest
+$ uv sync --extra dev
+$ uv run python server.py
+$ uv run python -m pytest
 ```

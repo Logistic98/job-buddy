@@ -19,7 +19,7 @@
 先启动根目录 `.env` 已配置的本地服务链。统一启动脚本按当前依赖顺序启动 Sandbox、Backend、Memory、Tool、Runtime、Intent、Eval 和 Frontend，避免本手册重复维护端口与启动参数：
 
 ```bash
-./scripts/start-all.sh
+$ ./scripts/start-all.sh
 ```
 
 脚本会输出实际访问地址、日志目录和 PID 目录。默认前端地址为：

@@ -25,9 +25,9 @@
 ## 启动与验证
 
 ```bash
-uv sync --extra dev
-uv run python server.py
-uv run python -m pytest
+$ uv sync --extra dev
+$ uv run python server.py
+$ uv run python -m pytest
 ```
 
 ## PostgreSQL 持久化配置

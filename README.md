@@ -18,7 +18,7 @@
 ```mermaid
 graph TD
     USER(["用户"]) --> FE["Web 工作台"]
-    FE -->|HTTP / SSE| BE["业务后端 / BFF"]
+    FE -->|HTTP / SSE| BE["业务后端"]
     BE -->|任务委派| RT["Agent Runtime"]
     BE -->|前置分类| INTENT["Intent"]
     RT -->|上下文检索| MEMORY["Memory"]
@@ -49,7 +49,7 @@ graph TD
 
 完整的服务边界、部署拓扑和降级策略见 [系统架构与核心链路](agent-doc/架构设计/系统架构与核心链路.md)。
 
-## Agent 执行链路
+## 执行链路
 
 ```mermaid
 graph TD
@@ -118,7 +118,7 @@ Agent Loop 同时受最大轮次、工具调用数、失败次数和 Token 预�
 本地运行 Sandbox 还需要安装上游 CLI：
 
 ```bash
-npm install -g @anthropic-ai/sandbox-runtime
+$ npm install -g @anthropic-ai/sandbox-runtime
 ```
 
 macOS 需要 `ripgrep`；Linux 还需要 `bubblewrap`、`socat` 和 `ripgrep`。
@@ -128,9 +128,9 @@ macOS 需要 `ripgrep`；Linux 还需要 `bubblewrap`、`socat` 和 `ripgrep`。
 ### 1. 准备配置
 
 ```bash
-cp .env.example .env
+$ cp .env.example .env
 # 填写 .env 后校验配置项
-./scripts/sync-env.sh
+$ ./scripts/sync-env.sh
 ```
 
 `.env` 只允许位于仓库根目录，且不得提交。请将示例密码、模型配置和密钥替换为实际值。
@@ -151,15 +151,15 @@ cp .env.example .env
 如果 PostgreSQL、Redis 和 MinIO 已独立部署，`docker-compose.yml` 会直接使用环境文件中的外部连接，仅启动八个应用服务：
 
 ```bash
-unset COMPOSE_PROJECT_NAME
-docker compose --env-file .env -f docker-compose.yml up -d --build --wait
+$ unset COMPOSE_PROJECT_NAME
+$ docker compose --env-file .env -f docker-compose.yml up -d --build --wait
 ```
 
 如果需要同时部署 PostgreSQL、Redis 和 MinIO，叠加 `docker-compose-infra.yml`，一次启动完整的 11 个服务：
 
 ```bash
-unset COMPOSE_PROJECT_NAME
-docker compose --env-file .env \
+$ unset COMPOSE_PROJECT_NAME
+$ docker compose --env-file .env \
   -f docker-compose.yml \
   -f docker-compose-infra.yml \
   up -d --build --wait
@@ -168,16 +168,11 @@ docker compose --env-file .env \
 停止时使用与启动相同的文件组合；默认不会删除 PostgreSQL、Redis 和 MinIO 的命名卷：
 
 ```bash
-docker compose --env-file .env \
+$ docker compose --env-file .env \
   -f docker-compose.yml \
   -f docker-compose-infra.yml \
   down
 ```
-
-仅应用模式直接使用 `.env` 中的 `SPRING_DATASOURCE_URL`、`SPRING_REDIS_HOST`、
-`JOB_BUDDY_MINIO_ENDPOINT`、`AGENT_RUNTIME_DATABASE_URL` 和
-`AGENT_MEMORY_DATABASE_URL`，地址必须能从 Docker 容器访问，不能填写容器自身的
-`127.0.0.1` 或 `localhost`。
 
 生产环境的网络、密钥、持久卷和备份要求见 [应用与基础设施容器化部署](agent-doc/运维部署/应用与基础设施容器化部署.md)。
 
@@ -186,8 +181,8 @@ docker compose --env-file .env \
 确保 `.env` 指向可用的 PostgreSQL、Redis 和 MinIO，然后执行：
 
 ```bash
-./scripts/start-all.sh
-./scripts/status-all.sh
+$ ./scripts/start-all.sh
+$ ./scripts/status-all.sh
 ```
 
 | 入口             | 默认地址                            |
@@ -200,12 +195,12 @@ docker compose --env-file .env \
 停止本地应用服务：
 
 ```bash
-./scripts/stop-all.sh
+$ ./scripts/stop-all.sh
 ```
 
 日志写入 `.run/logs/YYYYMMDD/`，PID 写入 `.run/pids/`。启停脚本会检查端口占用进程的仓库归属，不会主动终止其他项目或系统服务。各服务的独立启动方式见“模块一览”中的对应 README。
 
-## 关键安全边界
+## 安全边界
 
 Boss 默认使用二维码或恢复 Backend 已保存的登录态，浏览器 Cookie 导入默认关闭。Cookie 由 Backend 使用 AES-256-GCM 加密后保存到 PostgreSQL `auth_state`，调用时仅注入 agent-tool 内存，不创建本地凭证目录；真实访问保持人工低频，遇到验证码、限速或账号异常立即停止。完整契约见 [Boss 直聘集成与岗位检索](agent-doc/业务功能/Boss直聘集成与岗位检索.md)。
 
@@ -214,7 +209,7 @@ Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。已发布
 提交迁移前运行：
 
 ```bash
-./.agent-harness/scripts/check_flyway_migrations.py
+$ ./.agent-harness/scripts/check_flyway_migrations.py
 ```
 
 完整规则见 [AGENTS.md](AGENTS.md) 和 [Harness Flyway 检查](.agent-harness/README.md#flyway-检查)。
@@ -224,16 +219,16 @@ Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。已发布
 提交前检查代码格式：
 
 ```bash
-./scripts/format-code.sh --check
+$ ./scripts/format-code.sh --check
 ```
 
 使用 Harness 执行环境检查、模块验证和交付门禁：
 
 ```bash
-./.agent-harness/scripts/doctor.sh
-./.agent-harness/scripts/verify.sh --list
-./.agent-harness/scripts/verify.sh agent-runtime --quick
-./.agent-harness/scripts/gate.sh all --quick
+$ ./.agent-harness/scripts/doctor.sh
+$ ./.agent-harness/scripts/verify.sh --list
+$ ./.agent-harness/scripts/verify.sh agent-runtime --quick
+$ ./.agent-harness/scripts/gate.sh all --quick
 ```
 
 修改核心链路、SSE、工具事件、Intent、Trace 或用户流程时，必须同步检查 `.agent-harness` 与 `agent-eval`。
@@ -243,21 +238,21 @@ Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。已发布
 运行产物清理默认为预览模式：
 
 ```bash
-./scripts/clean-artifacts.sh --dry-run
+$ ./scripts/clean-artifacts.sh --dry-run
 ```
 
 详细验证分层和浏览器证据要求见 [.agent-harness/README.md](.agent-harness/README.md)。
 
 ## 文档导航
 
-| 主题                   | 文档                                                                       |
-| ---------------------- | -------------------------------------------------------------------------- |
-| 文档总览               | [agent-doc/README.md](agent-doc/README.md)                                 |
-| 系统边界与核心链路     | [系统架构与核心链路](agent-doc/架构设计/系统架构与核心链路.md)             |
-| 认证与权限             | [账号认证与权限体系](agent-doc/架构设计/账号认证与权限体系.md)             |
-| 意图、工具与安全       | [意图路由与工具安全](agent-doc/核心能力/意图路由与工具安全.md)             |
-| 模型与上下文           | [模型接入与上下文治理](agent-doc/核心能力/模型接入与上下文治理.md)         |
-| Trace、Eval 与 Harness | [Trace 可观测与质量评估](agent-doc/核心能力/Trace可观测与质量评估.md)      |
+| 主题                   | 文档                                                         |
+| ---------------------- | ------------------------------------------------------------ |
+| 文档总览               | [项目总览文档](agent-doc/README.md)                          |
+| 系统边界与核心链路     | [系统架构与核心链路](agent-doc/架构设计/系统架构与核心链路.md) |
+| 认证与权限             | [账号认证与权限体系](agent-doc/架构设计/账号认证与权限体系.md) |
+| 意图、工具与安全       | [意图路由与工具安全](agent-doc/核心能力/意图路由与工具安全.md) |
+| 模型与上下文           | [模型接入与上下文治理](agent-doc/核心能力/模型接入与上下文治理.md) |
+| Trace、Eval 与 Harness | [Trace 可观测与质量评估](agent-doc/核心能力/Trace可观测与质量评估.md) |
 | 容器化部署             | [应用与基础设施容器化部署](agent-doc/运维部署/应用与基础设施容器化部署.md) |
 
 接口、配置、端口、服务职责或目录结构发生变化时，应同步更新根 README、对应模块 README、主题文档和 `.env.example`。文档只描述有代码、配置、接口或测试支撑的正式能力。

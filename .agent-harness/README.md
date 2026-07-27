@@ -15,23 +15,23 @@
 
 ```bash
 # 本机依赖与脚本可用性
-./.agent-harness/scripts/doctor.sh
+$ ./.agent-harness/scripts/doctor.sh
 
 # 自动列出带构建清单的 agent-* 模块
-./.agent-harness/scripts/verify.sh --list
+$ ./.agent-harness/scripts/verify.sh --list
 
 # 单模块测试、格式与构建
-./.agent-harness/scripts/verify.sh agent-backend --quick
-./.agent-harness/scripts/verify.sh agent-runtime --quick
-./.agent-harness/scripts/verify.sh agent-frontend --quick
+$ ./.agent-harness/scripts/verify.sh agent-backend --quick
+$ ./.agent-harness/scripts/verify.sh agent-runtime --quick
+$ ./.agent-harness/scripts/verify.sh agent-frontend --quick
 
 # 交付门禁：模块验证 + 确定性评估
-./.agent-harness/scripts/gate.sh agent-backend --quick
-./.agent-harness/scripts/gate.sh all --quick
-./.agent-harness/scripts/gate.sh all --full
+$ ./.agent-harness/scripts/gate.sh agent-backend --quick
+$ ./.agent-harness/scripts/gate.sh all --quick
+$ ./.agent-harness/scripts/gate.sh all --full
 
 # Harness 自身测试
-python3 -m unittest discover -s .agent-harness/tests -p 'test_*.py'
+$ python3 -m unittest discover -s .agent-harness/tests -p 'test_*.py'
 ```
 
 `verify.sh` 从顶层 `agent-*` 目录中的 `pom.xml`、`pyproject.toml` 或 `package.json` 自动发现模块，不维护第二份模块清单。Java 使用 Maven/Gradle，Python 使用 `uv`、Ruff 和 Pytest，前端使用 package scripts，并通过 npm 官方 Registry 审计生产依赖中的高危与严重漏洞。全仓验证还会检查根目录环境文件位置、Shell 语法，以及仅应用和完整基础设施两种 Compose 部署模式的渲染。
@@ -53,8 +53,8 @@ Harness 不保存 SQL 内容哈希、迁移快照、当前最大版本或历史�
 单独执行：
 
 ```bash
-./.agent-harness/scripts/check_flyway_migrations.py
-python3 .agent-harness/tests/test_check_flyway_migrations.py
+$ ./.agent-harness/scripts/check_flyway_migrations.py
+$ python3 .agent-harness/tests/test_check_flyway_migrations.py
 ```
 
 ## 评估与 Gate
@@ -78,8 +78,8 @@ python3 .agent-harness/tests/test_check_flyway_migrations.py
 创建单任务 Goal：
 
 ```bash
-cp .agent-harness/goals/_template.md .agent-harness/goals/<task_slug>.md
-./.agent-harness/scripts/run_goal.sh .agent-harness/goals/<task_slug>.md
+$ cp .agent-harness/goals/_template.md .agent-harness/goals/<task_slug>.md
+$ ./.agent-harness/scripts/run_goal.sh .agent-harness/goals/<task_slug>.md
 ```
 
 Goal 需要写清完成条件、允许范围、禁止事项、验证命令、预算和软着陆报告。`run_goal.sh` 默认使用 Claude CLI 的 `acceptEdits` 权限模式，相关环境变量和 front matter 字段以模板及脚本帮助为准。
@@ -87,8 +87,8 @@ Goal 需要写清完成条件、允许范围、禁止事项、验证命令、预
 创建周期性只读巡检：
 
 ```bash
-cp .agent-harness/loops/_template.md .agent-harness/loops/<loop_name>.md
-./.agent-harness/scripts/loop.sh .agent-harness/loops/<loop_name>.md
+$ cp .agent-harness/loops/_template.md .agent-harness/loops/<loop_name>.md
+$ ./.agent-harness/scripts/loop.sh .agent-harness/loops/<loop_name>.md
 ```
 
 `ci_health.md` 是只读巡检示例。允许写入的 Loop 必须显式设置权限并限定目录、命令、时间和停止条件。
@@ -103,7 +103,7 @@ cp .agent-harness/loops/_template.md .agent-harness/loops/<loop_name>.md
 ## 提交前检查
 
 ```bash
-./.agent-harness/scripts/install-git-hooks.sh
+$ ./.agent-harness/scripts/install-git-hooks.sh
 ```
 
 安装脚本为当前 checkout 配置仓库内维护的 `pre-commit` Hook。每次提交先执行暂存区
