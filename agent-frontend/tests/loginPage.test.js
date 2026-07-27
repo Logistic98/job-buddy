@@ -59,6 +59,19 @@ describe('LoginPage', () => {
     expect(wrapper.emitted('logged-in')).toBeTruthy()
   })
 
+  it('shows and hides the password with matching eye states', async () => {
+    const wrapper = mountLogin()
+    const passwordInput = wrapper.find('input[placeholder="请输入密码"]')
+    const showPassword = wrapper.find('button[aria-label="显示密码"]')
+
+    expect(passwordInput.attributes('type')).toBe('password')
+    expect(showPassword.find('svg').attributes('data-icon')).toBe('eye-closed')
+    await showPassword.trigger('click')
+
+    expect(passwordInput.attributes('type')).toBe('text')
+    expect(wrapper.find('button[aria-label="隐藏密码"] svg').attributes('data-icon')).toBe('eye-open')
+  })
+
   it('emits logged-in after a successful login', async () => {
     login.mockResolvedValue({ user: { username: 'admin' } })
     const wrapper = mountLogin()

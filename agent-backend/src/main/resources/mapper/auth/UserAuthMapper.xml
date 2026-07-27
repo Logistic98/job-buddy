@@ -86,6 +86,10 @@
     FROM app_user u WHERE u.tenant_id = #{tenantId} AND u.user_id = #{userId}
   </select>
 
+  <select id="findPasswordHash" resultType="string">
+    SELECT password_hash FROM app_user WHERE tenant_id = #{tenantId} AND user_id = #{userId}
+  </select>
+
   <select id="listPermissionDefinitions" resultType="map">
     SELECT permission_code AS "permissionCode", permission_name AS "permissionName", grantable,
            display_order AS "displayOrder"

@@ -122,6 +122,17 @@ public class UserAuthRepository {
   }
 
   /**
+   * 查询租户内用户的密码哈希。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 密码哈希
+   */
+  public String findPasswordHash(String tenantId, String userId) {
+    return mapper.findPasswordHash(tenantId, userId);
+  }
+
+  /**
    * 查询权限定义。
    *
    * @return 权限定义

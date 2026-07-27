@@ -21,10 +21,13 @@ export async function updateUser(userId, payload) {
     '更新用户失败',
   )
 }
-export async function resetUserPassword(userId, password) {
+export async function changeUserPassword(userId, oldPassword, newPassword) {
   return parseApiResponse(
-    await apiFetch(`/admin/users/${encodeURIComponent(userId)}/password`, jsonOptions('PUT', { password })),
-    '重置密码失败',
+    await apiFetch(
+      `/admin/users/${encodeURIComponent(userId)}/password`,
+      jsonOptions('PUT', { oldPassword, newPassword }),
+    ),
+    '修改密码失败',
   )
 }
 

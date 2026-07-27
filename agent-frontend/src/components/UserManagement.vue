@@ -58,7 +58,7 @@
             }}</span>
             <span class="rbac-row-actions"
               ><button class="rbac-action-btn" @click="openEdit(user)">编辑</button
-              ><button class="rbac-action-btn" @click="openPassword(user)">重置密码</button></span
+              ><button class="rbac-action-btn" @click="openPassword(user)">修改密码</button></span
             >
           </div>
           <div v-if="!loading && !users.length" class="rbac-empty">
@@ -75,7 +75,9 @@
             <div>
               <h2>{{ modalTitle }}</h2>
               <p>
-                {{ modal === 'password' ? '重置后其他登录会话将立即失效。' : '账号通过动态角色获得树形菜单权限。' }}
+                {{
+                  modal === 'password' ? '修改后该账号的所有登录会话将立即失效。' : '账号通过动态角色获得树形菜单权限。'
+                }}
               </p>
             </div>
             <button class="close" @click="closeModal">×</button>
@@ -87,16 +89,39 @@
                   <strong>安全设置</strong><small>{{ selected?.username }}</small>
                 </div>
                 <label class="rbac-field"
+                  ><span class="form-required">旧密码</span>
+                  <span class="rbac-password-input"
+                    ><input
+                      v-model="form.oldPassword"
+                      aria-required="true"
+                      :type="passwordVisibility.old ? 'text' : 'password'"
+                      autocomplete="new-password"
+                      placeholder="请输入当前密码" /><button
+                      type="button"
+                      :aria-label="passwordVisibility.old ? '隐藏旧密码' : '显示旧密码'"
+                      :title="passwordVisibility.old ? '隐藏旧密码' : '显示旧密码'"
+                      @click="passwordVisibility.old = !passwordVisibility.old"
+                    >
+                      <PasswordVisibilityIcon :visible="passwordVisibility.old" /></button></span
+                ></label>
+                <label class="rbac-field"
                   ><span class="form-required">新密码</span
-                  ><input
-                    v-model="form.password"
-                    aria-required="true"
-                    type="password"
-                    autocomplete="new-password"
-                    minlength="8"
-                    maxlength="16"
-                    placeholder="请输入 8-16 位新密码"
-                /></label>
+                  ><span class="rbac-password-input"
+                    ><input
+                      v-model="form.password"
+                      aria-required="true"
+                      :type="passwordVisibility.next ? 'text' : 'password'"
+                      autocomplete="new-password"
+                      minlength="8"
+                      maxlength="16"
+                      placeholder="请输入 8-16 位新密码" /><button
+                      type="button"
+                      :aria-label="passwordVisibility.next ? '隐藏新密码' : '显示新密码'"
+                      :title="passwordVisibility.next ? '隐藏新密码' : '显示新密码'"
+                      @click="passwordVisibility.next = !passwordVisibility.next"
+                    >
+                      <PasswordVisibilityIcon :visible="passwordVisibility.next" /></button></span
+                ></label>
               </section>
             </template>
             <template v-else>
@@ -179,9 +204,12 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { createUser, listAssignableRoles, listUsers, resetUserPassword, updateUser } from '../api/users'
+import { changeUserPassword, createUser, listAssignableRoles, listUsers, updateUser } from '../api/users'
+import { useAuthStore } from '../stores/auth'
 import { validateLength, validateUsername } from '../utils/formValidation'
+import PasswordVisibilityIcon from './PasswordVisibilityIcon.vue'
 
+const auth = useAuthStore()
 const users = ref([])
 const roles = ref([])
 const loading = ref(false)
@@ -190,12 +218,13 @@ const error = ref('')
 const modalError = ref('')
 const modal = ref('')
 const selected = ref(null)
-const form = reactive({ username: '', displayName: '', password: '', enabled: null, roleIds: [] })
+const form = reactive({ username: '', displayName: '', oldPassword: '', password: '', enabled: null, roleIds: [] })
+const passwordVisibility = reactive({ old: false, next: false })
 const enabledCount = computed(() => users.value.filter((user) => user.enabled).length)
 const disabledCount = computed(() => users.value.length - enabledCount.value)
 const assignedRoleCount = computed(() => new Set(users.value.flatMap((user) => user.roleIds || [])).size)
 const modalTitle = computed(() =>
-  modal.value === 'create' ? '创建用户' : modal.value === 'password' ? '重置密码' : '编辑用户',
+  modal.value === 'create' ? '创建用户' : modal.value === 'password' ? '修改密码' : '编辑用户',
 )
 
 onMounted(load)
@@ -236,7 +265,10 @@ function openEdit(user) {
 }
 function openPassword(user) {
   selected.value = user
+  form.oldPassword = ''
   form.password = ''
+  passwordVisibility.old = false
+  passwordVisibility.next = false
   modal.value = 'password'
   modalError.value = ''
 }
@@ -247,12 +279,13 @@ function closeModal() {
 async function save() {
   modalError.value = ''
   try {
-    // 按弹窗模式执行差异化校验，避免密码重置误用编辑字段。
+    // 按弹窗模式执行差异化校验，避免密码修改误用编辑字段。
     if (modal.value === 'create') {
       validateUsername(form.username)
       validateLength(form.displayName, '显示名称', { max: 64, required: true })
       validateLength(form.password, '初始密码', { min: 8, max: 16, required: true })
     } else if (modal.value === 'password') {
+      validateLength(form.oldPassword, '旧密码', { min: 8, max: 16, required: true })
       validateLength(form.password, '新密码', { min: 8, max: 16, required: true })
     } else {
       validateUsername(form.username)
@@ -273,15 +306,22 @@ async function save() {
         password: form.password,
         roleIds: form.roleIds,
       })
-    else if (modal.value === 'password') await resetUserPassword(selected.value.userId, form.password)
-    else
+    else if (modal.value === 'password') {
+      const changesCurrentUser = selected.value.userId === auth.user?.userId
+      await changeUserPassword(selected.value.userId, form.oldPassword, form.password)
+      closeModal()
+      if (changesCurrentUser) {
+        await auth.logout()
+        return
+      }
+    } else
       await updateUser(selected.value.userId, {
         username: form.username,
         displayName: form.displayName,
         enabled: form.enabled,
         roleIds: form.roleIds,
       })
-    closeModal()
+    if (modal.value) closeModal()
     await load()
   } catch (e) {
     modalError.value = e?.message || '保存失败'

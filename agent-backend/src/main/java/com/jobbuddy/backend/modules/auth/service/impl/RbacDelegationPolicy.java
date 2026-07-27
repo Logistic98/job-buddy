@@ -199,23 +199,15 @@ public class RbacDelegationPolicy {
   }
 
   /**
-   * 校验密码重置请求。
+   * 校验密码修改请求。
    *
    * @param tenantId 租户标识
    * @param actor 操作人
    * @param targetUserId 目标用户标识
    */
-  public void validatePasswordReset(String tenantId, AuthenticatedUser actor, String targetUserId) {
+  public void validatePasswordChange(
+      String tenantId, AuthenticatedUser actor, String targetUserId) {
     requireActorTenant(tenantId, actor);
-    Map<String, Boolean> definitions = permissionDefinitions();
-    if (actor.getUserId() != null && actor.getUserId().equals(targetUserId)) {
-      throw new AuthorizationDeniedException("请通过个人密码修改流程更新自己的密码");
-    }
-    Set<String> targetPermissions =
-        new LinkedHashSet<String>(userRepository.findPermissions(targetUserId));
-    if (!canManageTarget(actor, targetPermissions, definitions)) {
-      throw new AuthorizationDeniedException("不能重置同级、更高权限或受保护账号的密码");
-    }
   }
 
   /**

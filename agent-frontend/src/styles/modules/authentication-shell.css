@@ -211,6 +211,43 @@
   box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.12);
   background: #fff;
 }
+.login-password-input {
+  position: relative;
+  display: block;
+}
+.login-password-input input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 48px;
+}
+.login-password-input button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #667085;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+.login-password-input button svg {
+  width: 18px;
+  height: 18px;
+}
+.login-password-input button:hover {
+  background: rgba(49, 87, 255, 0.08);
+  color: #3157ff;
+}
+.login-password-input button:focus-visible {
+  outline: 2px solid #8098ff;
+  outline-offset: 1px;
+}
 .login-submit {
   height: 44px;
   margin-top: 4px;

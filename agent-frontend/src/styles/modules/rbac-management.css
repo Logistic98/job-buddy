@@ -484,6 +484,41 @@
   border-color: #8098ff;
   box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.1);
 }
+.rbac-password-input {
+  position: relative;
+  display: block;
+}
+.rbac-password-input input {
+  padding-right: 48px;
+}
+.rbac-password-input button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #667085;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+.rbac-password-input button svg {
+  width: 18px;
+  height: 18px;
+}
+.rbac-password-input button:hover {
+  background: var(--rbac-primary-soft);
+  color: var(--rbac-primary);
+}
+.rbac-password-input button:focus-visible {
+  outline: 2px solid #8098ff;
+  outline-offset: 1px;
+}
 .rbac-choice-list {
   max-height: 330px;
   overflow: auto;

@@ -134,23 +134,16 @@ class RbacDelegationPolicyTest {
    * 验证 RbacDelegationPolicy 的输入校验与拒绝边界。
    */
   @Test
-  void cannotResetSelfOrPeerPasswordButCanResetStrictlyLowerAccount() {
+  void canResetAnyPasswordWithinActorTenant() {
     RbacMapper mapper = mock(RbacMapper.class);
     UserAuthRepository users = mock(UserAuthRepository.class);
-    when(users.listPermissionDefinitions())
-        .thenReturn(List.of(permission("users:manage", true), permission("roles:manage", true)));
-    when(users.findPermissions("peer")).thenReturn(List.of("users:manage", "roles:manage"));
-    when(users.findPermissions("lower")).thenReturn(List.of("users:manage"));
     RbacDelegationPolicy policy = new RbacDelegationPolicy(mapper, users);
     AuthenticatedUser actor = actor("manager", Set.of("users:manage", "roles:manage"));
 
-    assertThrows(
-        AuthorizationDeniedException.class,
-        () -> policy.validatePasswordReset("tenant-a", actor, "manager"));
-    assertThrows(
-        AuthorizationDeniedException.class,
-        () -> policy.validatePasswordReset("tenant-a", actor, "peer"));
-    assertDoesNotThrow(() -> policy.validatePasswordReset("tenant-a", actor, "lower"));
+    assertDoesNotThrow(() -> policy.validatePasswordChange("tenant-a", actor, "manager"));
+    assertDoesNotThrow(() -> policy.validatePasswordChange("tenant-a", actor, "peer"));
+    assertDoesNotThrow(() -> policy.validatePasswordChange("tenant-a", actor, "lower"));
+    verify(users, never()).findPermissions(org.mockito.ArgumentMatchers.anyString());
   }
 
   /**

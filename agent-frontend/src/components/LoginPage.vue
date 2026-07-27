@@ -35,13 +35,20 @@
         </label>
         <label>
           <span class="form-required">密码</span>
-          <input
-            v-model="password"
-            aria-required="true"
-            type="password"
-            autocomplete="new-password"
-            placeholder="请输入密码"
-          />
+          <span class="login-password-input"
+            ><input
+              v-model="password"
+              aria-required="true"
+              :type="passwordVisible ? 'text' : 'password'"
+              autocomplete="new-password"
+              placeholder="请输入密码" /><button
+              type="button"
+              :aria-label="passwordVisible ? '隐藏密码' : '显示密码'"
+              :title="passwordVisible ? '隐藏密码' : '显示密码'"
+              @click="passwordVisible = !passwordVisible"
+            >
+              <PasswordVisibilityIcon :visible="passwordVisible" /></button
+          ></span>
         </label>
         <button class="primary-btn login-submit" :disabled="auth.loading">
           {{ auth.loading ? '登录中' : '登录' }}
@@ -68,11 +75,13 @@ import { computed, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { requireText } from '../utils/formValidation'
 import JobBuddyLogo from './JobBuddyLogo.vue'
+import PasswordVisibilityIcon from './PasswordVisibilityIcon.vue'
 
 const emit = defineEmits(['logged-in'])
 const auth = useAuthStore()
 const username = ref('')
 const password = ref('')
+const passwordVisible = ref(false)
 const showError = ref(false)
 const validationError = ref('')
 

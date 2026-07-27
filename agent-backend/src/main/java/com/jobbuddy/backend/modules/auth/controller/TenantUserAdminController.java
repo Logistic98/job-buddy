@@ -7,7 +7,7 @@ import com.jobbuddy.backend.common.security.PermissionCodes;
 import com.jobbuddy.backend.common.security.RequirePermission;
 import com.jobbuddy.backend.modules.auth.dto.request.ManagedUserCreateRequest;
 import com.jobbuddy.backend.modules.auth.dto.request.ManagedUserUpdateRequest;
-import com.jobbuddy.backend.modules.auth.dto.request.PasswordResetRequest;
+import com.jobbuddy.backend.modules.auth.dto.request.PasswordChangeRequest;
 import com.jobbuddy.backend.modules.auth.dto.request.UserRolesRequest;
 import com.jobbuddy.backend.modules.auth.dto.response.ManagedUserResponse;
 import com.jobbuddy.backend.modules.auth.dto.response.RbacRoleResponse;
@@ -134,24 +134,25 @@ public class TenantUserAdminController {
   }
 
   /**
-   * 重置本租户用户密码。
+   * 修改本租户用户密码。
    *
    * @param userId 用户标识
    * @param body 请求体
    * @param request 请求对象
-   * @return 密码重置结果
+   * @return 密码修改结果
    */
-  @Operation(summary = "重置本租户用户密码")
+  @Operation(summary = "修改本租户用户密码")
   @PutMapping("/{userId}/password")
-  public ApiResponse<BooleanResultResponse> resetPassword(
+  public ApiResponse<BooleanResultResponse> changePassword(
       @PathVariable String userId,
-      @RequestBody PasswordResetRequest body,
+      @RequestBody PasswordChangeRequest body,
       HttpServletRequest request) {
-    service.resetPassword(
+    service.changePassword(
         AuthenticatedUserContext.tenantId(request),
         AuthenticatedUserContext.user(request),
         userId,
-        body == null ? null : body.getPassword());
+        body == null ? null : body.getOldPassword(),
+        body == null ? null : body.getNewPassword());
     return ApiResponse.success(new BooleanResultResponse(true));
   }
 }

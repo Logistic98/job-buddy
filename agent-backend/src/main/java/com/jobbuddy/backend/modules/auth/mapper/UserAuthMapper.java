@@ -85,6 +85,15 @@ public interface UserAuthMapper {
       @Param("tenantId") String tenantId, @Param("userId") String userId);
 
   /**
+   * 查询租户内用户的密码哈希。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 密码哈希
+   */
+  String findPasswordHash(@Param("tenantId") String tenantId, @Param("userId") String userId);
+
+  /**
    * 查询权限定义。
    *
    * @return 权限定义

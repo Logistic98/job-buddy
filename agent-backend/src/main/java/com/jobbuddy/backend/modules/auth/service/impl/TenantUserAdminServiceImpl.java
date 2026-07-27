@@ -24,7 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * 实现租户用户管理、密码哈希、角色替换与会话失效。
  *
- * <p>所有变更均通过 {@link RbacDelegationPolicy} 校验；重置密码或禁用用户会撤销现有会话。
+ * <p>所有变更均通过 {@link RbacDelegationPolicy} 校验；修改密码或禁用用户会撤销现有会话。
  */
 @Service
 public class TenantUserAdminServiceImpl implements TenantUserAdminService {
@@ -197,21 +197,31 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
   }
 
   /**
-   * 重置密码。
+   * 校验旧密码并修改密码。
    *
    * @param tenantId 租户标识
    * @param actor 操作人
    * @param userId 用户标识
-   * @param password 密码
+   * @param oldPassword 旧密码
+   * @param newPassword 新密码
    */
   @Transactional
   @Override
-  public void resetPassword(
-      String tenantId, AuthenticatedUser actor, String userId, String password) {
+  public void changePassword(
+      String tenantId,
+      AuthenticatedUser actor,
+      String userId,
+      String oldPassword,
+      String newPassword) {
     requiredUser(tenantId, userId);
-    delegationPolicy.validatePasswordReset(tenantId, actor, userId);
-    validatePassword(password);
-    repository.updatePasswordHash(userId, passwordEncoder.encode(password));
+    delegationPolicy.validatePasswordChange(tenantId, actor, userId);
+    String currentPassword = required(oldPassword, "旧密码不能为空");
+    validatePassword(newPassword);
+    String passwordHash = repository.findPasswordHash(tenantId, userId);
+    if (passwordHash == null || !passwordEncoder.matches(currentPassword, passwordHash)) {
+      throw new IllegalArgumentException("旧密码错误");
+    }
+    repository.updatePasswordHash(userId, passwordEncoder.encode(newPassword));
     loginService.invalidateUserSessions(userId);
   }
 

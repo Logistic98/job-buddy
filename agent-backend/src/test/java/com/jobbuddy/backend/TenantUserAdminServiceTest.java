@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 /**
  * 验证 TenantUserAdminService 的核心行为、异常路径与边界条件。
@@ -147,28 +148,37 @@ class TenantUserAdminServiceTest {
    * 验证 TenantUserAdminService 的核心业务契约。
    */
   @Test
-  void passwordMustBeBetweenEightAndSixteenCharacters() {
+  void passwordChangeRequiresCurrentPasswordAndValidNewPassword() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
+    UserLoginService loginService = mock(UserLoginService.class);
     when(repository.findUserById("tenant-1", "user-1")).thenReturn(user("user-1", true));
+    when(repository.findPasswordHash("tenant-1", "user-1"))
+        .thenReturn(new BCryptPasswordEncoder().encode("oldpass123"));
     TenantUserAdminService service =
         new TenantUserAdminServiceImpl(
             repository,
-            mock(UserLoginService.class),
+            loginService,
             mock(DynamicRbacService.class),
             mock(RbacDelegationPolicy.class));
 
     assertThrows(
         IllegalArgumentException.class,
-        () -> service.resetPassword("tenant-1", actor(), "user-1", "1234567"));
+        () -> service.changePassword("tenant-1", actor(), "user-1", "wrongpass", "newpass123"));
     assertThrows(
         IllegalArgumentException.class,
-        () -> service.resetPassword("tenant-1", actor(), "user-1", "12345678901234567"));
+        () -> service.changePassword("tenant-1", actor(), "user-1", "oldpass123", "1234567"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            service.changePassword(
+                "tenant-1", actor(), "user-1", "oldpass123", "12345678901234567"));
     verify(repository, never()).updatePasswordHash(anyString(), anyString());
+    verify(loginService, never()).invalidateUserSessions(anyString());
 
-    service.resetPassword("tenant-1", actor(), "user-1", "12345678");
-    service.resetPassword("tenant-1", actor(), "user-1", "1234567890123456");
-    verify(repository, times(2))
-        .updatePasswordHash(org.mockito.ArgumentMatchers.eq("user-1"), anyString());
+    service.changePassword("tenant-1", actor(), "user-1", "oldpass123", "newpass123");
+    verify(repository, times(2)).findPasswordHash("tenant-1", "user-1");
+    verify(repository).updatePasswordHash(org.mockito.ArgumentMatchers.eq("user-1"), anyString());
+    verify(loginService).invalidateUserSessions("user-1");
   }
 
   /**

@@ -54,12 +54,18 @@ public interface TenantUserAdminService {
       String tenantId, AuthenticatedUser actor, String userId, List<String> roleIds);
 
   /**
-   * 重置密码。
+   * 校验旧密码并修改密码。
    *
    * @param tenantId 租户标识
    * @param actor 操作人
    * @param userId 用户标识
-   * @param password 密码
+   * @param oldPassword 旧密码
+   * @param newPassword 新密码
    */
-  void resetPassword(String tenantId, AuthenticatedUser actor, String userId, String password);
+  void changePassword(
+      String tenantId,
+      AuthenticatedUser actor,
+      String userId,
+      String oldPassword,
+      String newPassword);
 }
