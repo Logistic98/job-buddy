@@ -3,7 +3,6 @@ package com.jobbuddy.backend;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -51,35 +50,45 @@ class SystemSettingsServiceSecurityTest {
   }
 
   /**
-   * 验证 SystemSettingsService 中设置的输入校验与拒绝边界。
+   * 验证启动环境地址覆盖历史持久化地址，且保存时不再写入服务地址。
    */
   @Test
-  void saveSettingsRejectsNonLoopbackServiceUrls() {
-    System.setProperty("user.home", tempDir.toString());
-    SystemSettingsServiceImpl service = newService();
+  @SuppressWarnings("unchecked")
+  void environmentServiceUrlsOverrideAndRemovePersistedUrls() {
+    AtomicReference<String> savedJson =
+        new AtomicReference<String>(JSON.toJson(settingsWithRuntimeUrl("http://127.0.0.1:8010")));
+    SystemSettingsMapper mapper = mock(SystemSettingsMapper.class);
+    when(mapper.listBlacklistItems()).thenReturn(Collections.<Map<String, Object>>emptyList());
+    when(mapper.findSettingJson("global", "settings")).thenAnswer(invocation -> savedJson.get());
+    when(mapper.upsertSetting(anyString(), anyString(), anyString()))
+        .thenAnswer(
+            invocation -> {
+              savedJson.set(invocation.getArgument(2, String.class));
+              return Integer.valueOf(1);
+            });
+    AgentServiceProperties agentProperties = new AgentServiceProperties();
+    agentProperties.setRuntimeUrl("http://agent-runtime:8010");
+    SystemSettingsServiceImpl service =
+        new SystemSettingsServiceImpl(
+            agentProperties, new JobBuddyProperties(), mapper, mock(AgentMemoryClient.class));
 
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            service.saveSettings(
-                JSON.convert(
-                    settingsWithRuntimeUrl("http://169.254.169.254/latest/meta-data"),
-                    SystemSettingsRequest.class)));
-  }
+    service.loadPersistedRuntimeSettings();
+    Map<String, Object> loaded = JSON.toMap(service.getSettings());
+    Map<String, Object> services = (Map<String, Object>) loaded.get("services");
+    assertEquals("http://agent-runtime:8010", services.get("runtimeUrl"));
+    Map<String, Object> cleanedAtStartup = JSON.toMap(savedJson.get());
+    Map<String, Object> cleanedServices =
+        (Map<String, Object>) cleanedAtStartup.getOrDefault("services", Collections.emptyMap());
+    assertFalse(cleanedServices.containsKey("runtimeUrl"));
 
-  /**
-   * 验证 SystemSettingsService 中设置的持久化与状态变更规则。
-   */
-  @Test
-  void saveSettingsAllowsLoopbackServiceUrls() {
-    System.setProperty("user.home", tempDir.toString());
-    SystemSettingsServiceImpl service = newService();
-
+    Map<String, Object> submitted = settingsWithRuntimeUrl("http://192.3.98.57:8010");
     assertDoesNotThrow(
-        () ->
-            service.saveSettings(
-                JSON.convert(
-                    settingsWithRuntimeUrl("http://127.0.0.1:8010"), SystemSettingsRequest.class)));
+        () -> service.saveSettings(JSON.convert(submitted, SystemSettingsRequest.class)));
+
+    Map<String, Object> persisted = JSON.toMap(savedJson.get());
+    Map<String, Object> persistedServices =
+        (Map<String, Object>) persisted.getOrDefault("services", Collections.emptyMap());
+    assertFalse(persistedServices.containsKey("runtimeUrl"));
   }
 
   /**

@@ -15,7 +15,6 @@ import com.jobbuddy.backend.modules.system.dto.response.SystemSettingsResponse;
 import com.jobbuddy.backend.modules.system.mapper.SystemSettingsMapper;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import jakarta.annotation.PostConstruct;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -146,6 +145,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     Map<String, Object> settings = defaultSettings();
     Map<String, Object> saved = readSavedSettings();
     deepMerge(settings, saved);
+    enforceEnvironmentServiceUrls(settings);
     // 全局配置只允许保存记忆策略；个人记忆正文必须按租户和用户独立存储。
     enforceGlobalMemoryPolicy(settings);
     retainBusinessRuntimeSettings(settings);
@@ -170,6 +170,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     deepMerge(current, sanitize(payload));
     current.put("updatedAt", Instant.now().toString());
     applyRuntimeSettings(current);
+    removePersistedServiceUrls(current);
     writeSettings(current);
     refreshServiceStatuses();
     return getSettings();
@@ -183,6 +184,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   public synchronized SystemSettingsResponse restoreWorkspaceDefaults() {
     Map<String, Object> saved = readSavedSettings();
     saved.remove("workspace");
+    removePersistedServiceUrls(saved);
     saved.put("updatedAt", Instant.now().toString());
     writeSettings(saved);
     return getSettings();
@@ -487,7 +489,10 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private void ensurePersistedRuntimeSettingsLoaded() {
     if (persistedRuntimeSettingsLoaded) return;
     Map<String, Object> settings = defaultSettings();
-    deepMerge(settings, readSavedSettings());
+    Map<String, Object> saved = readSavedSettings();
+    if (removePersistedServiceUrls(saved)) writeSettings(saved);
+    deepMerge(settings, saved);
+    enforceEnvironmentServiceUrls(settings);
     retainBusinessRuntimeSettings(settings);
     applyRuntimeSettings(settings);
     persistedRuntimeSettingsLoaded = true;
@@ -591,84 +596,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     Object servicesValue = settings.get("services");
     if (servicesValue instanceof Map) {
       Map<String, Object> services = (Map<String, Object>) servicesValue;
-      setText(
-          services,
-          "intentUrl",
-          new TextSetter() {
-            /**
-             * 设置目标值。
-             *
-             * @param value 输入值
-             */
-            public void set(String value) {
-              agentServiceProperties.setIntentUrl(value);
-            }
-          });
-      setText(
-          services,
-          "runtimeUrl",
-          new TextSetter() {
-            /**
-             * 设置目标值。
-             *
-             * @param value 输入值
-             */
-            public void set(String value) {
-              agentServiceProperties.setRuntimeUrl(value);
-            }
-          });
-      setText(
-          services,
-          "memoryUrl",
-          new TextSetter() {
-            /**
-             * 设置目标值。
-             *
-             * @param value 输入值
-             */
-            public void set(String value) {
-              agentServiceProperties.setMemoryUrl(value);
-            }
-          });
-      setText(
-          services,
-          "toolUrl",
-          new TextSetter() {
-            /**
-             * 设置目标值。
-             *
-             * @param value 输入值
-             */
-            public void set(String value) {
-              agentServiceProperties.setToolUrl(value);
-            }
-          });
-      setText(
-          services,
-          "evalUrl",
-          new TextSetter() {
-            /**
-             * 设置目标值。
-             *
-             * @param value 输入值
-             */
-            public void set(String value) {
-              agentServiceProperties.setEvalUrl(value);
-            }
-          });
-      setText(
-          services,
-          "sandboxUrl",
-          new TextSetter() {
-            /**
-             * 设置目标值。
-             *
-             * @param value 输入值
-             */
-            public void set(String value) {
-              agentServiceProperties.setSandboxUrl(value);
-            }
-          });
       Duration connectTimeout = durationValue(services.get("connectTimeout"));
       if (connectTimeout != null) agentServiceProperties.setConnectTimeout(connectTimeout);
       Duration readTimeout = durationValue(services.get("readTimeout"));
@@ -949,6 +876,46 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   }
 
   /**
+   * 以启动环境注入的服务地址覆盖历史持久化地址。
+   *
+   * @param settings 合并后的设置
+   */
+  @SuppressWarnings("unchecked")
+  private void enforceEnvironmentServiceUrls(Map<String, Object> settings) {
+    Map<String, Object> environmentServices = serviceDefaults();
+    Object servicesValue = settings.get("services");
+    if (servicesValue instanceof Map) {
+      Map<String, Object> services = (Map<String, Object>) servicesValue;
+      environmentServices.put(
+          "connectTimeout",
+          services.getOrDefault("connectTimeout", environmentServices.get("connectTimeout")));
+      environmentServices.put(
+          "readTimeout",
+          services.getOrDefault("readTimeout", environmentServices.get("readTimeout")));
+    }
+    settings.put("services", environmentServices);
+  }
+
+  /**
+   * 不持久化服务地址，避免数据库覆盖启动环境。
+   *
+   * @param settings 待保存设置
+   */
+  @SuppressWarnings("unchecked")
+  private boolean removePersistedServiceUrls(Map<String, Object> settings) {
+    Object servicesValue = settings.get("services");
+    if (!(servicesValue instanceof Map)) return false;
+    Map<String, Object> services = (Map<String, Object>) servicesValue;
+    boolean removed = services.remove("intentUrl") != null;
+    removed = services.remove("runtimeUrl") != null || removed;
+    removed = services.remove("memoryUrl") != null || removed;
+    removed = services.remove("toolUrl") != null || removed;
+    removed = services.remove("evalUrl") != null || removed;
+    removed = services.remove("sandboxUrl") != null || removed;
+    return removed;
+  }
+
+  /**
    * 写入设置。
    *
    * @param settings 设置
@@ -1036,78 +1003,13 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
     Object value = from.get("services");
     if (!(value instanceof Map)) return;
     Map<String, Object> services = new LinkedHashMap<String, Object>((Map<String, Object>) value);
-    sanitizeServiceUrl(services, "intentUrl");
-    sanitizeServiceUrl(services, "runtimeUrl");
-    sanitizeServiceUrl(services, "memoryUrl");
-    sanitizeServiceUrl(services, "toolUrl");
-    sanitizeServiceUrl(services, "evalUrl");
-    sanitizeServiceUrl(services, "sandboxUrl");
+    services.remove("intentUrl");
+    services.remove("runtimeUrl");
+    services.remove("memoryUrl");
+    services.remove("toolUrl");
+    services.remove("evalUrl");
+    services.remove("sandboxUrl");
     to.put("services", services);
-  }
-
-  /**
-   * 清理并校验服务地址。
-   *
-   * @param services 服务配置列表
-   * @param key 业务键
-   */
-  private void sanitizeServiceUrl(Map<String, Object> services, String key) {
-    if (!services.containsKey(key)) return;
-    String value = stringValue(services.get(key));
-    if (value == null || value.trim().isEmpty()) {
-      services.put(key, "");
-      return;
-    }
-    services.put(key, normalizeLoopbackHttpUrl(value, key));
-  }
-
-  /**
-   * 规范化回环 HTTP 地址。
-   *
-   * @param rawValue 原始值
-   * @param key 业务键
-   * @return 规范化后的回环 HTTP 地址
-   */
-  private String normalizeLoopbackHttpUrl(String rawValue, String key) {
-    String value = rawValue.trim();
-    try {
-      URI uri = URI.create(value);
-      String scheme = uri.getScheme();
-      String host = uri.getHost();
-      if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
-        throw new IllegalArgumentException(key + " 仅支持 http/https 服务地址");
-      }
-      if (uri.getUserInfo() != null) {
-        throw new IllegalArgumentException(key + " 不允许包含用户信息");
-      }
-      if (!isLoopbackHost(host)) {
-        throw new IllegalArgumentException(key + " 仅允许指向本机 loopback 地址");
-      }
-      String normalized = uri.toString();
-      while (normalized.endsWith("/"))
-        normalized = normalized.substring(0, normalized.length() - 1);
-      return normalized;
-    } catch (IllegalArgumentException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new IllegalArgumentException(key + " 服务地址不合法", e);
-    }
-  }
-
-  /**
-   * 判断是否为回环主机。
-   *
-   * @param host 主机名
-   * @return 是否为回环主机
-   */
-  private boolean isLoopbackHost(String host) {
-    if (host == null || host.trim().isEmpty()) return false;
-    String value = host.trim().toLowerCase();
-    return "localhost".equals(value)
-        || "127.0.0.1".equals(value)
-        || value.startsWith("127.")
-        || "::1".equals(value)
-        || "0:0:0:0:0:0:0:1".equals(value);
   }
 
   /**
@@ -1147,18 +1049,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   }
 
   /**
-   * 设置文本。
-   *
-   * @param map 数据映射
-   * @param key 业务键
-   * @param setter 字段设置函数
-   */
-  private void setText(Map<String, Object> map, String key, TextSetter setter) {
-    String value = stringValue(map.get(key));
-    if (value != null) setter.set(value.trim());
-  }
-
-  /**
    * 定义整数配置写入器。
    */
   private interface IntSetter {
@@ -1168,18 +1058,6 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
      * @param value 输入值
      */
     void set(int value);
-  }
-
-  /**
-   * 定义文本写入器。
-   */
-  private interface TextSetter {
-    /**
-     * 设置目标值。
-     *
-     * @param value 输入值
-     */
-    void set(String value);
   }
 
   /**

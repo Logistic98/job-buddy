@@ -88,4 +88,27 @@ describe('ServiceMonitorPanel', () => {
 
     wrapper.unmount()
   })
+
+  it('shows environment-managed container addresses as read-only', async () => {
+    getSettings.mockResolvedValueOnce({
+      services: {
+        intentUrl: 'http://agent-intent:8020',
+        runtimeUrl: 'http://agent-runtime:8010',
+        memoryUrl: 'http://agent-memory:8030',
+        toolUrl: 'http://agent-tool:8040',
+        evalUrl: 'http://agent-eval:8050',
+        sandboxUrl: 'http://agent-sandbox:8061',
+      },
+      serviceStatuses: {},
+    })
+
+    const wrapper = mount(ServiceMonitorPanel)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('当前地址由部署环境管理')
+    expect(wrapper.find('input[type="url"]').element.value).toBe('http://agent-intent:8020')
+    expect(wrapper.findAll('input[type="url"]').every((input) => input.element.disabled)).toBe(true)
+
+    wrapper.unmount()
+  })
 })

@@ -352,20 +352,44 @@ button:disabled {
   overscroll-behavior: contain;
 }
 .panel-head {
-  height: 58px;
-  flex: 0 0 58px;
+  height: 64px;
+  flex: 0 0 64px;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   border-bottom: 1px solid #e8eef7;
   position: relative;
   padding: 0 18px;
+  background:
+    radial-gradient(circle at 50% -80%, rgba(99, 102, 241, 0.1), transparent 64%),
+    linear-gradient(180deg, #fff 0%, #fcfdff 100%);
 }
 .bot-avatar {
-  display: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 10px;
+  background: linear-gradient(145deg, #6d5dfc, #3478f6);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  box-shadow:
+    0 7px 16px rgba(67, 86, 230, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+.panel-head > div:last-child {
+  min-width: 0;
 }
 .panel-head h1 {
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  line-height: 1.25;
   margin: 0;
   color: #172033;
 }

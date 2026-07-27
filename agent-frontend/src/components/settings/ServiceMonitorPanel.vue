@@ -11,7 +11,7 @@
       <div class="setting-card">
         <div>
           <h3>服务地址</h3>
-          <p>配置各后端服务的实际访问地址。保存后，健康检查会立即使用新地址。</p>
+          <p>当前地址由部署环境管理；连接与读取超时仍可调整。</p>
         </div>
         <div class="form-grid all-fields-required">
           <label
@@ -21,6 +21,7 @@
               v-model.trim="services.intentUrl"
               type="url"
               maxlength="512"
+              disabled
               placeholder="例如 http://localhost:8020"
           /></label>
           <label
@@ -30,6 +31,7 @@
               v-model.trim="services.runtimeUrl"
               type="url"
               maxlength="512"
+              disabled
               placeholder="例如 http://localhost:8010"
           /></label>
           <label
@@ -39,6 +41,7 @@
               v-model.trim="services.memoryUrl"
               type="url"
               maxlength="512"
+              disabled
               placeholder="例如 http://localhost:8030"
           /></label>
           <label
@@ -48,6 +51,7 @@
               v-model.trim="services.toolUrl"
               type="url"
               maxlength="512"
+              disabled
               placeholder="例如 http://localhost:8040"
           /></label>
           <label
@@ -57,6 +61,7 @@
               v-model.trim="services.evalUrl"
               type="url"
               maxlength="512"
+              disabled
               placeholder="例如 http://localhost:8050"
           /></label>
           <label
@@ -66,6 +71,7 @@
               v-model.trim="services.sandboxUrl"
               type="url"
               maxlength="512"
+              disabled
               placeholder="例如 http://localhost:8061"
           /></label>
           <label
@@ -160,7 +166,7 @@
 import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { getSettings, refreshServiceHealth } from '../../api/settings'
 import { useScopedSettings } from '../../composables/useScopedSettings'
-import { validateHttpUrl, validateInteger } from '../../utils/formValidation'
+import { validateInteger } from '../../utils/formValidation'
 
 const emit = defineEmits(['state-change'])
 const normalizeServices = (value) => ({
@@ -204,16 +210,6 @@ defineExpose({ save })
 async function save() {
   error.value = ''
   try {
-    for (const [key, label] of [
-      ['intentUrl', 'Intent URL'],
-      ['runtimeUrl', 'Runtime URL'],
-      ['memoryUrl', 'Memory URL'],
-      ['toolUrl', 'Tool URL'],
-      ['evalUrl', 'Eval URL'],
-      ['sandboxUrl', 'Sandbox URL'],
-    ]) {
-      services.value[key] = validateHttpUrl(services.value[key], label, { required: true })
-    }
     validateInteger(durationSeconds(services.value.connectTimeout), '连接超时', { min: 1, max: 3600 })
     validateInteger(durationSeconds(services.value.readTimeout), '读取超时', { min: 1, max: 3600 })
   } catch (err) {
