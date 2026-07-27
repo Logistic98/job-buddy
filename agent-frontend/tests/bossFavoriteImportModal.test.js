@@ -68,11 +68,19 @@ describe('BossFavoriteImportModal', () => {
   it('loads one page only after opening and allows all selectable jobs', async () => {
     const { wrapper } = mountModal()
     await flushPromises()
+    const expectedFavoriteTime = new Date('2025-10-02T01:33:13Z').toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
 
     expect(mocks.listBossFavoriteJobs).toHaveBeenCalledTimes(1)
     expect(mocks.listBossFavoriteJobs).toHaveBeenCalledWith(1, false)
     expect(wrapper.text()).not.toContain('导入会按选择顺序补全职位描述并保存')
-    expect(wrapper.text()).toContain('收藏于 2025/10/02 09:33')
+    expect(wrapper.text()).toContain(`收藏于 ${expectedFavoriteTime}`)
     expect(wrapper.find('.boss-favorite-import-title > .boss-favorite-import-time').exists()).toBe(true)
     const selectable = wrapper.findAll('input[type="checkbox"]:not(:disabled)')
     expect(selectable).toHaveLength(6)

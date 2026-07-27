@@ -300,7 +300,13 @@
                 </div>
               </div>
               <div v-if="filteredProjectQuestions.length" class="deep-question-workbench">
-                <div class="deep-question-list" role="listbox" aria-label="深挖问题列表">
+                <div
+                  class="deep-question-list"
+                  role="listbox"
+                  aria-label="深挖问题列表"
+                  aria-keyshortcuts="ArrowUp ArrowDown"
+                  title="快捷键：上下方向键切换题目"
+                >
                   <button
                     v-for="(item, index) in pagedProjectQuestions"
                     :key="item.questionId || index"
@@ -318,9 +324,24 @@
                     <h3>{{ item.question }}</h3>
                   </button>
                   <div class="project-question-pagination">
-                    <button class="secondary-btn" :disabled="questionPage <= 1" @click="questionPage--">上一页</button
-                    ><button class="secondary-btn" :disabled="questionPage >= questionPages" @click="questionPage++">
-                      下一页
+                    <button
+                      class="secondary-btn"
+                      type="button"
+                      aria-keyshortcuts="ArrowLeft"
+                      title="快捷键：左方向键"
+                      :disabled="questionPage <= 1"
+                      @click="changeQuestionPage(questionPage - 1)"
+                    >
+                      ← 上一页</button
+                    ><button
+                      class="secondary-btn"
+                      type="button"
+                      aria-keyshortcuts="ArrowRight"
+                      title="快捷键：右方向键"
+                      :disabled="questionPage >= questionPages"
+                      @click="changeQuestionPage(questionPage + 1)"
+                    >
+                      下一页 →
                     </button>
                   </div>
                 </div>
@@ -354,37 +375,39 @@
                       </button>
                     </div>
                   </div>
-                  <section class="question-detail-block">
-                    <h4>参考答案</h4>
-                    <PracticeMarkdown
-                      v-if="answerMarkdown"
-                      :key="`answer-${selectedQuestion.questionId || questionPosition}-${answerMarkdown.length}`"
-                      class="deep-markdown"
-                      custom-id="project-deep-answer"
-                      :content="answerMarkdown"
-                    />
-                    <p v-else class="question-detail-empty">
-                      暂无参考答案。建议补充项目背景、个人职责、方案取舍、结果指标和复盘。
-                    </p>
-                  </section>
-                  <section v-if="followUpMarkdown" class="question-detail-block">
-                    <h4>可能追问</h4>
-                    <PracticeMarkdown
-                      :key="`followup-${selectedQuestion.questionId || questionPosition}-${followUpMarkdown.length}`"
-                      class="deep-markdown"
-                      custom-id="project-deep-followup"
-                      :content="followUpMarkdown"
-                    />
-                  </section>
-                  <section v-if="evidenceMarkdown" class="question-detail-block">
-                    <h4>材料依据</h4>
-                    <PracticeMarkdown
-                      :key="`evidence-${selectedQuestion.questionId || questionPosition}-${evidenceMarkdown.length}`"
-                      class="deep-markdown"
-                      custom-id="project-deep-evidence"
-                      :content="evidenceMarkdown"
-                    />
-                  </section>
+                  <div class="question-detail-scroll" tabindex="0" aria-label="问题答案内容">
+                    <section class="question-detail-block">
+                      <h4>参考答案</h4>
+                      <PracticeMarkdown
+                        v-if="answerMarkdown"
+                        :key="`answer-${selectedQuestion.questionId || questionPosition}-${answerMarkdown.length}`"
+                        class="deep-markdown"
+                        custom-id="project-deep-answer"
+                        :content="answerMarkdown"
+                      />
+                      <p v-else class="question-detail-empty">
+                        暂无参考答案。建议补充项目背景、个人职责、方案取舍、结果指标和复盘。
+                      </p>
+                    </section>
+                    <section v-if="followUpMarkdown" class="question-detail-block">
+                      <h4>可能追问</h4>
+                      <PracticeMarkdown
+                        :key="`followup-${selectedQuestion.questionId || questionPosition}-${followUpMarkdown.length}`"
+                        class="deep-markdown"
+                        custom-id="project-deep-followup"
+                        :content="followUpMarkdown"
+                      />
+                    </section>
+                    <section v-if="evidenceMarkdown" class="question-detail-block">
+                      <h4>材料依据</h4>
+                      <PracticeMarkdown
+                        :key="`evidence-${selectedQuestion.questionId || questionPosition}-${evidenceMarkdown.length}`"
+                        class="deep-markdown"
+                        custom-id="project-deep-evidence"
+                        :content="evidenceMarkdown"
+                      />
+                    </section>
+                  </div>
                 </article>
               </div>
               <div v-else class="empty-state compact">
@@ -913,6 +936,7 @@ const {
   questionModalSubmitText,
   toggleAllGeneratedCandidates,
   restartQuestionGeneration,
+  changeQuestionPage,
   loadProjects,
   loadProjectDetail,
   openProject,

@@ -262,6 +262,83 @@ describe('ProjectDeepDive two-level workflow', () => {
     expect(wrapper.text()).toContain('为什么分层？')
   })
 
+  it('shows five questions per page and changes pages with buttons or arrow keys', async () => {
+    mocks.route.query = { project: 'p1', stage: 'questions' }
+    mocks.detail.mockResolvedValue({
+      ...detail,
+      questions: Array.from({ length: 21 }, (_, index) => ({
+        questionId: `q${index + 1}`,
+        question: `项目问题 ${index + 1}`,
+        answer: `参考答案 ${index + 1}`,
+        category: '架构设计',
+        difficulty: '中等',
+      })),
+    })
+    const wrapper = mount(ProjectDeepDive)
+    await flushPromises()
+
+    expect(wrapper.findAll('.deep-question')).toHaveLength(5)
+    expect(wrapper.findAll('.question-index').map((item) => item.text())).toEqual(['Q1', 'Q2', 'Q3', 'Q4', 'Q5'])
+    expect(wrapper.find('.question-detail-headline h3').text()).toBe('项目问题 1')
+    const answerScroller = wrapper.find('.question-detail-scroll')
+    expect(answerScroller.attributes('aria-label')).toBe('问题答案内容')
+    expect(answerScroller.attributes('tabindex')).toBe('0')
+    expect(answerScroller.find('.question-detail-block').exists()).toBe(true)
+    expect(answerScroller.find('.question-detail-top').exists()).toBe(false)
+    expect(wrapper.find('.deep-question-list').attributes('aria-keyshortcuts')).toBe('ArrowUp ArrowDown')
+
+    const paginationButtons = wrapper.findAll('.project-question-pagination button')
+    expect(paginationButtons[0].attributes('aria-keyshortcuts')).toBe('ArrowLeft')
+    expect(paginationButtons[1].attributes('aria-keyshortcuts')).toBe('ArrowRight')
+    await paginationButtons[1].trigger('click')
+
+    expect(wrapper.findAll('.deep-question')).toHaveLength(5)
+    expect(wrapper.findAll('.question-index')[0].text()).toBe('Q6')
+    expect(wrapper.find('.question-detail-headline h3').text()).toBe('项目问题 6')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(wrapper.findAll('.question-index')[0].text()).toBe('Q6')
+    expect(wrapper.find('.question-detail-headline h3').text()).toBe('项目问题 7')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(wrapper.findAll('.question-index')[0].text()).toBe('Q1')
+    expect(wrapper.find('.question-detail-headline h3').text()).toBe('项目问题 5')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(wrapper.findAll('.question-index')[0].text()).toBe('Q6')
+    expect(wrapper.find('.question-detail-headline h3').text()).toBe('项目问题 6')
+
+    const searchInput = wrapper.find('.history-search input')
+    searchInput.element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+    )
+    await flushPromises()
+    expect(wrapper.find('.question-detail-headline h3').text()).toBe('项目问题 6')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(wrapper.findAll('.deep-question')).toHaveLength(5)
+    expect(wrapper.findAll('.question-index')[0].text()).toBe('Q11')
+    expect(wrapper.find('.question-detail-headline h3').text()).toBe('项目问题 11')
+
+    searchInput.element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
+    )
+    await flushPromises()
+    expect(wrapper.findAll('.question-index')[0].text()).toBe('Q11')
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }))
+    await flushPromises()
+    expect(wrapper.findAll('.question-index')[0].text()).toBe('Q6')
+    expect(wrapper.find('.question-detail-headline h3').text()).toBe('项目问题 6')
+    wrapper.unmount()
+  })
+
   it('keeps plain text before a dash separator consistent in detail and editor preview', async () => {
     const answer = '一句话：我做的不是“套壳 ChatGPT”，而是把研发流程工程化。\n---'
     mocks.route.query = { project: 'p1', stage: 'questions' }
@@ -680,18 +757,20 @@ describe('ProjectDeepDive two-level workflow', () => {
     expect(
       wrapper.findAll('.question-editor-card [aria-label="问题难度"] button').map((button) => button.text()),
     ).toEqual(['简单', '中等', '困难'])
-    expect(wrapper.find('.question-editor-card [aria-label="问题难度"] .active').exists()).toBe(false)
+    expect(wrapper.find('.question-editor-card [aria-label="问题难度"] .active').text()).toBe('中等')
     expect(wrapper.find('.question-editor-card').text()).not.toContain('Markdown 源码')
     expect(wrapper.find('.question-editor-head > .close').exists()).toBe(true)
     expect(wrapper.find('.question-editor-scroll > .close').exists()).toBe(false)
     expect(wrapper.find('.question-content-input').exists()).toBe(true)
     expect(wrapper.find('.question-editor-card select').exists()).toBe(false)
     await wrapper.find('.question-editor-card textarea').setValue('手动补充的问题')
-    await wrapper.findAll('.question-editor-card [aria-label="问题难度"] button')[0].trigger('click')
     await wrapper.find('.question-editor-card .modal-actions .question-add-btn').trigger('click')
     await flushPromises()
 
-    expect(mocks.addQuestion).toHaveBeenCalledWith('p1', expect.objectContaining({ question: '手动补充的问题' }))
+    expect(mocks.addQuestion).toHaveBeenCalledWith(
+      'p1',
+      expect.objectContaining({ question: '手动补充的问题', difficulty: '中等' }),
+    )
     expect(wrapper.find('.question-editor-card').exists()).toBe(false)
     expect(wrapper.text()).toContain('手动补充的问题')
     expect(wrapper.text()).toContain('手动维护')

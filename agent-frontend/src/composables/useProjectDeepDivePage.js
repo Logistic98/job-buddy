@@ -58,7 +58,7 @@ export function useProjectDeepDivePage() {
   const questionKeyword = ref('')
   const selectedMaterialIds = ref([])
   const questionPage = ref(1)
-  const questionPageSize = 6
+  const questionPageSize = 5
   const emptyProjectForm = () => ({
     name: '',
     role: '',
@@ -88,7 +88,7 @@ export function useProjectDeepDivePage() {
     question: '',
     answer: '',
     category: '',
-    difficulty: '',
+    difficulty: '中等',
     error: '',
   })
   const questionDeleteDialog = reactive({ visible: false, questionId: '', name: '' })
@@ -156,7 +156,7 @@ export function useProjectDeepDivePage() {
   )
   const selectedQuestion = computed(
     () =>
-      filteredProjectQuestions.value.find((item) => item.questionId === selectedQuestionId.value) ||
+      pagedProjectQuestions.value.find((item) => item.questionId === selectedQuestionId.value) ||
       pagedProjectQuestions.value[0] ||
       null,
   )
@@ -646,6 +646,26 @@ export function useProjectDeepDivePage() {
   function selectQuestion(item) {
     selectedQuestionId.value = item?.questionId || ''
   }
+  function changeQuestionPage(page) {
+    const nextPage = Math.min(Math.max(Number(page) || 1, 1), questionPages.value)
+    if (nextPage === questionPage.value) return false
+    questionPage.value = nextPage
+    selectedQuestionId.value = pagedProjectQuestions.value[0]?.questionId || ''
+    return true
+  }
+  function moveSelectedQuestion(offset) {
+    const questions = filteredProjectQuestions.value
+    if (!questions.length) return false
+    const currentIndex = Math.max(
+      0,
+      questions.findIndex((item) => item.questionId === selectedQuestion.value?.questionId),
+    )
+    const nextIndex = Math.min(Math.max(currentIndex + offset, 0), questions.length - 1)
+    if (nextIndex === currentIndex) return false
+    questionPage.value = Math.floor(nextIndex / questionPageSize) + 1
+    selectedQuestionId.value = questions[nextIndex]?.questionId || ''
+    return true
+  }
   function isManualQuestion(question) {
     return String(question?.source || '') === 'manual'
   }
@@ -673,7 +693,7 @@ export function useProjectDeepDivePage() {
             question: '',
             answer: '',
             category: '',
-            difficulty: '',
+            difficulty: '中等',
             error: '',
           },
     )
@@ -782,12 +802,36 @@ export function useProjectDeepDivePage() {
     return items.map((item) => (/^([-*+]|\d+[.、)])\s?/.test(item) ? item : `- ${item}`)).join('\n')
   }
   function handleKeydown(event) {
-    if (!['Escape', 'Esc'].includes(event.key)) return
-    if (materialDeleteDialog.visible) closeMaterialDeleteDialog()
-    else if (questionDeleteDialog.visible) closeQuestionDeleteDialog()
-    else if (questionModal.visible) closeQuestionModal()
-    else if (deleteDialog.visible) closeDeleteDialog()
-    else if (showModal.value) closeCreate()
+    if (['Escape', 'Esc'].includes(event.key)) {
+      if (materialDeleteDialog.visible) closeMaterialDeleteDialog()
+      else if (questionDeleteDialog.visible) closeQuestionDeleteDialog()
+      else if (questionModal.visible) closeQuestionModal()
+      else if (deleteDialog.visible) closeDeleteDialog()
+      else if (showModal.value) closeCreate()
+      return
+    }
+    if (
+      !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) ||
+      event.defaultPrevented ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      projectStage.value !== 'questions' ||
+      !selectedProject.value ||
+      questionModal.visible ||
+      questionDeleteDialog.visible ||
+      materialDeleteDialog.visible ||
+      deleteDialog.visible ||
+      showModal.value
+    )
+      return
+    const target = event.target
+    if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName)) return
+    const changed = ['ArrowUp', 'ArrowDown'].includes(event.key)
+      ? moveSelectedQuestion(event.key === 'ArrowUp' ? -1 : 1)
+      : changeQuestionPage(questionPage.value + (event.key === 'ArrowLeft' ? -1 : 1))
+    if (changed) event.preventDefault()
   }
 
   return {
@@ -853,6 +897,8 @@ export function useProjectDeepDivePage() {
     questionModalSubmitText,
     toggleAllGeneratedCandidates,
     restartQuestionGeneration,
+    changeQuestionPage,
+    moveSelectedQuestion,
     loadProjects,
     loadProjectDetail,
     openProject,

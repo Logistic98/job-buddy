@@ -158,10 +158,29 @@
   color: #344054;
   font-weight: 900;
 }
+.resume-tag-input > label {
+  font-size: 13px;
+  color: #344054;
+  font-weight: 900;
+}
 .resume-tag-input input {
   height: 46px;
   margin-top: 8px;
   background: #fff;
+}
+.resume-tag-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+.resume-tag-input-row button {
+  min-width: 72px;
+  height: 46px;
+}
+.resume-tag-input-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .resume-tag-input small {
   display: block;
@@ -208,9 +227,18 @@
   background: #eef2ff;
   border-color: #b8c6ff;
 }
+.resume-tag-suggestions button.active {
+  border-color: #b8c6ff;
+  background: #e9eeff;
+}
+.resume-tag-suggestions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 .resume-tag-actions {
   justify-content: flex-end;
   margin: 18px 0 0 !important;
+  gap: 10px;
 }
 .resume-tag-actions button {
   min-width: 96px;
@@ -568,6 +596,104 @@
   color: #667085;
   line-height: 1.6;
 }
+.resume-folder-manager-modal {
+  width: min(620px, 92vw);
+}
+.resume-folder-create {
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid #edf1f7;
+  border-radius: 18px;
+  background: #fbfdff;
+}
+.resume-folder-create > label {
+  display: block;
+  margin-bottom: 8px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 900;
+}
+.resume-folder-create-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+.resume-folder-create-row input,
+.resume-folder-maintenance-item input {
+  height: 42px;
+  min-width: 0;
+  border: 1px solid #dfe6f2;
+  border-radius: 12px;
+  background: #fff;
+  color: #172033;
+  padding: 0 11px;
+  outline: 0;
+}
+.resume-folder-create-row input:focus,
+.resume-folder-maintenance-item input:focus {
+  border-color: #3157ff;
+  box-shadow: 0 0 0 3px rgba(49, 87, 255, 0.12);
+}
+.resume-folder-create-row button {
+  min-width: 80px;
+}
+.resume-folder-maintenance-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(320px, 42vh);
+  margin-top: 18px;
+  overflow-y: auto;
+}
+.resume-folder-maintenance-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 52px;
+  padding: 8px 10px 8px 14px;
+  border: 1px solid #edf1f7;
+  border-radius: 14px;
+  background: #fff;
+}
+.resume-folder-maintenance-item strong {
+  min-width: 0;
+  color: #172033;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.resume-folder-maintenance-item > span {
+  color: #98a2b3;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.resume-folder-text-action {
+  border: 0;
+  background: transparent;
+  color: #475467;
+  padding: 7px 4px;
+  font-size: 13px;
+  font-weight: 800;
+}
+.resume-folder-text-action:hover,
+.resume-folder-text-action.primary {
+  color: #3157ff;
+}
+.resume-folder-text-action.danger {
+  color: #e5484d;
+}
+.resume-folder-text-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.resume-folder-maintenance-empty {
+  margin-top: 18px;
+  padding: 22px;
+  border: 1px dashed #dfe6f2;
+  border-radius: 14px;
+  color: #98a2b3;
+  text-align: center;
+}
 @media (max-width: 720px) {
   .resume-meta-form {
     grid-template-columns: 1fr;
@@ -575,6 +701,12 @@
   .resume-manager-actions {
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+  .resume-folder-maintenance-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .resume-folder-maintenance-item > span {
+    grid-column: 1;
   }
 }
 /* 简历移动目录弹窗 */

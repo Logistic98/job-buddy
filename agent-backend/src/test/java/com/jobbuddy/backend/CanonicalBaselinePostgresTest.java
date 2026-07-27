@@ -83,14 +83,26 @@ class CanonicalBaselinePostgresTest {
   void emptyDatabaseMigratesWithDefaultUsersAuthorizationAndJobBlacklist() throws Exception {
     var result = flyway().migrate();
 
-    assertEquals(14, result.migrationsExecuted);
-    assertEquals("1.0.13", result.targetSchemaVersion);
+    assertEquals(16, result.migrationsExecuted);
+    assertEquals("1.0.15", result.targetSchemaVersion);
     assertEquals(EXPECTED_TABLES, applicationTables());
     assertEquals(
-        273,
+        275,
         queryLong(
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
                 + "AND table_name <> 'flyway_schema_history'"));
+    assertEquals(
+        1,
+        queryLong(
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
+                + "AND table_name = 'interview_exam' AND column_name = 'recorded' "
+                + "AND is_nullable = 'NO' AND column_default = 'true'"));
+    assertEquals(
+        1,
+        queryLong(
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
+                + "AND table_name = 'journey_record' AND column_name = 'company_description' "
+                + "AND data_type = 'text'"));
     assertEquals(2, queryLong("SELECT COUNT(*) FROM app_user"));
     assertEquals(2, queryLong("SELECT COUNT(*) FROM user_role"));
     assertEquals(

@@ -54,6 +54,8 @@ import katexCss from 'katex/dist/katex.min.css?raw'
 export function useResumeWriterPage() {
   const WRITER_STATE_KEY = 'resume.writer'
   const AUTO_VERSION_INTERVAL = 5 * 60 * 1000
+  const MARKDOWN_UNDO_LIMIT = 100
+  const MARKDOWN_UNDO_MERGE_INTERVAL = 1000
   const selectedTags = ref([])
   const profile = ref(emptyProfile())
   const photoUrl = ref('')
@@ -137,6 +139,10 @@ export function useResumeWriterPage() {
   let lastVersionAt = Date.now()
   let lastVersionMarkdown = ''
   let autoVersionSaving = false
+  const markdownUndoStack = []
+  let lastMarkdownInput = null
+  let markdownUndoBaseline = { value: '', selectionStart: 0, selectionEnd: 0 }
+  let markdownUndoSnapshotRecorded = false
   const displayPhotoUrl = computed(() => resumeAssetDisplayUrl(photoUrl.value))
   const displayPhotoLibrary = computed(() =>
     photoLibrary.value.map((item) => ({ ...item, displayUrl: resumeAssetDisplayUrl(item.url) })),
@@ -239,6 +245,7 @@ export function useResumeWriterPage() {
       }
       const module = await import('../examples/resume-writer-example.md?raw')
       markdown.value = String(module.default || '').trim()
+      resetMarkdownUndoHistory()
       fileName.value = 'AI应用开发岗-脱敏示例简历'
       fontSize.value = '12.5px'
       lineHeight.value = '1.72'
@@ -473,12 +480,113 @@ export function useResumeWriterPage() {
     const el = textareaRef.value
     const start = el?.selectionStart ?? markdown.value.length
     const end = el?.selectionEnd ?? markdown.value.length
+    pushMarkdownUndoSnapshot(markdown.value, start, end)
+    lastMarkdownInput = null
     markdown.value = markdown.value.slice(0, start) + text + markdown.value.slice(end)
+    updateMarkdownUndoBaseline(markdown.value, start + text.length, start + text.length)
     saveDraft()
     setTimeout(() => {
       el?.focus()
       if (el) el.selectionStart = el.selectionEnd = start + text.length
     }, 0)
+  }
+  function recordMarkdownUndoSnapshot(event) {
+    const inputType = String(event?.inputType || '')
+    if (inputType === 'historyUndo' || inputType === 'historyRedo') return
+    const element = event?.currentTarget
+    const value = String(element?.value ?? markdown.value)
+    captureMarkdownUndoBoundary(inputType, value, element?.selectionStart, element?.selectionEnd)
+    markdownUndoSnapshotRecorded = true
+  }
+  function handleMarkdownInput(event) {
+    const element = event?.currentTarget
+    const value = String(element?.value ?? markdown.value)
+    if (!markdownUndoSnapshotRecorded && value !== markdownUndoBaseline.value) {
+      captureMarkdownUndoBoundary(
+        String(event?.inputType || ''),
+        markdownUndoBaseline.value,
+        markdownUndoBaseline.selectionStart,
+        markdownUndoBaseline.selectionEnd,
+      )
+    }
+    updateMarkdownUndoBaseline(value, element?.selectionStart, element?.selectionEnd)
+    markdownUndoSnapshotRecorded = false
+    saveDraft()
+  }
+  function captureMarkdownUndoBoundary(inputType, value, selectionStart, selectionEnd) {
+    const now = Date.now()
+    const inputGroup = markdownInputGroup(inputType)
+    const shouldMerge =
+      inputGroup &&
+      lastMarkdownInput?.group === inputGroup &&
+      now - lastMarkdownInput.timestamp <= MARKDOWN_UNDO_MERGE_INTERVAL
+    if (!shouldMerge) {
+      pushMarkdownUndoSnapshot(value, selectionStart, selectionEnd)
+    }
+    lastMarkdownInput = { group: inputGroup, timestamp: now }
+  }
+  function markdownInputGroup(inputType) {
+    if (inputType === 'insertText' || inputType === 'insertCompositionText') return 'insert'
+    if (inputType === 'deleteContentBackward' || inputType === 'deleteContentForward') return 'delete'
+    return ''
+  }
+  function pushMarkdownUndoSnapshot(value, selectionStart, selectionEnd) {
+    const snapshot = {
+      value: String(value ?? ''),
+      selectionStart: Number.isInteger(selectionStart) ? selectionStart : String(value ?? '').length,
+      selectionEnd: Number.isInteger(selectionEnd) ? selectionEnd : String(value ?? '').length,
+    }
+    const previous = markdownUndoStack[markdownUndoStack.length - 1]
+    if (
+      previous?.value === snapshot.value &&
+      previous.selectionStart === snapshot.selectionStart &&
+      previous.selectionEnd === snapshot.selectionEnd
+    ) {
+      return
+    }
+    markdownUndoStack.push(snapshot)
+    if (markdownUndoStack.length > MARKDOWN_UNDO_LIMIT) markdownUndoStack.shift()
+  }
+  function updateMarkdownUndoBaseline(value, selectionStart, selectionEnd) {
+    const normalizedValue = String(value ?? '')
+    markdownUndoBaseline = {
+      value: normalizedValue,
+      selectionStart: Number.isInteger(selectionStart) ? selectionStart : normalizedValue.length,
+      selectionEnd: Number.isInteger(selectionEnd) ? selectionEnd : normalizedValue.length,
+    }
+  }
+  function recordMarkdownSelection(event) {
+    const element = event?.currentTarget
+    if (!element || String(element.value) !== markdownUndoBaseline.value) return
+    updateMarkdownUndoBaseline(element.value, element.selectionStart, element.selectionEnd)
+  }
+  function resetMarkdownUndoHistory() {
+    markdownUndoStack.length = 0
+    lastMarkdownInput = null
+    markdownUndoSnapshotRecorded = false
+    updateMarkdownUndoBaseline(markdown.value, markdown.value.length, markdown.value.length)
+  }
+  function handleEditorKeydown(event) {
+    const isUndoShortcut =
+      (event?.metaKey || event?.ctrlKey) &&
+      !event?.altKey &&
+      !event?.shiftKey &&
+      String(event?.key || '').toLowerCase() === 'z'
+    if (!isUndoShortcut) return
+    event.preventDefault()
+    if (!markdownUndoStack.length) return
+    const snapshot = markdownUndoStack.pop()
+    markdown.value = snapshot.value
+    lastMarkdownInput = null
+    markdownUndoSnapshotRecorded = false
+    updateMarkdownUndoBaseline(snapshot.value, snapshot.selectionStart, snapshot.selectionEnd)
+    saveDraft()
+    nextTick(() => {
+      const element = textareaRef.value
+      if (!element) return
+      element.focus()
+      element.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd)
+    })
   }
   async function loadWriterState() {
     applyWriterState(await getWorkspaceState(WRITER_STATE_KEY))
@@ -488,6 +596,7 @@ export function useResumeWriterPage() {
     const storedMarkdown = String(state.markdown ?? '')
     const managedPhoto = extractManagedResumePhoto(storedMarkdown)
     markdown.value = stripManagedResumePhoto(storedMarkdown)
+    resetMarkdownUndoHistory()
     fileName.value = String(state.fileName ?? '')
     fontSize.value = normalizeFontSizeValue(state.fontSize || '12.5px')
     lineHeight.value = normalizeLineHeightValue(state.lineHeight || '1.72')
@@ -541,6 +650,7 @@ export function useResumeWriterPage() {
       const importedPhoto = extractManagedResumePhoto(imported)
       if (importedPhoto) photoUrl.value = normalizeInitialPhotoUrl(importedPhoto)
       markdown.value = stripManagedResumePhoto(imported)
+      resetMarkdownUndoHistory()
       fileName.value = stripFileExt(file.name)
       await saveNow()
       await refreshVersions()
@@ -849,6 +959,8 @@ ${resumePrintCss()}
   return {
     WRITER_STATE_KEY,
     AUTO_VERSION_INTERVAL,
+    MARKDOWN_UNDO_LIMIT,
+    MARKDOWN_UNDO_MERGE_INTERVAL,
     selectedTags,
     profile,
     photoUrl,
@@ -943,6 +1055,15 @@ ${resumePrintCss()}
     applyPhotoSettingsToDom,
     stopPhotoDrag,
     insertSnippet,
+    recordMarkdownUndoSnapshot,
+    handleMarkdownInput,
+    captureMarkdownUndoBoundary,
+    markdownInputGroup,
+    pushMarkdownUndoSnapshot,
+    updateMarkdownUndoBaseline,
+    recordMarkdownSelection,
+    resetMarkdownUndoHistory,
+    handleEditorKeydown,
     loadWriterState,
     applyWriterState,
     writerState,

@@ -161,7 +161,10 @@
           v-model="markdown"
           spellcheck="false"
           placeholder="请输入或导入 Markdown 简历内容"
-          @input="saveDraft"
+          @beforeinput="recordMarkdownUndoSnapshot"
+          @input="handleMarkdownInput"
+          @keydown="handleEditorKeydown"
+          @select="recordMarkdownSelection"
         />
       </section>
       <section v-show="editorMode !== 'source'" class="resume-clean-preview">
@@ -348,7 +351,10 @@ const {
   handlePreviewClick,
   handlePreviewPointerDown,
   insertSnippet,
-  saveDraft,
+  recordMarkdownUndoSnapshot,
+  handleMarkdownInput,
+  handleEditorKeydown,
+  recordMarkdownSelection,
   importMarkdown,
   openSaveVersionDialog,
   saveManualVersion,

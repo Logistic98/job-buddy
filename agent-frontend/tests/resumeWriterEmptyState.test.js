@@ -66,6 +66,41 @@ describe('ResumeWriter initial content', () => {
     wrapper.unmount()
   })
 
+  it('undoes Markdown edits with Command+Z and Ctrl+Z', async () => {
+    mocks.workspaceState = {
+      fileName: '我的求职简历',
+      markdown: '# 原始内容',
+    }
+    const wrapper = mount(ResumeWriter)
+    await flushPromises()
+    const textarea = wrapper.find('.resume-clean-editor textarea')
+
+    textarea.element.setSelectionRange(6, 6)
+    textarea.element.dispatchEvent(new window.InputEvent('beforeinput', { bubbles: true, inputType: 'insertText' }))
+    await textarea.setValue('# Command 修改')
+    await textarea.trigger('keydown', { key: 'z', metaKey: true })
+    await flushPromises()
+
+    expect(textarea.element.value).toBe('# 原始内容')
+    expect(textarea.element.selectionStart).toBe(6)
+    expect(textarea.element.selectionEnd).toBe(6)
+
+    textarea.element.setSelectionRange(6, 6)
+    await textarea.setValue('# Ctrl 修改')
+    await textarea.trigger('keydown', { key: 'Z', ctrlKey: true })
+    await flushPromises()
+
+    expect(textarea.element.value).toBe('# 原始内容')
+    await vi.waitFor(() => {
+      expect(mocks.saveWorkspaceState).toHaveBeenLastCalledWith(
+        'resume.writer',
+        expect.objectContaining({ markdown: '# 原始内容' }),
+      )
+    })
+
+    wrapper.unmount()
+  })
+
   it('loads the sanitized one-page example only after the user clicks the button', async () => {
     const wrapper = mount(ResumeWriter)
     await flushPromises()

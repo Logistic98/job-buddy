@@ -10,7 +10,7 @@ function expectRequiredLabels(content, labels) {
   for (const label of labels) {
     const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     expect(content, `${label} 应显示必填标识`).toMatch(
-      new RegExp(`<span[^>]*class=["'][^"']*form-required[^"']*["'][^>]*>\\s*${escaped}`),
+      new RegExp(`<(?:label|span)[^>]*class=["'][^"']*form-required[^"']*["'][^>]*>\\s*${escaped}`),
     )
   }
 }
@@ -21,7 +21,7 @@ describe('platform form accessibility contract', () => {
     ['components/interview/QuestionEditModal.vue', ['标题', '分类', '难度', '初始代码模板', '数量']],
     ['components/interview/PracticeConfigModal.vue', ['练习名称', '限时时长', '练习模式', '组卷规则']],
     ['components/ProjectDeepDive.vue', ['项目名称', '生成数量', '问题', '难度']],
-    ['components/ResumeManager.vue', ['分组名称']],
+    ['components/ResumeManager.vue', ['新建分组']],
     ['components/ResumeWriter.vue', ['文件名', '版本说明']],
     ['components/UserManagement.vue', ['新密码', '全局唯一用户名', '显示名称', '初始密码', '账号状态']],
     ['components/RoleManagement.vue', ['角色编码', '角色名称', '角色状态']],
