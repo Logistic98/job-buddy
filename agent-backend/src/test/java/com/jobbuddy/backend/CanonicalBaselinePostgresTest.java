@@ -33,6 +33,7 @@ class CanonicalBaselinePostgresTest {
           "auth_state",
           "blacklist_item",
           "boss_qr_login_session",
+          "chat_attachment",
           "chat_message_log",
           "chat_session_state",
           "interview_exam",
@@ -83,11 +84,11 @@ class CanonicalBaselinePostgresTest {
   void emptyDatabaseMigratesWithDefaultUsersAuthorizationAndJobBlacklist() throws Exception {
     var result = flyway().migrate();
 
-    assertEquals(16, result.migrationsExecuted);
-    assertEquals("1.0.15", result.targetSchemaVersion);
+    assertEquals(17, result.migrationsExecuted);
+    assertEquals("1.0.16", result.targetSchemaVersion);
     assertEquals(EXPECTED_TABLES, applicationTables());
     assertEquals(
-        275,
+        293,
         queryLong(
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
                 + "AND table_name <> 'flyway_schema_history'"));
@@ -150,6 +151,8 @@ class CanonicalBaselinePostgresTest {
     assertTrue(tableExists("idx_app_user_tenant_created_username"));
     assertTrue(tableExists("idx_rbac_role_tenant_created_name"));
     assertTrue(tableExists("uk_chat_message_user_turn"));
+    assertTrue(tableExists("idx_chat_attachment_owner_created"));
+    assertTrue(tableExists("idx_chat_attachment_owner_turn"));
     assertEquals(
         40,
         queryLong(

@@ -5,7 +5,7 @@ runtime_trace_contract:
   notes: Agent 核心逻辑已迁移到 agent-runtime，新评估优先检查 Runtime 事件化 Trace、TaskUnderstandingResult 和 Capability Route。
 cases:
   - id: job_recommend_filter
-    input: "在我的推荐里筛 3 年以上 20k+ 的 Java 岗位,排除外包"
+    input: "在我的推荐里筛 3 年以上 20k+ 的 Agent 开发岗位,排除外包"
     expected:
       domain: job
       intent: job.recommend
@@ -64,7 +64,7 @@ cases:
       intent: general_qa
       events: [intent, message, done]
   - id: technical_open_domain_qa
-    input: "Java volatile 的原理是什么"
+    input: "RAG 中 Cross-Encoder 重排的作用是什么"
     expected:
       domain: open_domain
       intent: technical_qa
@@ -97,7 +97,7 @@ cases:
   - id: career_profile_context_injected
     profile: career
     user_profile:
-      target_roles: ["Java 大模型应用开发"]
+      target_roles: ["Agent 应用开发"]
       target_cities: ["上海"]
       salary_range: "40-50K"
       hard_excludes: ["外包", "驻场"]
@@ -108,7 +108,7 @@ cases:
   - id: open_domain_should_not_overfit_career
     profile: career
     user_profile:
-      target_roles: ["Java 后端"]
+      target_roles: ["Agent 平台开发"]
     input: "解释一下现金流折现法"
     expected:
       domain: open_domain

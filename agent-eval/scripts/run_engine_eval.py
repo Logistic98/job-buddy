@@ -241,6 +241,10 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
             len(answer.strip()) >= int(exp["answer_min_chars"]),
             {"chars": len(answer.strip()), "min": exp["answer_min_chars"]},
         )
+    if "answer_contains_all" in exp:
+        required = [str(item) for item in exp["answer_contains_all"]]
+        missing = [item for item in required if item not in answer]
+        add("answer_contains_all", not missing, {"required": required, "missing": missing})
     if exp.get("expect_rejection"):
         rejected = stop_reason in {"safety_blocked", "rejected"} or any(
             w in answer for w in ["不能", "无法", "不支持", "拒绝", "不会"]
@@ -445,7 +449,7 @@ def _self_check() -> int:
     case = {
         "id": "selfcheck_open_qa",
         "category": "direct_synthesis_fast_path",
-        "input": "Java volatile 的原理是什么",
+        "input": "RAG 中 Cross-Encoder 重排的作用是什么",
         "expected": {"domain": "open_domain", "intent": "technical_qa", "answer_min_chars": 10},
         "latency_budget": {"ttft_ms_target": 2000, "ttft_ms_max": 4500, "done_ms_target": 6000, "done_ms_max": 11000},
     }
@@ -455,7 +459,7 @@ def _self_check() -> int:
         "done": {
             "status": "success",
             "stop_reason": "task_complete",
-            "answer": "volatile 保证可见性和禁止指令重排序。",
+            "answer": "Cross-Encoder 会联合编码查询与候选内容，用更细粒度的相关性评分重排召回结果。",
             "trace_events": [
                 {"event": e}
                 for e in [

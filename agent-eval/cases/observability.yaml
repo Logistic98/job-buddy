@@ -16,7 +16,7 @@ cases:
   # LLM 直达合成路径：必须产出 llm_usage 事件并携带 token 汇总
   - id: obs_llm_usage_on_qa_path
     category: observability
-    input: "解释一下 Java 里 HashMap 和 ConcurrentHashMap 的区别"
+    input: "解释一下 Agent 工具调用中重试与幂等的区别"
     expected:
       domain: open_domain
       expect_llm_usage: true
@@ -50,7 +50,7 @@ cases:
   - id: obs_tool_duration_on_job_path
     category: observability
     requires_live_boss: true
-    input: "在我的推荐里找 3 个 Java 后端岗位"
+    input: "在我的推荐里找 3 个 Agent 平台开发岗位"
     expected:
       domain: job
       intent: job.recommend

@@ -60,7 +60,7 @@ cases:
   # ---- 直达合成快路径：开放域问答不跑工具，理解禁用思考，应较快首字 ----
   - id: open_domain_technical_qa
     category: direct_synthesis_fast_path
-    input: "Java volatile 的原理是什么"
+    input: "RAG 中 Cross-Encoder 重排的作用是什么"
     expected:
       domain: open_domain
       intent: technical_qa
@@ -81,7 +81,7 @@ cases:
     input: "解释一下现金流折现法"
     profile: career
     user_profile:
-      target_roles: ["Java 后端"]
+      target_roles: ["Agent 应用开发"]
     expected:
       domain: open_domain
       intent: general_qa
@@ -191,7 +191,7 @@ cases:
 
   - id: interview_prepare_planner_path
     category: runtime_planner_path
-    input: "帮我准备 Java 后端面试的高频问题"
+    input: "帮我准备 Agent 应用开发岗面试的高频问题"
     expected:
       domain: job
       intent: interview.prepare
@@ -221,9 +221,57 @@ cases:
       done_ms_target: 9000
       done_ms_max: 16000
 
-  - id: code_generation_java_threadpool
+  - id: multi_attachment_summary_path
+    category: direct_synthesis_attachment_path
+    input: "读取这两份附件，分别列出其中的唯一识别码并说明对应文件"
+    metadata:
+      runtime_execute: true
+      upstream_directive:
+        domain: open_domain
+        intent: document_qa
+        confidence: 0.99
+        router: llm
+        next_action: answer
+        task:
+          profile: job-buddy
+          rewritten_query:
+            resolved_query: "读取两份附件并按文件列出唯一识别码"
+            planner_query: "严格依据本轮两份附件，列出每份文件中的唯一识别码和文件名"
+          routing:
+            selected_capability:
+              capability_id: document.qa
+              execution_mode: direct_synthesis
+        capability_contract:
+          required_tools: []
+      attachments:
+        - attachmentId: eval-att-1
+          fileName: architecture.md
+          contentType: text/markdown
+          characterCount: 45
+          truncated: false
+          untrusted: true
+          content: "架构说明：本文件的唯一识别码是 ARCH-417，只用于附件链路评估。"
+        - attachmentId: eval-att-2
+          fileName: requirements.txt
+          contentType: text/plain
+          characterCount: 47
+          truncated: false
+          untrusted: true
+          content: "约束说明：本文件的唯一识别码是 CTX-928，只用于附件链路评估。"
+    expected:
+      answer_min_chars: 20
+      answer_contains_all: [ARCH-417, CTX-928, architecture.md, requirements.txt]
+      disallow_boss: true
+      events: [message, done]
+    latency_budget:
+      ttft_ms_target: 2500
+      ttft_ms_max: 6000
+      done_ms_target: 9000
+      done_ms_max: 16000
+
+  - id: code_generation_agent_tool
     category: direct_synthesis_fast_path
-    input: "帮我写一个 Java 线程池的使用示例"
+    input: "帮我用 Python 写一个带重试的 Agent 工具调用示例"
     expected:
       domain: runtime
       intent: code_generation_task
@@ -333,7 +381,7 @@ cases:
   # ---- Boss 工具路径（高风控，默认跳过）：需要真实登录态，时延预算放宽，但必须有证据 ----
   - id: job_recommend_filter
     category: tool_path_live_boss
-    input: "在我的推荐里筛 3 年以上 20k+ 的 Java 岗位,排除外包"
+    input: "在我的推荐里筛 3 年以上 20k+ 的 Agent 开发岗位,排除外包"
     requires_live_boss: true
     expected:
       domain: job

@@ -18,7 +18,7 @@ def _task(clarification_needed=False, safety_blocked=False) -> TaskUnderstanding
     )
 
 
-def _bff_profile() -> ProfileDefinition:
+def _directive_profile() -> ProfileDefinition:
     return ProfileDefinition(
         id="job-buddy",
         name="Job Buddy",
@@ -104,16 +104,16 @@ def test_route_generic_profile_without_directive_enters_loop():
 
 def test_route_clarification_or_safety_finalizes():
     controller = LoopController()
-    profile = _bff_profile()
+    profile = _directive_profile()
     s1 = {"task_understanding": _task(clarification_needed=True), "directive": {"next_action": "run_runtime_planner"}}
     s2 = {"task_understanding": _task(safety_blocked=True), "directive": {"next_action": "run_runtime_planner"}}
     assert controller.route_after_task_understanding(s1, profile) == "finalize"
     assert controller.route_after_task_understanding(s2, profile) == "finalize"
 
 
-def test_route_bff_directive_only_unless_runtime_entrypoint_and_planner():
+def test_route_directive_only_unless_runtime_entrypoint_and_planner():
     controller = LoopController()
-    profile = _bff_profile()
+    profile = _directive_profile()
     base = {"task_understanding": _task(), "budget": {"max_tool_calls": 5}}
 
     # directive 未要求 runtime planner -> 只返回 directive

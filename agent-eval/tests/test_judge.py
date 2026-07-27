@@ -50,7 +50,7 @@ def test_judge_run_parses_model_verdict(monkeypatch):
         return httpx.Response(200, json=payload, request=request)
 
     monkeypatch.setattr(judge_module.httpx, "post", fake_post)
-    result = judge_run({"answer": "Java volatile 保证可见性"}, {"intent": "technical_qa"})
+    result = judge_run({"answer": "Agent 工具调用应使用幂等键避免重复执行"}, {"intent": "technical_qa"})
     assert result["enabled"] is True
     assert result["ok"] is True
     assert result["score"] == 0.85
