@@ -340,13 +340,21 @@
             <span>{{ group.description }}</span>
           </button>
         </nav>
-        <div v-if="modalMode === 'view'" class="journey-view journey-group-view">
+        <div
+          v-if="modalMode === 'view'"
+          class="journey-view journey-group-view"
+          :class="`journey-group-view--${activeModalGroup}`"
+        >
           <div v-for="item in activeViewRows" :key="item.label" class="journey-view-item">
             <span>{{ item.label }}</span>
             <p>{{ item.value || '-' }}</p>
           </div>
         </div>
-        <div v-else class="form-grid compact-form journey-group-form">
+        <div
+          v-else
+          class="form-grid compact-form journey-group-form"
+          :class="`journey-group-form--${activeModalGroup}`"
+        >
           <template v-if="activeModalGroup === 'company'">
             <label
               ><span>企业</span
@@ -377,17 +385,31 @@
             <label
               ><span>薪资</span><input v-model="form.salaryRange" placeholder="请输入薪资范围，例如：40-50k"
             /></label>
-            <label class="wide"
-              ><span>关联岗位收藏（可选）</span
+            <label
+              ><span>关联岗位收藏</span
               ><select v-model="form.favoriteKey" :class="{ 'is-placeholder': !form.favoriteKey }">
                 <option value="">不关联岗位收藏</option>
                 <option v-for="item in favoriteOptions" :key="item.key" :value="item.key">{{ item.title }}</option>
               </select></label
             >
-            <label class="wide"
+            <label
               ><span>业务方向</span
               ><input v-model="form.businessDirection" placeholder="请输入业务方向，例如：大模型应用 / Agent 平台"
             /></label>
+            <label class="wide"
+              ><span>企业简介</span
+              ><textarea
+                v-model="form.companyDescription"
+                rows="6"
+                placeholder="请输入企业业务、团队背景、产品方向和发展阶段"
+              />
+            </label>
+          </template>
+          <template v-else-if="activeModalGroup === 'jd'">
+            <label class="wide"
+              ><span>任职要求</span
+              ><textarea v-model="form.jobDescription" rows="16" placeholder="请输入岗位职责、任职要求和技术栈" />
+            </label>
           </template>
           <template v-else-if="activeModalGroup === 'interview'">
             <label
@@ -424,53 +446,28 @@
               ><span>优先级</span
               ><input v-model="form.priority" list="journey-priority-options" placeholder="请选择或输入优先级"
             /></label>
-          </template>
-          <template v-else-if="activeModalGroup === 'notes'">
             <label class="wide"
               ><span>面试内容</span
-              ><textarea v-model="form.interviewContent" rows="4" placeholder="请输入面试或笔试内容、题型和过程" />
-            </label>
-            <label
-              ><span>岗位 JD</span
-              ><textarea v-model="form.jobDescription" rows="4" placeholder="请输入岗位职责、任职要求和技术栈" />
-            </label>
-            <label
-              ><span>面试流程</span
-              ><textarea v-model="form.interviewProcess" rows="4" placeholder="请输入面试流程、笔试范围和后续安排" />
+              ><textarea
+                v-model="form.interviewContent"
+                rows="8"
+                placeholder="请输入面试或笔试内容、题型、流程和后续安排"
+              />
             </label>
           </template>
           <template v-else>
             <label class="wide"
               ><span>反思总结</span
-              ><textarea v-model="form.reflection" rows="4" placeholder="请输入准备情况、暴露问题和后续改进方向" />
+              ><textarea v-model="form.reflection" rows="7" placeholder="请输入准备情况、暴露问题和后续改进方向" />
             </label>
             <label class="wide"
               ><span>下一步动作</span
               ><textarea
                 v-model="form.nextAction"
-                rows="3"
+                rows="6"
                 placeholder="请输入下一步动作，例如：补充 Agent 题库并安排复习"
               />
             </label>
-            <div class="wide journey-tag-editor">
-              <span class="journey-tag-field-label">标签</span>
-              <div v-if="form.tags.length" class="journey-tag-list" aria-label="已添加的求职进展标签">
-                <span v-for="tag in form.tags" :key="tag">
-                  {{ tag }}
-                  <button type="button" :aria-label="`移除标签 ${tag}`" @click="removeTag(tag)">×</button>
-                </span>
-              </div>
-              <div class="journey-tag-input-row">
-                <input
-                  v-model.trim="tagDraft"
-                  maxlength="64"
-                  placeholder="输入一个标签，例如：重点跟进"
-                  @keydown.enter.prevent="addTag"
-                />
-                <button type="button" :disabled="!tagDraft.trim()" @click="addTag">添加标签</button>
-              </div>
-              <small class="field-hint">每次输入一个标签，按回车或点击按钮添加</small>
-            </div>
           </template>
         </div>
         <p
@@ -481,9 +478,8 @@
         >
           {{ error }}
         </p>
-        <div class="detail-actions modal-actions-right">
-          <button v-if="modalMode === 'view'" class="primary-btn" @click="modalMode = 'edit'">编辑</button>
-          <button v-else class="primary-btn" :disabled="savingRecord" @click="saveRecord">
+        <div v-if="modalMode !== 'view'" class="detail-actions modal-actions-right">
+          <button class="primary-btn" :disabled="savingRecord" @click="saveRecord">
             {{ savingRecord ? '保存中' : '保存' }}
           </button>
         </div>
@@ -504,7 +500,7 @@ import {
 } from '../api/journey'
 import { useJobStore } from '../stores/job'
 import { formatJourneyDateTime, toJourneyDateTimeLocalValue } from '../utils/journeyDateTime'
-import { validateLength, validateTags } from '../utils/formValidation'
+import { validateLength } from '../utils/formValidation'
 import { journeyResultClass } from '../utils/journeyResult'
 
 const job = useJobStore()
@@ -516,7 +512,6 @@ const modalVisible = ref(false)
 const analysisModalVisible = ref(false)
 const modalMode = ref('edit')
 const activeModalGroup = ref('company')
-const tagDraft = ref('')
 const error = ref('')
 const records = ref([])
 const currentPage = ref(1)
@@ -579,9 +574,9 @@ const groupedRecords = computed(() => {
   return groups
 })
 const modalGroups = [
-  { key: 'company', label: '企业岗位', description: '企业与岗位信息' },
-  { key: 'interview', label: '面试安排', description: '轮次与当前状态' },
-  { key: 'notes', label: '面试记录', description: '内容、JD 与流程' },
+  { key: 'company', label: '岗位概述', description: '企业与岗位信息' },
+  { key: 'jd', label: '任职要求', description: '职责与任职要求' },
+  { key: 'interview', label: '面试内容', description: '安排、内容与流程' },
   { key: 'followup', label: '复盘跟进', description: '总结与下一步' },
 ]
 const viewRowsByGroup = computed(() => ({
@@ -594,7 +589,9 @@ const viewRowsByGroup = computed(() => ({
     ['薪资', form.salaryRange],
     ['关联岗位收藏', favoriteTitle(form.favoriteKey) || '未关联'],
     ['业务方向', form.businessDirection],
+    ['企业简介', form.companyDescription],
   ],
+  jd: [['任职要求', form.jobDescription]],
   interview: [
     ['类型 / 轮次', form.interviewRound],
     ['面试时间', formatJourneyDateTime(form.interviewTime)],
@@ -602,16 +599,11 @@ const viewRowsByGroup = computed(() => ({
     ['结果', form.result],
     ['状态', form.status],
     ['优先级', form.priority],
-  ],
-  notes: [
     ['面试内容', form.interviewContent],
-    ['岗位 JD', form.jobDescription],
-    ['面试流程', form.interviewProcess],
   ],
   followup: [
     ['反思总结', form.reflection],
     ['下一步动作', form.nextAction],
-    ['标签', form.tags.join('、')],
   ],
 }))
 const activeViewRows = computed(() =>
@@ -632,6 +624,7 @@ function emptyForm() {
     salaryRange: '',
     favoriteKey: '',
     businessDirection: '',
+    companyDescription: '',
     interviewRound: '',
     interviewTime: '',
     interviewContent: '',
@@ -643,7 +636,6 @@ function emptyForm() {
     nextAction: '',
     status: '',
     priority: '',
-    tags: [],
   }
 }
 function jobKey(item) {
@@ -690,7 +682,6 @@ function changePageSize() {
 }
 function openCreateModal() {
   editing.recordId = ''
-  tagDraft.value = ''
   Object.assign(form, emptyForm())
   activeModalGroup.value = 'company'
   modalMode.value = 'edit'
@@ -710,34 +701,27 @@ function openEditModal(item) {
 }
 function fillForm(item) {
   editing.recordId = item.recordId
-  tagDraft.value = ''
-  Object.assign(form, emptyForm(), item, {
-    interviewTime: toJourneyDateTimeLocalValue(item.interviewTime),
-    tags: normalizeTags(item.tags),
-  })
-  for (const key of Object.keys(emptyForm())) {
-    if (form[key] == null) form[key] = ''
+  const nextForm = emptyForm()
+  for (const key of Object.keys(nextForm)) {
+    nextForm[key] = item[key] == null ? '' : item[key]
   }
+  nextForm.interviewTime = toJourneyDateTimeLocalValue(item.interviewTime)
+  nextForm.interviewContent = mergeInterviewContent(item.interviewContent, item.interviewProcess)
+  nextForm.interviewProcess = ''
+  Object.assign(form, nextForm)
+}
+function mergeInterviewContent(content, process) {
+  const normalizedContent = String(content || '').trim()
+  const normalizedProcess = String(process || '').trim()
+  if (!normalizedContent) return normalizedProcess
+  if (!normalizedProcess || normalizedContent.includes(normalizedProcess)) return normalizedContent
+  if (normalizedProcess.includes(normalizedContent)) return normalizedProcess
+  return `${normalizedContent}\n\n${normalizedProcess}`
 }
 function closeModal() {
   modalVisible.value = false
 }
-function normalizeTags(tags) {
-  if (!Array.isArray(tags)) return []
-  const labels = tags.map((tag) => String(tag?.label || tag || '').trim()).filter(Boolean)
-  return labels.filter((tag, index) => labels.findIndex((item) => item.toLowerCase() === tag.toLowerCase()) === index)
-}
-function addTag() {
-  const tag = tagDraft.value.trim()
-  if (!tag) return
-  if (!form.tags.some((item) => item.toLowerCase() === tag.toLowerCase())) form.tags.push(tag)
-  tagDraft.value = ''
-}
-function removeTag(tag) {
-  form.tags = form.tags.filter((item) => item !== tag)
-}
 async function saveRecord() {
-  addTag()
   error.value = ''
   try {
     // 对不同阶段共用的记录字段执行统一边界校验。
@@ -749,27 +733,26 @@ async function saveRecord() {
       ['companyScale', '企业规模', 64],
       ['salaryRange', '薪资范围', 64],
       ['businessDirection', '业务方向', 200],
+      ['companyDescription', '企业简介', 5000],
       ['interviewRound', '类型或轮次', 64],
       ['interviewFormat', '面试形式', 64],
       ['result', '面试结果', 64],
       ['status', '当前状态', 64],
       ['priority', '优先级', 32],
-      ['interviewContent', '面试内容', 5000],
+      ['interviewContent', '面试内容', 10000],
       ['jobDescription', '岗位 JD', 10000],
-      ['interviewProcess', '面试流程', 5000],
       ['reflection', '反思总结', 5000],
       ['nextAction', '下一步动作', 2000],
     ])
       validateLength(form[key], label, { max })
     if (form.interviewTime && Number.isNaN(new Date(form.interviewTime).getTime()))
       throw new Error('面试时间格式不正确')
-    validateTags(form.tags, '标签', { maxCount: 20, maxLength: 64 })
   } catch (err) {
     error.value = err.message
     return
   }
   savingRecord.value = true
-  const payload = { ...form, tags: [...form.tags] }
+  const payload = { ...form }
   try {
     // 根据记录标识区分新增与编辑，保存后统一刷新服务端排序结果。
     const saved = editing.recordId

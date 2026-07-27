@@ -175,6 +175,7 @@ public class JobJourneyServiceImpl implements JobJourneyService {
     record.put("salaryRange", string(payload.get("salaryRange")));
     record.put("favoriteKey", string(payload.get("favoriteKey")));
     record.put("businessDirection", string(payload.get("businessDirection")));
+    record.put("companyDescription", string(payload.get("companyDescription")));
     record.put("interviewRound", string(payload.get("interviewRound")));
     record.put("interviewTime", string(payload.get("interviewTime")));
     record.put("interviewContent", string(payload.get("interviewContent")));

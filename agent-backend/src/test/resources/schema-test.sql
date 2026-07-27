@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS job_buddy_journey_record (
   position_name VARCHAR(256),
   salary_range VARCHAR(128),
   business_direction VARCHAR(256),
+  company_description CLOB,
   interview_round VARCHAR(128),
   interview_time VARCHAR(128),
   interview_content CLOB,

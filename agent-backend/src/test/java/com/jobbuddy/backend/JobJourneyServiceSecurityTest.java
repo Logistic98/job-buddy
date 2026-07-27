@@ -58,17 +58,16 @@ class JobJourneyServiceSecurityTest {
     when(repository.findRecord(anyString())).thenReturn(record("journey_saved", "user-auth-1"));
     JobJourneyServiceImpl service = new JobJourneyServiceImpl(repository, new JobBuddyProperties());
 
-    service.saveRecord(
-        "user-auth-1",
-        JSON.convert(
-            Collections.<String, Object>singletonMap("company", "Test Co"),
-            JourneyRecordRequest.class),
-        null);
+    Map<String, Object> input = new LinkedHashMap<String, Object>();
+    input.put("company", "Test Co");
+    input.put("companyDescription", "Enterprise agent platform");
+    service.saveRecord("user-auth-1", JSON.convert(input, JourneyRecordRequest.class), null);
     ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass(Map.class);
     verify(repository).saveRecord(captor.capture());
     String generated = String.valueOf(captor.getValue().get("recordId"));
     assertFalse(generated.isEmpty());
     assertFalse("null".equals(generated));
+    assertEquals("Enterprise agent platform", captor.getValue().get("companyDescription"));
 
     when(repository.findRecord("journey_other")).thenReturn(record("journey_other", "other-user"));
     assertThrows(
@@ -93,6 +92,8 @@ class JobJourneyServiceSecurityTest {
             java.nio.charset.StandardCharsets.UTF_8);
     assertFalse(xml.contains("#{target."));
     assertFalse(xml.contains("#{record."));
+    assertTrue(xml.contains("company_description AS \"companyDescription\""));
+    assertTrue(xml.contains("#{companyDescription}"));
   }
 
   /**

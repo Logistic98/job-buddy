@@ -16,6 +16,7 @@ public class JourneyRecordRequest {
   private String salaryRange;
   private String favoriteKey;
   private String businessDirection;
+  private String companyDescription;
   private String interviewRound;
   private String interviewTime;
   private String interviewContent;

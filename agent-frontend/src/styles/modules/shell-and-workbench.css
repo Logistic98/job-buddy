@@ -1932,19 +1932,23 @@ button:disabled {
 }
 .journey-modal {
   width: min(1040px, 94vw);
+  height: min(760px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
   background: #fff;
   border-radius: 24px;
   padding: 22px;
   position: relative;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .journey-modal-groups {
+  flex: none;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
   margin: 2px 0 6px;
-  padding: 5px;
+  padding: 4px;
   border: 1px solid #e1e7f2;
   border-radius: 16px;
   background: #f7f9fc;
@@ -1954,7 +1958,7 @@ button:disabled {
   border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
-  padding: 10px 12px;
+  padding: 6px 10px;
   text-align: left;
   color: #667085;
   cursor: pointer;
@@ -1981,8 +1985,8 @@ button:disabled {
   font-size: 13px;
 }
 .journey-modal-groups span {
-  margin-top: 3px;
-  font-size: 11px;
+  margin-top: 2px;
+  font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -1990,88 +1994,177 @@ button:disabled {
 }
 .journey-group-form,
 .journey-group-view {
-  min-height: 300px;
+  flex: 1;
   align-content: start;
+  height: auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 .journey-group-form textarea {
+  --journey-textarea-line-height: 22px;
+  --journey-textarea-four-rows: calc(var(--journey-textarea-line-height) * 5);
+  --journey-textarea-six-rows: calc(var(--journey-textarea-line-height) * 7);
+  --journey-textarea-seven-rows: calc(var(--journey-textarea-line-height) * 8);
+  --journey-textarea-eight-rows: calc(var(--journey-textarea-line-height) * 9);
+  --journey-textarea-sixteen-rows: calc(var(--journey-textarea-line-height) * 17);
+  box-sizing: border-box;
+  height: var(--journey-textarea-four-rows);
+  min-height: var(--journey-textarea-four-rows);
+  line-height: var(--journey-textarea-line-height);
   resize: none;
 }
-.journey-tag-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
+.journey-group-form.journey-group-form--interview textarea[rows='8'] {
+  height: var(--journey-textarea-eight-rows);
+  min-height: var(--journey-textarea-eight-rows);
 }
-.journey-tag-field-label {
-  color: #344054;
-  font-size: 13px;
-  font-weight: 600;
+.journey-group-form.journey-group-form--company textarea[rows='6'] {
+  height: var(--journey-textarea-six-rows);
+  min-height: var(--journey-textarea-six-rows);
 }
-.journey-tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.journey-group-form.journey-group-form--jd {
+  grid-template-rows: minmax(0, 1fr);
 }
-.journey-tag-list > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  padding: 4px 8px 4px 11px;
-  border: 1px solid #cdd8ff;
-  border-radius: 999px;
-  background: #f2f5ff;
-  color: #3157ff;
-  font-size: 12px;
-  font-weight: 600;
+.journey-group-form.journey-group-form--jd label {
+  min-height: 0;
 }
-.journey-tag-list button {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #667eea;
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
+.journey-group-form.journey-group-form--jd textarea[rows='16'] {
+  height: var(--journey-textarea-sixteen-rows);
+  min-height: var(--journey-textarea-sixteen-rows);
 }
-.journey-tag-list button:hover {
-  background: #dfe6ff;
-  color: #2447dc;
+.journey-group-form.journey-group-form--followup textarea[rows='7'] {
+  height: var(--journey-textarea-seven-rows);
+  min-height: var(--journey-textarea-seven-rows);
 }
-.journey-tag-input-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+.journey-group-form.journey-group-form--followup textarea[rows='6'] {
+  height: var(--journey-textarea-six-rows);
+  min-height: var(--journey-textarea-six-rows);
 }
-.journey-tag-input-row button {
-  min-width: 92px;
-  padding: 0 16px;
-  border: 1px solid #cdd8ff;
-  border-radius: 12px;
-  background: #f2f5ff;
-  color: #3157ff;
-  cursor: pointer;
-  font-weight: 700;
+@media (min-width: 761px) {
+  .journey-group-form.journey-group-form--company {
+    grid-template-rows: repeat(4, max-content) minmax(140px, 1fr);
+  }
+  .journey-group-form.journey-group-form--interview {
+    grid-template-rows: repeat(3, max-content) minmax(160px, 1fr);
+  }
+  .journey-group-form.journey-group-form--followup {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    align-content: stretch;
+  }
+  .journey-group-form.journey-group-form--company label.wide,
+  .journey-group-form.journey-group-form--interview label.wide,
+  .journey-group-form.journey-group-form--followup label.wide {
+    min-height: 0;
+  }
+  .journey-group-form.journey-group-form--company textarea[rows='6'],
+  .journey-group-form.journey-group-form--jd textarea[rows='16'],
+  .journey-group-form.journey-group-form--interview textarea[rows='8'],
+  .journey-group-form.journey-group-form--followup textarea {
+    flex: 1;
+    height: 100%;
+    min-height: 0;
+  }
 }
-.journey-tag-input-row button:hover:not(:disabled) {
-  border-color: #9db0ff;
-  background: #e8edff;
-}
-.journey-tag-input-row button:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
+.form-grid.journey-group-form--followup {
+  row-gap: 9px;
 }
 .journey-group-view {
+  gap: 0;
   margin-top: 16px;
+  padding: 8px 16px;
+  border: 1px solid #e8eef6;
+  border-radius: 16px;
+  background: #fbfdff;
+}
+.journey-group-view .journey-view-item {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  min-height: 0;
+  padding: 12px 8px;
+  border: 0;
+  border-bottom: 1px solid #edf1f7;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+}
+.journey-group-view .journey-view-item span {
+  margin: 0;
+  line-height: 1.7;
 }
 .journey-group-view .journey-view-item p {
+  min-height: 0;
+  max-height: 96px;
+  overflow-y: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.journey-group-view--company {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(4, max-content) minmax(0, 1fr);
+}
+.journey-group-view--company .journey-view-item:last-child {
+  grid-column: 1/-1;
+  align-items: stretch;
+}
+.journey-group-view--company .journey-view-item:last-child p {
+  max-height: none;
+  overflow-y: auto;
+}
+.journey-group-view--interview {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(3, max-content) minmax(0, 1fr);
+}
+.journey-group-view--interview .journey-view-item:last-child {
+  grid-column: 1/-1;
+  align-items: stretch;
+}
+.journey-group-view--interview .journey-view-item:last-child p {
+  max-height: none;
+  overflow-y: auto;
+}
+.journey-group-view--jd {
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr);
+}
+.journey-group-view--jd .journey-view-item {
+  height: 100%;
+  align-items: stretch;
+  border-bottom: 0;
+}
+.journey-group-view--jd .journey-view-item p {
+  max-height: none;
+  overflow-y: auto;
+}
+.journey-group-view--followup .journey-view-item {
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 6px;
+  padding: 16px 12px;
+}
+.journey-group-view--followup .journey-view-item p {
+  max-height: none;
+  overflow: visible;
+  line-height: 1.75;
+}
+.journey-group-view--followup {
+  grid-template-columns: 1fr;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  align-content: stretch;
+}
+.journey-group-view--followup .journey-view-item {
+  height: 100%;
+  border-bottom: 0;
+}
+.journey-group-view--followup .journey-view-item:first-child {
+  border-right: 0;
+  border-bottom: 1px solid #edf1f7;
+}
+.journey-group-view--company .journey-view-item:last-child,
+.journey-group-view--interview .journey-view-item:last-child,
+.journey-group-view--jd .journey-view-item:last-child {
+  border-bottom: 0;
 }
 .modal-form-scroll {
   min-height: 0;
@@ -2089,7 +2182,10 @@ button:disabled {
   }
   .journey-modal {
     width: calc(100vw - 24px);
+    height: auto;
+    max-height: none;
     padding: 18px;
+    overflow: visible;
   }
   .journey-modal-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2097,17 +2193,29 @@ button:disabled {
   .journey-group-form,
   .journey-group-view {
     grid-template-columns: 1fr;
+    height: auto;
     min-height: 0;
+    overflow-y: visible;
+    padding-right: 0;
   }
   .journey-group-form label.wide,
   .journey-group-form .wide {
     grid-column: auto;
   }
-  .journey-tag-input-row {
-    grid-template-columns: 1fr;
+  .journey-group-view--followup .journey-view-item:first-child {
+    border-right: 0;
+    border-bottom: 1px solid #edf1f7;
   }
-  .journey-tag-input-row button {
-    min-height: 40px;
+  .journey-group-view--followup {
+    align-content: start;
+  }
+  .journey-group-view--jd .journey-view-item {
+    height: auto;
+    align-items: start;
+  }
+  .journey-group-view--jd .journey-view-item p,
+  .journey-group-view--interview .journey-view-item:last-child p {
+    overflow-y: visible;
   }
 }
 @media (max-width: 1360px) {

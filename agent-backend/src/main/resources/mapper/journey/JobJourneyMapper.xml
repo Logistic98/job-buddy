@@ -26,6 +26,7 @@
     salary_range AS "salaryRange",
     favorite_key AS "favoriteKey",
     business_direction AS "businessDirection",
+    company_description AS "companyDescription",
     interview_round AS "interviewRound",
     interview_time AS "interviewTime",
     interview_content AS "interviewContent",
@@ -114,6 +115,7 @@
         LOWER(company) LIKE CONCAT('%', LOWER(#{keyword}), '%')
         OR LOWER(position_name) LIKE CONCAT('%', LOWER(#{keyword}), '%')
         OR LOWER(business_direction) LIKE CONCAT('%', LOWER(#{keyword}), '%')
+        OR LOWER(company_description) LIKE CONCAT('%', LOWER(#{keyword}), '%')
         OR LOWER(interview_content) LIKE CONCAT('%', LOWER(#{keyword}), '%')
       )
     </if>
@@ -151,6 +153,7 @@
       salary_range,
       favorite_key,
       business_direction,
+      company_description,
       interview_round,
       interview_time,
       interview_content,
@@ -177,6 +180,7 @@
       #{salaryRange},
       #{favoriteKey},
       #{businessDirection},
+      #{companyDescription},
       #{interviewRound},
       #{interviewTime},
       #{interviewContent},
@@ -207,6 +211,7 @@
       salary_range = #{salaryRange},
       favorite_key = #{favoriteKey},
       business_direction = #{businessDirection},
+      company_description = #{companyDescription},
       interview_round = #{interviewRound},
       interview_time = #{interviewTime},
       interview_content = #{interviewContent},
