@@ -13,7 +13,7 @@
           role="tab"
           :aria-selected="activeTab === tab.key"
           :class="{ active: activeTab === tab.key }"
-          @click="activeTab = tab.key"
+          @click="selectTab(tab.key)"
         >
           <span class="tab-icon" aria-hidden="true">
             <svg
@@ -39,19 +39,30 @@
       <InterviewBank
         v-if="activeTab === 'practice'"
         key="written-practice"
+        ref="practiceDeskRef"
         mode="exam"
         :initial-exam-id="activeExamId"
         embedded
         @back-to-bank="handleBackToBank"
+        @compose-practice="handleComposePractice"
       />
       <InterviewBank v-else key="written-bank" mode="bank" embedded @practice-created="handlePracticeCreated" />
     </KeepAlive>
+
+    <PaperCompositionCenter
+      v-if="compositionDialogOpen"
+      modal
+      :initial-mode="compositionMode"
+      @close="closeCompositionDialog"
+      @created="handlePracticeCreated"
+    />
   </section>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import InterviewBank from './InterviewBank.vue'
+import PaperCompositionCenter from './interview/PaperCompositionCenter.vue'
 
 const tabs = [
   {
@@ -74,14 +85,39 @@ const tabs = [
 ]
 const activeTab = ref('bank')
 const activeExamId = ref('')
+const compositionMode = ref('smart')
+const compositionDialogOpen = ref(false)
+const practiceDeskRef = ref(null)
 
 function handlePracticeCreated(exam) {
   activeExamId.value = exam?.examId || ''
+  compositionDialogOpen.value = false
   activeTab.value = 'practice'
 }
 
 function handleBackToBank() {
   activeExamId.value = ''
+  compositionDialogOpen.value = false
   activeTab.value = 'bank'
+}
+
+function handleComposePractice(mode = 'smart') {
+  compositionMode.value = mode === 'rule' ? 'rule' : 'smart'
+  compositionDialogOpen.value = true
+  activeTab.value = 'practice'
+}
+
+function closeCompositionDialog() {
+  compositionDialogOpen.value = false
+}
+
+function selectTab(tab) {
+  const enteringPracticeDesk = tab === 'practice' && activeTab.value !== 'practice'
+  activeTab.value = tab
+  compositionDialogOpen.value = false
+  if (enteringPracticeDesk) {
+    activeExamId.value = ''
+    nextTick(() => practiceDeskRef.value?.showRecordsHome())
+  }
 }
 </script>

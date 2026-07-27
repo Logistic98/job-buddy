@@ -2,9 +2,12 @@ package com.jobbuddy.backend;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -27,6 +30,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * 验证 InterviewPracticeController 的主要成功路径。
@@ -168,6 +172,139 @@ class InterviewPracticeControllerTest {
   }
 
   /**
+   * 验证单题临时练习不会进入记录列表，正式练习可由所属用户删除。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void shouldHideTransientSinglePracticeAndDeleteRecordedPractice() throws Exception {
+    JsonNode question =
+        createQuestion(
+            "{\"bankType\":\"qa\",\"title\":\"临时单题\",\"category\":\"Java\","
+                + "\"difficulty\":\"简单\",\"questionType\":\"简答\",\"content\":\"说明 final。\","
+                + "\"answer\":\"不可变引用语义\",\"tags\":[\"Java\"]}");
+    String questionId = question.get("questionId").asText();
+    String transientBody =
+        "{\"title\":\"临时单题练习\",\"durationMinutes\":30,\"showAnswer\":true,"
+            + "\"recorded\":false,\"questionIds\":[\""
+            + questionId
+            + "\"]}";
+
+    MvcResult transientResult =
+        mockMvc
+            .perform(
+                post("/api/interview/practices/random")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(transientBody))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.recorded").value(false))
+            .andReturn();
+    String transientExamId =
+        objectMapper
+            .readTree(transientResult.getResponse().getContentAsString())
+            .at("/data/examId")
+            .asText();
+
+    MvcResult hiddenListResult =
+        mockMvc.perform(get("/api/interview/practices")).andExpect(status().isOk()).andReturn();
+    JsonNode hiddenList =
+        objectMapper.readTree(hiddenListResult.getResponse().getContentAsString()).path("data");
+    assertFalse(containsExam(hiddenList, transientExamId));
+
+    String recordedBody =
+        "{\"title\":\"保留练习记录\",\"durationMinutes\":30,\"showAnswer\":false,"
+            + "\"questionIds\":[\""
+            + questionId
+            + "\"]}";
+    MvcResult recordedResult =
+        mockMvc
+            .perform(
+                post("/api/interview/practices/random")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(recordedBody))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.recorded").value(true))
+            .andReturn();
+    String recordedExamId =
+        objectMapper
+            .readTree(recordedResult.getResponse().getContentAsString())
+            .at("/data/examId")
+            .asText();
+
+    MvcResult visibleListResult =
+        mockMvc.perform(get("/api/interview/practices")).andExpect(status().isOk()).andReturn();
+    assertTrue(
+        containsExam(
+            objectMapper
+                .readTree(visibleListResult.getResponse().getContentAsString())
+                .path("data"),
+            recordedExamId));
+
+    mockMvc
+        .perform(delete("/api/interview/practices/{examId}", recordedExamId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.data.deleted").value(true));
+    MvcResult deletedListResult =
+        mockMvc.perform(get("/api/interview/practices")).andExpect(status().isOk()).andReturn();
+    assertFalse(
+        containsExam(
+            objectMapper
+                .readTree(deletedListResult.getResponse().getContentAsString())
+                .path("data"),
+            recordedExamId));
+  }
+
+  /**
+   * 验证自然语言智能组卷会从现有题库选择题目并直接创建练习。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void shouldCreateSmartPracticeFromExistingQuestionCatalog() throws Exception {
+    JsonNode javaQuestion =
+        createQuestion(
+            "{\"bankType\":\"qa\",\"title\":\"Java 并发可见性\",\"category\":\"Java 并发\","
+                + "\"difficulty\":\"中等\",\"questionType\":\"简答\",\"content\":\"说明 volatile 的语义。\","
+                + "\"answer\":\"可见性与有序性\",\"tags\":[\"Java\",\"并发\"]}");
+    JsonNode redisQuestion =
+        createQuestion(
+            "{\"bankType\":\"qa\",\"title\":\"Redis 持久化\",\"category\":\"Redis\","
+                + "\"difficulty\":\"中等\",\"questionType\":\"单选\",\"content\":\"RDB 与 AOF 哪项描述正确？\\n\\n"
+                + "A. RDB 是快照\\nB. RDB 是追加日志\",\"answer\":\"A\",\"tags\":[\"Redis\"]}");
+    String javaId = javaQuestion.get("questionId").asText();
+    String redisId = redisQuestion.get("questionId").asText();
+    Map<String, Object> toolResult =
+        objectMapper.readValue(
+            "{\"success\":true,\"output\":{\"title\":\"Java 与 Redis 专项练习\","
+                + "\"duration_minutes\":45,\"show_answer\":false,\"question_ids\":[\""
+                + javaId
+                + "\",\""
+                + redisId
+                + "\"],\"selection_summary\":\"覆盖 Java 并发与 Redis。\"}}",
+            Map.class);
+    when(agentIntegrationService.invokeRuntimeTool(
+            eq("interview_paper_compose"), any(RuntimeToolArguments.class)))
+        .thenReturn(RuntimeToolResult.fromJson(objectMapper.valueToTree(toolResult)));
+
+    mockMvc
+        .perform(
+            post("/api/interview/practices/smart")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"requirements\":\"选择 Java 并发和 Redis 中等难度题，45 分钟考试模式\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.code").value(200))
+        .andExpect(jsonPath("$.data.title").value("Java 与 Redis 专项练习"))
+        .andExpect(jsonPath("$.data.totalCount").value(2))
+        .andExpect(jsonPath("$.data.durationMinutes").value(45))
+        .andExpect(jsonPath("$.data.strategy.mode").value("smart"))
+        .andExpect(
+            jsonPath("$.data.strategy.requirements").value("选择 Java 并发和 Redis 中等难度题，45 分钟考试模式"))
+        .andExpect(jsonPath("$.data.strategy.showAnswer").value(false))
+        .andExpect(jsonPath("$.data.questions[0].questionId").value(javaId))
+        .andExpect(jsonPath("$.data.questions[1].questionId").value(redisId));
+  }
+
+  /**
    * 验证 InterviewPracticeController 中编程题的题目生成与作答判定规则。
    *
    * @throws Exception 处理失败时抛出
@@ -289,6 +426,21 @@ class InterviewPracticeControllerTest {
             .getResponse()
             .getContentAsString(StandardCharsets.UTF_8);
     return parseData(content);
+  }
+
+  /**
+   * 判断练习列表是否包含指定记录。
+   *
+   * @param exams 练习列表
+   * @param examId 练习标识
+   * @return 是否包含
+   */
+  private boolean containsExam(JsonNode exams, String examId) {
+    if (exams == null || !exams.isArray()) return false;
+    for (JsonNode exam : exams) {
+      if (examId.equals(exam.path("examId").asText())) return true;
+    }
+    return false;
   }
 
   /**

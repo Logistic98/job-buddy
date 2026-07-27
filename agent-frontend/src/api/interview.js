@@ -114,6 +114,13 @@ export async function getExam(examId) {
   return parseApiResponse(response, '练习详情加载失败')
 }
 
+export async function deleteExam(examId) {
+  const response = await apiFetch(`/interview/practices/${encodeURIComponent(examId)}`, {
+    method: 'DELETE',
+  })
+  return parseApiResponse(response, '练习记录删除失败')
+}
+
 export async function createRandomExam(payload) {
   const response = await apiFetch('/interview/practices/random', {
     method: 'POST',
@@ -121,6 +128,15 @@ export async function createRandomExam(payload) {
     body: JSON.stringify(payload),
   })
   return parseApiResponse(response, '随机出题失败')
+}
+
+export async function createSmartExam(payload) {
+  const response = await apiFetch('/interview/practices/smart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return parseApiResponse(response, '智能组卷失败')
 }
 
 export async function runCodeSample(payload) {

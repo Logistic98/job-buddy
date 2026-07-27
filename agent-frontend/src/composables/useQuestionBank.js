@@ -108,7 +108,7 @@ export function useQuestionBank(initialBankType = 'leetcode') {
     if (!selectedIds.value.length) return
     Object.assign(deleteDialog, { visible: true, mode: 'batch', questionId: '', count: selectedIds.value.length })
   }
-  async function createManualPractice(questionIds, title, showAnswer = true, onCreated = () => {}) {
+  async function createManualPractice(questionIds, title, showAnswer = true, onCreated = () => {}, recorded = true) {
     examLoading.value = true
     error.value = ''
     try {
@@ -117,6 +117,7 @@ export function useQuestionBank(initialBankType = 'leetcode') {
         durationMinutes: questionIds.length > 1 ? 45 : 30,
         showAnswer,
         questionIds,
+        recorded,
       })
       assertManualPracticeMatches(exam, questionIds)
       clearSelection()

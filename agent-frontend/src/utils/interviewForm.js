@@ -155,7 +155,7 @@ export function validatePracticeConfig(examConfig) {
   for (const rule of examConfig.rules) {
     requireText(rule.bankType, '请选择组卷规则的题库')
     requireText(rule.questionType, '请选择组卷规则的题型')
-    validateInteger(rule.count, '单条组卷规则题数', { min: 1, max: 50 })
+    validateInteger(rule.count, '单条组卷规则题数', { min: 1, max: 100 })
   }
 }
 

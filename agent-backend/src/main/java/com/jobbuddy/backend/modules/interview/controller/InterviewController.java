@@ -1,5 +1,6 @@
 package com.jobbuddy.backend.modules.interview.controller;
 
+import com.jobbuddy.backend.common.dto.response.DeletedResponse;
 import com.jobbuddy.backend.common.dto.response.QuestionIdResponse;
 import com.jobbuddy.backend.common.result.ApiResponse;
 import com.jobbuddy.backend.common.security.AuthenticatedUserContext;
@@ -12,6 +13,7 @@ import com.jobbuddy.backend.modules.interview.dto.request.InterviewExamSubmitReq
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewGenerateRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewImportRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewQuestionRequest;
+import com.jobbuddy.backend.modules.interview.dto.request.InterviewSmartExamRequest;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewBatchResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewCodeRunResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewDocumentExtractResponse;
@@ -238,6 +240,24 @@ public class InterviewController {
   }
 
   /**
+   * 根据自然语言要求从现有题库智能组卷。
+   *
+   * @param payload 智能组卷要求
+   * @param request HTTP 请求
+   * @return 创建后的练习
+   */
+  @Operation(summary = "根据自然语言要求智能组卷")
+  @PostMapping("/practices/smart")
+  public ApiResponse<InterviewExamResponse> smartExam(
+      @RequestBody InterviewSmartExamRequest payload, HttpServletRequest request) {
+    return ApiResponse.success(
+        interviewService.createSmartExam(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
+            payload));
+  }
+
+  /**
    * 查询考试详情。
    *
    * @param examId 考试标识
@@ -253,6 +273,24 @@ public class InterviewController {
             AuthenticatedUserContext.tenantId(request),
             AuthenticatedUserContext.userId(request),
             examId));
+  }
+
+  /**
+   * 删除用户所属练习记录。
+   *
+   * @param examId 练习标识
+   * @param request 请求对象
+   * @return 删除结果
+   */
+  @Operation(summary = "删除练习记录")
+  @DeleteMapping("/practices/{examId}")
+  public ApiResponse<DeletedResponse> deleteExam(
+      @PathVariable String examId, HttpServletRequest request) {
+    interviewService.deleteExam(
+        AuthenticatedUserContext.tenantId(request),
+        AuthenticatedUserContext.userId(request),
+        examId);
+    return ApiResponse.success(new DeletedResponse(true));
   }
 
   /**

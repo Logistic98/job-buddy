@@ -218,6 +218,7 @@
       score,
       duration_minutes,
       strategy_json,
+      recorded,
       started_at,
       expires_at
     )
@@ -232,6 +233,7 @@
       #{score},
       #{durationMinutes},
       #{strategyJson},
+      #{recorded},
       #{startedAt},
       #{expiresAt}
     )
@@ -261,6 +263,7 @@
       score,
       duration_minutes AS "durationMinutes",
       strategy_json AS "strategyJson",
+      recorded,
       started_at AS "startedAt",
       expires_at AS "expiresAt",
       submitted_at AS "submittedAt"
@@ -279,6 +282,7 @@
       score,
       duration_minutes AS "durationMinutes",
       strategy_json AS "strategyJson",
+      recorded,
       started_at AS "startedAt",
       expires_at AS "expiresAt",
       submitted_at AS "submittedAt"
@@ -298,14 +302,20 @@
       score,
       duration_minutes AS "durationMinutes",
       strategy_json AS "strategyJson",
+      recorded,
       started_at AS "startedAt",
       expires_at AS "expiresAt",
       submitted_at AS "submittedAt"
     FROM interview_exam
-    WHERE tenant_id = #{tenantId} AND user_id = #{userId}
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId} AND recorded = TRUE
     ORDER BY started_at DESC
     LIMIT 50
   </select>
+
+  <delete id="deleteExam">
+    DELETE FROM interview_exam
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId} AND exam_id = #{examId}
+  </delete>
 
   <select id="examQuestions" resultType="map">
     SELECT

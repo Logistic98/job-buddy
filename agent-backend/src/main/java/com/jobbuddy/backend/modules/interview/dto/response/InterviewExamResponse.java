@@ -20,6 +20,7 @@ public class InterviewExamResponse {
   private Integer answeredCount;
   private Double score;
   private Integer durationMinutes;
+  private Boolean recorded;
   private JsonNode strategy;
   private Instant startedAt;
   private Instant expiresAt;

@@ -17,6 +17,9 @@ from app.models.schemas import ChatMessage
 
 MAX_SOURCE_TEXT_CHARS = 20000
 MAX_GENERATION_TOKENS = 16384
+MAX_SMART_PAPER_CANDIDATES = 200
+MAX_SMART_PAPER_REQUIREMENT_CHARS = 1000
+MAX_SMART_PAPER_TOKENS = 8192
 SUPPORTED_BANK_TYPES = {"leetcode", "qa"}
 SUPPORTED_LANGUAGES = {"python", "java", "javascript"}
 SUPPORTED_DIFFICULTIES = {"简单", "中等", "困难"}
@@ -123,6 +126,159 @@ def _normalize_coding_meta(value: Any, language: str) -> Dict[str, Any]:
         "parameterCount": parameter_count,
         "tests": tests,
     }
+
+
+def _normalize_paper_candidates(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list) or not value:
+        raise ValueError("智能组卷至少需要 1 道候选题")
+    if len(value) > MAX_SMART_PAPER_CANDIDATES:
+        raise ValueError(f"智能组卷候选题不能超过 {MAX_SMART_PAPER_CANDIDATES} 道")
+    candidates: List[Dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for index, row in enumerate(value):
+        if not isinstance(row, dict):
+            raise ValueError(f"第 {index + 1} 道候选题结构不正确")
+        question_id = _required_text(row.get("question_id"), f"candidates[{index}].question_id")
+        if question_id in seen_ids:
+            raise ValueError("智能组卷候选题不能包含重复题号")
+        seen_ids.add(question_id)
+        candidates.append(
+            {
+                "question_id": question_id,
+                "bank_type": str(row.get("bank_type") or "").strip(),
+                "title": _required_text(row.get("title"), f"candidates[{index}].title")[:120],
+                "category": str(row.get("category") or "").strip()[:64],
+                "difficulty": str(row.get("difficulty") or "").strip()[:32],
+                "question_type": str(row.get("question_type") or "").strip()[:32],
+                "tags": _normalize_tags(row.get("tags"), ""),
+                "content_summary": str(row.get("content_summary") or "").strip()[:240],
+            }
+        )
+    return candidates
+
+
+class InterviewPaperComposeTool(BaseTool):
+    """根据自然语言要求从 Backend 提供的现有题目候选中选择一套试卷。"""
+
+    name = "interview_paper_compose"
+    aliases = ["compose_interview_paper", "smart_interview_practice"]
+    search_hint = "练习中心 智能组卷 自然语言 现有题库 选题 试卷"
+    description = "理解自然语言练习要求，从 Backend 提供的现有题目候选中返回结构化试卷方案；只读且不创建练习。"
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "requirements": {"type": "string", "minLength": 10, "maxLength": MAX_SMART_PAPER_REQUIREMENT_CHARS},
+            "candidates": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_SMART_PAPER_CANDIDATES,
+                "items": {"type": "object"},
+            },
+        },
+        "required": ["requirements", "candidates"],
+    }
+    output_schema = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "duration_minutes": {"type": "integer"},
+            "show_answer": {"type": "boolean"},
+            "question_ids": {"type": "array", "items": {"type": "string"}},
+            "selection_summary": {"type": "string"},
+        },
+        "required": ["title", "duration_minutes", "show_answer", "question_ids", "selection_summary"],
+    }
+    tags = ["interview", "question-bank", "paper-composition"]
+    timeout_seconds = 120
+    max_result_size_chars = 12000
+    risk_level = ToolRiskLevel.LOW
+    read_only = True
+
+    def __init__(
+        self,
+        llm_client: Optional[OpenAICompatibleClient] = None,
+        prompt_loader: Optional[PromptTemplateLoader] = None,
+    ):
+        self._llm_client = llm_client
+        self._prompt_loader = prompt_loader or PromptTemplateLoader()
+
+    def _client(self) -> OpenAICompatibleClient:
+        if self._llm_client is None:
+            self._llm_client = OpenAICompatibleClient()
+        return self._llm_client
+
+    async def validate_input(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> ValidationResult:
+        base = await super().validate_input(arguments, context)
+        if not base.result:
+            return base
+        requirements = str(arguments.get("requirements") or "").strip()
+        if not 10 <= len(requirements) <= MAX_SMART_PAPER_REQUIREMENT_CHARS:
+            return ValidationResult(
+                result=False,
+                message=f"智能组卷要求需为 10-{MAX_SMART_PAPER_REQUIREMENT_CHARS} 个字符",
+                error_code=400,
+            )
+        try:
+            _normalize_paper_candidates(arguments.get("candidates"))
+        except ValueError as exc:
+            return ValidationResult(result=False, message=str(exc), error_code=400)
+        return ValidationResult(result=True)
+
+    async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
+        requirements = str(arguments["requirements"]).strip()
+        candidates = _normalize_paper_candidates(arguments["candidates"])
+        prompt = self._prompt_loader.load("artifacts/interview_paper_composition.md")
+        if not prompt:
+            raise RuntimeError("智能组卷 Prompt 未配置")
+        try:
+            response = await self._client().chat(
+                messages=[
+                    ChatMessage(role="system", content=prompt),
+                    ChatMessage(
+                        role="user",
+                        content=json.dumps(
+                            {"requirements": requirements, "candidates": candidates},
+                            ensure_ascii=False,
+                        ),
+                    ),
+                ],
+                temperature=0.1,
+                max_tokens=MAX_SMART_PAPER_TOKENS,
+                disable_thinking=True,
+            )
+        except LLMServiceError as exc:
+            raise RuntimeError(f"智能组卷调用模型失败：{exc}") from exc
+
+        payload = _extract_json_object(response.get("content") or "")
+        title = _required_text(payload.get("title"), "title")[:120]
+        try:
+            duration_minutes = int(payload.get("duration_minutes"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("智能组卷结果的 duration_minutes 必须是整数") from exc
+        if not 1 <= duration_minutes <= 240:
+            raise ValueError("智能组卷时长需在 1-240 分钟之间")
+        show_answer = payload.get("show_answer")
+        if not isinstance(show_answer, bool):
+            raise ValueError("智能组卷结果的 show_answer 必须是布尔值")
+        question_ids_value = payload.get("question_ids")
+        if not isinstance(question_ids_value, list) or not 1 <= len(question_ids_value) <= 50:
+            raise ValueError("智能组卷至少选择 1 道题且不能超过 50 道")
+        question_ids = [str(item or "").strip() for item in question_ids_value]
+        if any(not item for item in question_ids):
+            raise ValueError("智能组卷结果包含空题号")
+        if len(set(question_ids)) != len(question_ids):
+            raise ValueError("智能组卷结果不能包含重复题目")
+        candidate_ids = {item["question_id"] for item in candidates}
+        if any(question_id not in candidate_ids for question_id in question_ids):
+            raise ValueError("智能组卷结果包含候选集之外的题目")
+        selection_summary = _required_text(payload.get("selection_summary"), "selection_summary")[:500]
+        return {
+            "title": title,
+            "duration_minutes": duration_minutes,
+            "show_answer": show_answer,
+            "question_ids": question_ids,
+            "selection_summary": selection_summary,
+        }
 
 
 def _normalize_item(

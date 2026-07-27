@@ -5,15 +5,8 @@
       <h1>{{ pageTitle }}</h1>
       <p>{{ pageDescription }}</p>
     </div>
-    <div v-if="showActions" class="history-header-actions">
-      <template v-if="activeMode === 'bank'">
-        <button class="primary-btn" @click="$emit('create')">新增题目</button>
-      </template>
-      <template v-else>
-        <button class="secondary-btn" @click="$emit('back-to-bank')">返回题库</button>
-        <button class="secondary-btn" @click="$emit('show-records')">练习记录</button>
-        <button class="primary-btn" @click="$emit('practice')">随机组卷</button>
-      </template>
+    <div v-if="showActions && activeMode === 'bank'" class="history-header-actions">
+      <button class="primary-btn" @click="$emit('create')">新增题目</button>
     </div>
   </header>
   <div v-else class="embedded-actions">
@@ -27,15 +20,8 @@
         {{ item.label }}
       </button>
     </nav>
-    <div v-if="showActions" class="history-header-actions">
-      <template v-if="activeMode === 'bank'">
-        <button class="primary-btn" @click="$emit('create')">新增题目</button>
-      </template>
-      <template v-else>
-        <button class="secondary-btn" @click="$emit('back-to-bank')">返回题库</button>
-        <button class="secondary-btn" @click="$emit('show-records')">练习记录</button>
-        <button class="primary-btn" @click="$emit('practice')">随机组卷</button>
-      </template>
+    <div v-if="showActions && activeMode === 'bank'" class="history-header-actions">
+      <button class="primary-btn" @click="$emit('create')">新增题目</button>
     </div>
   </div>
 </template>
@@ -52,5 +38,5 @@ defineProps({
   showActions: { type: Boolean, default: true },
 })
 
-defineEmits(['create', 'back-to-bank', 'practice', 'show-records', 'switch-bank'])
+defineEmits(['create', 'switch-bank'])
 </script>

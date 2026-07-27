@@ -201,6 +201,7 @@ CREATE TABLE IF NOT EXISTS interview_exam (
   score DECIMAL(8,2),
   duration_minutes INT DEFAULT 30,
   strategy_json CLOB,
+  recorded BOOLEAN NOT NULL DEFAULT TRUE,
   started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   expires_at TIMESTAMP,
   submitted_at TIMESTAMP

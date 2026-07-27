@@ -232,9 +232,17 @@ describe('examRuleTotal and validatePracticeConfig', () => {
         title: '练习',
         durationMinutes: 30,
         answerMode: 'hidden',
-        rules: [{ bankType: 'qa', questionType: '简答', count: 5 }],
+        rules: [{ bankType: 'qa', questionType: '简答', count: 100 }],
       }),
     ).not.toThrow()
+    expect(() =>
+      validatePracticeConfig({
+        title: '练习',
+        durationMinutes: 30,
+        answerMode: 'hidden',
+        rules: [{ bankType: 'qa', questionType: '简答', count: 101 }],
+      }),
+    ).toThrow('单条组卷规则题数需在 1-100 之间')
   })
 })
 

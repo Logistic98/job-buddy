@@ -3,6 +3,7 @@ package com.jobbuddy.backend;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -17,9 +18,11 @@ import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolArguments;
 import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeToolResult;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewBatchRequest;
+import com.jobbuddy.backend.modules.interview.dto.request.InterviewExamRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewExamSubmitRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewGenerateRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewQuestionRequest;
+import com.jobbuddy.backend.modules.interview.dto.request.InterviewSmartExamRequest;
 import com.jobbuddy.backend.modules.interview.repository.InterviewRepository;
 import com.jobbuddy.backend.modules.interview.service.impl.InterviewCodeRunner;
 import com.jobbuddy.backend.modules.interview.service.impl.InterviewServiceImpl;
@@ -291,6 +294,214 @@ class InterviewServiceImplTest {
   }
 
   /**
+   * 验证规则组卷支持最多一百道题，并在服务端保留完整结果。
+   */
+  @Test
+  void createRandomExamShouldAllowOneHundredQuestionsForRules() {
+    List<Map<String, Object>> pool = new ArrayList<Map<String, Object>>();
+    for (int index = 1; index <= 120; index++) {
+      Map<String, Object> item = question("q-" + index, "简答", "参考答案");
+      item.put("title", "Agent 工程题 " + index);
+      pool.add(item);
+    }
+    when(repository.findEnabled("qa", null, "中等", "简答")).thenReturn(pool);
+    Map<String, Object> storedExam = new LinkedHashMap<String, Object>();
+    storedExam.put("examId", "practice-rule-100");
+    storedExam.put("title", "Agent 工程综合练习");
+    storedExam.put("totalCount", Integer.valueOf(100));
+    when(repository.findExam(eq("tenant-1"), eq("user-1"), anyString())).thenReturn(storedExam);
+
+    Map<String, Object> rule = new LinkedHashMap<String, Object>();
+    rule.put("bankType", "qa");
+    rule.put("difficulty", "中等");
+    rule.put("questionType", "简答");
+    rule.put("count", Integer.valueOf(100));
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("title", "Agent 工程综合练习");
+    payload.put("durationMinutes", Integer.valueOf(90));
+    payload.put("showAnswer", Boolean.FALSE);
+    payload.put("rules", Collections.singletonList(rule));
+
+    service.createRandomExam(
+        "tenant-1", "user-1", JSON.convert(payload, InterviewExamRequest.class));
+
+    ArgumentCaptor<List<Map<String, Object>>> questionsCaptor =
+        ArgumentCaptor.forClass((Class) List.class);
+    verify(repository)
+        .createExam(
+            eq("tenant-1"),
+            eq("user-1"),
+            anyString(),
+            eq("Agent 工程综合练习"),
+            eq(90),
+            org.mockito.ArgumentMatchers.any(),
+            eq(true),
+            questionsCaptor.capture());
+    assertEquals(Integer.valueOf(100), Integer.valueOf(questionsCaptor.getValue().size()));
+  }
+
+  /**
+   * 验证智能组卷只使用启用题目候选，并保存可回放的智能选题策略。
+   */
+  @Test
+  void createSmartExamShouldValidateSelectionAndPersistSmartStrategy() {
+    Map<String, Object> javaQuestion = smartCandidate("q-java", "Java 并发可见性", "Java 并发");
+    Map<String, Object> redisQuestion = smartCandidate("q-redis", "Redis 持久化", "Redis");
+    when(repository.findEnabled(null, null, null, null))
+        .thenReturn(Arrays.asList(javaQuestion, redisQuestion));
+    when(repository.findQuestion("q-java")).thenReturn(javaQuestion);
+    when(repository.findQuestion("q-redis")).thenReturn(redisQuestion);
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("success", Boolean.TRUE);
+    Map<String, Object> output = new LinkedHashMap<String, Object>();
+    output.put("title", "Java 与 Redis 专项练习");
+    output.put("duration_minutes", Integer.valueOf(45));
+    output.put("show_answer", Boolean.FALSE);
+    output.put("question_ids", Arrays.asList("q-java", "q-redis"));
+    output.put("selection_summary", "覆盖 Java 并发与 Redis 的两道中等难度题。");
+    toolResult.put("output", output);
+    when(agentIntegrationService.invokeRuntimeTool(
+            eq("interview_paper_compose"),
+            org.mockito.ArgumentMatchers.any(RuntimeToolArguments.class)))
+        .thenReturn(runtimeToolResult(toolResult));
+    Map<String, Object> storedExam = new LinkedHashMap<String, Object>();
+    storedExam.put("examId", "practice-smart");
+    storedExam.put("title", "Java 与 Redis 专项练习");
+    storedExam.put("totalCount", Integer.valueOf(2));
+    when(repository.findExam(eq("tenant-1"), eq("user-1"), anyString())).thenReturn(storedExam);
+
+    InterviewSmartExamRequest request = new InterviewSmartExamRequest();
+    request.setRequirements("选择 Java 并发和 Redis 中等难度题，45 分钟考试模式");
+    Map<String, Object> result = JSON.toMap(service.createSmartExam("tenant-1", "user-1", request));
+
+    assertEquals("Java 与 Redis 专项练习", result.get("title"));
+    ArgumentCaptor<Object> strategyCaptor = ArgumentCaptor.forClass(Object.class);
+    ArgumentCaptor<List<Map<String, Object>>> questionsCaptor =
+        ArgumentCaptor.forClass((Class) List.class);
+    verify(repository)
+        .createExam(
+            eq("tenant-1"),
+            eq("user-1"),
+            anyString(),
+            eq("Java 与 Redis 专项练习"),
+            eq(45),
+            strategyCaptor.capture(),
+            eq(true),
+            questionsCaptor.capture());
+    Map<String, Object> strategy = (Map<String, Object>) strategyCaptor.getValue();
+    assertEquals("smart", strategy.get("mode"));
+    assertEquals(request.getRequirements(), strategy.get("requirements"));
+    assertEquals(Arrays.asList("q-java", "q-redis"), strategy.get("questionIds"));
+    assertEquals(Integer.valueOf(2), Integer.valueOf(questionsCaptor.getValue().size()));
+
+    ArgumentCaptor<RuntimeToolArguments> argumentsCaptor =
+        ArgumentCaptor.forClass(RuntimeToolArguments.class);
+    verify(agentIntegrationService)
+        .invokeRuntimeTool(eq("interview_paper_compose"), argumentsCaptor.capture());
+    Map<String, Object> arguments = argumentsCaptor.getValue().toMap(JSON);
+    List<Map<String, Object>> candidates = (List<Map<String, Object>>) arguments.get("candidates");
+    assertEquals(Integer.valueOf(2), Integer.valueOf(candidates.size()));
+    assertTrue(!candidates.get(0).containsKey("answer"));
+    assertTrue(!candidates.get(0).containsKey("codingMeta"));
+  }
+
+  /**
+   * 验证模型返回候选集外题号时不会创建试卷。
+   */
+  @Test
+  void createSmartExamShouldRejectQuestionOutsideCandidateCatalog() {
+    Map<String, Object> javaQuestion = smartCandidate("q-java", "Java 并发可见性", "Java 并发");
+    when(repository.findEnabled(null, null, null, null))
+        .thenReturn(Collections.singletonList(javaQuestion));
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("success", Boolean.TRUE);
+    Map<String, Object> output = new LinkedHashMap<String, Object>();
+    output.put("title", "非法试卷");
+    output.put("duration_minutes", Integer.valueOf(30));
+    output.put("show_answer", Boolean.FALSE);
+    output.put("question_ids", Arrays.asList("q-java", "q-unknown"));
+    output.put("selection_summary", "包含未知题号。");
+    toolResult.put("output", output);
+    when(agentIntegrationService.invokeRuntimeTool(
+            eq("interview_paper_compose"),
+            org.mockito.ArgumentMatchers.any(RuntimeToolArguments.class)))
+        .thenReturn(runtimeToolResult(toolResult));
+    InterviewSmartExamRequest request = new InterviewSmartExamRequest();
+    request.setRequirements("选择 Java 并发题组成一套专项练习");
+
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> service.createSmartExam("tenant-1", "user-1", request));
+
+    assertEquals("智能组卷结果包含不可用题目，请调整要求后重试", error.getMessage());
+    verify(repository, never())
+        .createExam(
+            anyString(),
+            anyString(),
+            anyString(),
+            anyString(),
+            anyInt(),
+            org.mockito.ArgumentMatchers.any(),
+            anyBoolean(),
+            org.mockito.ArgumentMatchers.anyList());
+  }
+
+  /**
+   * 验证空题库和过短要求会在调用 Runtime 前失败。
+   */
+  @Test
+  void createSmartExamShouldRejectInvalidRequirementAndEmptyBank() {
+    InterviewSmartExamRequest shortRequest = new InterviewSmartExamRequest();
+    shortRequest.setRequirements("Java");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> service.createSmartExam("tenant-1", "user-1", shortRequest));
+
+    InterviewSmartExamRequest request = new InterviewSmartExamRequest();
+    request.setRequirements("选择 Java 并发题组成一套专项练习");
+    when(repository.findEnabled(null, null, null, null))
+        .thenReturn(Collections.<Map<String, Object>>emptyList());
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> service.createSmartExam("tenant-1", "user-1", request));
+
+    assertEquals("题库暂无可用题目，请先维护题库再智能组卷", error.getMessage());
+    verify(agentIntegrationService, never())
+        .invokeRuntimeTool(
+            eq("interview_paper_compose"),
+            org.mockito.ArgumentMatchers.any(RuntimeToolArguments.class));
+  }
+
+  /**
+   * 验证旧版题库行内单题练习不会继续出现在练习记录中。
+   */
+  @Test
+  void listExamsShouldHideLegacyTransientSinglePractice() {
+    Map<String, Object> legacy = new LinkedHashMap<String, Object>();
+    legacy.put("examId", "legacy-single");
+    legacy.put("title", "旧版单题 单题练习");
+    legacy.put("totalCount", Integer.valueOf(1));
+    legacy.put("strategy", Collections.singletonMap("mode", "manual"));
+    Map<String, Object> recorded = new LinkedHashMap<String, Object>();
+    recorded.put("examId", "recorded-single");
+    recorded.put("title", "手动选择练习");
+    recorded.put("totalCount", Integer.valueOf(1));
+    Map<String, Object> recordedStrategy = new LinkedHashMap<String, Object>();
+    recordedStrategy.put("mode", "manual");
+    recordedStrategy.put("recorded", Boolean.TRUE);
+    recorded.put("strategy", recordedStrategy);
+    when(repository.listExams("tenant-1", "user-1"))
+        .thenReturn(new ArrayList<Map<String, Object>>(Arrays.asList(legacy, recorded)));
+
+    List<?> result = service.listExams("tenant-1", "user-1");
+
+    assertEquals(Integer.valueOf(1), Integer.valueOf(result.size()));
+    assertEquals("recorded-single", JSON.toMap(result.get(0)).get("examId"));
+  }
+
+  /**
    * 验证 InterviewServiceImpl 中题目的输入校验与拒绝边界。
    */
   @Test
@@ -510,6 +721,27 @@ class InterviewServiceImplTest {
     question.put("questionType", questionType);
     question.put("answer", answer);
     question.put("bankType", "编程题".equals(questionType) ? "leetcode" : "qa");
+    return question;
+  }
+
+  /**
+   * 构造智能组卷候选题。
+   *
+   * @param id 题目标识
+   * @param title 标题
+   * @param category 分类
+   * @return 候选题
+   */
+  private Map<String, Object> smartCandidate(String id, String title, String category) {
+    Map<String, Object> question = question(id, "简答", "不应发送给模型");
+    question.put("title", title);
+    question.put("category", category);
+    question.put("difficulty", "中等");
+    question.put("tags", Arrays.asList(category));
+    question.put("content", title + "的完整题干");
+    Map<String, Object> codingMeta = new LinkedHashMap<String, Object>();
+    codingMeta.put("tests", Arrays.asList("不应发送给模型"));
+    question.put("codingMeta", codingMeta);
     return question;
   }
 }

@@ -1,0 +1,2 @@
+ALTER TABLE interview_exam
+  ADD COLUMN recorded BOOLEAN NOT NULL DEFAULT TRUE;

@@ -29,4 +29,15 @@ describe('InterviewBankHeader', () => {
     expect(buttonTexts).not.toContain('练习记录')
     expect(buttonTexts).not.toContain('随机组卷')
   })
+
+  it.each([false, true])('does not render practice navigation actions when embedded is %s', (embedded) => {
+    const wrapper = mount(InterviewBankHeader, {
+      props: { ...baseProps, embedded, activeMode: 'exam', showActions: true },
+    })
+
+    const buttonTexts = wrapper.findAll('button').map((button) => button.text())
+    expect(buttonTexts).not.toContain('返回题库')
+    expect(buttonTexts).not.toContain('组卷练习')
+    expect(buttonTexts).not.toContain('练习记录')
+  })
 })

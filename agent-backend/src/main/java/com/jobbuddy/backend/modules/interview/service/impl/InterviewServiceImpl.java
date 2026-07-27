@@ -23,6 +23,13 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class InterviewServiceImpl implements InterviewService {
+  private static final int MAX_MANUAL_PAPER_QUESTIONS = 50;
+  private static final int MAX_RULE_PAPER_QUESTIONS = 100;
+  private static final int MAX_SMART_PAPER_QUESTIONS = 50;
+  private static final int MAX_SMART_PAPER_CANDIDATES = 200;
+  private static final int MAX_SMART_PAPER_REQUIREMENT_CHARS = 1000;
+  private static final int MAX_SMART_PAPER_CONTENT_CHARS = 240;
+
   private final InterviewRepository interviewRepository;
   private final InterviewCodeRunner interviewCodeRunner;
   private final JsonCodec jsonCodec;
@@ -386,14 +393,14 @@ public class InterviewServiceImpl implements InterviewService {
         if (question == null) continue;
         selected.add(question);
         used.add(questionId);
-        if (selected.size() >= 50) break;
+        if (selected.size() >= MAX_MANUAL_PAPER_QUESTIONS) break;
       }
     } else if (rulesValue instanceof List && !((List) rulesValue).isEmpty()) {
       java.util.Set<String> used = new java.util.HashSet<String>();
       for (Object ruleValue : (List) rulesValue) {
         if (!(ruleValue instanceof Map)) continue;
         Map<String, Object> rule = (Map<String, Object>) ruleValue;
-        int count = normalizeExamCount(rule.get("count"), 0);
+        int count = normalizeExamCount(rule.get("count"), 0, MAX_RULE_PAPER_QUESTIONS);
         if (count <= 0) continue;
         String bankType = normalizeBankType(stringValue(rule.get("bankType")), null);
         List<Map<String, Object>> pool =
@@ -410,14 +417,14 @@ public class InterviewServiceImpl implements InterviewService {
           selected.add(question);
           used.add(questionId);
           picked++;
-          if (selected.size() >= 50 || picked >= count) break;
+          if (selected.size() >= MAX_RULE_PAPER_QUESTIONS || picked >= count) break;
         }
       }
     } else {
       String bankType = normalizeBankType(stringValue(payload.get("bankType")), null);
       String category = stringValue(payload.get("category"));
       String difficulty = stringValue(payload.get("difficulty"));
-      int count = normalizeExamCount(payload.get("count"), 5);
+      int count = normalizeExamCount(payload.get("count"), 5, MAX_RULE_PAPER_QUESTIONS);
       List<Map<String, Object>> pool =
           interviewRepository.findEnabled(
               bankType, category, difficulty, stringValue(payload.get("questionType")));
@@ -425,9 +432,12 @@ public class InterviewServiceImpl implements InterviewService {
       selected =
           pool.size() > count ? new ArrayList<Map<String, Object>>(pool.subList(0, count)) : pool;
     }
-    // 所有入口统一限制题目数量并拒绝空试卷。
-    if (selected.size() > 50)
-      selected = new ArrayList<Map<String, Object>>(selected.subList(0, 50));
+    int maximumQuestions =
+        questionIdsValue instanceof List && !((List) questionIdsValue).isEmpty()
+            ? MAX_MANUAL_PAPER_QUESTIONS
+            : MAX_RULE_PAPER_QUESTIONS;
+    if (selected.size() > maximumQuestions)
+      selected = new ArrayList<Map<String, Object>>(selected.subList(0, maximumQuestions));
     if (selected.isEmpty()) throw new IllegalArgumentException("当前出题策略下没有可用练习题，请先维护题库或调整组合规则。 ");
     String examId = "practice_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
     String title = defaultString(payload.get("title"), "随机组卷");
@@ -445,10 +455,170 @@ public class InterviewServiceImpl implements InterviewService {
     strategy.put("rules", rulesValue instanceof List ? rulesValue : Collections.emptyList());
     strategy.put("durationMinutes", Integer.valueOf(durationMinutes));
     strategy.put("showAnswer", Boolean.valueOf(booleanValue(payload.get("showAnswer"))));
+    boolean recorded = !Boolean.FALSE.equals(request == null ? null : request.getRecorded());
+    strategy.put("recorded", Boolean.valueOf(recorded));
     interviewRepository.createExam(
-        tenantId, userId, examId, title, durationMinutes, strategy, selected);
+        tenantId, userId, examId, title, durationMinutes, strategy, recorded, selected);
     return jsonCodec.convert(
         interviewRepository.findExam(tenantId, userId, examId), InterviewExamResponse.class);
+  }
+
+  /**
+   * 根据自然语言要求从当前启用题库选择题目并创建练习。Runtime 只返回选题方案，
+   * Backend 负责候选题最小披露、题号白名单复核和试卷事务。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param request 智能组卷请求
+   * @return 创建后的练习
+   */
+  @SuppressWarnings("unchecked")
+  @Transactional
+  public InterviewExamResponse createSmartExam(
+      String tenantId, String userId, InterviewSmartExamRequest request) {
+    String requirements = request == null ? null : stringValue(request.getRequirements());
+    if (requirements == null
+        || requirements.trim().length() < 10
+        || requirements.trim().length() > MAX_SMART_PAPER_REQUIREMENT_CHARS) {
+      throw new IllegalArgumentException(
+          "智能组卷要求需为 10-" + MAX_SMART_PAPER_REQUIREMENT_CHARS + " 个字符");
+    }
+    requirements = requirements.trim();
+    if (agentIntegrationService == null) throw new IllegalStateException("智能组卷服务未配置");
+
+    List<Map<String, Object>> enabledQuestions =
+        interviewRepository.findEnabled(null, null, null, null);
+    if (enabledQuestions == null || enabledQuestions.isEmpty()) {
+      throw new IllegalArgumentException("题库暂无可用题目，请先维护题库再智能组卷");
+    }
+
+    Map<String, Map<String, Object>> candidateQuestions =
+        new LinkedHashMap<String, Map<String, Object>>();
+    List<Map<String, Object>> candidates = new ArrayList<Map<String, Object>>();
+    for (Map<String, Object> question : enabledQuestions) {
+      String questionId = stringValue(question == null ? null : question.get("questionId"));
+      if (isBlank(questionId) || candidateQuestions.containsKey(questionId)) continue;
+      Map<String, Object> candidate = new LinkedHashMap<String, Object>();
+      candidate.put("question_id", questionId);
+      candidate.put("bank_type", stringValue(question.get("bankType")));
+      candidate.put("title", stringValue(question.get("title")));
+      candidate.put("category", stringValue(question.get("category")));
+      candidate.put("difficulty", stringValue(question.get("difficulty")));
+      candidate.put("question_type", stringValue(question.get("questionType")));
+      candidate.put("tags", smartPaperTags(question.get("tags")));
+      candidate.put(
+          "content_summary", truncateSmartPaperContent(stringValue(question.get("content"))));
+      candidates.add(candidate);
+      candidateQuestions.put(questionId, question);
+      if (candidates.size() >= MAX_SMART_PAPER_CANDIDATES) break;
+    }
+    if (candidates.isEmpty()) {
+      throw new IllegalArgumentException("题库暂无可用题目，请先维护题库再智能组卷");
+    }
+
+    Map<String, Object> arguments = new LinkedHashMap<String, Object>();
+    arguments.put("requirements", requirements);
+    arguments.put("candidates", candidates);
+    RuntimeToolResult runtimeToolResult =
+        agentIntegrationService.invokeRuntimeTool(
+            "interview_paper_compose", RuntimeToolArguments.fromMap(arguments, jsonCodec));
+    if (runtimeToolResult == null || runtimeToolResult.isEmpty()) {
+      throw new IllegalStateException("智能组卷服务暂不可用，请稍后重试");
+    }
+    Map<String, Object> toolResult = runtimeToolResult.toMap(jsonCodec);
+    if (Boolean.FALSE.equals(toolResult.get("success"))) {
+      String message = stringValue(toolResult.get("error"));
+      throw new IllegalArgumentException(isBlank(message) ? "智能组卷失败，请调整要求后重试" : message);
+    }
+    Object dataValue = toolResult.get("data");
+    Map<String, Object> composition =
+        dataValue instanceof Map
+            ? (Map<String, Object>) dataValue
+            : toolResult.get("output") instanceof Map
+                ? (Map<String, Object>) toolResult.get("output")
+                : Collections.<String, Object>emptyMap();
+
+    String title = required(composition, "title", "智能组卷结果缺少试卷标题");
+    if (title.length() > 120) title = title.substring(0, 120);
+    int durationMinutes = intValue(composition.get("duration_minutes"), 0);
+    if (durationMinutes < 1 || durationMinutes > 240) {
+      throw new IllegalArgumentException("智能组卷结果的练习时长无效，请调整要求后重试");
+    }
+    Object showAnswerValue = composition.get("show_answer");
+    if (!(showAnswerValue instanceof Boolean)) {
+      throw new IllegalArgumentException("智能组卷结果的练习模式无效，请调整要求后重试");
+    }
+    Object questionIdsValue = composition.get("question_ids");
+    if (!(questionIdsValue instanceof List)
+        || ((List<Object>) questionIdsValue).isEmpty()
+        || ((List<Object>) questionIdsValue).size() > MAX_SMART_PAPER_QUESTIONS) {
+      throw new IllegalArgumentException("智能组卷结果的题目数量需在 1-50 之间");
+    }
+
+    List<String> questionIds = new ArrayList<String>();
+    List<Map<String, Object>> selected = new ArrayList<Map<String, Object>>();
+    java.util.Set<String> used = new java.util.LinkedHashSet<String>();
+    for (Object questionIdValue : (List<Object>) questionIdsValue) {
+      String questionId = stringValue(questionIdValue);
+      if (isBlank(questionId)
+          || !used.add(questionId)
+          || !candidateQuestions.containsKey(questionId)) {
+        throw new IllegalArgumentException("智能组卷结果包含不可用题目，请调整要求后重试");
+      }
+      Map<String, Object> current = interviewRepository.findQuestion(questionId);
+      if (current == null || Boolean.FALSE.equals(current.get("enabled"))) {
+        throw new IllegalArgumentException("智能组卷结果包含不可用题目，请调整要求后重试");
+      }
+      questionIds.add(questionId);
+      selected.add(current);
+    }
+    String selectionSummary = required(composition, "selection_summary", "智能组卷结果缺少选题说明");
+    if (selectionSummary.length() > 500) selectionSummary = selectionSummary.substring(0, 500);
+
+    String examId = "practice_" + UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+    Map<String, Object> strategy = new LinkedHashMap<String, Object>();
+    strategy.put("mode", "smart");
+    strategy.put("requirements", requirements);
+    strategy.put("questionIds", questionIds);
+    strategy.put("durationMinutes", Integer.valueOf(durationMinutes));
+    strategy.put("showAnswer", showAnswerValue);
+    strategy.put("selectionSummary", selectionSummary);
+    interviewRepository.createExam(
+        tenantId, userId, examId, title, durationMinutes, strategy, true, selected);
+    return jsonCodec.convert(
+        interviewRepository.findExam(tenantId, userId, examId), InterviewExamResponse.class);
+  }
+
+  /**
+   * 提取用于智能选题的非敏感标签文本。
+   *
+   * @param value 原始标签
+   * @return 标签文本
+   */
+  @SuppressWarnings("unchecked")
+  private List<String> smartPaperTags(Object value) {
+    if (!(value instanceof List)) return Collections.emptyList();
+    List<String> tags = new ArrayList<String>();
+    for (Object item : (List<Object>) value) {
+      Object label = item instanceof Map ? ((Map<String, Object>) item).get("label") : item;
+      String text = stringValue(label);
+      if (!isBlank(text) && !tags.contains(text.trim())) tags.add(text.trim());
+      if (tags.size() >= 12) break;
+    }
+    return tags;
+  }
+
+  /**
+   * 压缩题干供智能选题使用，避免把完整题目和无关内容发送给模型。
+   *
+   * @param value 题干
+   * @return 受限长度摘要
+   */
+  private String truncateSmartPaperContent(String value) {
+    String normalized = value == null ? "" : value.replaceAll("\\s+", " ").trim();
+    return normalized.length() <= MAX_SMART_PAPER_CONTENT_CHARS
+        ? normalized
+        : normalized.substring(0, MAX_SMART_PAPER_CONTENT_CHARS);
   }
 
   /**
@@ -456,12 +626,13 @@ public class InterviewServiceImpl implements InterviewService {
    *
    * @param value 输入值
    * @param defaultValue 默认值
+   * @param maximumCount 最大数量
    * @return 规范化后的考试数量
    */
-  private int normalizeExamCount(Object value, int defaultValue) {
+  private int normalizeExamCount(Object value, int defaultValue, int maximumCount) {
     int count = intValue(value, defaultValue);
     if (count <= 0) return defaultValue;
-    return Math.min(count, 50);
+    return Math.min(count, maximumCount);
   }
 
   /**
@@ -510,8 +681,43 @@ public class InterviewServiceImpl implements InterviewService {
    * @return 考试列表
    */
   public List<InterviewExamResponse> listExams(String tenantId, String userId) {
-    return jsonCodec.convertList(
-        interviewRepository.listExams(tenantId, userId), InterviewExamResponse.class);
+    List<Map<String, Object>> exams =
+        new ArrayList<Map<String, Object>>(interviewRepository.listExams(tenantId, userId));
+    exams.removeIf(this::isLegacyTransientSinglePractice);
+    return jsonCodec.convertList(exams, InterviewExamResponse.class);
+  }
+
+  /**
+   * 识别引入 recorded 字段前由题库行内入口创建的旧单题练习。
+   *
+   * @param exam 练习记录
+   * @return 是否属于旧临时单题练习
+   */
+  @SuppressWarnings("unchecked")
+  private boolean isLegacyTransientSinglePractice(Map<String, Object> exam) {
+    if (exam == null || intValue(exam.get("totalCount"), 0) != 1) return false;
+    Object strategyValue = exam.get("strategy");
+    if (!(strategyValue instanceof Map)) return false;
+    Map<String, Object> strategy = (Map<String, Object>) strategyValue;
+    if (strategy.containsKey("recorded") || !"manual".equals(stringValue(strategy.get("mode")))) {
+      return false;
+    }
+    String title = stringValue(exam.get("title"));
+    return title != null && title.trim().endsWith("单题练习");
+  }
+
+  /**
+   * 删除用户所属练习记录。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 练习标识
+   */
+  @Transactional
+  public void deleteExam(String tenantId, String userId, String examId) {
+    if (isBlank(examId) || !interviewRepository.deleteExam(tenantId, userId, examId)) {
+      throw new IllegalArgumentException("练习不存在");
+    }
   }
 
   /**

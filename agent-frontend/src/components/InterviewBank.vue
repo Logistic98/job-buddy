@@ -12,11 +12,8 @@
       :page-description="pageDescription"
       :bank-type-options="bankTypeOptions"
       :active-bank-type="filters.bankType"
-      :show-actions="activeMode === 'bank' || !currentExam || !activeQuestion"
+      :show-actions="activeMode === 'bank'"
       @create="openCreateModal"
-      @back-to-bank="emit('back-to-bank')"
-      @practice="openPracticeModal"
-      @show-records="openRecordsDrawer"
       @switch-bank="switchBankTab"
     />
 
@@ -163,7 +160,7 @@
               </td>
               <td class="actions-col">
                 <div class="table-actions compact-actions">
-                  <button type="button" class="primary-text" @click="startSingleQuestionPractice(item)">开始练习</button
+                  <button type="button" class="primary-text" @click="startSingleQuestionPractice(item)">单题练习</button
                   ><button type="button" class="row-secondary-action" @click="openEditModal(item)">编辑</button
                   ><button type="button" class="danger-text row-danger-action" @click="removeQuestion(item.questionId)">
                     删除
@@ -215,7 +212,7 @@
           <p>正在准备题目和作答环境，请稍候。</p>
         </div>
       </div>
-      <div v-else-if="currentExam && activeQuestion" class="practice-active-workbench">
+      <div v-else-if="!practiceHomeVisible && currentExam && activeQuestion" class="practice-active-workbench">
         <section class="practice-overview-card glass-card">
           <div class="practice-overview-main">
             <div class="practice-overview-title">
@@ -233,9 +230,8 @@
             </div>
           </div>
           <div class="practice-overview-actions">
-            <button class="secondary-btn compact" @click="requestBackToBank">返回题库</button>
-            <button class="secondary-btn compact" @click="openRecordsDrawer">练习记录</button>
-            <button class="primary-btn compact" @click="openPracticeModal">随机组卷</button>
+            <button class="secondary-btn compact" @click="returnToPracticeHome">练习记录</button>
+            <button class="primary-btn compact" @click="requestComposePractice('smart')">创建练习</button>
           </div>
           <details class="practice-question-navigator">
             <summary>
@@ -505,116 +501,161 @@
         </div>
       </div>
 
-      <div v-else class="practice-start-grid">
-        <section class="glass-card practice-start-card">
-          <div v-if="recordsLoading || examDetailLoading" class="loading-state compact">
-            <strong>练习数据加载中</strong>
-            <p>正在读取练习记录。</p>
-          </div>
-          <div v-else class="empty-state compact">
-            <strong>选择一种练习方式</strong>
-            <p>从题库点“单题练习”，或在这里随机组卷。</p>
-            <div class="history-header-actions center-actions">
-              <button class="secondary-btn" @click="emit('back-to-bank')">返回题库</button>
-              <button class="primary-btn" @click="openPracticeModal">随机组卷</button>
-            </div>
-          </div>
-        </section>
-        <aside class="glass-card exam-record-card practice-records-clean">
-          <div class="card-title">
-            <h2>练习记录</h2>
-            <span>{{ exams.length }} 次</span>
-          </div>
-          <div v-if="recordsLoading" class="loading-state compact">
-            <strong>记录加载中</strong>
-            <p>正在同步最新练习记录。</p>
-          </div>
-          <div v-else-if="recordsError" class="empty-state compact practice-records-error">
-            <strong>记录加载失败</strong>
-            <p>{{ recordsError }}</p>
-            <button class="secondary-btn" @click="loadExams">重新加载</button>
-          </div>
-          <template v-else>
-            <button v-for="exam in exams" :key="exam.examId" class="exam-record" @click="requestOpenExam(exam.examId)">
-              <span
-                ><strong>{{ displayExamTitle(exam) }}</strong
-                ><small
-                  >{{ formatExamStartedAt(exam.startedAt) }} ·
-                  {{ exam.totalCount || exam.questions?.length || exam.questionCount || 0 }} 题 ·
-                  {{ examShowAnswer(exam) ? '学习模式' : '考试模式' }}</small
-                ></span
-              ><b>{{ exam.status === 'submitted' ? `${exam.score} 分 · 查看复盘` : '继续作答' }}</b>
-            </button>
-          </template>
-          <div v-if="!recordsLoading && !recordsError && !exams.length" class="empty-state compact">
-            <strong>暂无记录</strong>
-            <p>创建练习后会在这里保留记录。</p>
-          </div>
-        </aside>
-      </div>
-    </section>
-
-    <PracticeConfigModal
-      ref="practiceModalRef"
-      :bank-type-options="bankTypeOptions"
-      :categories="categories"
-      :difficulties="difficulties"
-      :question-types="questionTypes"
-      @created="handlePracticeCreated"
-    />
-
-    <div v-if="recordsDrawerOpen" class="practice-records-mask" @click.self="closeRecordsDrawer">
-      <aside class="practice-records-drawer" role="dialog" aria-modal="true" aria-labelledby="practice-records-title">
-        <header>
+      <section v-else class="glass-card practice-records-home">
+        <header class="practice-records-home-header">
           <div>
             <p class="eyebrow">Practice History</p>
-            <h2 id="practice-records-title">练习记录</h2>
-            <span>继续未完成练习，或打开已提交记录复盘。</span>
+            <h2>练习记录</h2>
+            <p>继续未完成练习，或查看已提交练习的得分与复盘。</p>
           </div>
-          <button type="button" class="close" aria-label="关闭练习记录" @click="closeRecordsDrawer">×</button>
+          <button class="primary-btn practice-create-button" @click="requestComposePractice('smart')">创建练习</button>
         </header>
-        <div class="practice-records-toolbar">
-          <span>共 {{ exams.length }} 次</span>
-        </div>
-        <div class="practice-records-list">
-          <div v-if="recordsLoading" class="loading-state compact">
-            <strong>记录加载中</strong>
-            <p>正在同步最新练习记录。</p>
+
+        <div
+          v-if="recordsLoading"
+          class="practice-records-loading"
+          role="status"
+          aria-live="polite"
+          aria-label="正在加载练习记录"
+        >
+          <span class="practice-records-loading-spinner" aria-hidden="true"></span>
+          <div>
+            <strong>正在加载练习记录</strong>
+            <p>请稍候，马上为你准备好。</p>
           </div>
-          <div v-else-if="recordsError" class="empty-state compact practice-records-error">
-            <strong>记录加载失败</strong>
+        </div>
+
+        <template v-else>
+          <div class="practice-record-summary" aria-label="练习记录概览">
+            <div>
+              <span>全部练习</span>
+              <strong>{{ exams.length }}</strong>
+            </div>
+            <div>
+              <span>进行中</span>
+              <strong>{{ inProgressExamCount }}</strong>
+            </div>
+            <div>
+              <span>已完成</span>
+              <strong>{{ submittedExamCount }}</strong>
+            </div>
+          </div>
+
+          <div class="practice-records-home-toolbar">
+            <label class="practice-record-search">
+              <span>搜索练习记录</span>
+              <input v-model.trim="recordKeyword" type="search" placeholder="搜索练习名称" />
+            </label>
+            <div class="practice-record-status-tabs" aria-label="按状态筛选练习" role="tablist">
+              <button
+                v-for="item in [
+                  { value: 'all', label: '全部' },
+                  { value: 'running', label: '进行中' },
+                  { value: 'submitted', label: '已完成' },
+                ]"
+                :key="item.value"
+                type="button"
+                role="tab"
+                :aria-selected="recordStatus === item.value"
+                :class="{ active: recordStatus === item.value }"
+                @click="recordStatus = item.value"
+              >
+                {{ item.label }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="recordsError" class="empty-state practice-records-home-state practice-records-error">
+            <strong>练习记录加载失败</strong>
             <p>{{ recordsError }}</p>
             <button class="secondary-btn" @click="loadExams">重新加载</button>
           </div>
-          <template v-else>
-            <button
-              v-for="exam in exams"
-              :key="exam.examId"
-              :class="['exam-record', { active: isCurrentExam(exam, currentExam) }]"
-              @click="requestOpenExam(exam.examId)"
-            >
-              <span>
-                <strong>{{ displayExamTitle(exam) }}</strong>
-                <small
-                  >{{ formatExamStartedAt(exam.startedAt) }} · {{ exam.totalCount || exam.questionCount || 0 }} 题 ·
-                  {{ examShowAnswer(exam) ? '学习模式' : '考试模式' }}</small
+          <div v-else-if="filteredExams.length" class="practice-record-list">
+            <article v-for="exam in filteredExams" :key="exam.examId" class="practice-record-row">
+              <button type="button" class="practice-record-main" @click="requestOpenExam(exam.examId)">
+                <span :class="['practice-record-status', exam.status === 'submitted' ? 'completed' : 'running']">{{
+                  exam.status === 'submitted' ? '已完成' : '进行中'
+                }}</span>
+                <span class="practice-record-content">
+                  <strong>{{ displayExamTitle(exam) }}</strong>
+                  <small>
+                    {{ formatExamStartedAt(exam.startedAt) }}
+                    <span aria-hidden="true">·</span>
+                    {{ exam.totalCount || exam.questionCount || 0 }} 题
+                    <span aria-hidden="true">·</span>
+                    {{ examShowAnswer(exam) ? '学习模式' : '考试模式' }}
+                    <span aria-hidden="true">·</span>
+                    {{ examCompositionLabel(exam) }}
+                  </small>
+                </span>
+                <span class="practice-record-result">
+                  <strong>{{ examRecordProgress(exam) }}</strong>
+                  <small>{{ examRecordActionLabel(exam) }}</small>
+                </span>
+              </button>
+              <div class="practice-record-actions">
+                <button type="button" class="secondary-btn compact" @click="requestOpenExam(exam.examId)">
+                  {{ examRecordActionLabel(exam) }}
+                </button>
+                <button
+                  type="button"
+                  class="danger-text"
+                  :aria-label="`删除练习：${displayExamTitle(exam)}`"
+                  @click="openExamDeleteDialog(exam)"
                 >
-              </span>
-              <b>{{
-                isCurrentExam(exam, currentExam)
-                  ? '当前练习'
-                  : exam.status === 'submitted'
-                    ? `${exam.score} 分 · 查看复盘`
-                    : '继续作答'
-              }}</b>
-            </button>
-          </template>
-          <div v-if="!recordsLoading && !recordsError && !exams.length" class="empty-state compact">
-            <strong>暂无记录</strong>
-            <p>创建练习后会在这里保留记录。</p>
+                  删除
+                </button>
+              </div>
+            </article>
           </div>
+          <div v-else-if="exams.length" class="empty-state practice-records-home-state">
+            <strong>没有符合条件的练习</strong>
+            <p>尝试修改练习名称或切换记录状态。</p>
+            <button class="secondary-btn" @click="resetRecordFilters">清除筛选</button>
+          </div>
+          <div v-else class="empty-state practice-records-home-state practice-records-empty">
+            <span class="practice-records-empty-visual" aria-hidden="true">
+              <svg
+                viewBox="0 0 48 48"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M14 8h16l6 6v25H14z" />
+                <path d="M30 8v7h6M20 22h10M20 28h10" />
+                <path d="m20 35 2.8 2.8L29 32" />
+              </svg>
+            </span>
+            <div class="practice-records-empty-copy">
+              <strong>开始第一套组卷练习</strong>
+              <p>根据目标创建专属练习，完成后可随时继续作答或查看复盘。</p>
+            </div>
+            <button class="primary-btn" @click="requestComposePractice('smart')">创建第一套练习</button>
+          </div>
+        </template>
+      </section>
+    </section>
+
+    <div v-if="examDeleteDialog.visible" class="modal-mask interview-delete-mask" @click.self="closeExamDeleteDialog">
+      <div class="interview-delete-modal practice-record-delete-modal">
+        <button class="close" aria-label="关闭删除练习弹窗" @click="closeExamDeleteDialog">×</button>
+        <p class="eyebrow">删除练习记录</p>
+        <h2>删除“{{ displayExamTitle(examDeleteDialog.exam) }}”？</h2>
+        <p>练习题目、作答结果和复盘数据将一并删除，删除后无法恢复。</p>
+        <p v-if="examDeleteDialog.error" class="error settings-error" role="alert">
+          {{ examDeleteDialog.error }}
+        </p>
+        <div class="history-delete-actions">
+          <button class="secondary-btn" :disabled="examDeleteDialog.loading" @click="closeExamDeleteDialog">
+            取消
+          </button>
+          <button class="danger-btn" :disabled="examDeleteDialog.loading" @click="confirmExamDelete">
+            {{ examDeleteDialog.loading ? '删除中' : '确认删除' }}
+          </button>
         </div>
-      </aside>
+      </div>
     </div>
 
     <div v-if="practiceDialog.visible" class="modal-mask interview-delete-mask" @click.self="closePracticeDialog">
@@ -672,7 +713,7 @@ const props = defineProps({
   initialExamId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['practice-created', 'back-to-bank'])
+const emit = defineEmits(['practice-created', 'back-to-bank', 'compose-practice'])
 
 const {
   activeMode,
@@ -707,21 +748,22 @@ const {
   bankTypeLabel,
   timerRemaining,
   remainingTimeText,
-  practiceModalRef,
   editModalRef,
   batchTagDraft,
   batchTagError,
   recordsLoading,
   recordsError,
-  recordsDrawerOpen,
-  examDetailLoading,
+  recordKeyword,
+  recordStatus,
   exams,
   currentExam,
+  practiceHomeVisible,
   answers,
   codingRunning,
   codingDebugOpen,
   codeCopyState,
   practiceDialog,
+  examDeleteDialog,
   timerExpired,
   activeFilterCount,
   batchTags,
@@ -738,6 +780,9 @@ const {
   answeredCount,
   unansweredQuestions,
   examProgressPercent,
+  inProgressExamCount,
+  submittedExamCount,
+  filteredExams,
   activeQuestion,
   currentQuestionIndex,
   practiceDialogEyebrow,
@@ -750,15 +795,20 @@ const {
   openCreateModal,
   openEditModal,
   handleQuestionSaved,
-  openPracticeModal,
-  handlePracticeCreated,
   startSelectedPractice,
   startSingleQuestionPractice,
   loadExams,
   examShowAnswer,
-  openRecordsDrawer,
-  closeRecordsDrawer,
+  examCompositionLabel,
+  examRecordActionLabel,
+  examRecordProgress,
+  resetRecordFilters,
+  returnToPracticeHome,
+  requestComposePractice,
   requestOpenExam,
+  openExamDeleteDialog,
+  closeExamDeleteDialog,
+  confirmExamDelete,
   currentCodingLanguage,
   setCodingLanguage,
   isQuestionAnswered,
@@ -767,7 +817,6 @@ const {
   isOptionSelected,
   updateOptionAnswer,
   submitCurrentExam,
-  requestBackToBank,
   closePracticeDialog,
   confirmPracticeDialog,
   codingDebugForm,
@@ -789,10 +838,12 @@ const {
   questionStem,
   displayExamTitle,
   formatExamStartedAt,
-  isCurrentExam,
   InterviewBankHeader,
-  PracticeConfigModal,
   PracticeMarkdown,
   QuestionEditModal,
 } = useInterviewBankPage(props, emit)
+
+defineExpose({
+  showRecordsHome: returnToPracticeHome,
+})
 </script>

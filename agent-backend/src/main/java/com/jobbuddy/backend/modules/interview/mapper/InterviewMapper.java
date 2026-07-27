@@ -186,6 +186,7 @@ public interface InterviewMapper {
    * @param score 评分
    * @param durationMinutes 时长分钟
    * @param strategyJson 出题策略 JSON
+   * @param recorded 是否展示为练习记录
    * @param startedAt 开始时间
    * @param expiresAt 过期时间
    * @return 考试
@@ -201,6 +202,7 @@ public interface InterviewMapper {
       @Param("score") Double score,
       @Param("durationMinutes") int durationMinutes,
       @Param("strategyJson") String strategyJson,
+      @Param("recorded") boolean recorded,
       @Param("startedAt") Timestamp startedAt,
       @Param("expiresAt") Timestamp expiresAt);
 
@@ -252,6 +254,19 @@ public interface InterviewMapper {
    */
   List<Map<String, Object>> listExams(
       @Param("tenantId") String tenantId, @Param("userId") String userId);
+
+  /**
+   * 删除用户所属练习。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 练习标识
+   * @return 删除数量
+   */
+  int deleteExam(
+      @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
+      @Param("examId") String examId);
 
   /**
    * 查询考试题目列表。

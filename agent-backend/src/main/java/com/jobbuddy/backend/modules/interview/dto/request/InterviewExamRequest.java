@@ -18,6 +18,7 @@ public class InterviewExamRequest {
   private String title;
   private Integer durationMinutes;
   private Boolean showAnswer;
+  private Boolean recorded;
 
   /**
    * 定义规则。

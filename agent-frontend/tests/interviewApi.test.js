@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { extractInterviewDocument } from '../src/api/interview'
+import { createSmartExam, deleteExam, extractInterviewDocument } from '../src/api/interview'
 
 function mockFetchResponse({ ok = true, status = 200, body = { code: 200, message: 'success', data: {} } } = {}) {
   return vi.fn().mockResolvedValue({
@@ -48,5 +48,38 @@ describe('interview document API', () => {
     const file = new File(['broken'], 'broken.pdf', { type: 'application/pdf' })
 
     await expect(extractInterviewDocument(file)).rejects.toThrow('PDF 文件格式无效或已损坏')
+  })
+})
+
+describe('smart interview practice API', () => {
+  it('posts natural-language requirements to the smart composition endpoint', async () => {
+    const data = { examId: 'practice-smart-1', totalCount: 6 }
+    const fetch = mockFetchResponse({ body: { code: 200, message: 'success', data } })
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(createSmartExam({ requirements: '选择 6 道 Java 并发中等难度题，30 分钟考试模式' })).resolves.toEqual(
+      data,
+    )
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/interview/practices/smart',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ requirements: '选择 6 道 Java 并发中等难度题，30 分钟考试模式' }),
+      }),
+    )
+  })
+
+  it('deletes a practice record through the owned practice endpoint', async () => {
+    const fetch = mockFetchResponse({
+      body: { code: 200, message: 'success', data: { deleted: true } },
+    })
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(deleteExam('practice 1')).resolves.toEqual({ deleted: true })
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/interview/practices/practice%201',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
   })
 })

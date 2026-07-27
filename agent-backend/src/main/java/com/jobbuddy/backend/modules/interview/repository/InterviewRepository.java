@@ -241,6 +241,7 @@ public class InterviewRepository {
    * @param title 标题
    * @param durationMinutes 时长分钟
    * @param strategy 抽题策略
+   * @param recorded 是否展示为练习记录
    * @param questions 题目列表
    */
   public void createExam(
@@ -250,6 +251,7 @@ public class InterviewRepository {
       String title,
       int durationMinutes,
       Object strategy,
+      boolean recorded,
       List<Map<String, Object>> questions) {
     Timestamp now = Timestamp.from(Instant.now());
     Timestamp expiresAt =
@@ -265,6 +267,7 @@ public class InterviewRepository {
         null,
         durationMinutes,
         jsonCodec.toJson(strategy),
+        recorded,
         now,
         expiresAt);
 
@@ -325,6 +328,18 @@ public class InterviewRepository {
       hydrateExam(row);
     }
     return rows;
+  }
+
+  /**
+   * 删除用户所属练习及其级联题目关系。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 练习标识
+   * @return 是否删除
+   */
+  public boolean deleteExam(String tenantId, String userId, String examId) {
+    return mapper.deleteExam(tenantId, userId, examId) > 0;
   }
 
   /**

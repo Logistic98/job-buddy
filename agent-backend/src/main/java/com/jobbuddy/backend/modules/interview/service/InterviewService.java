@@ -7,6 +7,7 @@ import com.jobbuddy.backend.modules.interview.dto.request.InterviewExamSubmitReq
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewGenerateRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewImportRequest;
 import com.jobbuddy.backend.modules.interview.dto.request.InterviewQuestionRequest;
+import com.jobbuddy.backend.modules.interview.dto.request.InterviewSmartExamRequest;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewBatchResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewCodeRunResponse;
 import com.jobbuddy.backend.modules.interview.dto.response.InterviewExamResponse;
@@ -112,6 +113,17 @@ public interface InterviewService {
       String tenantId, String userId, InterviewExamRequest request);
 
   /**
+   * 根据自然语言要求从现有题库智能选择题目并创建练习。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param request 智能组卷请求
+   * @return 创建后的练习
+   */
+  InterviewExamResponse createSmartExam(
+      String tenantId, String userId, InterviewSmartExamRequest request);
+
+  /**
    * 获取考试。
    *
    * @param tenantId 租户标识
@@ -129,6 +141,15 @@ public interface InterviewService {
    * @return 考试列表
    */
   List<InterviewExamResponse> listExams(String tenantId, String userId);
+
+  /**
+   * 删除用户所属练习记录。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param examId 练习标识
+   */
+  void deleteExam(String tenantId, String userId, String examId);
 
   /**
    * 提交考试。

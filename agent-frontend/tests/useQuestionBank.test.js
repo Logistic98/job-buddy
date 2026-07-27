@@ -122,7 +122,7 @@ describe('useQuestionBank', () => {
     expect(onCreated).toHaveBeenCalledTimes(1)
     expect(bank.error.value).toBe('')
     expect(createRandomExam).toHaveBeenCalledWith(
-      expect.objectContaining({ durationMinutes: 45, questionIds: ['q1', 'q2'] }),
+      expect.objectContaining({ durationMinutes: 45, questionIds: ['q1', 'q2'], recorded: true }),
     )
   })
 

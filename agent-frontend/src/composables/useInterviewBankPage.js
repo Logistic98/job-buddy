@@ -1,5 +1,5 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { getExam, listExams, runCodeSample, submitExam } from '../api/interview'
+import { deleteExam, getExam, listExams, runCodeSample, submitExam } from '../api/interview'
 import InterviewBankHeader from '../components/interview/InterviewBankHeader.vue'
 import PracticeConfigModal from '../components/interview/PracticeConfigModal.vue'
 import PracticeMarkdown from '../components/interview/PracticeMarkdown.vue'
@@ -86,12 +86,14 @@ export function useInterviewBankPage(props, emit) {
   const editModalRef = ref(null)
   const batchTagDraft = ref('')
   const batchTagError = ref('')
-  const recordsLoading = ref(false)
+  const recordsLoading = ref(activeMode.value === 'exam')
   const recordsError = ref('')
-  const recordsDrawerOpen = ref(false)
+  const recordKeyword = ref('')
+  const recordStatus = ref('all')
   const examDetailLoading = ref(false)
   const exams = ref([])
   const currentExam = ref(null)
+  const practiceHomeVisible = ref(true)
   const activeQuestionId = ref('')
   const answers = reactive({})
   const codingResults = reactive({})
@@ -100,7 +102,18 @@ export function useInterviewBankPage(props, emit) {
   const codingDebugOpen = reactive({})
   const codingDebugForms = reactive({})
   const codeCopyState = reactive({})
-  const practiceDialog = reactive({ visible: false, mode: 'submit', pendingExamId: '' })
+  const practiceDialog = reactive({
+    visible: false,
+    mode: 'submit',
+    pendingExamId: '',
+    pendingCompositionMode: 'smart',
+  })
+  const examDeleteDialog = reactive({
+    visible: false,
+    exam: null,
+    loading: false,
+    error: '',
+  })
 
   const timerExpired = computed(() =>
     Boolean(currentExam.value && currentExam.value.status !== 'submitted' && timerRemaining.value <= 0),
@@ -145,12 +158,14 @@ export function useInterviewBankPage(props, emit) {
   const pageTitle = computed(() => (activeMode.value === 'exam' ? '练习台' : '题库'))
   const pageDescription = computed(() =>
     activeMode.value === 'exam'
-      ? '查看练习记录、继续作答或通过随机组卷开始新练习。'
+      ? '查看练习记录、继续作答，或通过智能组卷、规则组卷创建新练习。'
       : '按题库维护题目，支持单题练习、勾选后练习和批量设置。',
   )
   const showAnswerMode = computed(() => Boolean(currentExam.value?.strategy?.showAnswer))
-  const isOpeningTargetExam = computed(() =>
-    shouldShowExamOpening(props.initialExamId, currentExam.value, examDetailLoading.value, error.value),
+  const isOpeningTargetExam = computed(
+    () =>
+      examDetailLoading.value ||
+      shouldShowExamOpening(props.initialExamId, currentExam.value, examDetailLoading.value, error.value),
   )
   const examTotalCount = computed(() => currentExam.value?.questions?.length || 0)
   const answeredCount = computed(() => (currentExam.value?.questions || []).filter(isQuestionAnswered).length)
@@ -160,6 +175,17 @@ export function useInterviewBankPage(props, emit) {
   const examProgressPercent = computed(() =>
     examTotalCount.value ? Math.round((answeredCount.value / examTotalCount.value) * 100) : 0,
   )
+  const inProgressExamCount = computed(() => exams.value.filter((exam) => exam.status !== 'submitted').length)
+  const submittedExamCount = computed(() => exams.value.filter((exam) => exam.status === 'submitted').length)
+  const filteredExams = computed(() => {
+    const keyword = recordKeyword.value.trim().toLowerCase()
+    return exams.value.filter((exam) => {
+      if (recordStatus.value === 'running' && exam.status === 'submitted') return false
+      if (recordStatus.value === 'submitted' && exam.status !== 'submitted') return false
+      if (!keyword) return true
+      return String(displayExamTitle(exam)).toLowerCase().includes(keyword)
+    })
+  })
   const currentQuestionIndexMap = computed(() =>
     Object.fromEntries((currentExam.value?.questions || []).map((item, index) => [item.questionId, index + 1])),
   )
@@ -171,22 +197,38 @@ export function useInterviewBankPage(props, emit) {
     activeQuestion.value ? currentQuestionIndexMap.value[activeQuestion.value.questionId] || 1 : 0,
   )
   const practiceDialogEyebrow = computed(() =>
-    practiceDialog.mode === 'submit' ? '提交练习' : practiceDialog.mode === 'switch' ? '切换练习' : '离开练习',
+    practiceDialog.mode === 'submit'
+      ? '提交练习'
+      : practiceDialog.mode === 'switch'
+        ? '切换练习'
+        : practiceDialog.mode === 'compose'
+          ? '创建练习'
+          : '离开练习',
   )
   const practiceDialogTitle = computed(() =>
     practiceDialog.mode === 'submit'
       ? `还有 ${unansweredQuestions.value.length} 题未作答`
       : practiceDialog.mode === 'switch'
         ? '切换到其他练习？'
-        : '暂时离开当前练习？',
+        : practiceDialog.mode === 'compose'
+          ? '创建新的练习？'
+          : '暂时离开当前练习？',
   )
   const practiceDialogDescription = computed(() =>
     practiceDialog.mode === 'submit'
       ? '提交后将立即结束本次练习，未作答题目不会得分。'
-      : '未提交答案只保留在本次页面会话中，刷新页面或重新登录后无法恢复。',
+      : practiceDialog.mode === 'compose'
+        ? '当前未提交答案只保留在本次页面会话中。创建新练习后，本次作答将无法恢复。'
+        : '未提交答案只保留在本次页面会话中，切换练习、刷新页面或重新登录后无法恢复。',
   )
   const practiceDialogConfirmText = computed(() =>
-    practiceDialog.mode === 'submit' ? '仍要提交' : practiceDialog.mode === 'switch' ? '确认切换' : '确认离开',
+    practiceDialog.mode === 'submit'
+      ? '仍要提交'
+      : practiceDialog.mode === 'switch'
+        ? '确认切换'
+        : practiceDialog.mode === 'compose'
+          ? '继续创建'
+          : '确认离开',
   )
 
   onMounted(() => {
@@ -242,7 +284,7 @@ export function useInterviewBankPage(props, emit) {
   function handleGlobalKeydown(event) {
     if (!['Escape', 'Esc'].includes(event.key)) return
     if (practiceDialog.visible) closePracticeDialog()
-    else if (recordsDrawerOpen.value) closeRecordsDrawer()
+    else if (examDeleteDialog.visible) closeExamDeleteDialog()
     else if (deleteDialog.visible) closeDeleteDialog()
   }
 
@@ -273,8 +315,8 @@ export function useInterviewBankPage(props, emit) {
   }
   async function handlePracticeCreated(exam, fallbackSeconds) {
     error.value = ''
-    closeRecordsDrawer()
     currentExam.value = exam
+    practiceHomeVisible.value = false
     resetPracticeAnswers(exam)
     startExamTimer(Number(exam.remainingSeconds || fallbackSeconds), true)
     await loadExams()
@@ -290,8 +332,12 @@ export function useInterviewBankPage(props, emit) {
   }
   async function startSingleQuestionPractice(item) {
     if (!item?.questionId || examLoading.value) return
-    await createManualPractice([item.questionId], `${displayTitle(item, 0)} 单题练习`, true, (exam) =>
-      emit('practice-created', exam),
+    await createManualPractice(
+      [item.questionId],
+      `${displayTitle(item, 0)} 单题练习`,
+      true,
+      (exam) => emit('practice-created', exam),
+      false,
     )
   }
   function currentBankTypeLabel() {
@@ -302,7 +348,7 @@ export function useInterviewBankPage(props, emit) {
     recordsLoading.value = true
     recordsError.value = ''
     try {
-      exams.value = await listExams()
+      exams.value = (await listExams()).filter((exam) => !isLegacyTransientSinglePractice(exam))
     } catch (err) {
       recordsError.value = err?.message || '练习记录加载失败，请稍后重试'
     } finally {
@@ -312,24 +358,103 @@ export function useInterviewBankPage(props, emit) {
   function examShowAnswer(exam) {
     return Boolean(exam?.strategy?.showAnswer)
   }
-  async function openRecordsDrawer() {
-    recordsDrawerOpen.value = true
-    if (!exams.value.length || recordsError.value) await loadExams()
+  function isLegacyTransientSinglePractice(exam) {
+    const strategy = exam?.strategy || {}
+    const totalCount = Number(exam?.totalCount || exam?.questionCount || 0)
+    return (
+      exam?.recorded !== false &&
+      strategy.mode === 'manual' &&
+      strategy.recorded == null &&
+      totalCount === 1 &&
+      String(exam?.title || '')
+        .trim()
+        .endsWith('单题练习')
+    )
   }
-  function closeRecordsDrawer() {
-    recordsDrawerOpen.value = false
+  function examCompositionLabel(exam) {
+    const mode = exam?.strategy?.mode
+    if (mode === 'smart') return '智能组卷'
+    if (mode === 'manual') return '手动选题'
+    return '规则组卷'
+  }
+  function examRecordActionLabel(exam) {
+    return exam?.status === 'submitted' ? '查看复盘' : '继续练习'
+  }
+  function examRecordProgress(exam) {
+    const total = Number(exam?.totalCount || exam?.questionCount || 0)
+    const answered = Number(exam?.answeredCount || 0)
+    return exam?.status === 'submitted' ? `${Number(exam?.score || 0)} 分` : `${answered}/${total} 已完成`
+  }
+  function resetRecordFilters() {
+    recordKeyword.value = ''
+    recordStatus.value = 'all'
+  }
+  function returnToPracticeHome() {
+    practiceHomeVisible.value = true
+  }
+  function requestComposePractice(mode = 'smart') {
+    if (currentExam.value?.status !== 'submitted' && answeredCount.value > 0 && !practiceHomeVisible.value) {
+      Object.assign(practiceDialog, {
+        visible: true,
+        mode: 'compose',
+        pendingCompositionMode: mode === 'rule' ? 'rule' : 'smart',
+      })
+      return
+    }
+    emit('compose-practice', mode)
   }
   function requestOpenExam(examId) {
-    if (!examId || examId === currentExam.value?.examId) {
-      closeRecordsDrawer()
+    if (!examId) return
+    if (examId === currentExam.value?.examId) {
+      practiceHomeVisible.value = false
       return
     }
     if (currentExam.value?.status !== 'submitted' && answeredCount.value > 0) {
       Object.assign(practiceDialog, { visible: true, mode: 'switch', pendingExamId: examId })
       return
     }
-    closeRecordsDrawer()
     openExam(examId)
+  }
+  function openExamDeleteDialog(exam) {
+    if (!exam?.examId) return
+    Object.assign(examDeleteDialog, {
+      visible: true,
+      exam,
+      loading: false,
+      error: '',
+    })
+  }
+  function closeExamDeleteDialog() {
+    if (examDeleteDialog.loading) return
+    Object.assign(examDeleteDialog, {
+      visible: false,
+      exam: null,
+      error: '',
+    })
+  }
+  async function confirmExamDelete() {
+    const examId = examDeleteDialog.exam?.examId
+    if (!examId || examDeleteDialog.loading) return
+    examDeleteDialog.loading = true
+    examDeleteDialog.error = ''
+    try {
+      await deleteExam(examId)
+      exams.value = exams.value.filter((exam) => exam.examId !== examId)
+      if (currentExam.value?.examId === examId) {
+        stopExamTimer()
+        currentExam.value = null
+        activeQuestionId.value = ''
+        practiceHomeVisible.value = true
+      }
+      Object.assign(examDeleteDialog, {
+        visible: false,
+        exam: null,
+      })
+    } catch (err) {
+      examDeleteDialog.error = err?.message || '练习记录删除失败，请稍后重试'
+    } finally {
+      examDeleteDialog.loading = false
+    }
   }
 
   function currentCodingLanguage(questionId) {
@@ -386,6 +511,7 @@ export function useInterviewBankPage(props, emit) {
   async function openExam(examId) {
     stopExamTimer()
     examDetailLoading.value = true
+    practiceHomeVisible.value = false
     currentExam.value = null
     activeQuestionId.value = ''
     error.value = ''
@@ -396,6 +522,7 @@ export function useInterviewBankPage(props, emit) {
         startExamTimer(Number(currentExam.value.remainingSeconds || 0), true)
     } catch (err) {
       error.value = err.message || '练习详情加载失败'
+      practiceHomeVisible.value = true
     } finally {
       examDetailLoading.value = false
     }
@@ -460,16 +587,18 @@ export function useInterviewBankPage(props, emit) {
   function closePracticeDialog() {
     practiceDialog.visible = false
     practiceDialog.pendingExamId = ''
+    practiceDialog.pendingCompositionMode = 'smart'
   }
   function confirmPracticeDialog() {
     const mode = practiceDialog.mode
     const pendingExamId = practiceDialog.pendingExamId
+    const pendingCompositionMode = practiceDialog.pendingCompositionMode
     closePracticeDialog()
     if (mode === 'leave') emit('back-to-bank')
     else if (mode === 'switch') {
-      closeRecordsDrawer()
       openExam(pendingExamId)
-    } else submitCurrentExam(true)
+    } else if (mode === 'compose') emit('compose-practice', pendingCompositionMode)
+    else submitCurrentExam(true)
   }
 
   function codingDebugForm(item) {
@@ -614,10 +743,12 @@ export function useInterviewBankPage(props, emit) {
     batchTagError,
     recordsLoading,
     recordsError,
-    recordsDrawerOpen,
+    recordKeyword,
+    recordStatus,
     examDetailLoading,
     exams,
     currentExam,
+    practiceHomeVisible,
     activeQuestionId,
     answers,
     codingResults,
@@ -627,6 +758,7 @@ export function useInterviewBankPage(props, emit) {
     codingDebugForms,
     codeCopyState,
     practiceDialog,
+    examDeleteDialog,
     timerExpired,
     activeFilterCount,
     batchTags,
@@ -643,6 +775,9 @@ export function useInterviewBankPage(props, emit) {
     answeredCount,
     unansweredQuestions,
     examProgressPercent,
+    inProgressExamCount,
+    submittedExamCount,
+    filteredExams,
     currentQuestionIndexMap,
     activeQuestion,
     currentQuestionIndex,
@@ -665,9 +800,16 @@ export function useInterviewBankPage(props, emit) {
     currentBankTypeLabel,
     loadExams,
     examShowAnswer,
-    openRecordsDrawer,
-    closeRecordsDrawer,
+    examCompositionLabel,
+    examRecordActionLabel,
+    examRecordProgress,
+    resetRecordFilters,
+    returnToPracticeHome,
+    requestComposePractice,
     requestOpenExam,
+    openExamDeleteDialog,
+    closeExamDeleteDialog,
+    confirmExamDelete,
     currentCodingLanguage,
     setCodingLanguage,
     isQuestionAnswered,

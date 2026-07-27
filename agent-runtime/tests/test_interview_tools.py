@@ -4,7 +4,7 @@ import pytest
 
 from app.core.tool.base import ToolExecutionContext
 from app.models.schemas import ToolCall
-from app.tools_builtin.interview_tools import InterviewQuestionGenerateTool
+from app.tools_builtin.interview_tools import InterviewPaperComposeTool, InterviewQuestionGenerateTool
 
 
 class _StubLLM:
@@ -182,3 +182,113 @@ async def test_rejects_inconsistent_generated_test_arguments():
 
     assert result.success is False
     assert "参数数量必须一致" in result.error
+
+
+@pytest.mark.asyncio
+async def test_compose_interview_paper_from_existing_candidates():
+    candidates = [
+        {
+            "question_id": "q-java",
+            "bank_type": "qa",
+            "title": "Java 并发可见性",
+            "category": "Java 并发",
+            "difficulty": "中等",
+            "question_type": "简答",
+            "tags": ["Java", "并发"],
+            "content_summary": "说明 volatile 的可见性与有序性语义。",
+        },
+        {
+            "question_id": "q-redis",
+            "bank_type": "qa",
+            "title": "Redis 持久化",
+            "category": "Redis",
+            "difficulty": "中等",
+            "question_type": "单选",
+            "tags": ["Redis"],
+            "content_summary": "比较 RDB 与 AOF。",
+        },
+    ]
+    stub = _StubLLM(
+        json.dumps(
+            {
+                "title": "Java 与 Redis 专项练习",
+                "duration_minutes": 45,
+                "show_answer": False,
+                "question_ids": ["q-java", "q-redis"],
+                "selection_summary": "选择两道中等难度题，覆盖 Java 并发与 Redis。",
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = InterviewPaperComposeTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="call_compose",
+            name=tool.name,
+            arguments={
+                "requirements": "选择 Java 并发和 Redis 中等难度题，45 分钟考试模式",
+                "candidates": candidates,
+            },
+        ),
+        _context(),
+    )
+
+    assert result.success is True
+    assert result.output["question_ids"] == ["q-java", "q-redis"]
+    assert result.output["duration_minutes"] == 45
+    assert result.output["show_answer"] is False
+    user_input = json.loads(stub.calls[0]["messages"][1].content)
+    assert user_input["requirements"].startswith("选择 Java 并发")
+    assert "answer" not in user_input["candidates"][0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("question_ids", "message"),
+    [
+        (["q-java", "q-java"], "不能包含重复题目"),
+        (["q-java", "q-unknown"], "包含候选集之外的题目"),
+        ([], "至少选择 1 道题"),
+    ],
+)
+async def test_rejects_invalid_interview_paper_selection(question_ids, message):
+    stub = _StubLLM(
+        json.dumps(
+            {
+                "title": "无效试卷",
+                "duration_minutes": 30,
+                "show_answer": False,
+                "question_ids": question_ids,
+                "selection_summary": "测试非法选题结果。",
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = InterviewPaperComposeTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="call_invalid_compose",
+            name=tool.name,
+            arguments={
+                "requirements": "选择 Java 并发题组成一套练习",
+                "candidates": [
+                    {
+                        "question_id": "q-java",
+                        "bank_type": "qa",
+                        "title": "Java 并发可见性",
+                        "category": "Java 并发",
+                        "difficulty": "中等",
+                        "question_type": "简答",
+                        "tags": ["Java", "并发"],
+                        "content_summary": "说明 volatile 语义。",
+                    }
+                ],
+            },
+        ),
+        _context(),
+    )
+
+    assert result.success is False
+    assert message in result.error
