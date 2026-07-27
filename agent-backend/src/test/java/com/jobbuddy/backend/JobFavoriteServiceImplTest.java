@@ -310,6 +310,28 @@ class JobFavoriteServiceImplTest {
   }
 
   /**
+   * 验证 Boss 收藏动作时间在导入时原样保留，不替换成本地导入时间。
+   */
+  @Test
+  void importBossFavoritesShouldPreserveBossFavoritedAt() {
+    Fixture fixture = new Fixture();
+    Map<String, Object> selected = job("sec-1");
+    selected.put("jobDescription", "负责 Java 大模型应用研发");
+    selected.put("favoritedAt", "2025-10-02T01:33:13Z");
+    BossFavoriteImportRequest request = new BossFavoriteImportRequest();
+    request.setJobs(Collections.singletonList(fixture.jsonCodec.toTree(selected)));
+
+    BossFavoriteImportResponse result = fixture.service.importBossFavorites("user-1", request);
+
+    assertEquals(1, result.getImportedCount());
+    ArgumentCaptor<String> persistedJob = ArgumentCaptor.forClass(String.class);
+    verify(fixture.mapper).upsertFavorite(anyString(), anyString(), persistedJob.capture());
+    assertEquals(
+        "2025-10-02T01:33:13Z",
+        fixture.jsonCodec.toMap(persistedJob.getValue()).get("favoritedAt"));
+  }
+
+  /**
    * 验证 JobFavoriteServiceImpl 的持久化与状态变更规则。
    */
   @Test

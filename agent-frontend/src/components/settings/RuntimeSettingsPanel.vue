@@ -206,7 +206,7 @@
       <div class="setting-card boss-auth-setting-card">
         <div>
           <h3>Boss 直聘登录状态</h3>
-          <p>这里负责查看登录状态、发起扫码和取消二维码会话。</p>
+          <p>这里负责查看登录状态、扫码登录和退出当前 Boss 账号。</p>
         </div>
         <div class="auth-settings-card">
           <div class="auth-icon">AUTH</div>
@@ -218,10 +218,16 @@
             <p>{{ bossStatusText }}</p>
             <small v-if="bossStatus?.updatedAt">更新时间：{{ formatTime(bossStatus.updatedAt) }}</small>
             <small v-if="bossStatus?.error" class="error">{{ bossStatus.error?.message || bossStatus.error }}</small>
+            <small v-if="bossActionError" class="error" role="alert">{{ bossActionError }}</small>
           </div>
           <div class="auth-actions">
             <button class="secondary-btn" :disabled="authLoading" @click="refreshBossStatus">刷新状态</button>
-            <button class="primary-btn" :disabled="authLoading" @click="showLogin = true">扫码登录</button>
+            <button v-if="bossLoggedIn" class="danger-btn" :disabled="authLoading" @click="openBossLogoutConfirm">
+              退出登录
+            </button>
+            <button v-else class="primary-btn" :disabled="authLoading" @click="openBossLogin">
+              {{ authLoading ? '检查中' : '扫码登录' }}
+            </button>
           </div>
         </div>
       </div>
@@ -233,6 +239,34 @@
       @close="showLogin = false"
       @logged-in="handleLoggedIn"
     />
+
+    <div
+      v-if="showBossLogoutConfirm"
+      class="modal-mask runtime-restore-modal-mask"
+      @click.self="closeBossLogoutConfirm"
+    >
+      <section
+        class="modal-card runtime-restore-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="boss-logout-title"
+        aria-describedby="boss-logout-description"
+      >
+        <h2 id="boss-logout-title">退出 Boss 直聘登录？</h2>
+        <p id="boss-logout-description">
+          将清除当前 JobBuddy 账号保存的 Boss 登录凭据，后续读取岗位需要重新扫码。JobBuddy 登录状态不受影响。
+        </p>
+        <p v-if="bossActionError" class="error runtime-restore-error" role="alert">{{ bossActionError }}</p>
+        <div class="runtime-restore-actions">
+          <button type="button" class="secondary-btn" :disabled="authLoading" @click="closeBossLogoutConfirm">
+            取消
+          </button>
+          <button type="button" class="danger-btn" :disabled="authLoading" @click="confirmBossLogout">
+            {{ authLoading ? '退出中' : '确认退出' }}
+          </button>
+        </div>
+      </section>
+    </div>
 
     <div v-if="showRestoreConfirm" class="modal-mask runtime-restore-modal-mask" @click.self="closeRestoreConfirm">
       <section
@@ -258,7 +292,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { getBossLoginStatus } from '../../api/boss'
+import { getBossLoginStatus, logoutBoss } from '../../api/boss'
 import { restoreWorkspaceDefaults } from '../../api/settings'
 import { normalizeRuntimeSettings } from '../../composables/useRuntimeSettings'
 import { useScopedSettings } from '../../composables/useScopedSettings'
@@ -279,11 +313,13 @@ const {
   setValue: setWorkspace,
 } = useScopedSettings('workspace', normalizeRuntimeSettings)
 const showLogin = ref(false)
+const showBossLogoutConfirm = ref(false)
 const showRestoreConfirm = ref(false)
 const restoring = ref(false)
 const restoreError = ref('')
 const authLoading = ref(false)
 const bossStatus = ref(null)
+const bossActionError = ref('')
 
 const bossLoggedIn = computed(() => {
   const status = bossStatus.value || {}
@@ -403,10 +439,50 @@ function setResumeSizeMb(value) {
 }
 async function refreshBossStatus() {
   authLoading.value = true
+  bossActionError.value = ''
   try {
     bossStatus.value = await getBossLoginStatus(chat.sessionId)
+    return bossStatus.value
   } catch (err) {
     bossStatus.value = { ok: false, status: 'error', error: err.message || '登录状态检查失败' }
+    return bossStatus.value
+  } finally {
+    authLoading.value = false
+  }
+}
+async function openBossLogin() {
+  if (authLoading.value || bossLoggedIn.value) return
+  await refreshBossStatus()
+  if (!bossLoggedIn.value && bossStatus.value?.status !== 'error') showLogin.value = true
+}
+function openBossLogoutConfirm() {
+  if (authLoading.value || !bossLoggedIn.value) return
+  bossActionError.value = ''
+  showBossLogoutConfirm.value = true
+}
+function closeBossLogoutConfirm() {
+  if (!authLoading.value) showBossLogoutConfirm.value = false
+}
+async function confirmBossLogout() {
+  if (authLoading.value) return
+  authLoading.value = true
+  bossActionError.value = ''
+  try {
+    await logoutBoss()
+    const loggedOutStatus = {
+      ok: false,
+      authenticated: false,
+      authRequired: true,
+      status: 'auth_required',
+      message: '已退出 Boss 直聘登录。',
+      updatedAt: new Date().toISOString(),
+    }
+    bossStatus.value = loggedOutStatus
+    chat.markBossLoggedOut(loggedOutStatus)
+    showLogin.value = false
+    showBossLogoutConfirm.value = false
+  } catch (err) {
+    bossActionError.value = err.message || '退出 Boss 登录失败'
   } finally {
     authLoading.value = false
   }

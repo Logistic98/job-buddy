@@ -13,15 +13,26 @@
         <span>{{ stageHint }}</span>
       </div>
 
-      <div v-if="isProcessingLogin" class="login-progress-box">
-        <strong>{{ progressTitle }}</strong>
-        <p>{{ progressDetail }}</p>
+      <div class="login-stage-track" aria-label="Boss 登录进度">
+        <div v-for="(stage, index) in loginStages" :key="stage" :class="['login-stage', stageClass(index)]">
+          <span>{{ index + 1 }}</span>
+          <small>{{ stage }}</small>
+        </div>
       </div>
 
-      <p class="login-status">当前状态：{{ statusText }}</p>
+      <div :class="['login-status-card', `is-${statusTone}`]" role="status" aria-live="polite" aria-atomic="true">
+        <span :class="['login-status-indicator', { active: statusChecking }]"></span>
+        <div>
+          <small>{{ statusKicker }}</small>
+          <strong>{{ statusText }}</strong>
+          <p>{{ statusDetail }}</p>
+        </div>
+      </div>
       <div class="modal-actions">
         <button class="secondary" :disabled="loading" @click="refreshQr()">{{ refreshLabel }}</button>
-        <button class="secondary" :disabled="loading || !state.qrSessionId" @click="refreshStatus">重新检查状态</button>
+        <button class="secondary" :disabled="loading || statusChecking || !state.qrSessionId" @click="refreshStatus">
+          {{ statusChecking ? '正在检查' : '立即检查状态' }}
+        </button>
       </div>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </div>
@@ -50,6 +61,7 @@ const state = reactive({
 })
 const loading = ref(false)
 const errorMessage = ref('')
+const statusChecking = ref(false)
 const processingSince = ref(0)
 const nowTick = ref(Date.now())
 let pollTimer = null
@@ -115,20 +127,48 @@ const stageHint = computed(() => {
 })
 
 const refreshLabel = computed(() => (state.imageBase64 ? '刷新二维码' : '获取二维码'))
-const isProcessingLogin = computed(() => ['checking', 'scanned', 'confirmed'].includes(state.status))
 const processingSeconds = computed(() =>
   processingSince.value ? Math.max(0, Math.floor((nowTick.value - processingSince.value) / 1000)) : 0,
 )
-const progressTitle = computed(() => {
-  if (state.status === 'checking') return '正在确认现有登录态'
-  if (state.status === 'scanned') return '已扫码，等待手机确认'
-  return '已确认，正在保存登录态'
+const loginStages = ['扫描二维码', '手机确认', '登录校验']
+const activeStageIndex = computed(() => {
+  if (['qr_ready', 'waiting'].includes(state.status)) return 0
+  if (state.status === 'scanned') return 1
+  if (state.status === 'confirmed') return 2
+  if (state.status === 'logged_in') return loginStages.length
+  return -1
 })
-const progressDetail = computed(() => {
-  if (state.status === 'checking') return '先校验现有登录态，失效后生成二维码。'
-  if (state.status === 'scanned') return `请在 Boss 直聘 App 中点击确认。已等待 ${processingSeconds.value} 秒。`
-  return `正在写入并校验登录态，已处理 ${processingSeconds.value} 秒。`
+const statusTone = computed(() => {
+  if (state.status === 'logged_in') return 'success'
+  if (['scanned', 'confirmed'].includes(state.status)) return 'progress'
+  if (['expired', 'error', 'cancelled'].includes(state.status)) return 'warning'
+  return 'waiting'
 })
+const statusKicker = computed(() => {
+  if (statusChecking.value) return '自动检测中'
+  if (state.status === 'logged_in') return '登录完成'
+  if (['expired', 'error', 'cancelled'].includes(state.status)) return '需要处理'
+  return '实时状态'
+})
+const statusDetail = computed(() => {
+  if (state.status === 'checking') return '正在校验已有登录态，失效后会自动生成二维码。'
+  if (['qr_ready', 'waiting'].includes(state.status)) {
+    return statusChecking.value ? '正在获取最新扫码结果…' : '状态每秒自动更新，扫码后无需手动刷新。'
+  }
+  if (state.status === 'scanned') return `已检测到扫码，请在 App 中确认。已等待 ${processingSeconds.value} 秒。`
+  if (state.status === 'confirmed') return `手机端已确认，正在建立可用登录态。已处理 ${processingSeconds.value} 秒。`
+  if (state.status === 'logged_in') return '登录态已保存，即将继续刚才的操作。'
+  if (state.status === 'expired') return '当前二维码已失效，请刷新后重新扫描。'
+  if (state.status === 'error') return errorMessage.value || '登录处理失败，请刷新二维码后重试。'
+  if (state.status === 'cancelled') return '本次扫码已取消。'
+  return '正在准备 Boss 直聘登录。'
+})
+
+function stageClass(index) {
+  if (activeStageIndex.value === loginStages.length || index < activeStageIndex.value) return 'done'
+  if (index === activeStageIndex.value) return 'current'
+  return 'pending'
+}
 
 watch(
   () => props.visible,
@@ -221,6 +261,7 @@ async function refreshStatus() {
   if (!state.qrSessionId || pollInFlight) return
   loading.value = true
   pollInFlight = true
+  statusChecking.value = true
   try {
     const data = await getBossLoginStatus(props.sessionId, state.qrSessionId)
     applyStatus(data)
@@ -228,6 +269,7 @@ async function refreshStatus() {
     errorMessage.value = err.message || '刷新状态失败'
   } finally {
     pollInFlight = false
+    statusChecking.value = false
     loading.value = false
   }
 }
@@ -285,6 +327,7 @@ async function runPoll() {
     return
   }
   pollInFlight = true
+  statusChecking.value = true
   try {
     const data = await getBossLoginStatus(props.sessionId, state.qrSessionId)
     applyStatus(data)
@@ -292,7 +335,8 @@ async function runPoll() {
     errorMessage.value = err.message || '刷新状态失败'
   } finally {
     pollInFlight = false
-    scheduleNextPoll(1000)
+    statusChecking.value = false
+    scheduleNextPoll(['scanned', 'confirmed'].includes(state.status) ? 250 : 1000)
   }
 }
 
@@ -322,6 +366,7 @@ function handleClose() {
   qrDeadline = 0
   stopPolling()
   stopUiTicker()
+  statusChecking.value = false
   const qrSessionId = state.qrSessionId
   const shouldCancel = qrSessionId && !['logged_in', 'expired', 'cancelled'].includes(state.status)
   state.qrSessionId = null
@@ -382,6 +427,138 @@ onBeforeUnmount(() => {
   font-size: 13px;
   margin-top: 4px;
 }
+.login-stage-track {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 14px 0 12px;
+}
+.login-stage {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: #98a2b3;
+  text-align: left;
+}
+.login-stage:not(:last-child)::after {
+  position: absolute;
+  top: 12px;
+  right: -4px;
+  width: 8px;
+  height: 1px;
+  background: #d9e0ec;
+  content: '';
+}
+.login-stage > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  border: 1px solid #d9e0ec;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+.login-stage small {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.login-stage.current {
+  color: #3157ff;
+}
+.login-stage.current > span {
+  border-color: #8da2ff;
+  background: #eef2ff;
+  box-shadow: 0 0 0 4px rgba(49, 87, 255, 0.08);
+}
+.login-stage.done {
+  color: #16794a;
+}
+.login-stage.done > span {
+  border-color: #79cba5;
+  background: #eaf8f0;
+}
+.login-status-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 11px;
+  border: 1px solid #dfe6f1;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 12px 14px;
+  text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.login-status-indicator {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #98a2b3;
+}
+.login-status-indicator.active {
+  animation: boss-status-pulse 1.1s ease-out infinite;
+}
+.login-status-card > div {
+  min-width: 0;
+}
+.login-status-card small,
+.login-status-card strong {
+  display: block;
+}
+.login-status-card small {
+  margin-bottom: 2px;
+  color: #667085;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+.login-status-card strong {
+  color: #172033;
+  font-size: 15px;
+}
+.login-status-card p {
+  margin: 3px 0 0;
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.login-status-card.is-progress {
+  border-color: #b7c5ff;
+  background: #f2f5ff;
+  box-shadow: 0 8px 24px rgba(49, 87, 255, 0.08);
+}
+.login-status-card.is-progress .login-status-indicator {
+  background: #3157ff;
+}
+.login-status-card.is-success {
+  border-color: #a8dbc2;
+  background: #eefaf4;
+}
+.login-status-card.is-success .login-status-indicator {
+  background: #168a56;
+}
+.login-status-card.is-warning {
+  border-color: #f2c6c2;
+  background: #fff6f5;
+}
+.login-status-card.is-warning .login-status-indicator {
+  background: #d92d20;
+}
+.login-status-card.is-waiting .login-status-indicator.active {
+  background: #3157ff;
+}
 .modal-actions {
   display: flex;
   gap: 10px;
@@ -390,28 +567,33 @@ onBeforeUnmount(() => {
 .modal-actions .secondary {
   flex: 1;
 }
-.login-progress-box {
-  margin-top: 12px;
-  border: 1px solid #dfe6ff;
-  background: #f7f9ff;
-  border-radius: 14px;
-  padding: 11px 12px;
-  color: #172033;
-}
-.login-progress-box strong {
-  display: block;
-  font-size: 14px;
-  margin-bottom: 4px;
-}
-.login-progress-box p {
-  margin: 0;
-  color: #667085;
-  font-size: 13px;
-  line-height: 1.5;
-}
 .error {
   color: #d92d20;
   font-size: 13px;
   margin-top: 8px;
+}
+@keyframes boss-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(49, 87, 255, 0.35);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(49, 87, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(49, 87, 255, 0);
+  }
+}
+@media (max-width: 560px) {
+  .login-stage small {
+    font-size: 11px;
+  }
+  .modal-actions {
+    flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-status-indicator.active {
+    animation: none;
+  }
 }
 </style>

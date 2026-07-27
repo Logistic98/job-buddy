@@ -68,7 +68,12 @@
               @change="toggleSelection(row)"
             />
             <span class="boss-favorite-import-main">
-              <strong>{{ jobTitle(row) }}</strong>
+              <span class="boss-favorite-import-title">
+                <strong>{{ jobTitle(row) }}</strong>
+                <small v-if="bossFavoriteTime(row)" class="boss-favorite-import-time">
+                  收藏于 {{ bossFavoriteTime(row) }}
+                </small>
+              </span>
               <span>{{ company(row) }} · {{ location(row) }} · {{ experience(row) }}</span>
               <small>{{ labels(row).join(' · ') || 'Boss 收藏岗位摘要' }}</small>
             </span>
@@ -336,5 +341,23 @@ function salary(row) {
 function labels(row) {
   const values = row?.jobLabels || row?.skills || []
   return (Array.isArray(values) ? values : String(values || '').split(/[,，、]/)).filter(Boolean).slice(0, 4)
+}
+function bossFavoriteTime(row) {
+  const raw = row?.favoritedAt || row?.happenTime
+  if (raw) {
+    const numeric = typeof raw === 'number' || /^\d{10,13}$/.test(String(raw)) ? Number(raw) : raw
+    const date = new Date(typeof numeric === 'number' && numeric < 10_000_000_000 ? numeric * 1000 : numeric)
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      })
+    }
+  }
+  return String(row?.actionDateDesc || '').trim()
 }
 </script>

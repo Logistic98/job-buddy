@@ -149,6 +149,40 @@ public class BossAuthServiceImpl implements BossAuthService {
   }
 
   /**
+   * 退出当前用户的 Boss 登录态。
+   *
+   * <p>只清理当前租户和用户持久化的 Boss 凭据、认证缓存及未完成二维码会话，不影响 JobBuddy 登录会话。
+   *
+   * @return 退出登录结果
+   */
+  public BossLoginCancelResponse logout() {
+    String tenantId = currentTenantId();
+    String userId = currentUserId();
+    Object lock = authStatusLocks.computeIfAbsent(scopeKey(), ignored -> new Object());
+    synchronized (lock) {
+      Map<String, Object> logoutMetadata = new LinkedHashMap<String, Object>();
+      logoutMetadata.put("provider", BossAuthProviders.STORAGE_PROVIDER);
+      logoutMetadata.put("status", "logged_out");
+      logoutMetadata.put("loggedOutAt", Instant.now().toString());
+      authStateRepository.clearCredential(
+          tenantId, userId, BossAuthProviders.STORAGE_PROVIDER, "logged_out", logoutMetadata);
+      authStateRepository.clearCredential(
+          tenantId,
+          userId,
+          BossAuthProviders.LEGACY_STORAGE_PROVIDER,
+          "logged_out",
+          logoutMetadata);
+      authStateRepository.deleteQrSessionsForOwner(tenantId, userId);
+      clearAuthenticatedCache("logged_out");
+    }
+
+    Map<String, Object> response = new LinkedHashMap<String, Object>();
+    response.put("ok", true);
+    response.put("status", "logged_out");
+    return jsonCodec.convert(response, BossLoginCancelResponse.class);
+  }
+
+  /**
    * 判断是否已登录。
    *
    * @param sessionId 会话标识

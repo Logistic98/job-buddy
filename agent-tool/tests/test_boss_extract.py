@@ -1,4 +1,4 @@
-from app.tools.boss_browser.core.extract import extract_jobs, normalize_detail
+from app.tools.boss_browser.core.extract import extract_favorite_jobs, extract_jobs, normalize_detail
 
 
 def test_extract_jobs_from_zpdata():
@@ -40,6 +40,41 @@ def test_extract_jobs_from_real_favorite_card_list_without_duplicating_labels_as
     assert jobs[0]["jobLabels"] == ["上海", "1-3年", "本科"]
     assert "skills" not in jobs[0]
     assert jobs[0]["jobDescription"] == "负责大模型算法研发与落地"
+
+
+def test_extract_favorite_jobs_normalizes_real_boss_action_time():
+    payload = {
+        "zpData": {
+            "cardList": [
+                {
+                    "securityId": "favorite-1",
+                    "jobName": "AI 算法工程师",
+                    "actionDateDesc": "2025年10月02日 09:33",
+                    "happenTime": 1759368793000,
+                }
+            ]
+        }
+    }
+
+    jobs = extract_favorite_jobs(payload)
+
+    assert jobs[0]["favoritedAt"] == "2025-10-02T01:33:13Z"
+    assert jobs[0]["actionDateDesc"] == "2025年10月02日 09:33"
+    assert jobs[0]["happenTime"] == 1759368793000
+
+
+def test_extract_favorite_jobs_falls_back_to_explicit_action_date_without_guessing_invalid_values():
+    payload = {
+        "cardList": [
+            {"securityId": "favorite-1", "actionDateDesc": "2025年10月02日 09:33"},
+            {"securityId": "favorite-2", "actionDateDesc": "最近收藏", "happenTime": "invalid"},
+        ]
+    }
+
+    jobs = extract_favorite_jobs(payload)
+
+    assert jobs[0]["favoritedAt"] == "2025-10-02T01:33:00Z"
+    assert "favoritedAt" not in jobs[1]
 
 
 def test_extract_jobs_normalizes_nested_salary_fields():

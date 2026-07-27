@@ -16,7 +16,12 @@ from app.tools.boss_browser.core.boss_cli_engine import (
     BossCliUnavailable,
     BossCliUpstreamRateLimited,
 )
-from app.tools.boss_browser.core.extract import assemble_profile, extract_jobs, normalize_detail
+from app.tools.boss_browser.core.extract import (
+    assemble_profile,
+    extract_favorite_jobs,
+    extract_jobs,
+    normalize_detail,
+)
 from app.tools.boss_browser.core.qr_session_codec import QrSessionCodec
 from app.tools.boss_browser.core.rate_limiter import (
     BackstopError,
@@ -174,7 +179,7 @@ class BossService:
                 self._limiter.record_failure()
             raise RuntimeError(result.get("error_message") or "未拿到 Boss 收藏列表数据，请稍后重试。")
         # 上游总量与 hasMore 共同推导页数，再受人工可浏览页数上限约束。
-        jobs = extract_jobs(payload)
+        jobs = extract_favorite_jobs(payload)
         total_count = self._payload_value(payload, "totalCount", len(jobs))
         try:
             total_count = max(0, int(total_count))

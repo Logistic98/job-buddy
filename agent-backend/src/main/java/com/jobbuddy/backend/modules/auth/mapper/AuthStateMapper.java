@@ -51,6 +51,25 @@ public interface AuthStateMapper {
   int updateState(@Param("state") Map<String, Object> state);
 
   /**
+   * 清除指定提供方的持久化凭据。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param provider 提供器
+   * @param status 状态
+   * @param metadataJson 元数据 JSON
+   * @param updatedAt 更新时间
+   * @return 更新记录数
+   */
+  int clearCredential(
+      @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
+      @Param("provider") String provider,
+      @Param("status") String status,
+      @Param("metadataJson") String metadataJson,
+      @Param("updatedAt") Instant updatedAt);
+
+  /**
    * 新增或更新二维码会话。
    *
    * @param state 状态
@@ -125,6 +144,15 @@ public interface AuthStateMapper {
       @Param("qrSessionId") String qrSessionId,
       @Param("tenantId") String tenantId,
       @Param("userId") String userId);
+
+  /**
+   * 删除指定属主的全部二维码会话。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 删除记录数
+   */
+  int deleteQrSessionsForOwner(@Param("tenantId") String tenantId, @Param("userId") String userId);
 
   /**
    * 删除过期二维码会话列表。

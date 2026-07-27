@@ -9,6 +9,7 @@ import { useAuthStore } from '../src/stores/auth'
 
 vi.mock('../src/api/boss', () => ({
   getBossLoginStatus: vi.fn().mockResolvedValue({ status: 'unknown' }),
+  logoutBoss: vi.fn().mockResolvedValue({ ok: true, status: 'logged_out' }),
 }))
 
 vi.mock('../src/api/settings', () => ({

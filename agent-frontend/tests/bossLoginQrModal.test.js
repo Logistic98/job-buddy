@@ -90,4 +90,37 @@ describe('BossLoginQrModal embedded mode', () => {
     await vi.advanceTimersByTimeAsync(10000)
     expect(mocks.getBossLoginStatus).toHaveBeenCalledTimes(2)
   })
+
+  it('shows scanned and confirmed stages as soon as polling returns them', async () => {
+    vi.useFakeTimers()
+    mocks.getBossLoginStatus.mockResolvedValueOnce({ status: 'scanned' }).mockResolvedValueOnce({ status: 'confirmed' })
+    const wrapper = mount(BossLoginQrModal, {
+      props: {
+        visible: true,
+        embedded: true,
+        sessionId: 'boss-status-progress',
+        data: {
+          qrSessionId: 'qr-session-progress',
+          imageBase64: 'dGVzdA==',
+          imageMime: 'image/png',
+          status: 'qr_ready',
+        },
+      },
+    })
+
+    expect(wrapper.findAll('.login-stage')[0].classes()).toContain('current')
+    expect(wrapper.find('.login-status-card').text()).toContain('状态每秒自动更新')
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(wrapper.find('.login-status-card strong').text()).toBe('已扫码，请在手机上确认登录')
+    expect(wrapper.findAll('.login-stage')[0].classes()).toContain('done')
+    expect(wrapper.findAll('.login-stage')[1].classes()).toContain('current')
+
+    await vi.advanceTimersByTimeAsync(250)
+    expect(wrapper.find('.login-status-card strong').text()).toBe('已确认，保存登录态中')
+    expect(wrapper.findAll('.login-stage')[1].classes()).toContain('done')
+    expect(wrapper.findAll('.login-stage')[2].classes()).toContain('current')
+
+    wrapper.unmount()
+  })
 })

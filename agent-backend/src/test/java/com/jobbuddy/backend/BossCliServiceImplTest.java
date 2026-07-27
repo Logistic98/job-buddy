@@ -140,6 +140,26 @@ class BossCliServiceImplTest {
   }
 
   /**
+   * 验证手机确认状态无需等待凭据派发即可返回前端。
+   */
+  @Test
+  void qrStatusShouldExposeConfirmedStage() {
+    BossBrowserClient browserClient = mock(BossBrowserClient.class);
+    Map<String, Object> data = new LinkedHashMap<String, Object>();
+    data.put("authenticated", false);
+    data.put("status", "qr_confirmed");
+    data.put("reason", "qr_confirmed");
+    when(browserClient.post(eq("/login/qr/status"), anyMap()))
+        .thenReturn(envelope(200, "success", data));
+    BossCliServiceImpl service = newService(browserClient);
+
+    Map<String, Object> result = JSON.toMap(service.qrStatus("qr1", "opaque-token"));
+
+    Map<?, ?> resultData = (Map<?, ?>) result.get("data");
+    assertEquals("confirmed", resultData.get("status"));
+  }
+
+  /**
    * 验证 BossCliServiceImpl 中认证的输入校验与拒绝边界。
    */
   @Test

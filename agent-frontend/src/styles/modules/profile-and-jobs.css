@@ -1345,10 +1345,28 @@
   color: #172033;
   font-size: 15px;
 }
+.boss-favorite-import-main .boss-favorite-import-title {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+.boss-favorite-import-title strong {
+  min-width: 0;
+  overflow: hidden;
+  flex: 0 1 auto;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .boss-favorite-import-main span,
 .boss-favorite-import-main small {
   color: #667085;
   font-size: 12px;
+}
+.boss-favorite-import-main .boss-favorite-import-time {
+  flex: none;
+  color: #3157ff;
+  font-weight: 700;
 }
 .boss-favorite-import-row > b {
   color: #f04438;

@@ -55,6 +55,17 @@ class _FakeClient:
         return {"jobInfo": {"securityId": security_id, "postDescription": "JD"}}
 
 
+class _FakeQrClient:
+    def __init__(self) -> None:
+        self.cookies = {"qr": "session"}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+
 def _engine(tmp_path) -> BossCliEngine:
     settings = Settings()
     return BossCliEngine(settings)
@@ -105,6 +116,52 @@ def test_status_logged_in_when_required_cookies_present(tmp_path, monkeypatch):
     assert status["authenticated"] is True
     assert status["status"] == "logged_in"
     assert PRIMARY_COOKIE in status["cookie_present"]
+
+
+def test_qr_poll_returns_each_intermediate_stage_before_dispatch(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    engine._qr_state = {  # noqa: SLF001
+        "status": "qr_ready",
+        "qr_id": "qr-1",
+        "cookies": {},
+        "expires_at": 9999999999,
+        "image_base64": "image",
+        "image_mime": "image/png",
+        "qr_version": 1,
+    }
+    monkeypatch.setattr(engine, "_qr_client", lambda cookies=None: _FakeQrClient())
+    monkeypatch.setattr(engine, "_qr_scan", lambda client, qr_id: True)
+    monkeypatch.setattr(
+        engine,
+        "_qr_confirm",
+        lambda client, qr_id: (_ for _ in ()).throw(AssertionError("扫码轮次不应继续等待手机确认")),
+    )
+    monkeypatch.setattr(
+        engine,
+        "_qr_dispatch",
+        lambda client, qr_id: (_ for _ in ()).throw(AssertionError("扫码轮次不应派发凭据")),
+    )
+
+    scanned = engine._qr_poll_sync()  # noqa: SLF001
+
+    assert scanned["status"] == "qr_waiting"
+    assert scanned["reason"] == "qr_waiting_confirm"
+    assert engine._qr_state["status"] == "scanned"  # noqa: SLF001
+
+    monkeypatch.setattr(engine, "_qr_confirm", lambda client, qr_id: True)
+    confirmed = engine._qr_poll_sync()  # noqa: SLF001
+
+    assert confirmed["status"] == "qr_confirmed"
+    assert confirmed["reason"] == "qr_confirmed"
+    assert engine._qr_state["status"] == "confirmed"  # noqa: SLF001
+
+    credential = _FakeCredential({PRIMARY_COOKIE: "identity", "zp_at": "account", "__zp_stoken__": "token", "wbg": "w"})
+    monkeypatch.setattr(engine, "_qr_dispatch", lambda client, qr_id: credential)
+    logged_in = engine._qr_poll_sync()  # noqa: SLF001
+
+    assert logged_in["status"] == "logged_in"
+    assert logged_in["authenticated"] is True
+    assert engine._qr_state["status"] == "logged_in"  # noqa: SLF001
 
 
 def test_get_credential_does_not_auto_import_browser_cookies_by_default(tmp_path):

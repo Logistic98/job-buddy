@@ -24,6 +24,7 @@ function favorite(index, alreadyImported = false) {
     brandName: `上海示例科技 ${index}`,
     cityName: '上海',
     salaryDesc: '40-50K',
+    favoritedAt: '2025-10-02T01:33:13Z',
     alreadyImported,
   }
 }
@@ -71,6 +72,8 @@ describe('BossFavoriteImportModal', () => {
     expect(mocks.listBossFavoriteJobs).toHaveBeenCalledTimes(1)
     expect(mocks.listBossFavoriteJobs).toHaveBeenCalledWith(1, false)
     expect(wrapper.text()).not.toContain('导入会按选择顺序补全职位描述并保存')
+    expect(wrapper.text()).toContain('收藏于 2025/10/02 09:33')
+    expect(wrapper.find('.boss-favorite-import-title > .boss-favorite-import-time').exists()).toBe(true)
     const selectable = wrapper.findAll('input[type="checkbox"]:not(:disabled)')
     expect(selectable).toHaveLength(6)
 

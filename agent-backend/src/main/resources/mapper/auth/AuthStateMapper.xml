@@ -27,6 +27,13 @@
     WHERE tenant_id = #{state.tenantId} AND user_id = #{state.userId} AND provider = #{state.provider}
   </update>
 
+  <update id="clearCredential">
+    UPDATE auth_state
+    SET status = #{status}, credential_json = NULL,
+        metadata_json = #{metadataJson}, updated_at = #{updatedAt}
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId} AND provider = #{provider}
+  </update>
+
   <insert id="upsertQrSession">
     INSERT INTO boss_qr_login_session(
       qr_session_id, tenant_id, user_id, chat_session_id, tool_session_token,
@@ -95,6 +102,11 @@
   <delete id="deleteQrSession">
     DELETE FROM boss_qr_login_session
     WHERE qr_session_id = #{qrSessionId} AND tenant_id = #{tenantId} AND user_id = #{userId}
+  </delete>
+
+  <delete id="deleteQrSessionsForOwner">
+    DELETE FROM boss_qr_login_session
+    WHERE tenant_id = #{tenantId} AND user_id = #{userId}
   </delete>
 
   <delete id="deleteExpiredQrSessions">

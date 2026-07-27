@@ -250,6 +250,9 @@ public class BossCliServiceImpl implements BossCliService {
     } else if ("auth_required".equals(toolStatus)) {
       status = "error";
       errorMessage = toolError != null ? toolError : "二维码登录未获得完整登录态，请先在浏览器登录 Boss 直聘后重试。";
+    } else if ("qr_confirmed".equals(toolStatus) || "qr_confirmed".equals(reason)) {
+      // 手机端确认后立即返回中间态，下一轮再完成凭据派发与补齐，避免前端长时间停留在等待扫码。
+      status = "confirmed";
     } else if ("qr_waiting_confirm".equals(reason)) {
       // 已扫码，等待手机端确认，给前端进度反馈。
       status = "scanned";

@@ -22,3 +22,8 @@ export async function cancelBossLogin(sessionId, qrSessionId) {
   })
   return parseApiResponse(response, '取消登录失败')
 }
+
+export async function logoutBoss() {
+  const response = await apiFetch('/boss/logout', { method: 'POST' })
+  return parseApiResponse(response, '退出 Boss 登录失败')
+}

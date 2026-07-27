@@ -153,6 +153,35 @@ public class AuthStateRepository {
   }
 
   /**
+   * 清除指定提供方的持久化凭据并保留无敏感信息的状态记录。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param provider 提供器
+   * @param status 状态
+   * @param metadata 元数据
+   * @return 是否清除了已有记录
+   */
+  public boolean clearCredential(
+      String tenantId,
+      String userId,
+      String provider,
+      String status,
+      Map<String, Object> metadata) {
+    requireOwner(tenantId, userId);
+    if (provider == null || provider.trim().isEmpty())
+      throw new IllegalArgumentException("provider 不能为空");
+    return mapper.clearCredential(
+            tenantId.trim(),
+            userId.trim(),
+            provider.trim(),
+            status == null ? "logged_out" : status.trim(),
+            jsonCodec.toJson(metadata),
+            Instant.now())
+        == 1;
+  }
+
+  /**
    * 保存二维码会话。
    *
    * @param tenantId 租户标识
@@ -270,6 +299,18 @@ public class AuthStateRepository {
     requireOwner(tenantId, userId);
     if (qrSessionId == null || qrSessionId.trim().isEmpty()) return false;
     return mapper.deleteQrSession(qrSessionId.trim(), tenantId.trim(), userId.trim()) == 1;
+  }
+
+  /**
+   * 删除指定属主的全部二维码会话。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @return 删除记录数
+   */
+  public int deleteQrSessionsForOwner(String tenantId, String userId) {
+    requireOwner(tenantId, userId);
+    return mapper.deleteQrSessionsForOwner(tenantId.trim(), userId.trim());
   }
 
   /**

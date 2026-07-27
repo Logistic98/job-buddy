@@ -45,6 +45,13 @@ public interface BossAuthService {
   BossLoginCancelResponse cancelLogin(String sessionId, String qrSessionIdOverride);
 
   /**
+   * 退出当前用户的 Boss 登录态。
+   *
+   * @return 退出登录结果
+   */
+  BossLoginCancelResponse logout();
+
+  /**
    * 判断是否已登录。
    *
    * @param sessionId 会话标识

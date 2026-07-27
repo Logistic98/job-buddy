@@ -5,6 +5,7 @@ import RuntimeSettingsPanel from '../src/components/settings/RuntimeSettingsPane
 
 const mocks = vi.hoisted(() => ({
   getBossLoginStatus: vi.fn(),
+  logoutBoss: vi.fn(),
   getSettings: vi.fn(),
   restoreWorkspaceDefaults: vi.fn(),
   saveSettings: vi.fn(),
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../src/api/boss', () => ({
   getBossLoginStatus: mocks.getBossLoginStatus,
+  logoutBoss: mocks.logoutBoss,
 }))
 
 vi.mock('../src/api/settings', () => ({
@@ -54,6 +56,7 @@ describe('RuntimeSettingsPanel restore defaults', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     mocks.getBossLoginStatus.mockReset().mockResolvedValue({ status: 'unknown' })
+    mocks.logoutBoss.mockReset().mockResolvedValue({ ok: true, status: 'logged_out' })
     mocks.getSettings.mockReset().mockResolvedValue(settings(25))
     mocks.restoreWorkspaceDefaults.mockReset().mockResolvedValue(settings(15))
     mocks.saveSettings.mockReset()
@@ -104,5 +107,39 @@ describe('RuntimeSettingsPanel restore defaults', () => {
 
     expect(wrapper.get('[role="dialog"]').text()).toContain('后端恢复失败')
     expect(wrapper.get('input').element.value).toBe('25')
+  })
+
+  it('does not open the QR modal when a fresh status check reports logged in', async () => {
+    mocks.getBossLoginStatus
+      .mockResolvedValueOnce({ status: 'unknown' })
+      .mockResolvedValueOnce({ ok: true, authenticated: true, status: 'logged_in' })
+    const wrapper = await mountPanel()
+
+    const loginButton = wrapper.findAll('.auth-actions button').find((button) => button.text() === '扫码登录')
+    await loginButton.trigger('click')
+    await flushPromises()
+
+    expect(mocks.getBossLoginStatus).toHaveBeenCalledTimes(2)
+    expect(wrapper.findComponent({ name: 'BossLoginQrModal' }).props('visible')).toBe(false)
+    expect(wrapper.findAll('.auth-actions button').some((button) => button.text() === '退出登录')).toBe(true)
+  })
+
+  it('confirms Boss logout and switches the action back to QR login', async () => {
+    mocks.getBossLoginStatus.mockResolvedValueOnce({ ok: true, authenticated: true, status: 'logged_in' })
+    const wrapper = await mountPanel()
+
+    const logoutButton = wrapper.findAll('.auth-actions button').find((button) => button.text() === '退出登录')
+    await logoutButton.trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('JobBuddy 登录状态不受影响')
+    expect(mocks.logoutBoss).not.toHaveBeenCalled()
+
+    const confirmButton = wrapper.findAll('[role="dialog"] button').find((button) => button.text() === '确认退出')
+    await confirmButton.trigger('click')
+    await flushPromises()
+
+    expect(mocks.logoutBoss).toHaveBeenCalledOnce()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+    expect(wrapper.findAll('.auth-actions button').some((button) => button.text() === '扫码登录')).toBe(true)
+    expect(wrapper.text()).toContain('已退出 Boss 直聘登录')
   })
 })

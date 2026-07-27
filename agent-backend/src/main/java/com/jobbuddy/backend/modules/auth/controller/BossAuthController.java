@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Boss 直聘认证接口，提供二维码登录、登录状态查询和取消登录能力。
+ * Boss 直聘认证接口，提供二维码登录、登录状态查询、取消二维码和退出登录能力。
  */
 @Tag(name = "Boss 直聘认证接口")
 @RestController
@@ -72,5 +72,16 @@ public class BossAuthController {
       @RequestParam(value = "sessionId", required = false) String sessionId,
       @RequestParam(value = "qrSessionId", required = false) String qrSessionId) {
     return ApiResponse.success(bossAuthService.cancelLogin(sessionId, qrSessionId));
+  }
+
+  /**
+   * 退出当前用户的 Boss 登录态。
+   *
+   * @return 统一接口响应
+   */
+  @Operation(summary = "退出 Boss 登录")
+  @PostMapping("/logout")
+  public ApiResponse<BossLoginCancelResponse> logout() {
+    return ApiResponse.success(bossAuthService.logout());
   }
 }

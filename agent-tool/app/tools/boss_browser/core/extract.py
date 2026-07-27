@@ -7,6 +7,7 @@ Boss 返回结构通常形如 {code, message, zpData:{jobList:[...]}}、boss-cli
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from loguru import logger
@@ -94,6 +95,39 @@ def extract_jobs(payload: Any) -> list[dict]:
     if jobs and not any(jobs[0].get(k) for k in ("salaryDesc", "salary")):
         logger.warning(f"岗位项缺薪资字段，首项可用键：{sorted(jobs[0].keys())}")
     return jobs
+
+
+def extract_favorite_jobs(payload: Any) -> list[dict]:
+    """提取 Boss 收藏岗位，并把收藏动作时间归一化为 ISO 8601。"""
+    jobs = extract_jobs(payload)
+    for job in jobs:
+        if _has_value(job.get("favoritedAt")):
+            continue
+        favorited_at = _favorite_time(job)
+        if favorited_at:
+            job["favoritedAt"] = favorited_at
+    return jobs
+
+
+def _favorite_time(job: dict) -> str:
+    raw_timestamp = job.get("happenTime")
+    if raw_timestamp not in (None, ""):
+        try:
+            timestamp = float(raw_timestamp)
+            if timestamp >= 10_000_000_000:
+                timestamp /= 1000.0
+            if 946_684_800 <= timestamp <= 4_102_444_800:
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        except (TypeError, ValueError, OverflowError):
+            pass
+
+    action_date = str(job.get("actionDateDesc") or "").strip()
+    try:
+        parsed = datetime.strptime(action_date, "%Y年%m月%d日 %H:%M")
+    except ValueError:
+        return ""
+    china_standard_time = timezone(timedelta(hours=8))
+    return parsed.replace(tzinfo=china_standard_time).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _find_job_list(node: Any, depth: int) -> Optional[list[dict]]:

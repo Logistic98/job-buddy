@@ -260,6 +260,37 @@ class BossAuthServiceImplTest {
   }
 
   /**
+   * 验证退出登录只清除当前属主的持久化凭据、二维码会话和认证缓存。
+   */
+  @Test
+  void logoutMustClearCurrentOwnerCredentialAndAuthenticationCache() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(bossCli.status()).thenReturn(status("logged_in", true), status("auth_required", false));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
+
+    assertTrue(Boolean.TRUE.equals(JSON.toMap(service.loginStatus("settings", null)).get("ok")));
+    Map<String, Object> logout = JSON.toMap(service.logout());
+    Map<String, Object> afterLogout = JSON.toMap(service.loginStatus("settings", null));
+
+    assertEquals("logged_out", logout.get("status"));
+    assertFalse(Boolean.TRUE.equals(afterLogout.get("ok")));
+    verify(repository)
+        .clearCredential(
+            eq("tenant-a"),
+            eq("user-a"),
+            eq("jackwener/boss-cli"),
+            eq("logged_out"),
+            any(Map.class));
+    verify(repository)
+        .clearCredential(
+            eq("tenant-a"), eq("user-a"), eq("boss-zhipin"), eq("logged_out"), any(Map.class));
+    verify(repository).deleteQrSessionsForOwner("tenant-a", "user-a");
+    verify(bossCli, times(2)).status();
+  }
+
+  /**
    * 验证二维码属主。
    *
    * @param tenantId 租户标识

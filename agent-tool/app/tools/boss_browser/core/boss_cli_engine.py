@@ -796,22 +796,29 @@ class BossCliEngine:
             base["status"] = "auth_required"
             return base
 
-        if time.time() > float(state.get("expires_at") or 0):
+        phase = str(state.get("status") or "qr_ready")
+        if time.time() > float(state.get("expires_at") or 0) and phase not in {"scanned", "confirmed"}:
             base = self._status_sync()
             base["status"] = "qr_expired"
             return base
 
         qr_id = str(state["qr_id"])
         with self._qr_client(cookies=state.get("cookies") or {}) as client:
-            scanned = self._qr_scan(client, qr_id)
-            self._qr_state["cookies"] = dict(client.cookies)
-            if not scanned:
-                return self._qr_waiting_payload()
-
-            confirmed = self._qr_confirm(client, qr_id)
-            self._qr_state["cookies"] = dict(client.cookies)
-            if not confirmed:
+            if phase not in {"scanned", "confirmed"}:
+                scanned = self._qr_scan(client, qr_id)
+                self._qr_state["cookies"] = dict(client.cookies)
+                if not scanned:
+                    return self._qr_waiting_payload()
+                self._qr_state["status"] = "scanned"
                 return self._qr_waiting_payload(scanned=True)
+
+            if phase == "scanned":
+                confirmed = self._qr_confirm(client, qr_id)
+                self._qr_state["cookies"] = dict(client.cookies)
+                if not confirmed:
+                    return self._qr_waiting_payload(scanned=True)
+                self._qr_state["status"] = "confirmed"
+                return self._qr_confirmed_payload()
 
             credential = self._qr_dispatch(client, qr_id)
             if not self._credential_has_required_cookies(credential):
@@ -924,11 +931,19 @@ class BossCliEngine:
     def _qr_waiting_payload(self, *, scanned: bool = False) -> dict[str, Any]:
         base = self._status_payload(False, [], reason="qr_waiting_confirm" if scanned else "qr_waiting_scan")
         base["status"] = "qr_waiting"
+        return self._with_qr_image(base)
+
+    def _qr_confirmed_payload(self) -> dict[str, Any]:
+        base = self._status_payload(False, [], reason="qr_confirmed")
+        base["status"] = "qr_confirmed"
+        return self._with_qr_image(base)
+
+    def _with_qr_image(self, payload: dict[str, Any]) -> dict[str, Any]:
         if self._qr_state.get("image_base64"):
-            base["image_base64"] = self._qr_state.get("image_base64")
-            base["image_mime"] = self._qr_state.get("image_mime", "image/png")
-            base["qr_version"] = self._qr_state.get("qr_version")
-        return base
+            payload["image_base64"] = self._qr_state.get("image_base64")
+            payload["image_mime"] = self._qr_state.get("image_mime", "image/png")
+            payload["qr_version"] = self._qr_state.get("qr_version")
+        return payload
 
     # ── 结果分类辅助 ─────────────────────────────────────────────────
 
