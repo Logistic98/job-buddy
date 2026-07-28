@@ -23,6 +23,7 @@ describe('platform form accessibility contract', () => {
     ['components/ProjectDeepDive.vue', ['项目名称', '生成数量', '问题', '难度']],
     ['components/ResumeManager.vue', ['新建分组']],
     ['components/ResumeWriter.vue', ['文件名', '版本说明']],
+    ['components/JobJourney.vue', ['企业']],
     ['components/UserManagement.vue', ['新密码', '全局唯一用户名', '显示名称', '初始密码', '账号状态']],
     ['components/RoleManagement.vue', ['角色编码', '角色名称', '角色状态']],
     ['components/MenuManagement.vue', ['菜单编码', '菜单名称', '菜单类型', '排序值', '前台显示', '菜单状态']],
@@ -57,6 +58,7 @@ describe('platform form accessibility contract', () => {
     expect(menu).toContain("'form-required': form.menuType === 'page'")
     expect(menu).toContain("'form-required': form.menuType === 'external'")
     expect(source('components/settings/CompanyBlacklistPanel.vue')).toContain('blacklist-input-label form-required')
+    expect(source('components/JobJourney.vue')).toContain('aria-required="true"')
   })
 
   it('marks all runtime and service settings as required groups', () => {

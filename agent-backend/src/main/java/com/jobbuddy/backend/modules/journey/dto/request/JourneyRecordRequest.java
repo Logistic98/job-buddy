@@ -1,6 +1,8 @@
 package com.jobbuddy.backend.modules.journey.dto.request;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -8,7 +10,10 @@ import lombok.Data;
  */
 @Data
 public class JourneyRecordRequest {
+  @NotBlank(message = "企业名称不能为空")
+  @Size(max = 120, message = "企业名称不能超过 120 个字符")
   private String company;
+
   private String city;
   private String companyNature;
   private String companyScale;

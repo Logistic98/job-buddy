@@ -357,9 +357,10 @@
         >
           <template v-if="activeModalGroup === 'company'">
             <label
-              ><span>企业</span
+              ><span class="form-required">企业</span
               ><input
                 v-model="form.company"
+                aria-required="true"
                 list="journey-company-options"
                 placeholder="请输入企业名称，例如：字节跳动"
             /></label>
@@ -726,7 +727,7 @@ async function saveRecord() {
   error.value = ''
   try {
     // 对不同阶段共用的记录字段执行统一边界校验。
-    validateLength(form.company, '企业名称', { max: 120 })
+    validateLength(form.company, '企业名称', { max: 120, required: true })
     validateLength(form.positionName, '岗位名称', { max: 120 })
     for (const [key, label, max] of [
       ['city', '地域', 64],

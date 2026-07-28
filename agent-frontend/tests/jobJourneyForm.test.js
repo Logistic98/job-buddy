@@ -102,12 +102,27 @@ describe('JobJourney form placeholders', () => {
     expect(wrapper.findAll('.page-header button').map((button) => button.text())).not.toContain('刷新')
 
     await wrapper.find('.history-header-actions .primary-btn').trigger('click')
+    await wrapper.find('input[placeholder="请输入企业名称，例如：字节跳动"]').setValue('示例企业')
     await wrapper.find('.journey-modal .detail-actions .primary-btn').trigger('click')
     await flushPromises()
 
     expect(mocks.createRecord).toHaveBeenCalledTimes(1)
     expect(mocks.createRecord.mock.calls[0][0]).not.toHaveProperty('tags')
     expect(mocks.listRecords).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the modal open and rejects a blank company before calling the API', async () => {
+    const wrapper = await mountJourney()
+
+    await wrapper.find('.history-header-actions .primary-btn').trigger('click')
+    await wrapper.find('input[placeholder="请输入企业名称，例如：字节跳动"]').setValue('   ')
+    await wrapper.find('.journey-modal .detail-actions .primary-btn').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.form-error-alert').text()).toBe('请填写企业名称')
+    expect(wrapper.find('.journey-modal').exists()).toBe(true)
+    expect(mocks.createRecord).not.toHaveBeenCalled()
+    expect(mocks.listRecords).toHaveBeenCalledTimes(1)
   })
 
   it('shows descriptive hints for empty fields in every form group', async () => {
@@ -234,6 +249,7 @@ describe('JobJourney form placeholders', () => {
     const wrapper = await mountJourney()
     await wrapper.find('.history-header-actions .primary-btn').trigger('click')
 
+    await wrapper.find('input[placeholder="请输入企业名称，例如：字节跳动"]').setValue('示例企业')
     await wrapper.find('input[list="journey-company-nature-options"]').setValue('科研院所')
     await wrapper.find('input[list="journey-company-scale-options"]').setValue('超大型')
     await wrapper

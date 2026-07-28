@@ -15,6 +15,7 @@ import com.jobbuddy.backend.modules.journey.service.JobJourneyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -133,7 +134,7 @@ public class JobJourneyController {
   @Operation(summary = "创建求职记录")
   @PostMapping("/records")
   public ApiResponse<JourneyRecordResponse> createRecord(
-      HttpServletRequest request, @RequestBody JourneyRecordRequest payload) {
+      HttpServletRequest request, @Valid @RequestBody JourneyRecordRequest payload) {
     String userId = AuthenticatedUserContext.userId(request);
     return ApiResponse.success(service.saveRecord(userId, payload, null));
   }
@@ -151,7 +152,7 @@ public class JobJourneyController {
   public ApiResponse<JourneyRecordResponse> updateRecord(
       HttpServletRequest request,
       @PathVariable String recordId,
-      @RequestBody JourneyRecordRequest payload) {
+      @Valid @RequestBody JourneyRecordRequest payload) {
     String userId = AuthenticatedUserContext.userId(request);
     return ApiResponse.success(service.saveRecord(userId, payload, recordId));
   }
