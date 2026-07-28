@@ -139,6 +139,7 @@ services:
     restart: unless-stopped
     environment:
       BACKEND_UPSTREAM: agent-backend:8080
+      NGINX_CLIENT_MAX_BODY_SIZE: ${NGINX_CLIENT_MAX_BODY_SIZE:-1025m}
     depends_on:
       agent-backend:
         condition: service_healthy

@@ -109,6 +109,7 @@ export const useResumeStore = defineStore('resume', {
     },
     async select(item) {
       const revision = this.lifecycleRevision
+      this.error = ''
       this.current = item
       this.persistCurrent().catch((error) => {
         this.error = error?.message || '当前简历保存失败'

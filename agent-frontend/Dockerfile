@@ -9,6 +9,7 @@ RUN npm run build
 
 FROM ${DOCKER_REGISTRY}/library/nginx:1.27-alpine
 ENV BACKEND_UPSTREAM=agent-backend:8080
+ENV NGINX_CLIENT_MAX_BODY_SIZE=1025m
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY default.conf.template /etc/nginx/templates/default.conf.template
 EXPOSE 80

@@ -497,19 +497,9 @@ function versionOf(item) {
 }
 function defaultVersion(item) {
   const date = new Date(item?.uploadedAt || Date.now())
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  const prefix = `${y}${m}${d}`
-  const sameDay = managedResumes.value
-    .filter((row) => defaultVersionPrefix(row) === prefix)
-    .sort((a, b) => String(a.resumeId).localeCompare(String(b.resumeId)))
-  const index = Math.max(1, sameDay.findIndex((row) => row.resumeId === item?.resumeId) + 1)
-  return `${prefix}_${String(index).padStart(3, '0')}`
-}
-function defaultVersionPrefix(item) {
-  const date = new Date(item?.uploadedAt || Date.now())
-  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
+  const prefix = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
+  // 版本号属于单份简历，不能随同日上传的其他简历增删而重新编号。
+  return `${prefix}_001`
 }
 function tags(item) {
   const raw = item?.parsed?.labels || item?.parsed?.manageTags || []

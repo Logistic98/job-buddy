@@ -188,6 +188,21 @@ describe('resume store loading', () => {
     expect(saveWorkspaceState).not.toHaveBeenCalled()
   })
 
+  it('clears the previous resume error when selecting another resume', async () => {
+    const store = useResumeStore()
+    store.error = '上一份简历分析失败'
+    store.items = [
+      { resumeId: 'r1', suffix: 'pdf' },
+      { resumeId: 'r2', suffix: 'pdf' },
+    ]
+    getResume.mockResolvedValue({ resumeId: 'r2', suffix: 'pdf', parsed: {} })
+
+    await store.select(store.items[1])
+
+    expect(store.current.resumeId).toBe('r2')
+    expect(store.error).toBe('')
+  })
+
   it('starts resume analysis as a task and applies a terminal result without blocking', async () => {
     const analyzed = { resumeId: 'r1', suffix: 'pdf', parsed: { analysis: { overall_score: 91 } } }
     startResumeAnalysisTask.mockResolvedValue({

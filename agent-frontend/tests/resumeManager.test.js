@@ -168,6 +168,47 @@ describe('ResumeManager tags', () => {
   })
 })
 
+describe('ResumeManager versions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getWorkspaceState.mockResolvedValue({})
+    saveWorkspaceState.mockResolvedValue({})
+    setActivePinia(createPinia())
+  })
+
+  it('keeps an existing fallback version stable when another resume is added on the same day', async () => {
+    const resume = useResumeStore()
+    resume.loaded = true
+    resume.items = [
+      {
+        resumeId: 'resume-original',
+        originalName: '原始简历.pdf',
+        suffix: 'pdf',
+        uploadedAt: '2026-07-28T10:00:00+08:00',
+        parsed: {},
+      },
+    ]
+
+    const wrapper = mountResumeManager()
+    await flushPromises()
+    expect(wrapper.findAll('.resume-meta-row span')[1].text()).toBe('版本 20260728_001')
+
+    resume.items.unshift({
+      resumeId: 'resume-new',
+      originalName: '新增简历.pdf',
+      suffix: 'pdf',
+      uploadedAt: '2026-07-28T11:00:00+08:00',
+      parsed: {},
+    })
+    await flushPromises()
+
+    const originalCard = wrapper
+      .findAll('.resume-manage-card')
+      .find((card) => card.find('h2').text() === '原始简历.pdf')
+    expect(originalCard.findAll('.resume-meta-row span')[1].text()).toBe('版本 20260728_001')
+  })
+})
+
 describe('ResumeManager folder maintenance', () => {
   beforeEach(() => {
     vi.clearAllMocks()
