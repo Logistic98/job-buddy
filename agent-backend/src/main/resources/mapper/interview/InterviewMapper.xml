@@ -7,7 +7,10 @@
     title,
     category,
     difficulty,
-    question_type AS "questionType",
+    CASE
+      WHEN question_type IN ('问答', '问答题', '简答题') THEN '简答'
+      ELSE question_type
+    END AS "questionType",
     content,
     answer,
     tags_json AS "tagsJson",
@@ -71,7 +74,10 @@
       AND difficulty = #{difficulty}
     </if>
     <if test="questionType != null and questionType != ''">
-      AND question_type = #{questionType}
+      AND CASE
+        WHEN question_type IN ('问答', '问答题', '简答题') THEN '简答'
+        ELSE question_type
+      END = #{questionType}
     </if>
     ORDER BY updated_at DESC
   </select>
@@ -108,7 +114,11 @@
   </select>
 
   <select id="listQuestionTypes" resultType="string">
-    SELECT DISTINCT question_type
+    SELECT DISTINCT
+      CASE
+        WHEN question_type IN ('问答', '问答题', '简答题') THEN '简答'
+        ELSE question_type
+      END
     FROM interview_question
     WHERE enabled = TRUE
       AND question_type IS NOT NULL
@@ -116,7 +126,7 @@
     <if test="bankType != null and bankType != ''">
       AND CASE WHEN bank_type = 'leetcode' THEN 'leetcode' ELSE 'qa' END = #{bankType}
     </if>
-    ORDER BY question_type ASC
+    ORDER BY 1 ASC
   </select>
 
   <select id="findQuestion" resultType="map">

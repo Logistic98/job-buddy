@@ -1061,7 +1061,7 @@ function openEdit(item) {
     bankType: item.bankType || '',
     category: item.category || '',
     difficulty: item.difficulty || '',
-    questionType: item.questionType || (item.bankType === 'leetcode' ? '编程题' : '简答'),
+    questionType: normalizeQuestionType(item.questionType, item.bankType),
     tags: tagLabels(item),
     tagsText: '',
     content: questionStem(item),
@@ -1257,7 +1257,7 @@ function candidateToQuestionForm(item) {
     bankType,
     category: item.category || aiForm.category,
     difficulty: item.difficulty || aiForm.difficulty,
-    questionType: bankType === 'leetcode' ? '编程题' : item.questionType || '简答',
+    questionType: normalizeQuestionType(item.questionType, bankType),
     tags: tagLabels(item),
     content: bankType === 'qa' && parsedOptions.length ? questionStem(item) : item.content || '',
     answer: item.answer || '',
@@ -1282,6 +1282,13 @@ function handleCandidateQuestionTypeChange(candidate) {
     candidate.form.options = defaultOptions()
   }
   markCandidateChanged(candidate)
+}
+
+function normalizeQuestionType(value, bankType) {
+  if (bankType === 'leetcode') return '编程题'
+  const text = String(value || '').trim()
+  if (!text || ['问答', '问答题', '简答题'].includes(text)) return '简答'
+  return text
 }
 function addCandidateOption(candidate) {
   const key = String.fromCharCode(65 + candidate.form.options.length)

@@ -483,6 +483,24 @@ describe('QuestionEditModal', () => {
     wrapper.unmount()
   })
 
+  it('normalizes a legacy QA alias before editing and saving', async () => {
+    const legacyQuestion = { ...editableQuestion(), questionId: 'q-legacy-qa', questionType: '问答' }
+    const wrapper = mountModal()
+    wrapper.vm.openEdit(legacyQuestion)
+    await nextTick()
+
+    expect(wrapper.find('.maintain-field-grid select[aria-required="true"]').element.value).toBe('简答')
+    await wrapper.findAll('.question-wizard-steps button')[2].trigger('click')
+    await wrapper.find('.question-wizard-save').trigger('click')
+    await flushPromises()
+
+    expect(mocks.updateQuestion).toHaveBeenCalledWith(
+      'q-legacy-qa',
+      expect.objectContaining({ bankType: 'qa', questionType: '简答' }),
+    )
+    wrapper.unmount()
+  })
+
   it('normalizes legacy coding metadata and updates exactly once', async () => {
     const legacyQuestion = {
       questionId: 'q-legacy',

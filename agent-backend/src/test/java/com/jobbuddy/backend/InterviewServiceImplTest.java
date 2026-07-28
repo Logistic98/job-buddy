@@ -141,6 +141,26 @@ class InterviewServiceImplTest {
   }
 
   /**
+   * 验证 InterviewServiceImpl 会把遗留问答题型写回当前规范值。
+   */
+  @Test
+  void saveQuestionShouldNormalizeLegacyShortAnswerType() {
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("title", "Agent 安全");
+    payload.put("content", "说明 Agent 应用的主要安全风险。");
+    payload.put("bankType", "qa");
+    payload.put("questionType", "问答");
+    payload.put("answer", "提示词注入；越权调用；敏感信息泄露");
+    when(repository.findQuestion(anyString())).thenReturn(new LinkedHashMap<String, Object>());
+
+    service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null);
+
+    ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass((Class) Map.class);
+    verify(repository).saveQuestion(captor.capture());
+    assertEquals("简答", captor.getValue().get("questionType"));
+  }
+
+  /**
    * 验证 InterviewServiceImpl 中题目的输入校验与拒绝边界。
    */
   @Test
@@ -677,6 +697,36 @@ class InterviewServiceImplTest {
 
     verify(repository).saveExamAnswer(eq("e1"), eq("q1"), anyString(), eq(true), anyDouble());
     verify(repository).finishExam(eq("e1"), anyInt(), anyDouble());
+  }
+
+  /**
+   * 验证 InterviewServiceImpl 会按简答规则评估遗留的问答题型别名。
+   */
+  @Test
+  void submitExamShouldTreatLegacyQaAliasesAsShortAnswers() {
+    Map<String, Object> exam = new LinkedHashMap<String, Object>();
+    List<Map<String, Object>> questions = new ArrayList<Map<String, Object>>();
+    questions.add(question("q1", "问答", "权限过滤；工具白名单"));
+    questions.add(question("q2", "问答题", "敏感信息脱敏；审计日志"));
+    questions.add(question("q3", "简答题", "人工确认；红队测试"));
+    exam.put("questions", questions);
+    when(repository.findExamForUpdate("tenant-1", "user-1", "e1")).thenReturn(exam);
+    when(repository.findExam("tenant-1", "user-1", "e1")).thenReturn(exam);
+
+    Map<String, Object> answers = new LinkedHashMap<String, Object>();
+    answers.put("q1", "使用权限过滤与工具白名单");
+    answers.put("q2", "执行敏感信息脱敏并保留审计日志");
+    answers.put("q3", "高风险操作人工确认，同时进行红队测试");
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("answers", answers);
+
+    service.submitExam(
+        "tenant-1", "user-1", "e1", JSON.convert(payload, InterviewExamSubmitRequest.class));
+
+    verify(repository).saveExamAnswer(eq("e1"), eq("q1"), anyString(), eq(true), anyDouble());
+    verify(repository).saveExamAnswer(eq("e1"), eq("q2"), anyString(), eq(true), anyDouble());
+    verify(repository).saveExamAnswer(eq("e1"), eq("q3"), anyString(), eq(true), anyDouble());
+    verify(repository).finishExam(eq("e1"), eq(3), eq(100.0));
   }
 
   /**

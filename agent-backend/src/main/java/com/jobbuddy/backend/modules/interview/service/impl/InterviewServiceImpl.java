@@ -158,7 +158,7 @@ public class InterviewServiceImpl implements InterviewService {
             : questionId);
     question.put("title", required(payload, "title", "题目标题不能为空"));
     question.put("content", required(payload, "content", "题目内容不能为空"));
-    String questionType = defaultString(payload.get("questionType"), "单选");
+    String questionType = normalizeQuestionType(stringValue(payload.get("questionType")), "单选");
     String bankType =
         normalizeBankType(
             stringValue(payload.get("bankType")), "编程题".equals(questionType) ? "leetcode" : "qa");
@@ -259,7 +259,7 @@ public class InterviewServiceImpl implements InterviewService {
     String topic = stringValue(payload.get("topic"));
     String category = required(payload, "category", "分类不能为空");
     String difficulty = required(payload, "difficulty", "难度不能为空");
-    String questionType = required(payload, "questionType", "题型不能为空");
+    String questionType = normalizeQuestionType(required(payload, "questionType", "题型不能为空"), null);
     String bankType =
         normalizeBankType(
             stringValue(payload.get("bankType")), "编程题".equals(questionType) ? "leetcode" : "qa");
@@ -408,7 +408,7 @@ public class InterviewServiceImpl implements InterviewService {
                 bankType,
                 stringValue(rule.get("category")),
                 stringValue(rule.get("difficulty")),
-                stringValue(rule.get("questionType")));
+                normalizeQuestionType(stringValue(rule.get("questionType")), null));
         Collections.shuffle(pool);
         int picked = 0;
         for (Map<String, Object> question : pool) {
@@ -427,7 +427,10 @@ public class InterviewServiceImpl implements InterviewService {
       int count = normalizeExamCount(payload.get("count"), 5, MAX_RULE_PAPER_QUESTIONS);
       List<Map<String, Object>> pool =
           interviewRepository.findEnabled(
-              bankType, category, difficulty, stringValue(payload.get("questionType")));
+              bankType,
+              category,
+              difficulty,
+              normalizeQuestionType(stringValue(payload.get("questionType")), null));
       Collections.shuffle(pool);
       selected =
           pool.size() > count ? new ArrayList<Map<String, Object>>(pool.subList(0, count)) : pool;
@@ -504,7 +507,8 @@ public class InterviewServiceImpl implements InterviewService {
       candidate.put("title", stringValue(question.get("title")));
       candidate.put("category", stringValue(question.get("category")));
       candidate.put("difficulty", stringValue(question.get("difficulty")));
-      candidate.put("question_type", stringValue(question.get("questionType")));
+      candidate.put(
+          "question_type", normalizeQuestionType(stringValue(question.get("questionType")), null));
       candidate.put("tags", smartPaperTags(question.get("tags")));
       candidate.put(
           "content_summary", truncateSmartPaperContent(stringValue(question.get("content"))));
@@ -797,7 +801,7 @@ public class InterviewServiceImpl implements InterviewService {
       }
       return false;
     }
-    if ("简答".equals(stringValue(question.get("questionType")))) {
+    if ("简答".equals(normalizeQuestionType(stringValue(question.get("questionType")), null))) {
       return evaluateShortAnswer(userAnswer, stringValue(question.get("answer")));
     }
     return evaluate(userAnswer, stringValue(question.get("answer")));
@@ -885,6 +889,20 @@ public class InterviewServiceImpl implements InterviewService {
     if (text.contains("leetcode") || text.contains("leet-code") || text.contains("编程"))
       return "leetcode";
     if (text.contains("qa") || text.contains("八股") || text.contains("选择")) return "qa";
+    return text;
+  }
+
+  /**
+   * 将遗留问答题型别名归一为当前的简答题型。
+   *
+   * @param value 输入值
+   * @param defaultValue 默认值
+   * @return 规范化后的题型
+   */
+  private String normalizeQuestionType(String value, String defaultValue) {
+    String text = value == null ? null : value.trim();
+    if (text == null || text.isEmpty()) return defaultValue;
+    if ("问答".equals(text) || "问答题".equals(text) || "简答题".equals(text)) return "简答";
     return text;
   }
 
