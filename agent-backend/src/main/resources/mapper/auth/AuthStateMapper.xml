@@ -61,6 +61,7 @@
     WHERE qr_session_id = #{qrSessionId}
       AND tenant_id = #{tenantId}
       AND user_id = #{userId}
+      AND tool_session_version = #{currentToolSessionVersion}
   </update>
 
   <select id="findQrSession" resultType="map">

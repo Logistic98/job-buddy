@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import io
 from pathlib import Path
 
+import httpx
 import yaml
+from PIL import Image
 
 from app.tools.boss_browser.core.boss_cli_engine import PRIMARY_COOKIE, BossCliEngine
 from app.tools.boss_browser.core.settings import Settings
@@ -66,6 +70,22 @@ class _FakeQrClient:
         return None
 
 
+class _FakeQrStartResponse:
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"code": 0, "zpData": {"qrId": "bosszp-test-qr-id"}}
+
+
+class _FakeQrStartClient(_FakeQrClient):
+    def post(self, _url):
+        return _FakeQrStartResponse()
+
+    def get(self, *_args, **_kwargs):
+        raise AssertionError("二维码图片必须本地编码，不应请求 getqrcode 图片接口")
+
+
 def _engine(tmp_path) -> BossCliEngine:
     settings = Settings()
     return BossCliEngine(settings)
@@ -118,6 +138,72 @@ def test_status_logged_in_when_required_cookies_present(tmp_path, monkeypatch):
     assert PRIMARY_COOKIE in status["cookie_present"]
 
 
+def test_status_keeps_persistent_identity_when_web_cookie_needs_refresh(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    cred = _FakeCredential({PRIMARY_COOKIE: "identity", "zp_at": "account"}, has_required=False)
+    monkeypatch.setattr(engine, "_get_credential", lambda: cred)
+
+    status = engine._status_sync()  # noqa: SLF001
+
+    assert status["authenticated"] is True
+    assert status["search_authenticated"] is False
+    assert status["recommend_authenticated"] is False
+    assert status["status"] == "logged_in"
+    assert status["reason"] == "web_cookie_refresh_required"
+
+
+def test_qr_start_encodes_raw_qr_id_locally(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    client = _FakeQrStartClient()
+    monkeypatch.setattr(engine, "_qr_client", lambda cookies=None: client)
+
+    started = engine._qr_start_sync()  # noqa: SLF001
+
+    image = Image.open(io.BytesIO(base64.b64decode(started["image_base64"])))
+    assert image.format == "PNG"
+    assert started["image_mime"] == "image/png"
+    assert engine._qr_state["qr_id"] == "bosszp-test-qr-id"  # noqa: SLF001
+    assert engine._qr_state["cookies"] == {"qr": "session"}  # noqa: SLF001
+
+
+def test_qr_poll_keeps_session_retryable_on_tls_handshake_timeout(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    engine._qr_state = {  # noqa: SLF001
+        "status": "confirmed",
+        "qr_id": "qr-timeout",
+        "cookies": {},
+        "expires_at": 9999999999,
+        "image_base64": "image",
+        "image_mime": "image/png",
+        "qr_version": 1,
+    }
+    monkeypatch.setattr(engine, "_qr_client", lambda cookies=None: _FakeQrClient())
+    monkeypatch.setattr(
+        engine,
+        "_qr_dispatch",
+        lambda client, qr_id: (_ for _ in ()).throw(httpx.ConnectTimeout("TLS handshake timed out")),
+    )
+
+    result = engine._qr_poll_sync()  # noqa: SLF001
+
+    assert result["status"] == "qr_confirmed"
+    assert result["reason"] == "qr_confirmed"
+    assert engine._qr_state["status"] == "confirmed"  # noqa: SLF001
+
+
+def test_qr_scan_and_confirm_treat_connect_timeout_as_waiting(tmp_path):
+    engine = _engine(tmp_path)
+
+    class _TimeoutClient:
+        def get(self, *_args, **_kwargs):
+            raise httpx.ConnectTimeout("TLS handshake timed out")
+
+    client = _TimeoutClient()
+
+    assert engine._qr_scan(client, "qr-timeout") is False  # noqa: SLF001
+    assert engine._qr_confirm(client, "qr-timeout") is False  # noqa: SLF001
+
+
 def test_qr_poll_returns_each_intermediate_stage_before_dispatch(tmp_path, monkeypatch):
     engine = _engine(tmp_path)
     engine._qr_state = {  # noqa: SLF001
@@ -162,6 +248,28 @@ def test_qr_poll_returns_each_intermediate_stage_before_dispatch(tmp_path, monke
     assert logged_in["status"] == "logged_in"
     assert logged_in["authenticated"] is True
     assert engine._qr_state["status"] == "logged_in"  # noqa: SLF001
+
+
+def test_qr_login_persists_identity_when_temporary_web_cookie_completion_is_unavailable(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    engine._qr_state = {  # noqa: SLF001
+        "status": "confirmed",
+        "qr_id": "qr-identity-only",
+        "cookies": {},
+        "expires_at": 9999999999,
+    }
+    credential = _FakeCredential({PRIMARY_COOKIE: "identity", "zp_at": "account"}, has_required=False)
+    monkeypatch.setattr(engine, "_qr_client", lambda cookies=None: _FakeQrClient())
+    monkeypatch.setattr(engine, "_qr_dispatch", lambda client, qr_id: credential)
+    monkeypatch.setattr(engine, "_complete_qr_credential", lambda value: value)
+
+    logged_in = engine._qr_poll_sync()  # noqa: SLF001
+
+    assert logged_in["status"] == "logged_in"
+    assert logged_in["authenticated"] is True
+    assert logged_in["search_authenticated"] is False
+    assert logged_in["reason"] == "web_cookie_refresh_required"
+    assert logged_in["credential_json"] == '{"cookies":{"wt2":"identity","zp_at":"account"}}'
 
 
 def test_get_credential_does_not_auto_import_browser_cookies_by_default(tmp_path):

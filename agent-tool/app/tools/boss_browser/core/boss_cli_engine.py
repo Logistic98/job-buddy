@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import time
 import urllib.parse
 from typing import Any, Optional
 
 import httpx
+import qrcode
 from loguru import logger
 
 from app.tools.boss_browser.core.headless_cookie_completer import HeadlessCookieCompleter
@@ -126,10 +128,19 @@ class BossCliEngine:
         cookies = getattr(cred, "cookies", {}) or {}
         cookie_names = sorted(cookies.keys())
         has_required = self._credential_has_required_cookies(cred)
-        authenticated = bool(cookies.get(PRIMARY_COOKIE)) and has_required and not self._auth_degraded
-        search_authenticated = authenticated
-        recommend_authenticated = authenticated
-        reason = "auth_degraded" if self._auth_degraded else None
+        has_login_identity = self._has_login_identity(cred)
+        # wt2/zp_at 表示持久登录身份，__zp_stoken__ 等 Web Cookie 只决定搜索是否已就绪。
+        # 二者不能混为一谈，否则临时安全令牌补齐失败会让已完成扫码的用户反复扫码。
+        authenticated = has_login_identity and not self._auth_degraded
+        search_authenticated = authenticated and has_required
+        recommend_authenticated = authenticated and has_required
+        reason = (
+            "auth_degraded"
+            if self._auth_degraded
+            else "web_cookie_refresh_required"
+            if authenticated and not has_required
+            else None
+        )
 
         if authenticated and self._settings.boss_cli.status_verify:
             try:
@@ -762,9 +773,10 @@ class BossCliEngine:
             if not qr_id:
                 raise RuntimeError("获取 Boss 二维码会话失败：响应缺少 qrId。")
 
-            image_resp = client.get(self._constants.QR_CODE_URL, params={"content": qr_id})
-            image_resp.raise_for_status()
-            image_bytes = image_resp.content
+            # boss-cli 的登录协议要求二维码内容就是 randkey 返回的 qrId。服务端
+            # getqrcode 图片接口可能生成微信落地码，Boss App 扫描后不会推进当前
+            # qrId 的 scan 状态，因此必须在本地按上游 CLI 的方式编码原始 qrId。
+            image_bytes = self._render_qr_png(qr_id)
             now = time.time()
             self._qr_state = {
                 "status": "qr_ready",
@@ -773,7 +785,7 @@ class BossCliEngine:
                 "created_at": now,
                 "expires_at": now + _QR_LOGIN_TTL_SECONDS,
                 "image_base64": base64.b64encode(image_bytes).decode("ascii"),
-                "image_mime": image_resp.headers.get("content-type") or "image/png",
+                "image_mime": "image/png",
                 "qr_version": 1,
             }
 
@@ -784,6 +796,15 @@ class BossCliEngine:
             "login_url": "boss-cli-http-qr",
             "qr_version": 1,
         }
+
+    @staticmethod
+    def _render_qr_png(qr_id: str) -> bytes:
+        qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_L)
+        qr.add_data(qr_id)
+        qr.make(fit=True)
+        buffer = io.BytesIO()
+        qr.make_image(fill_color="black", back_color="white").save(buffer, format="PNG")
+        return buffer.getvalue()
 
     async def poll_qr_login(self) -> dict[str, Any]:
         async with self._lock:
@@ -820,11 +841,19 @@ class BossCliEngine:
                 self._qr_state["status"] = "confirmed"
                 return self._qr_confirmed_payload()
 
-            credential = self._qr_dispatch(client, qr_id)
+            try:
+                credential = self._qr_dispatch(client, qr_id)
+            except httpx.TimeoutException as exc:
+                # 手机已确认后的 dispatcher 仍可能遇到短暂 TLS 握手或读取超时。
+                # 保留 confirmed 状态让下一轮重试，不能把一次网络抖动变成登录终态。
+                logger.warning(f"Boss 二维码凭据派发暂时超时，将继续重试：{exc}")
+                return self._qr_confirmed_payload()
             if not self._credential_has_required_cookies(credential):
                 credential = self._complete_qr_credential(credential)
             self._save_credential(credential)
-            self._auth_degraded = not self._credential_has_required_cookies(credential)
+            # 扫码是否成功以持久身份 Cookie 为准。临时 Web Cookie 可在首次搜索前利用
+            # 已保存身份静默重生，不能把扫码成功误判为需要重新扫码。
+            self._auth_degraded = not self._has_login_identity(credential)
 
         base = self._status_sync()
         if base.get("authenticated"):
@@ -834,10 +863,7 @@ class BossCliEngine:
         else:
             base["status"] = "auth_required"
             base["reason"] = base.get("reason") or "qr_login_missing_required_cookies"
-            base["error"] = (
-                "二维码登录已保存部分 Cookie，但缺少 __zp_stoken__ 等关键 Web Cookie。"
-                "请先在本机常用浏览器登录 Boss 直聘，再重试登录状态检查以导入浏览器 Cookie。"
-            )
+            base["error"] = "二维码登录未获得完整的持久身份 Cookie，请刷新二维码后重新扫码。"
             # 扫码已完成但登录态不完整，属于终态。清空 QR 会话，避免后续轮询再次
             # 触发 scan/confirm/dispatch 重复访问 Boss，规避风控。
             self._qr_state = {"status": "auth_required", "reason": base["reason"]}
@@ -857,7 +883,8 @@ class BossCliEngine:
             resp = client.get(self._constants.QR_SCAN_URL, params={"uuid": qr_id}, timeout=_QR_POLL_TIMEOUT_SECONDS)
             resp.raise_for_status()
             return bool(resp.json().get("scaned"))
-        except httpx.ReadTimeout:
+        except httpx.TimeoutException as exc:
+            logger.warning(f"Boss 二维码扫码状态检查暂时超时，将继续轮询：{exc}")
             return False
 
     def _qr_confirm(self, client: httpx.Client, qr_id: str) -> bool:
@@ -867,7 +894,8 @@ class BossCliEngine:
             )
             resp.raise_for_status()
             return resp.json().get("login") is True
-        except httpx.ReadTimeout:
+        except httpx.TimeoutException as exc:
+            logger.warning(f"Boss 二维码确认状态检查暂时超时，将继续轮询：{exc}")
             return False
 
     def _qr_dispatch(self, client: httpx.Client, qr_id: str) -> Any:

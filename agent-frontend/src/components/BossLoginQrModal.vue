@@ -266,7 +266,11 @@ async function refreshStatus() {
     const data = await getBossLoginStatus(props.sessionId, state.qrSessionId)
     applyStatus(data)
   } catch (err) {
-    errorMessage.value = err.message || '刷新状态失败'
+    // 共享二维码可能由另一入口先完成并删除服务端会话。终态一旦到达，不允许较晚返回的
+    // 旧轮询异常覆盖真正的登录结果或可操作错误。
+    if (!['logged_in', 'expired', 'error', 'cancelled'].includes(state.status)) {
+      errorMessage.value = err.message || '刷新状态失败'
+    }
   } finally {
     pollInFlight = false
     statusChecking.value = false
@@ -332,7 +336,9 @@ async function runPoll() {
     const data = await getBossLoginStatus(props.sessionId, state.qrSessionId)
     applyStatus(data)
   } catch (err) {
-    errorMessage.value = err.message || '刷新状态失败'
+    if (!['logged_in', 'expired', 'error', 'cancelled'].includes(state.status)) {
+      errorMessage.value = err.message || '刷新状态失败'
+    }
   } finally {
     pollInFlight = false
     statusChecking.value = false

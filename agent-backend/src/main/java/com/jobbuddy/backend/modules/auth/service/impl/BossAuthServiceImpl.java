@@ -242,6 +242,21 @@ public class BossAuthServiceImpl implements BossAuthService {
    * @return 二维码登录状态
    */
   private Map<String, Object> qrLoginStatus(String qrSessionId) {
+    Object lock = authStatusLocks.computeIfAbsent(scopeKey(), ignored -> new Object());
+    synchronized (lock) {
+      return qrLoginStatusLocked(qrSessionId);
+    }
+  }
+
+  /**
+   * 在当前属主锁内获取二维码登录状态。
+   *
+   * <p>同一二维码可被设置页、收藏导入和对话入口复用，必须串行轮询并轮换状态令牌，避免旧阶段覆盖新阶段。
+   *
+   * @param qrSessionId 二维码会话标识
+   * @return 二维码登录状态
+   */
+  private Map<String, Object> qrLoginStatusLocked(String qrSessionId) {
     Map<String, Object> qrSession = requireQrOwner(qrSessionId);
     Map<String, Object> result =
         jsonCodec.toMap(bossCliService.qrStatus(qrSessionId, requiredToolSessionToken(qrSession)));

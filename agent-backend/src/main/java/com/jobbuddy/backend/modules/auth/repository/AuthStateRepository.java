@@ -243,9 +243,10 @@ public class AuthStateRepository {
             tenantId.trim(),
             userId.trim(),
             toolSessionToken.trim(),
+            Math.max(1, currentVersion),
             Math.max(1, currentVersion + 1),
             Instant.now());
-    if (updated != 1) throw new IllegalArgumentException("Boss 登录会话不存在或不属于当前账号");
+    if (updated != 1) throw new IllegalStateException("Boss 登录状态已由另一入口更新，请重新获取最新状态");
   }
 
   /**

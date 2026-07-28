@@ -84,6 +84,7 @@ public interface AuthStateMapper {
    * @param tenantId 租户标识
    * @param userId 用户标识
    * @param toolSessionToken 工具会话令牌
+   * @param currentToolSessionVersion 当前工具会话版本
    * @param toolSessionVersion 工具会话版本
    * @param updatedAt 更新时间
    * @return 二维码会话 Token
@@ -93,6 +94,7 @@ public interface AuthStateMapper {
       @Param("tenantId") String tenantId,
       @Param("userId") String userId,
       @Param("toolSessionToken") String toolSessionToken,
+      @Param("currentToolSessionVersion") int currentToolSessionVersion,
       @Param("toolSessionVersion") int toolSessionVersion,
       @Param("updatedAt") Instant updatedAt);
 

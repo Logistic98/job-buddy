@@ -2,6 +2,8 @@ package com.jobbuddy.backend;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -63,6 +65,24 @@ class AuthStateRepositoryEncryptionTest {
     assertThrows(
         IllegalStateException.class,
         () -> repository.findByProvider("tenant-a", "user-a", "jackwener/boss-cli"));
+  }
+
+  /**
+   * 验证二维码会话令牌更新必须携带当前版本，避免旧轮询覆盖较新的登录阶段。
+   */
+  @Test
+  void qrSessionTokenRotationMustUseCompareAndSetVersion() {
+    AuthStateMapper mapper = mock(AuthStateMapper.class);
+    when(mapper.updateQrSessionToken(
+            eq("qr-a"), eq("tenant-a"), eq("user-a"), eq("rotated-token"), eq(3), eq(4), any()))
+        .thenReturn(1);
+    AuthStateRepository repository = repository(mapper, propertiesWithKey());
+
+    repository.updateQrSessionToken("tenant-a", "user-a", "qr-a", "rotated-token", 3);
+
+    verify(mapper)
+        .updateQrSessionToken(
+            eq("qr-a"), eq("tenant-a"), eq("user-a"), eq("rotated-token"), eq(3), eq(4), any());
   }
 
   /**
