@@ -36,7 +36,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "$TARGET" != "all" ]] && ! ./.agent-harness/scripts/verify.sh --list | grep -Fxq "$TARGET"; then
+is_known_target() {
+  local candidate="$1"
+  local module
+  [[ "$candidate" == "all" ]] && return 0
+  while IFS= read -r module; do
+    [[ "$module" == "$candidate" ]] && return 0
+  done < <(./.agent-harness/scripts/verify.sh --list)
+  return 1
+}
+
+if ! is_known_target "$TARGET"; then
   echo "unknown target: $TARGET" >&2
   exit 2
 fi

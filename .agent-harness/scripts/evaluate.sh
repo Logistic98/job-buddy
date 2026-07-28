@@ -21,8 +21,12 @@ need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "$2 requires '$1' in PATH";
 
 is_known_target() {
   local candidate="$1"
+  local module
   [[ "$candidate" == "all" ]] && return 0
-  ./.agent-harness/scripts/verify.sh --list | grep -Fxq "$candidate"
+  while IFS= read -r module; do
+    [[ "$module" == "$candidate" ]] && return 0
+  done < <(./.agent-harness/scripts/verify.sh --list)
+  return 1
 }
 
 run_agent_eval() {

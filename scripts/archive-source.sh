@@ -14,6 +14,7 @@ EXTRA_IGNORE_PATTERNS=(
 REMOVE_IGNORE_PATTERNS=(
   ".env"
   ".env.server"
+  "deploy.sh"
 )
 
 OUTPUT_PATH=""

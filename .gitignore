@@ -18,3 +18,4 @@ agent-backend/data/
 agent-eval/reports/
 .agent-harness/runs/
 .agent-harness/**/*.log
+deploy.sh
