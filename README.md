@@ -41,8 +41,7 @@ graph TD
     class DATA,MODEL,BOSS resource;
 ```
 
-- 总图展示常规在线主链路；Backend 对 Memory、Sandbox 的专项调用以及 Tool 的内部依赖见详细架构文档。
-- 浏览器不直接访问内部 Agent 服务。
+- Backend 对 Memory、Sandbox 的专项调用以及 Tool 的内部依赖见详细架构文档。
 - Backend 负责认证、权限、业务事务、文件与数据管理。
 - Runtime 负责任务理解、规划、上下文装配、工具治理和执行状态。
 - Harness 与 Eval 构成离线验证闭环，不进入常规对话的同步链路。

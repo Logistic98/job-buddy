@@ -323,6 +323,12 @@ class BossCliEngine:
         now = time.time()
         # 避免一次失效请求触发多轮刷新，既慢又可能反复弹系统授权。
         if now - self._last_browser_refresh_at < 60:
+            # 收藏导入会串行读取多个详情：前一个详情刚重生令牌后，后一个详情仍可能
+            # 因岗位级临时校验失败再次进入恢复分支。此时只是刷新被本地节流，并不能
+            # 证明 wt2/zp_at 持久身份已经失效；保留身份并让上层返回可重试错误，禁止
+            # 把“暂未再次刷新”误报成 auth_required，导致用户重复扫码。
+            if self._has_persisted_login_identity():
+                self._transient_refresh_failure = True
             return False
         self._transient_refresh_failure = False
         self._last_browser_refresh_at = now
@@ -330,6 +336,10 @@ class BossCliEngine:
         # 只是临时令牌失效，没必要弹系统钥匙串读取浏览器 Cookie，更不该强制重新扫码。
         if self._refresh_stoken_from_persisted():
             return True
+        # Headless 补齐正常结束却暂未返回新令牌，同样不能据此否定仍然存在的持久身份。
+        # 后续请求可以在节流窗口结束后重新补齐；当前请求应按临时依赖故障收尾。
+        if self._has_persisted_login_identity():
+            self._transient_refresh_failure = True
         if not self._settings.boss_cli.auto_import_browser_cookies:
             logger.info("Boss 搜索登录态降级，但浏览器 Cookie 导入未启用；跳过本机浏览器凭据读取。")
             return False

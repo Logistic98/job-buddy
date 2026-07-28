@@ -376,6 +376,32 @@ def test_refresh_reuses_persisted_login_to_regenerate_stoken(tmp_path, monkeypat
     assert completion_seed.get("lean") is True
 
 
+def test_detail_preserves_login_when_temporary_refresh_is_throttled(tmp_path):
+    engine = _engine(tmp_path)
+    persisted = _FakeCredential({PRIMARY_COOKIE: "identity", "__zp_stoken__": "fresh", "wbg": "w", "zp_at": "account"})
+
+    class _SessionExpired(RuntimeError):
+        pass
+
+    class _ExpiredDetailClient(_FakeClient):
+        def get_job_detail(self, security_id: str, lid: str = ""):
+            raise _SessionExpired("temporary token expired")
+
+    engine._client_cls = _ExpiredDetailClient  # noqa: SLF001
+    engine._SessionExpiredError = _SessionExpired  # noqa: SLF001
+    engine._memory_credential = persisted  # noqa: SLF001
+    # 模拟收藏导入的前一个详情刚完成令牌重生，后一个详情在节流窗口内再次要求恢复。
+    engine._last_browser_refresh_at = float("inf")  # noqa: SLF001
+
+    result = engine._detail_sync("sec-1", "")  # noqa: SLF001
+
+    assert result["payload"] is None
+    assert result["login_redirect"] is False
+    assert result["temporary_auth_refresh_failed"] is True
+    assert engine._memory_credential is persisted  # noqa: SLF001
+    assert engine._status_sync()["status"] == "logged_in"  # noqa: SLF001
+
+
 def test_refresh_does_not_fall_back_to_browser_by_default(tmp_path, monkeypatch):
     engine = _engine(tmp_path)
     # 身份 Cookie 缺失：默认配置下既不触发 headless 重生，也不读取本机浏览器钥匙串。
