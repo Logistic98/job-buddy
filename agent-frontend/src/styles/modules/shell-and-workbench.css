@@ -2630,6 +2630,16 @@ button:disabled {
   overflow: auto;
   padding: 24px;
 }
+.settings-content--runtime {
+  padding-block: 18px;
+}
+.settings-content--runtime .settings-content-head {
+  margin-bottom: 14px;
+}
+.settings-content--runtime .settings-content-head h1 {
+  margin: 2px 0 4px;
+  font-size: 26px;
+}
 .settings-content-head {
   display: flex;
   justify-content: space-between;

@@ -19,7 +19,7 @@
       </button>
     </aside>
 
-    <main class="settings-content glass-card">
+    <main :class="['settings-content', 'glass-card', { 'settings-content--runtime': activeTab === 'workspace' }]">
       <div v-if="currentSettingsComponent" class="settings-content-head">
         <div>
           <p class="eyebrow">{{ currentMenu?.en }}</p>

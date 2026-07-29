@@ -95,6 +95,7 @@ describe('settings RBAC headers', () => {
     expect(wrapper.find('.settings-content-head h1').text()).toBe('运行参数')
     expect(wrapper.find('.settings-content-head').text()).toContain('恢复默认')
     expect(wrapper.find('.settings-content-head').text()).not.toContain('已保存')
+    expect(wrapper.find('.settings-content').classes()).toContain('settings-content--runtime')
   })
 
   it('labels the user list as 用户', async () => {
