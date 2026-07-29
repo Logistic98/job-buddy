@@ -1,10 +1,12 @@
 # JobBuddy
 
-智能求职协同平台是一款覆盖求职全流程的本地 Agent 应用。平台将简历管理、岗位筛选、投递跟踪、面试准备和项目复盘集中在 Web 工作台，并由 Agent 串联信息检索、分析判断与任务执行。
+智能求职协同平台（JobBuddy）是一款覆盖求职全流程的本地 Agent 应用。平台将简历管理、岗位筛选、投递跟踪、面试准备和项目复盘集中到统一的 Web 工作台，并由 Agent 串联信息检索、分析判断与任务执行。
 
-系统采用 Vue 3、Spring Boot 和 Python Agent Runtime 构建。前端只访问 Java Backend；业务数据和事务由 Backend 管理，智能任务由 Runtime 执行，外部能力通过独立工具服务接入。
+![智能求职协同平台-总体概览](assets/智能求职协同平台-总体概览.png)
 
 ## 主要能力
+
+平台能力围绕求职准备、岗位决策、过程管理和智能协作四类场景展开：
 
 | 场景       | 能力                                                        |
 | ---------- | ----------------------------------------------------------- |
@@ -15,40 +17,35 @@
 
 ## 系统架构
 
-```mermaid
-graph TD
-    USER(["用户"]) --> FE["Web 工作台"]
-    FE -->|HTTP / SSE| BE["业务后端"]
-    BE -->|任务委派| RT["Agent Runtime"]
-    BE -->|前置分类| INTENT["Intent"]
-    RT -->|上下文检索| MEMORY["Memory"]
-    RT -->|隔离执行| SANDBOX["Sandbox"]
-    RT -->|受治理工具| TOOL["Tool"]
-    BE --> DATA[("PostgreSQL · Redis · MinIO")]
-    RT -->|模型调用| MODEL["模型服务"]
-    TOOL -->|低频访问| BOSS["Boss 直聘"]
+平台以 Web 工作台作为统一入口，前端请求由 Backend 完成认证、权限校验、业务事务处理和 SSE 中继。Backend 调用 Intent 进行前置分类，并将智能任务委派给 Runtime；Runtime 在执行期协调 Intent 风险复核、Memory、Sandbox 和 Tool 等专项能力，并按需访问模型服务；Tool 负责接入 Boss 直聘等外部能力。
 
-    classDef actor fill:#F8FAFC,stroke:#64748B,color:#0F172A,stroke-width:1.5px;
-    classDef entry fill:#EAF2FF,stroke:#2563EB,color:#172554,stroke-width:1.5px;
-    classDef core fill:#F3E8FF,stroke:#7C3AED,color:#3B0764,stroke-width:1.5px;
-    classDef service fill:#ECFDF5,stroke:#059669,color:#064E3B,stroke-width:1.5px;
-    classDef resource fill:#F8FAFC,stroke:#94A3B8,color:#0F172A,stroke-width:1.5px;
+![智能求职协同平台-整体架构](assets/智能求职协同平台-整体架构.png)
 
-    class USER actor;
-    class FE,BE entry;
-    class RT core;
-    class INTENT,MEMORY,SANDBOX,TOOL service;
-    class DATA,MODEL,BOSS resource;
-```
+图中聚焦主要职责和调用方向，具体边界如下：
 
-- Backend 对 Memory、Sandbox 的专项调用以及 Tool 的内部依赖见详细架构文档。
+- Backend 对 Memory、Sandbox 的专项调用，以及 Tool 的内部依赖，见详细架构文档。
 - Backend 负责认证、权限、业务事务、文件与数据管理。
-- Runtime 负责任务理解、规划、上下文装配、工具治理和执行状态。
+- Runtime 负责任务理解、规划、上下文装配、工具治理和执行状态管理。
 - Harness 与 Eval 构成离线验证闭环，不进入常规对话的同步链路。
 
 完整的服务边界、部署拓扑和降级策略见 [系统架构与核心链路](agent-doc/架构设计/系统架构与核心链路.md)。
 
+## 技术选型
+
+系统前端采用 Vue 3、Vite、Pinia 和 Vue Router，Java 业务后端采用 Spring Boot，Agent 服务采用 FastAPI、Uvicorn 和 LangGraph。数据层使用 PostgreSQL、Redis 与 MinIO，基础设施由 Docker Compose、Maven、uv、npm 及配套工具支撑。
+
+![智能求职协同平台-技术架构](assets/智能求职协同平台-技术选型.png)
+
 ## 执行链路
+
+系统按照“请求预检、任务分流、受控执行、结果收敛”的顺序处理用户请求：
+
+- 请求预检：完成身份、权限和内容安全检查，不符合要求的请求直接拦截。
+- 任务分流：Intent 提供前置分类与路由提示，Runtime 完成执行期任务理解；确定性业务进入 Backend 工作流，开放式任务进入 Runtime Agent Loop。
+- 受控执行：Agent Loop 在上下文、权限和预算约束下循环执行、观察与验证，并通过最大轮次、工具调用次数、连续失败次数和 Token 预算限制运行边界。
+- 结果收敛：任务完成、被拒绝、人工中断、执行超时或发生异常时，系统均生成明确终态，确保流式响应正常结束并保留可追踪的执行结果。
+
+执行链路如下：
 
 ```mermaid
 graph TD
@@ -56,7 +53,7 @@ graph TD
     PRECHECK --> UNDERSTAND["意图预分类 · Runtime 任务理解"]
     UNDERSTAND --> ROUTE{"执行路径"}
 
-    ROUTE -->|稳定业务| BUSINESS["Backend 业务编排"]
+    ROUTE -->|稳定业务| BUSINESS["Backend 工作流编排"]
     ROUTE -->|开放任务| PLAN
 
     PLAN["上下文装配与计划"] --> GUARD["工具搜索、权限与预算检查"]
@@ -81,11 +78,9 @@ graph TD
     class RESULT terminal;
 ```
 
-Intent 提供前置分类提示，Runtime 负责执行期任务理解。稳定、确定的业务流程由 Backend 编排；开放式任务进入 Agent Loop，并在上下文、预算和权限约束下完成工具调用与结果验证。
-
-Agent Loop 同时受最大轮次、工具调用数、失败次数和 Token 预算限制。成功、拒绝、中断、超时和异常路径都必须产生明确终态。
-
 ## 模块一览
+
+仓库按能力边界拆分为八个独立服务模块，各模块通过 HTTP 或 SSE 契约协作，不直接访问其他模块的内部数据结构：
 
 | 模块                                         | 默认端口 | 技术与职责                                                             |
 | -------------------------------------------- | -------: | ---------------------------------------------------------------------- |
@@ -100,9 +95,11 @@ Agent Loop 同时受最大轮次、工具调用数、失败次数和 Token 预�
 
 `agent-doc/` 保存架构与能力文档，`.agent-harness/` 提供验证、评估、质量门禁、Goal 和 Loop，`scripts/` 提供环境同步、服务启停、格式化和产物清理。
 
-模块之间通过 HTTP/SSE 契约协作，不直接依赖其他模块的内部实现。
+## 快速开始
 
-## 环境要求
+### 1. 准备环境
+
+本地开发需要满足以下基础运行环境；仅使用本地进程启动时，Docker 不是必需项：
 
 | 工具          | 要求                                    |
 | ------------- | --------------------------------------- |
@@ -122,9 +119,7 @@ $ npm install -g @anthropic-ai/sandbox-runtime
 
 macOS 需要 `ripgrep`；Linux 还需要 `bubblewrap`、`socat` 和 `ripgrep`。
 
-## 快速开始
-
-### 1. 准备配置
+### 2. 准备配置
 
 ```bash
 $ cp .env.example .env
@@ -133,6 +128,8 @@ $ ./scripts/sync-env.sh
 ```
 
 `.env` 只允许位于仓库根目录，且不得提交。请将示例密码、模型配置和密钥替换为实际值。
+
+核心配置按用途划分如下，完整变量集合仍以根目录环境模板为准：
 
 | 配置类别     | 代表变量                                                 |
 | ------------ | -------------------------------------------------------- |
@@ -145,7 +142,11 @@ $ ./scripts/sync-env.sh
 
 全部配置项及说明以 [.env.example](.env.example) 为准。
 
-### 2. 启动容器环境
+### 3. 启动服务
+
+根据基础设施条件和开发需求，选择容器环境或本地开发环境启动服务。
+
+**[1] 容器环境**
 
 如果 PostgreSQL、Redis 和 MinIO 已独立部署，`docker-compose.yml` 会直接使用环境文件中的外部连接，仅启动八个应用服务：
 
@@ -175,7 +176,7 @@ $ docker compose --env-file .env \
 
 生产环境的网络、密钥、持久卷和备份要求见 [应用与基础设施容器化部署](agent-doc/运维部署/应用与基础设施容器化部署.md)。
 
-### 3. 启动本地开发环境
+**[2] 本地环境**
 
 确保 `.env` 指向可用的 PostgreSQL、Redis 和 MinIO，然后执行：
 
@@ -183,6 +184,8 @@ $ docker compose --env-file .env \
 $ ./scripts/start-all.sh
 $ ./scripts/status-all.sh
 ```
+
+服务就绪后，可通过以下默认入口访问工作台、健康检查和接口文档：
 
 | 入口             | 默认地址                            |
 | ---------------- | ----------------------------------- |
@@ -199,21 +202,7 @@ $ ./scripts/stop-all.sh
 
 日志写入 `.run/logs/YYYYMMDD/`，PID 写入 `.run/pids/`。启停脚本会检查端口占用进程的仓库归属，不会主动终止其他项目或系统服务。各服务的独立启动方式见“模块一览”中的对应 README。
 
-## 安全边界
-
-Boss 默认使用二维码或恢复 Backend 已保存的登录态，浏览器 Cookie 导入默认关闭。Cookie 由 Backend 使用 AES-256-GCM 加密后保存到 PostgreSQL `auth_state`，调用时仅注入 agent-tool 内存，不创建本地凭证目录；真实访问保持人工低频，遇到验证码、限速或账号异常立即停止。完整契约见 [Boss 直聘集成与岗位检索](agent-doc/业务功能/Boss直聘集成与岗位检索.md)。
-
-Flyway 脚本位于 `agent-backend/src/main/resources/db/migration/`。已发布迁移不可修改、删除、重命名或复用版本，结构变化只能追加更高版本；禁止通过 repair、baseline 或手工历史表绕过校验，用户私有业务数据不得作为迁移种子。
-
-提交迁移前运行：
-
-```bash
-$ ./.agent-harness/scripts/check_flyway_migrations.py
-```
-
-完整规则见 [AGENTS.md](AGENTS.md) 和 [Harness Flyway 检查](.agent-harness/README.md#flyway-检查)。
-
-## 开发与验证
+### 4. 提交验证
 
 提交前检查代码格式：
 
@@ -244,14 +233,16 @@ $ ./scripts/clean-artifacts.sh --dry-run
 
 ## 文档导航
 
-| 主题                   | 文档                                                         |
-| ---------------------- | ------------------------------------------------------------ |
-| 文档总览               | [项目总览文档](agent-doc/README.md)                          |
-| 系统边界与核心链路     | [系统架构与核心链路](agent-doc/架构设计/系统架构与核心链路.md) |
-| 认证与权限             | [账号认证与权限体系](agent-doc/架构设计/账号认证与权限体系.md) |
-| 意图、工具与安全       | [意图路由与工具安全](agent-doc/核心能力/意图路由与工具安全.md) |
-| 模型与上下文           | [模型接入与上下文治理](agent-doc/核心能力/模型接入与上下文治理.md) |
-| Trace、Eval 与 Harness | [Trace 可观测与质量评估](agent-doc/核心能力/Trace可观测与质量评估.md) |
+项目文档按架构、核心能力、业务能力和运维部署组织，常用入口如下：
+
+| 主题                   | 文档                                                                       |
+| ---------------------- | -------------------------------------------------------------------------- |
+| 文档总览               | [项目总览文档](agent-doc/README.md)                                        |
+| 系统边界与核心链路     | [系统架构与核心链路](agent-doc/架构设计/系统架构与核心链路.md)             |
+| 认证与权限             | [账号认证与权限体系](agent-doc/架构设计/账号认证与权限体系.md)             |
+| 意图、工具与安全       | [意图路由与工具安全](agent-doc/核心能力/意图路由与工具安全.md)             |
+| 模型与上下文           | [模型接入与上下文治理](agent-doc/核心能力/模型接入与上下文治理.md)         |
+| Trace、Eval 与 Harness | [Trace 可观测与质量评估](agent-doc/核心能力/Trace可观测与质量评估.md)      |
 | 容器化部署             | [应用与基础设施容器化部署](agent-doc/运维部署/应用与基础设施容器化部署.md) |
 
 接口、配置、端口、服务职责或目录结构发生变化时，应同步更新根 README、对应模块 README、主题文档和 `.env.example`。文档只描述有代码、配置、接口或测试支撑的正式能力。
