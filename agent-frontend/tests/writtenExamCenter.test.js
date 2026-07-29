@@ -5,6 +5,7 @@ import PaperCompositionCenter from '../src/components/interview/PaperComposition
 import PracticeConfigModal from '../src/components/interview/PracticeConfigModal.vue'
 import QuestionEditModal from '../src/components/interview/QuestionEditModal.vue'
 import SmartPracticePanel from '../src/components/interview/SmartPracticePanel.vue'
+import CodeHighlightEditor from '../src/components/interview/CodeHighlightEditor.vue'
 
 const mocks = vi.hoisted(() => ({
   listQuestions: vi.fn(),
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getExam: vi.fn(),
   deleteExam: vi.fn(),
   createRandomExam: vi.fn(),
+  runCodeSample: vi.fn(),
 }))
 
 vi.mock('../src/api/interview', () => ({
@@ -27,7 +29,7 @@ vi.mock('../src/api/interview', () => ({
   getQuestionMeta: mocks.getQuestionMeta,
   listExams: mocks.listExams,
   listQuestions: mocks.listQuestions,
-  runCodeSample: vi.fn(),
+  runCodeSample: mocks.runCodeSample,
   submitExam: vi.fn(),
   updateQuestion: vi.fn(),
 }))
@@ -47,6 +49,10 @@ beforeEach(() => {
   mocks.getExam.mockReset()
   mocks.deleteExam.mockReset().mockResolvedValue({ deleted: true })
   mocks.createRandomExam.mockReset()
+  mocks.runCodeSample.mockReset().mockResolvedValue({
+    passed: true,
+    rows: [{ name: '示例', passed: true, input: '["babad"]', expected: '"bab"', actual: '"bab"' }],
+  })
 })
 
 describe('WrittenExamCenter', () => {
@@ -325,6 +331,70 @@ describe('WrittenExamCenter', () => {
     await wrapper.findAll('.written-center-tabs button')[1].trigger('click')
     await flushPromises()
     expect(wrapper.find('.practice-records-home').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('uses the highlighted editor for a coding practice answer', async () => {
+    const question = {
+      questionId: 'q-code',
+      title: '最长回文子串',
+      bankType: 'leetcode',
+      category: '动态规划',
+      difficulty: '中等',
+      questionType: '编程题',
+      content: '实现最长回文子串。',
+      answer: '通过测试用例',
+      codingMeta: {
+        language: 'python',
+        functionName: 'longest_palindrome',
+        parameterCount: 1,
+        template: 'class Solution:\n    def longestPalindrome(self, s: str) -> str:\n        return s',
+        tests: [{ name: '示例', args: ['babad'], expected: 'bab' }],
+      },
+    }
+    const exam = {
+      examId: 'practice-code',
+      title: '算法练习',
+      status: 'running',
+      totalCount: 1,
+      answeredCount: 0,
+      remainingSeconds: 1800,
+      strategy: { mode: 'smart', showAnswer: false },
+      questions: [question],
+    }
+    mocks.listExams.mockResolvedValue([exam])
+    mocks.getExam.mockResolvedValue(exam)
+
+    const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.findAll('.written-center-tabs button')[1].trigger('click')
+    await flushPromises()
+    await wrapper.find('.practice-record-main').trigger('click')
+    await flushPromises()
+
+    const editor = wrapper.findComponent(CodeHighlightEditor)
+    expect(editor.exists()).toBe(true)
+    expect(editor.props('language')).toBe('python')
+    expect(editor.findAll('.code-token-keyword').map((token) => token.text())).toEqual(
+      expect.arrayContaining(['def', 'pass']),
+    )
+    expect(editor.find('textarea').attributes('aria-label')).toBe('编程题代码答案')
+
+    await editor
+      .find('textarea')
+      .setValue('class Solution:\n    def longestPalindrome(self, s: str) -> str:\n        return s')
+    const runSampleButton = wrapper
+      .findAll('.leetcode-run-actions button')
+      .find((button) => button.text() === '运行样例')
+    await runSampleButton.trigger('click')
+    await flushPromises()
+
+    expect(mocks.runCodeSample).toHaveBeenCalledWith(
+      expect.objectContaining({
+        functionName: 'longestPalindrome',
+        source: expect.stringContaining('def longestPalindrome'),
+      }),
+    )
     wrapper.unmount()
   })
 

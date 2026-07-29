@@ -640,7 +640,7 @@ export function useInterviewBankPage(props, emit) {
     const meta = codingMeta(item)
     const rows = Array.isArray(tests) ? tests : []
     const language = currentCodingLanguage(item.questionId)
-    const functionName = meta.functionName || extractFunctionName(answers[item.questionId], language) || 'solution'
+    const functionName = extractFunctionName(answers[item.questionId], language) || meta.functionName || 'solution'
     if (!rows.length) {
       codingResults[item.questionId] = { passed: false, rows: [], message: '未维护测试用例' }
       return codingResults[item.questionId]

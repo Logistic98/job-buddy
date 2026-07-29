@@ -352,13 +352,13 @@
                   {{ codeCopyState[activeQuestion.questionId] || '复制代码' }}
                 </button>
               </div>
-              <textarea
+              <CodeHighlightEditor
                 v-model="answers[activeQuestion.questionId]"
+                :language="currentCodingLanguage(activeQuestion.questionId)"
                 :disabled="currentExam.status === 'submitted' || timerExpired"
                 aria-label="编程题代码答案"
                 placeholder="请在此编写完整代码答案"
-                spellcheck="false"
-                class="leetcode-code-editor practice-code-editor"
+                textarea-class="leetcode-code-editor practice-code-editor"
               />
               <div v-if="currentExam.status !== 'submitted' && !examLoading" class="leetcode-run-actions">
                 <button
@@ -706,6 +706,7 @@
 
 <script setup>
 import { useInterviewBankPage } from '../composables/useInterviewBankPage'
+import CodeHighlightEditor from './interview/CodeHighlightEditor.vue'
 
 const props = defineProps({
   mode: { type: String, default: 'bank' },

@@ -181,7 +181,12 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+}
+.leetcode-run-actions .secondary-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .leetcode-result-card {
   min-height: 0;
@@ -245,6 +250,9 @@
   min-height: 220px;
   border-radius: 14px;
 }
+.leetcode-answer-editor > .code-highlight-editor {
+  border-radius: 14px;
+}
 .compact-code-results {
   max-height: none;
   overflow: visible;
@@ -262,9 +270,12 @@
 }
 .leetcode-run-actions span {
   align-self: center;
+  flex: 1 1 240px;
+  min-width: 0;
   color: #667085;
   font-size: 12px;
   font-weight: 800;
+  overflow-wrap: anywhere;
 }
 @media (max-width: 1180px) {
   .leetcode-layout,
@@ -538,12 +549,28 @@
 .written-center-page {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .written-center-page > .interview-embedded {
   display: flex;
   flex: 1;
   min-height: 0;
   flex-direction: column;
+  overflow: hidden;
+}
+.written-center-page > .interview-embedded:has(.practice-active-workbench) {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.written-center-page .interview-bank-view {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.written-center-page .interview-table-wrap {
+  flex: 1;
+  min-height: 0;
 }
 .written-center-page .practice-desk-view {
   display: flex;

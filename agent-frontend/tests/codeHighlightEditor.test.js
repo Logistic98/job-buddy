@@ -36,6 +36,7 @@ describe('CodeHighlightEditor', () => {
         modelValue: 'def solve(value):\n    return value',
         language: 'python',
         required: true,
+        disabled: true,
         ariaLabel: '初始代码模板',
         textareaClass: 'question-code-template-textarea',
       },
@@ -47,8 +48,10 @@ describe('CodeHighlightEditor', () => {
     const textarea = wrapper.find('textarea')
     expect(textarea.classes()).toContain('question-code-template-textarea')
     expect(textarea.attributes('aria-required')).toBe('true')
+    expect(textarea.attributes('disabled')).toBeDefined()
     expect(textarea.attributes('spellcheck')).toBe('false')
 
+    await wrapper.setProps({ disabled: false })
     await textarea.setValue('class Solution:\n    pass')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['class Solution:\n    pass'])
   })

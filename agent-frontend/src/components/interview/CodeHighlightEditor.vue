@@ -15,6 +15,7 @@
       :placeholder="placeholder"
       :aria-label="ariaLabel"
       :aria-required="required ? 'true' : undefined"
+      :disabled="disabled"
       :spellcheck="false"
       wrap="off"
       @input="handleInput"
@@ -34,6 +35,7 @@ const props = defineProps({
   placeholder: { type: String, default: '' },
   ariaLabel: { type: String, default: '代码编辑器' },
   required: { type: Boolean, default: false },
+  disabled: { type: Boolean, default: false },
   textareaClass: { type: [String, Array, Object], default: '' },
 })
 

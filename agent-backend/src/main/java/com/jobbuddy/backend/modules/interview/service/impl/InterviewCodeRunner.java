@@ -234,9 +234,9 @@ public class InterviewCodeRunner {
     Map<String, Object> filesystem = new LinkedHashMap<String, Object>();
     filesystem.put("denyRead", List.of("~/.ssh", "~/.aws", "~/.config/gcloud", "~/.kube"));
     filesystem.put("allowRead", Collections.emptyList());
-    // agent-sandbox 会创建独立临时工作区。allowWrite 为空表示沿用工作区白名单；不能请求宿主机
-    // /tmp，否则与请求工作区取交集后会得到空白名单，导致判题无法创建子进程文件。
-    filesystem.put("allowWrite", Collections.emptyList());
+    // agent-sandbox 会创建独立临时工作区。相对路径 "." 会在服务端解析为本次请求工作区，
+    // 与服务端工作区白名单取交集后仍只允许写入该隔离目录。
+    filesystem.put("allowWrite", List.of("."));
     filesystem.put("denyWrite", List.of(".env", "secrets/"));
 
     Map<String, Object> policy = new LinkedHashMap<String, Object>();

@@ -81,7 +81,7 @@ class InterviewCodeRunnerTest {
     assertTrue(body.containsKey("policy"));
     Map policy = (Map) body.get("policy");
     Map filesystem = (Map) policy.get("filesystem");
-    assertEquals(Arrays.asList(), filesystem.get("allowWrite"));
+    assertEquals(Arrays.asList("."), filesystem.get("allowWrite"));
     assertTrue(body.containsKey("options"));
   }
 
