@@ -321,6 +321,50 @@ def test_auth_redirect_degrades_status_without_network(tmp_path, monkeypatch):
     assert status["status"] == "auth_required"
 
 
+def test_favorite_code_7_requires_login_without_temporary_token_refresh(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    cred = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"})
+
+    class _BossApiError(RuntimeError):
+        def __init__(self, message: str, code: int) -> None:
+            super().__init__(message)
+            self.code = code
+
+    class _AuthRequiredFavoriteClient(_FakeClient):
+        def _get(self, url: str, params=None, action: str = ""):
+            raise _BossApiError("感兴趣职位: 当前登录状态已失效 (code=7)", 7)
+
+    engine._BossApiError = _BossApiError  # noqa: SLF001
+    engine._client_cls = _AuthRequiredFavoriteClient  # noqa: SLF001
+    engine._memory_credential = cred  # noqa: SLF001
+    monkeypatch.setattr(
+        engine,
+        "_refresh_after_auth_failure",
+        lambda: (_ for _ in ()).throw(AssertionError("code=7 不应刷新临时安全令牌")),
+    )
+
+    result = engine._favorite_jobs_sync(1)  # noqa: SLF001
+
+    assert result["payload"] is None
+    assert result["login_redirect"] is True
+    assert "temporary_auth_refresh_failed" not in result
+    assert "code=7" in result["error_message"]
+    assert engine._status_sync()["status"] == "auth_required"  # noqa: SLF001
+
+
+def test_payload_code_7_requires_login(tmp_path):
+    engine = _engine(tmp_path)
+
+    result = engine._classify_payload(  # noqa: SLF001
+        {"code": 7, "message": "当前登录状态已失效"},
+        "/api/favorites",
+    )
+
+    assert result["payload"] is None
+    assert result["login_redirect"] is True
+    assert result["error_message"] == "当前登录状态已失效"
+
+
 def test_successful_fetch_clears_degraded(tmp_path, monkeypatch):
     engine = _engine(tmp_path)
     cred = _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"})

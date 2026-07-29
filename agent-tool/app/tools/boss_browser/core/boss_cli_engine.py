@@ -41,6 +41,9 @@ LOGIN_IDENTITY_COOKIES = {PRIMARY_COOKIE, "zp_at"}
 # Boss 风控/安全相关上游码。boss-cli 会把部分码包装成 BossApiError，这里继续做
 # 本地归类，确保不会被当成普通空结果。
 _RISK_CODES = {32, 36, 121, 122}
+# 上游明确判定持久登录态失效时直接要求重新登录，不能按临时 __zp_stoken__
+# 失效处理，否则仍存在 wt2/zp_at 时会被误报为可重试的令牌刷新失败。
+_AUTH_REQUIRED_CODES = {7}
 _AUTH_EXPIRED_CODES = {37}
 
 _QR_LOGIN_TTL_SECONDS = 240
@@ -990,6 +993,8 @@ class BossCliEngine:
             code = raw.get("code")
             if code in _RISK_CODES:
                 return self._risk_result(url, RuntimeError(raw.get("message") or "账户存在异常行为"))
+            if code in _AUTH_REQUIRED_CODES:
+                return self._auth_redirect(url, raw.get("message"))
             if code in _AUTH_EXPIRED_CODES:
                 return self._auth_redirect(url)
             if isinstance(code, int) and code != 0:
@@ -1007,6 +1012,8 @@ class BossCliEngine:
     def _classify_exception(self, url: str, exc: Exception) -> dict[str, Any]:
         code = getattr(exc, "code", None)
         message = str(exc)
+        if code in _AUTH_REQUIRED_CODES:
+            return self._auth_redirect(url, message)
         if code in _AUTH_EXPIRED_CODES or isinstance(exc, self._SessionExpiredError) or self._looks_like_auth(message):
             return self._auth_redirect(url)
         if code in _RISK_CODES or self._looks_like_risk(message):
