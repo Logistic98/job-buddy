@@ -38,6 +38,8 @@ $ python3 -m unittest discover -s .agent-harness/tests -p 'test_*.py'
 
 `--quick` 对 Java 使用 `test` 而不是 `verify`。Python 和前端仍执行完整的格式、测试与构建命令，避免“快速模式”变成跳过质量检查。
 
+Sandbox 的普通模块测试使用 fake srt，负责快速验证协议、参数和策略收窄；`smoke_sandbox_container.sh` 负责构建真实 Linux 镜像，以与 Compose 相同的非 root、无 capability、只读根文件系统和 namespace 兼容边界验证 `/ready`、Python、Java、JavaScript 以及文件、网络、Unix socket 隔离。GitHub Ubuntu Runner 的 Docker 默认 AppArmor profile 会拦截内层 bubblewrap 的 namespace 挂载，因此临时冒烟容器显式使用 `apparmor=unconfined`；该设置仅用于一次性验证环境，生产部署仍必须使用授予必要 `userns` 能力的专用 AppArmor profile。该冒烟测试由 Sandbox CI 门禁执行，本地在 Docker 可用时按部署改动需要显式运行。
+
 本地服务启停测试覆盖端口监听者归属、未记录仓库进程清理、外部进程保护、PID 复用、停止后的端口释放、就绪监听与受管进程树一致性，以及启动失败后的回滚边界。前端启动固定使用 `strictPort`，避免端口冲突被 Vite 静默转换为其他端口。
 
 ## Flyway 检查

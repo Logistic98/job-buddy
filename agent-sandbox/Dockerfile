@@ -17,20 +17,24 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     VIRTUAL_ENV=/app/.venv \
     PATH=/app/.venv/bin:$PATH \
+    HOME=/home/sandbox \
     PORT=8061
 WORKDIR /app
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bubblewrap socat ripgrep nodejs npm ca-certificates \
+    && apt-get install -y --no-install-recommends bubblewrap socat ripgrep nodejs npm ca-certificates openjdk-17-jdk-headless \
     && npm install -g @anthropic-ai/sandbox-runtime@0.0.52 \
     && npm cache clean --force \
-    && apt-mark manual bubblewrap socat ripgrep nodejs ca-certificates \
+    && apt-mark manual bubblewrap socat ripgrep nodejs ca-certificates openjdk-17-jdk-headless \
     && apt-get purge -y --auto-remove npm \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /root/.npm /tmp/*
+    && rm -rf /var/lib/apt/lists/* /root/.npm /tmp/* \
+    && groupadd --gid 10001 sandbox \
+    && useradd --uid 10001 --gid sandbox --home-dir /home/sandbox --create-home --shell /usr/sbin/nologin sandbox
 COPY --from=build /app/.venv ./.venv
 COPY app ./app
 COPY server.py ./
 EXPOSE 8061
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8061/health', timeout=3)"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8061/ready', timeout=3)"]
+USER sandbox:sandbox
 CMD ["python", "server.py"]

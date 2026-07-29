@@ -14,7 +14,7 @@ INTERNAL_AUTH_HEADER = "X-Internal-Service-Token"
 _TOKEN_ENV_VAR = "AGENT_INTERNAL_SERVICE_TOKEN"
 _ENVIRONMENT_ENV_VAR = "JOB_BUDDY_ENVIRONMENT"
 _PRODUCTION_ENVIRONMENTS = {"prod", "production"}
-DEFAULT_EXEMPT_PATHS = {"/health"}
+DEFAULT_EXEMPT_PATHS = {"/health", "/ready"}
 
 _LOGGER = logging.getLogger(__name__)
 

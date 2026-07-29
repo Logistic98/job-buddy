@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from ..core.config import FilesystemConfig, NetworkConfig, SandboxRuntimeConfig
@@ -34,18 +35,74 @@ _MAX_CONCURRENCY = max(1, int(os.getenv("AGENT_SANDBOX_MAX_CONCURRENCY", "4")))
 _MAX_OUTPUT_CHARS = max(1024, int(os.getenv("AGENT_SANDBOX_MAX_OUTPUT_CHARS", "200000")))
 _EXECUTION_SLOTS = threading.BoundedSemaphore(_MAX_CONCURRENCY)
 _ALLOWED_ENV_KEYS = {"LANG", "LC_ALL", "LC_CTYPE"}
+_READINESS_CACHE_SECONDS = max(1.0, float(os.getenv("AGENT_SANDBOX_READINESS_CACHE_SECONDS", "30")))
+_READINESS_TIMEOUT_SECONDS = max(1.0, min(30.0, float(os.getenv("AGENT_SANDBOX_READINESS_TIMEOUT_SECONDS", "5"))))
+_WEAKER_NESTED_SANDBOX_ENV = "AGENT_SANDBOX_ENABLE_WEAKER_NESTED_SANDBOX"
 
 
-def create_app() -> FastAPI:
+class _CachedReadinessProbe:
+    """缓存真实 srt 探测结果，避免公开就绪端点被用于高频拉起子进程。"""
+
+    def __init__(self, probe: Callable[[], None], ttl_seconds: float) -> None:
+        self._probe = probe
+        self._ttl_seconds = ttl_seconds
+        self._lock = threading.Lock()
+        self._expires_at = 0.0
+        self._healthy = False
+        self._detail = "not checked"
+
+    def check(self) -> tuple[bool, str]:
+        now = time.monotonic()
+        if now < self._expires_at:
+            return self._healthy, self._detail
+        with self._lock:
+            now = time.monotonic()
+            if now < self._expires_at:
+                return self._healthy, self._detail
+            try:
+                self._probe()
+                healthy, detail = True, "ready"
+            except Exception as exc:  # noqa: BLE001 readiness 必须把依赖异常转换为 503
+                healthy, detail = False, str(exc) or type(exc).__name__
+            self._healthy = healthy
+            self._detail = detail
+            self._expires_at = time.monotonic() + self._ttl_seconds
+            return healthy, detail
+
+
+def create_app(readiness_probe: Callable[[], None] | None = None) -> FastAPI:
     """创建沙箱服务并注册受并发和策略约束的执行接口。"""
 
     app = FastAPI(title="Job Buddy Sandbox Runtime Service", version="1.0.0")
     install_internal_auth(app)
+    readiness = _CachedReadinessProbe(
+        readiness_probe or _probe_sandbox_runtime,
+        _READINESS_CACHE_SECONDS,
+    )
 
     # 各执行入口只负责请求类型适配，资源约束与清理由统一执行边界处理。
     @app.get("/health")
     def health() -> dict:
         return {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-sandbox"}}
+
+    @app.get("/ready")
+    def ready():
+        healthy, detail = readiness.check()
+        if healthy:
+            return {
+                "code": 200,
+                "message": "success",
+                "data": {"status": "UP", "service": "agent-sandbox", "runtime": "srt"},
+            }
+        logger.warning(f"Sandbox Runtime readiness failed detail={detail[:1000]}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "code": 503,
+                "message": "sandbox runtime unavailable",
+                "data": {"status": "DOWN", "service": "agent-sandbox"},
+            },
+        )
 
     @app.post("/v1/commands", response_model=SandboxResponse)
     def run_command(req: CommandRequest) -> SandboxResponse:
@@ -115,6 +172,26 @@ def create_app() -> FastAPI:
         )
 
     return app
+
+
+def _probe_sandbox_runtime() -> None:
+    """以生产策略执行最小命令，确认 srt 与 OS 隔离原语均可用。"""
+
+    workspace = Path(tempfile.mkdtemp(prefix="job-buddy-sandbox-ready-")).resolve()
+    try:
+        result = SandboxClient(
+            _effective_config(None, workspace),
+            cwd=workspace,
+            default_timeout=_READINESS_TIMEOUT_SECONDS,
+        ).command(
+            ["/bin/sh", "-c", "printf '%s\\n' sandbox-ready"],
+            timeout=_READINESS_TIMEOUT_SECONDS,
+            check=True,
+        )
+        if result.stdout.strip() != "sandbox-ready":
+            raise RuntimeError("srt readiness command returned unexpected output")
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
 
 
 @dataclass
@@ -188,6 +265,7 @@ def _prepare_execution(policy, options) -> PreparedExecution:
 def _effective_config(policy, workspace: str | Path) -> SandboxRuntimeConfig:
     workspace_path = Path(workspace).expanduser().resolve()
     base = SandboxPolicies.workspace_readwrite(workspace_path)
+    base.enableWeakerNestedSandbox = _weaker_nested_sandbox_enabled()
     if policy is None:
         return base
 
@@ -212,10 +290,16 @@ def _effective_config(policy, workspace: str | Path) -> SandboxRuntimeConfig:
             denyWrite=_dedupe([*base.filesystem.denyWrite, *requested.filesystem.denyWrite]),
         ),
         ignoreViolations={},
-        enableWeakerNestedSandbox=False,
+        enableWeakerNestedSandbox=base.enableWeakerNestedSandbox,
         enableWeakerNetworkIsolation=False,
         mandatoryDenySearchDepth=base.mandatoryDenySearchDepth,
     )
+
+
+def _weaker_nested_sandbox_enabled() -> bool:
+    """只接受可信部署环境开关，HTTP policy 不能启用兼容模式。"""
+
+    return os.getenv(_WEAKER_NESTED_SANDBOX_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _execution_options(options) -> ExecutionOptions:

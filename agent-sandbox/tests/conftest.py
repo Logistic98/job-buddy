@@ -36,7 +36,10 @@ def fake_srt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                 settings = args[1]
                 with open(settings, "r", encoding="utf-8") as f:
                     json.load(f)
-                command = args[2:]
+                command = args[3:] if args[2] == "--" else args[2:]
+                if not command:
+                    print("fake srt expects a command after settings", file=sys.stderr)
+                    return 64
                 if len(command) == 1:
                     proc = subprocess.run(command[0], shell=True, text=True, capture_output=True)
                 else:

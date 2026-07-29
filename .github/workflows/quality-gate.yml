@@ -170,6 +170,7 @@ jobs:
           version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-sandbox --quick
+      - run: ./.agent-harness/scripts/smoke_sandbox_container.sh
 
   gate-eval:
     name: agent-eval gate

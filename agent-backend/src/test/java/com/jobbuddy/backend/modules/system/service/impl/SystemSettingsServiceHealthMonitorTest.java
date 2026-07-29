@@ -63,6 +63,19 @@ class SystemSettingsServiceHealthMonitorTest {
   }
 
   /**
+   * 验证 Sandbox 使用真实 Runtime readiness，其他服务仍使用进程健康端点。
+   */
+  @Test
+  void usesRuntimeReadinessForSandboxOnly() {
+    assertEquals(
+        "http://agent-sandbox:8061/ready",
+        ServiceHealthMonitor.healthUrl("sandbox", "http://agent-sandbox:8061/"));
+    assertEquals(
+        "http://agent-runtime:8010/health",
+        ServiceHealthMonitor.healthUrl("runtime", "http://agent-runtime:8010"));
+  }
+
+  /**
    * 验证空值服务配置属性。
    *
    * @return emptyService 配置属性

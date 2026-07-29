@@ -114,7 +114,7 @@ rollback_started_services() {
 }
 
 start_all_services() {
-  local sandbox_health="http://127.0.0.1:${SANDBOX_PORT:-8061}/health"
+  local sandbox_health="http://127.0.0.1:${SANDBOX_PORT:-8061}/ready"
   local tool_health="http://127.0.0.1:${TOOL_PORT:-8040}/health"
   local runtime_health="http://127.0.0.1:${RUNTIME_PORT:-8010}/health"
   local intent_health="http://127.0.0.1:${INTENT_PORT:-8020}/health"
@@ -161,7 +161,7 @@ print_started_summary() {
   echo "OpenAPI docs: http://${public_host}:${BACKEND_PORT:-8080}/v3/api-docs"
   echo "Boss login: credentials persist in PostgreSQL auth_state and are injected into agent-tool memory"
   echo "Boss tool: http://${public_host}:${TOOL_PORT:-8040}/v1/tools/boss_browser/execute (runtime proxy: http://${public_host}:${RUNTIME_PORT:-8010}/v1/runtime/tools/boss_browser/invoke)"
-  echo "Sandbox health: http://${public_host}:${SANDBOX_PORT:-8061}/health"
+  echo "Sandbox readiness: http://${public_host}:${SANDBOX_PORT:-8061}/ready"
   echo
   echo "Log retention: ${LOG_RETENTION_DAYS} days (override with LOG_RETENTION_DAYS, disable startup cleanup with START_ALL_CLEANUP_ENABLED=0)"
   echo "Stop all services with: ./scripts/stop-all.sh"

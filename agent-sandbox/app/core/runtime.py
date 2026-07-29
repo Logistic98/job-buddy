@@ -69,7 +69,9 @@ class SandboxRuntime:
         srt = self.ensure_available()
         settings_path = self._write_settings_file()
         try:
-            args = [srt, "--settings", str(settings_path)]
+            # Commander 会继续解析位置参数中的 `-c`、`-V` 等选项。显式使用
+            # `--` 终止 srt 自身的选项解析，保证 Python、Node 等子命令参数原样传递。
+            args = [srt, "--settings", str(settings_path), "--"]
             if isinstance(command, str):
                 args.append(command)
             else:

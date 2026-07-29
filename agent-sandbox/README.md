@@ -118,6 +118,7 @@ AGENT_SANDBOX_MAX_OUTPUT_CHARS=200000
 主要接口：
 
 - `GET /health`
+- `GET /ready`，使用真实 srt 最小执行验证运行时就绪状态并短时缓存结果
 - `POST /v1/commands`
 - `POST /v1/cli`
 - `POST /v1/shell`
@@ -136,14 +137,31 @@ $ docker build -t job-buddy-sandbox:1.0.0 .
 
 ```bash
 $ docker run --rm \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --security-opt seccomp=unconfined \
+  --read-only \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=268435456 \
+  --pids-limit 256 \
+  --memory 1g \
+  --cpus 2 \
   -e AGENT_INTERNAL_SERVICE_TOKEN=replace-with-a-random-token \
+  -e AGENT_SANDBOX_ENABLE_WEAKER_NESTED_SANDBOX=true \
   -p 127.0.0.1:8061:8061 \
   job-buddy-sandbox:1.0.0
 ```
 
-生产镜像只包含运行依赖和服务源码，不复制测试目录，也不安装 `pytest`。单元测试应在源码目录使用下文命令执行；容器验证以镜像启动、`GET /health` 和受鉴权执行接口为准。
+生产镜像只包含运行依赖和服务源码，不复制测试目录，也不安装 `pytest`。服务以固定非 root 用户运行，镜像内提供 Python、Java 和 JavaScript 判题所需运行时。单元测试应在源码目录使用下文命令执行；容器验证以镜像启动、`GET /ready` 和受鉴权的三语言执行接口为准。
 
-注意：上游 `sandbox-runtime` 在 Linux 下依赖 `bubblewrap`、`socat`、`ripgrep`，Dockerfile 已内置这些依赖。部分宿主机或容器运行时可能需要额外放开 user namespace 能力，具体限制以运行环境安全策略为准。
+上游 `sandbox-runtime` 在 Linux 下依赖 `bubblewrap`、`socat`、`ripgrep`，Dockerfile 已内置这些依赖。Docker 默认 seccomp 会阻止嵌套 namespace，Compose 因此只对 Sandbox 容器使用 `seccomp=unconfined` 和上游的 weaker nested compatibility mode，同时以非 root、丢弃全部 capability、只读根文件系统、受限临时目录和资源上限提供补偿隔离。不得单独开启兼容模式，也不得改用 `privileged` 或挂载 Docker socket。
+
+Ubuntu 24.04 及更高版本若仍被 AppArmor 拒绝，应使用只授予所需 `userns` 能力的专用 profile。全局关闭 `kernel.apparmor_restrict_unprivileged_userns` 只适用于隔离的专用宿主机，不是默认方案。
+
+真实容器冒烟验证：
+
+```bash
+$ ./.agent-harness/scripts/smoke_sandbox_container.sh
+```
 
 ## 测试
 

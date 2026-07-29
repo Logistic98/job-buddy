@@ -203,7 +203,7 @@ public class ServiceHealthMonitor {
       data.put("message", "未配置服务地址");
       return data;
     }
-    String healthUrl = healthUrl(baseUrl);
+    String healthUrl = healthUrl(id, baseUrl);
     try {
       HttpURLConnection connection = (HttpURLConnection) new URL(healthUrl).openConnection();
       connection.setRequestMethod("GET");
@@ -228,12 +228,13 @@ public class ServiceHealthMonitor {
   /**
    * 获取健康状态地址。
    *
+   * @param serviceId 服务标识
    * @param baseUrl 服务基础地址
    * @return 健康状态地址
    */
-  private String healthUrl(String baseUrl) {
+  static String healthUrl(String serviceId, String baseUrl) {
     String value = baseUrl.trim();
     if (value.endsWith("/")) value = value.substring(0, value.length() - 1);
-    return value + "/health";
+    return value + ("sandbox".equals(serviceId) ? "/ready" : "/health");
   }
 }

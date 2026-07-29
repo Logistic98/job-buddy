@@ -13,6 +13,38 @@ def test_health() -> None:
     assert resp.json() == {"code": 200, "message": "success", "data": {"status": "UP", "service": "agent-sandbox"}}
 
 
+def test_ready_executes_srt_probe(fake_srt) -> None:
+    client = TestClient(create_app())
+
+    resp = client.get("/ready")
+
+    assert resp.status_code == 200
+    assert resp.json()["data"] == {
+        "status": "UP",
+        "service": "agent-sandbox",
+        "runtime": "srt",
+    }
+
+
+def test_ready_returns_503_when_srt_probe_fails() -> None:
+    calls = 0
+
+    def fail_probe() -> None:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("bwrap unavailable")
+
+    client = TestClient(create_app(readiness_probe=fail_probe))
+
+    first = client.get("/ready")
+    second = client.get("/ready")
+
+    assert first.status_code == 503
+    assert first.json()["data"]["status"] == "DOWN"
+    assert second.status_code == 503
+    assert calls == 1
+
+
 def test_python_code_endpoint(fake_srt) -> None:
     client = TestClient(create_app())
     resp = client.post(
@@ -64,6 +96,14 @@ def test_http_policy_cannot_weaken_workspace_or_network(tmp_path) -> None:
     assert config.ignoreViolations == {}
     assert config.enableWeakerNestedSandbox is False
     assert config.enableWeakerNetworkIsolation is False
+
+
+def test_deployment_can_enable_container_compatibility_mode(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_SANDBOX_ENABLE_WEAKER_NESTED_SANDBOX", "true")
+
+    config = _effective_config(None, tmp_path)
+
+    assert config.enableWeakerNestedSandbox is True
 
 
 def test_explicit_empty_write_policy_remains_read_only(tmp_path) -> None:

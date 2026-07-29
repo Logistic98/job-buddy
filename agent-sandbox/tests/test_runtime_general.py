@@ -18,6 +18,7 @@ def test_run_arbitrary_argv_command(runtime: SandboxRuntime) -> None:
     assert result.ok
     assert result.stdout.strip() == "hello command"
     assert "--settings" in result.args
+    assert result.args[3] == "--"
 
 
 def test_run_command_string(runtime: SandboxRuntime) -> None:

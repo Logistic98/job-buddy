@@ -13,6 +13,10 @@ def build_app():
     def health():
         return {"ok": True}
 
+    @app.get("/ready")
+    def ready():
+        return {"ok": True}
+
     @app.get("/private")
     def private():
         return {"ok": True}
@@ -25,6 +29,7 @@ def test_internal_token_protects_non_health_routes(monkeypatch):
     monkeypatch.setenv("JOB_BUDDY_ENVIRONMENT", "development")
     client = TestClient(build_app())
     assert client.get("/health").status_code == 200
+    assert client.get("/ready").status_code == 200
     assert client.get("/private").status_code == 401
     assert client.get("/private", headers={"X-Internal-Service-Token": "wrong"}).status_code == 401
     assert client.get("/private", headers={"X-Internal-Service-Token": "test-secret"}).status_code == 200

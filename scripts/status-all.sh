@@ -9,7 +9,7 @@ LOG_ROOT="$ROOT_DIR/.run/logs"
 
 health_url() {
   case "$1" in
-    agent-sandbox) echo "http://localhost:${SANDBOX_PORT:-8061}/health" ;;
+    agent-sandbox) echo "http://localhost:${SANDBOX_PORT:-8061}/ready" ;;
     agent-runtime) echo "http://localhost:${RUNTIME_PORT:-8010}/health" ;;
     agent-intent) echo "http://localhost:${INTENT_PORT:-8020}/health" ;;
     agent-memory) echo "http://localhost:${MEMORY_PORT:-8030}/health" ;;
