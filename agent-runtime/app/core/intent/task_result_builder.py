@@ -67,6 +67,20 @@ class TaskResultBuilder:
         for key in missing_optional:
             slot_status.setdefault(key, SlotValue(status="missing_optional", value=None, source="capability_card"))
 
+        metadata = {
+            "capability_reason": reason,
+            "capability_contract": {
+                "tool_scope": capability.tool_scope,
+                "required_tools": capability.required_tools,
+                "allowed_tools": capability.allowed_tools,
+                "evidence_requirements": capability.evidence_requirements,
+                "eval_rubric": capability.eval_rubric,
+            },
+        }
+        planner_prompt = profile.prompts.get("planner")
+        if planner_prompt:
+            metadata["planner_prompt"] = planner_prompt
+
         # 最终收敛为跨 Backend 与 Runtime 稳定传递的任务理解协议。
         return TaskUnderstandingResult(
             trace_id=trace_id,
@@ -129,16 +143,7 @@ class TaskResultBuilder:
             ),
             next_action=next_action,
             answer=answer,
-            metadata={
-                "capability_reason": reason,
-                "capability_contract": {
-                    "tool_scope": capability.tool_scope,
-                    "required_tools": capability.required_tools,
-                    "allowed_tools": capability.allowed_tools,
-                    "evidence_requirements": capability.evidence_requirements,
-                    "eval_rubric": capability.eval_rubric,
-                },
-            },
+            metadata=metadata,
         )
 
     def build_llm_unavailable(self, profile: ProfileDefinition, message: str, trace_id: str) -> TaskUnderstandingResult:

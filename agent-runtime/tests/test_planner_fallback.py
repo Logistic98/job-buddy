@@ -1,6 +1,9 @@
 import pytest
 
+from app.core.capability.models import CapabilityCard, ProfileDefinition
+from app.core.capability.registry import CapabilityRegistry
 from app.core.common.constants import StopReason
+from app.core.intent.task_result_builder import TaskResultBuilder
 from app.core.planner.planner import RuntimePlanner
 from app.core.tool.registry import ToolRegistry
 from app.models.schemas import ToolDefinition
@@ -208,3 +211,63 @@ async def test_fallback_when_no_tools_available():
     assert plan.is_complete
     assert call is None
     assert plan.stop_reason == StopReason.TOOL_UNAVAILABLE.value
+
+
+@pytest.mark.asyncio
+async def test_profile_specific_planner_prompt_reaches_runtime_planner(tmp_path):
+    class RecordingPromptLoader:
+        def __init__(self):
+            self.path = None
+
+        def load(self, path, fallback):
+            self.path = path
+            return "custom planner instructions"
+
+    class PlannerLLM:
+        def __init__(self):
+            self.messages = []
+
+        async def chat(self, messages, **kwargs):
+            self.messages = messages
+            return {"content": '{"is_complete": true, "final_answer": "custom prompt applied"}'}
+
+    capability = CapabilityCard(
+        id="custom.plan",
+        name="自定义规划能力",
+        intent="custom.plan",
+        next_action="run_runtime_planner",
+        planner_needed=True,
+    )
+    profile = ProfileDefinition(
+        id="custom",
+        name="Custom Profile",
+        prompts={"planner": "planner/custom-profile.md"},
+        capabilities=[capability],
+    )
+    task = TaskResultBuilder(CapabilityRegistry(str(tmp_path))).build(
+        profile=profile,
+        message="执行自定义规划",
+        trace_id="trace-custom",
+        capability=capability,
+        candidates=[],
+        confidence=1.0,
+        slots={},
+        router="semantic_config",
+        reason="test",
+    )
+    prompt_loader = RecordingPromptLoader()
+    llm = PlannerLLM()
+
+    plan, call = await RuntimePlanner(llm_client=llm, prompt_loader=prompt_loader).create_or_update_plan(
+        objective="执行自定义规划",
+        messages=[],
+        observations=[],
+        tools=[],
+        task_understanding=task,
+    )
+
+    assert task.metadata["planner_prompt"] == "planner/custom-profile.md"
+    assert prompt_loader.path == "planner/custom-profile.md"
+    assert llm.messages[0].content == "custom planner instructions"
+    assert plan.final_answer == "custom prompt applied"
+    assert call is None

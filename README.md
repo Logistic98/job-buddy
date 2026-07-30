@@ -2,18 +2,20 @@
 
 智能求职协同平台（JobBuddy）是一款覆盖求职全流程的本地 Agent 应用。平台将简历管理、岗位筛选、投递跟踪、面试准备和项目复盘集中到统一的 Web 工作台，并由 Agent 串联信息检索、分析判断与任务执行。
 
+- 平台详细功能介绍见：[智能求职协同平台介绍材料](https://image.imiao.top/projects/智能求职协同平台-介绍材料.pdf)
+
 ![智能求职协同平台-总体概览](assets/智能求职协同平台-总体概览.png)
 
 ## 主要能力
 
 平台能力围绕求职准备、岗位决策、过程管理和智能协作四类场景展开：
 
-| 场景       | 能力                                                        |
-| ---------- | ----------------------------------------------------------- |
-| 简历与画像 | PDF 简历库、简历撰写、求职画像、Boss 在线简历同步           |
-| 岗位与决策 | 岗位检索、条件过滤、简历匹配、推荐质量门、收藏与详情快照    |
-| 求职过程   | 求职旅程、投递记录、面试题库、代码练习、项目深挖            |
-| Agent 协作 | 对话问答、任务规划、工具调用、长期记忆、Trace 与 Checkpoint |
+| 场景       | 能力                                                                 |
+| ---------- | -------------------------------------------------------------------- |
+| 简历与画像 | PDF 简历库、简历撰写、求职画像、Boss 在线简历同步                    |
+| 岗位与决策 | 岗位检索、条件过滤、简历匹配、推荐质量门、收藏与详情快照             |
+| 求职过程   | 求职旅程、投递记录、面试题库、代码练习、项目深挖                     |
+| Agent 协作 | 对话问答、按能力契约执行、长期记忆、Trace 与 Runtime 内部 Checkpoint |
 
 ## 系统架构
 
@@ -41,8 +43,8 @@
 系统按照“请求预检、任务分流、受控执行、结果收敛”的顺序处理用户请求：
 
 - 请求预检：完成身份、权限和内容安全检查，不符合要求的请求直接拦截。
-- 任务分流：Intent 提供前置分类与路由提示，Runtime 完成执行期任务理解；确定性业务进入 Backend 工作流，开放式任务进入 Runtime Agent Loop。
-- 受控执行：Agent Loop 在上下文、权限和预算约束下循环执行、观察与验证，并通过最大轮次、工具调用次数、连续失败次数和 Token 预算限制运行边界。
+- 任务分流：Intent 提供前置分类与路由提示，Runtime 完成执行期任务理解；确定性业务进入 Backend 工作流，Runtime 托管任务再按能力契约选择状态图或直接合成路径。
+- 受控执行：声明必需工具的任务进入状态图，在上下文、权限和预算约束下执行、观察与验证；无必需工具的生成任务可走直接合成，两条路径都保留 Token 预算、Trace 与明确终态。
 - 结果收敛：任务完成、被拒绝、人工中断、执行超时或发生异常时，系统均生成明确终态，确保流式响应正常结束并保留可追踪的执行结果。
 
 执行链路如下：
@@ -54,14 +56,17 @@ graph TD
     UNDERSTAND --> ROUTE{"执行路径"}
 
     ROUTE -->|稳定业务| BUSINESS["Backend 工作流编排"]
-    ROUTE -->|开放任务| PLAN
+    ROUTE -->|Runtime 托管| CONTRACT{"能力执行契约"}
 
-    PLAN["上下文装配与计划"] --> GUARD["工具搜索、权限与预算检查"]
+    CONTRACT -->|声明必需工具| PLAN["上下文装配与计划"]
+    CONTRACT -->|无必需工具| DIRECT["上下文装配与直接合成"]
+    PLAN --> GUARD["工具搜索、权限与预算检查"]
     GUARD -->|允许| EXECUTE["执行与观察"]
     EXECUTE --> VERIFY{"目标是否满足"}
     VERIFY -->|继续| PLAN
 
     BUSINESS --> RESULT(["SSE 明确终态"])
+    DIRECT --> RESULT
     VERIFY -->|完成| RESULT
     GUARD -->|拒绝或超预算| RESULT
 
@@ -72,9 +77,9 @@ graph TD
     classDef terminal fill:#E8F7EE,stroke:#15803D,color:#14532D,stroke-width:2px;
 
     class ENTRY,PRECHECK,UNDERSTAND request;
-    class ROUTE,VERIFY decision;
+    class ROUTE,CONTRACT,VERIFY decision;
     class BUSINESS business;
-    class PLAN,GUARD,EXECUTE agent;
+    class PLAN,DIRECT,GUARD,EXECUTE agent;
     class RESULT terminal;
 ```
 
@@ -93,7 +98,7 @@ graph TD
 | [`agent-eval`](agent-eval/README.md)         |     8050 | FastAPI；Trace、运行结果、能力和 LLM Judge 评估                        |
 | [`agent-sandbox`](agent-sandbox/README.md)   |     8061 | FastAPI、`srt`；命令与代码隔离执行                                     |
 
-`agent-doc/` 保存架构与能力文档，`.agent-harness/` 提供验证、评估、质量门禁、Goal 和 Loop，`scripts/` 提供环境同步、服务启停、格式化和产物清理。
+`agent-doc/` 保存架构与能力文档，`.agent-harness/` 提供验证、评估、质量门禁、Goal 和 Loop，`scripts/` 提供环境同步、服务启停、格式化和产物清理。Workflow 当前承担声明、校验、匹配和跨服务元数据透传，业务动作仍由 Backend 执行；Checkpoint 用于 Runtime 内部状态图恢复，不等同于前端用户级一键续跑。LLM Judge、MCP、OpenTelemetry 导出和 Embedding Memory 均为可选接入能力，是否启用以部署配置和运行状态为准。
 
 ## 快速开始
 
