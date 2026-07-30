@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from app.server.app import _bounded_output, _effective_config, _safe_cwd, create_app
+from app.core.exceptions import SandboxProcessError
+from app.server.app import (
+    _bounded_output,
+    _effective_config,
+    _safe_cwd,
+    _sandbox_process_error_detail,
+    create_app,
+)
 from app.server.schemas import SandboxPolicySchema
 
 
@@ -43,6 +50,21 @@ def test_ready_returns_503_when_srt_probe_fails() -> None:
     assert first.json()["data"]["status"] == "DOWN"
     assert second.status_code == 503
     assert calls == 1
+
+
+def test_readiness_process_error_includes_bounded_srt_stderr() -> None:
+    exc = SandboxProcessError(
+        "sandbox failed",
+        returncode=1,
+        stderr="bwrap: Failed to make / slave: Permission denied" + "x" * 2000,
+    )
+
+    detail = _sandbox_process_error_detail(exc)
+
+    assert detail.startswith(
+        "srt readiness failed returncode=1 detail=bwrap: Failed to make / slave: Permission denied"
+    )
+    assert len(detail) < 1100
 
 
 def test_python_code_endpoint(fake_srt) -> None:

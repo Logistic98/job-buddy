@@ -10,6 +10,7 @@ INFRASTRUCTURE_COMPOSE = REPO_ROOT / "docker-compose-infra.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 START_ALL = REPO_ROOT / "scripts" / "start-all.sh"
 BACKEND_DOCKERFILE = REPO_ROOT / "agent-backend" / "Dockerfile"
+SANDBOX_DOCKERFILE = REPO_ROOT / "agent-sandbox" / "Dockerfile"
 
 
 class InfrastructureInitializationTest(unittest.TestCase):
@@ -70,6 +71,24 @@ class InfrastructureInitializationTest(unittest.TestCase):
         dockerfile = BACKEND_DOCKERFILE.read_text(encoding="utf-8")
 
         self.assertIn("--start-period=300s", dockerfile)
+
+    def test_sandbox_compose_is_portable_and_uses_bounded_readiness(self):
+        compose = APPLICATION_COMPOSE.read_text(encoding="utf-8")
+        dockerfile = SANDBOX_DOCKERFILE.read_text(encoding="utf-8")
+        env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
+
+        self.assertIn("apparmor=unconfined", compose)
+        self.assertNotIn("AGENT_SANDBOX_CONTAINER_APPARMOR_PROFILE", compose)
+        self.assertIn("AGENT_SANDBOX_READINESS_TIMEOUT_SECONDS", compose)
+        self.assertIn("AGENT_SANDBOX_CONTAINER_HEALTH_TIMEOUT", compose)
+        self.assertIn("--timeout=20s", dockerfile)
+        self.assertIn("--start-period=60s", dockerfile)
+        self.assertNotIn("AGENT_SANDBOX_CONTAINER_APPARMOR_PROFILE", env_example)
+        self.assertFalse(
+            (REPO_ROOT / "scripts" / "install-sandbox-apparmor.sh").exists()
+        )
+        self.assertFalse((REPO_ROOT / "agent-sandbox" / "apparmor").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

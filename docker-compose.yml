@@ -30,6 +30,8 @@ services:
       AGENT_INTERNAL_SERVICE_TOKEN: ${AGENT_INTERNAL_SERVICE_TOKEN:-}
       AGENT_SANDBOX_MAX_CONCURRENCY: ${AGENT_SANDBOX_MAX_CONCURRENCY:-4}
       AGENT_SANDBOX_MAX_OUTPUT_CHARS: ${AGENT_SANDBOX_MAX_OUTPUT_CHARS:-200000}
+      AGENT_SANDBOX_READINESS_CACHE_SECONDS: ${AGENT_SANDBOX_READINESS_CACHE_SECONDS:-30}
+      AGENT_SANDBOX_READINESS_TIMEOUT_SECONDS: ${AGENT_SANDBOX_READINESS_TIMEOUT_SECONDS:-15}
       AGENT_SANDBOX_WORKSPACE_DIR: /workspace
       AGENT_SANDBOX_ENABLE_WEAKER_NESTED_SANDBOX: ${AGENT_SANDBOX_CONTAINER_ENABLE_WEAKER_NESTED_SANDBOX:-true}
     volumes:
@@ -37,6 +39,7 @@ services:
     cap_drop:
       - ALL
     security_opt:
+      - apparmor=unconfined
       - no-new-privileges:true
       - seccomp=unconfined
     read_only: true
@@ -45,6 +48,16 @@ services:
     pids_limit: ${AGENT_SANDBOX_CONTAINER_PIDS_LIMIT:-256}
     mem_limit: ${AGENT_SANDBOX_CONTAINER_MEMORY_LIMIT:-1g}
     cpus: ${AGENT_SANDBOX_CONTAINER_CPU_LIMIT:-1}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8061/ready', timeout=18)
+      interval: ${AGENT_SANDBOX_CONTAINER_HEALTH_INTERVAL:-30s}
+      timeout: ${AGENT_SANDBOX_CONTAINER_HEALTH_TIMEOUT:-20s}
+      start_period: ${AGENT_SANDBOX_CONTAINER_HEALTH_START_PERIOD:-60s}
+      retries: ${AGENT_SANDBOX_CONTAINER_HEALTH_RETRIES:-5}
     expose:
       - "8061"
 

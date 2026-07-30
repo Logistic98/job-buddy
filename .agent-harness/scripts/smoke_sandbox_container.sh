@@ -7,6 +7,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 IMAGE_TAG="${SANDBOX_SMOKE_IMAGE_TAG:-job-buddy-sandbox-smoke:verification}"
 CONTAINER_NAME="job-buddy-sandbox-smoke-$$"
 INTERNAL_TOKEN="job-buddy-sandbox-smoke-token"
+CPU_LIMIT="${SANDBOX_SMOKE_CPU_LIMIT:-1}"
 
 cleanup() {
   local status=$?
@@ -42,7 +43,7 @@ docker run --detach \
   --tmpfs /tmp:rw,noexec,nosuid,nodev,size=268435456 \
   --pids-limit 256 \
   --memory 1g \
-  --cpus 2 \
+  --cpus "$CPU_LIMIT" \
   -e HOST=0.0.0.0 \
   -e JOB_BUDDY_ENVIRONMENT=development \
   -e AGENT_INTERNAL_SERVICE_TOKEN="$INTERNAL_TOKEN" \

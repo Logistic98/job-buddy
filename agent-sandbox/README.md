@@ -140,11 +140,12 @@ $ docker run --rm \
   --cap-drop ALL \
   --security-opt no-new-privileges \
   --security-opt seccomp=unconfined \
+  --security-opt apparmor=unconfined \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,nodev,size=268435456 \
   --pids-limit 256 \
   --memory 1g \
-  --cpus 2 \
+  --cpus 1 \
   -e AGENT_INTERNAL_SERVICE_TOKEN=replace-with-a-random-token \
   -e AGENT_SANDBOX_ENABLE_WEAKER_NESTED_SANDBOX=true \
   -p 127.0.0.1:8061:8061 \
@@ -153,9 +154,7 @@ $ docker run --rm \
 
 生产镜像只包含运行依赖和服务源码，不复制测试目录，也不安装 `pytest`。服务以固定非 root 用户运行，镜像内提供 Python、Java 和 JavaScript 判题所需运行时。单元测试应在源码目录使用下文命令执行；容器验证以镜像启动、`GET /ready` 和受鉴权的三语言执行接口为准。
 
-上游 `sandbox-runtime` 在 Linux 下依赖 `bubblewrap`、`socat`、`ripgrep`，Dockerfile 已内置这些依赖。Docker 默认 seccomp 会阻止嵌套 namespace，Compose 因此只对 Sandbox 容器使用 `seccomp=unconfined` 和上游的 weaker nested compatibility mode，同时以非 root、丢弃全部 capability、只读根文件系统、受限临时目录和资源上限提供补偿隔离。不得单独开启兼容模式，也不得改用 `privileged` 或挂载 Docker socket。
-
-Ubuntu 24.04 及更高版本若仍被 AppArmor 拒绝，应使用只授予所需 `userns` 能力的专用 profile。全局关闭 `kernel.apparmor_restrict_unprivileged_userns` 只适用于隔离的专用宿主机，不是默认方案。
+上游 `sandbox-runtime` 在 Linux 下依赖 `bubblewrap`、`socat`、`ripgrep`，Dockerfile 已内置这些依赖。Docker 默认 seccomp 和 `docker-default` AppArmor profile 会阻止嵌套 namespace 与 mount propagation，因此 Compose 只对 Sandbox 容器使用 `seccomp=unconfined`、`apparmor=unconfined` 和上游的 weaker nested compatibility mode，避免 macOS 与 Linux 宿主机额外安装安全策略。该设置不关闭宿主机全局 AppArmor，也不影响其他容器；Sandbox 继续以非 root、丢弃全部 capability、`no-new-privileges`、只读根文件系统、受限临时目录和资源上限提供外层隔离。不得单独开启兼容模式，也不得改用 `privileged`、添加 `CAP_SYS_ADMIN` 或挂载 Docker socket。
 
 真实容器冒烟验证：
 

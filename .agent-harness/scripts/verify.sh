@@ -219,6 +219,8 @@ run_deployment_config_check() {
   need_cmd awk "Environment configuration verification"
   sh -n scripts/sync-env.sh \
     || fail "Environment synchronization script syntax check failed"
+  bash -n scripts/diagnose-sandbox.sh \
+    || fail "Sandbox diagnostic script syntax check failed"
   if [[ -f .env ]]; then
     scripts/sync-env.sh || fail ".env and .env.example keys differ"
   fi

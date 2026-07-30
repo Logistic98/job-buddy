@@ -34,7 +34,7 @@ COPY --from=build /app/.venv ./.venv
 COPY app ./app
 COPY server.py ./
 EXPOSE 8061
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8061/ready', timeout=3)"]
+HEALTHCHECK --interval=30s --timeout=20s --start-period=60s --retries=5 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8061/ready', timeout=18)"]
 USER sandbox:sandbox
 CMD ["python", "server.py"]

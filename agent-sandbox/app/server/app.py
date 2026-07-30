@@ -36,7 +36,7 @@ _MAX_OUTPUT_CHARS = max(1024, int(os.getenv("AGENT_SANDBOX_MAX_OUTPUT_CHARS", "2
 _EXECUTION_SLOTS = threading.BoundedSemaphore(_MAX_CONCURRENCY)
 _ALLOWED_ENV_KEYS = {"LANG", "LC_ALL", "LC_CTYPE"}
 _READINESS_CACHE_SECONDS = max(1.0, float(os.getenv("AGENT_SANDBOX_READINESS_CACHE_SECONDS", "30")))
-_READINESS_TIMEOUT_SECONDS = max(1.0, min(30.0, float(os.getenv("AGENT_SANDBOX_READINESS_TIMEOUT_SECONDS", "5"))))
+_READINESS_TIMEOUT_SECONDS = max(1.0, min(30.0, float(os.getenv("AGENT_SANDBOX_READINESS_TIMEOUT_SECONDS", "15"))))
 _WEAKER_NESTED_SANDBOX_ENV = "AGENT_SANDBOX_ENABLE_WEAKER_NESTED_SANDBOX"
 
 
@@ -179,19 +179,29 @@ def _probe_sandbox_runtime() -> None:
 
     workspace = Path(tempfile.mkdtemp(prefix="job-buddy-sandbox-ready-")).resolve()
     try:
-        result = SandboxClient(
-            _effective_config(None, workspace),
-            cwd=workspace,
-            default_timeout=_READINESS_TIMEOUT_SECONDS,
-        ).command(
-            ["/bin/sh", "-c", "printf '%s\\n' sandbox-ready"],
-            timeout=_READINESS_TIMEOUT_SECONDS,
-            check=True,
-        )
+        try:
+            result = SandboxClient(
+                _effective_config(None, workspace),
+                cwd=workspace,
+                default_timeout=_READINESS_TIMEOUT_SECONDS,
+            ).command(
+                ["/bin/sh", "-c", "printf '%s\\n' sandbox-ready"],
+                timeout=_READINESS_TIMEOUT_SECONDS,
+                check=True,
+            )
+        except SandboxProcessError as exc:
+            raise RuntimeError(_sandbox_process_error_detail(exc)) from exc
         if result.stdout.strip() != "sandbox-ready":
             raise RuntimeError("srt readiness command returned unexpected output")
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
+
+
+def _sandbox_process_error_detail(exc: SandboxProcessError) -> str:
+    """保留有界 stderr，确保容器健康日志可以定位 bwrap 与 namespace 拒绝。"""
+
+    detail = (exc.stderr or exc.stdout or str(exc)).strip().replace("\x00", "")
+    return f"srt readiness failed returncode={exc.returncode} detail={detail[:1000]}"
 
 
 @dataclass
