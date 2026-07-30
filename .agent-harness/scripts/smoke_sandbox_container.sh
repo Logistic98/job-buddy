@@ -35,6 +35,7 @@ docker info >/dev/null 2>&1 || {
 docker build --progress=plain -t "$IMAGE_TAG" "$ROOT_DIR/agent-sandbox"
 docker run --detach \
   --name "$CONTAINER_NAME" \
+  --init \
   --cap-drop ALL \
   --security-opt no-new-privileges \
   --security-opt seccomp=unconfined \
@@ -59,6 +60,7 @@ fi
 docker exec -i "$CONTAINER_NAME" python - <<'PY'
 import json
 import os
+import pathlib
 import time
 import urllib.error
 import urllib.request
@@ -94,6 +96,8 @@ while time.monotonic() < deadline:
 else:
     raise AssertionError(f"Sandbox readiness did not pass: {last_ready}")
 
+baseline_pids = int(pathlib.Path("/sys/fs/cgroup/pids.current").read_text().strip())
+
 toolchain_command = r"""
 set -eu
 python3 -c "import os; assert 'AGENT_INTERNAL_SERVICE_TOKEN' not in os.environ; print('python=42')"
@@ -127,6 +131,47 @@ for command in blocked_commands:
         },
     )
     assert status == 422, (command, status, body)
+
+status, body = request(
+    "/v1/shell",
+    {
+        "command": "sleep 30",
+        "options": {"timeout": 1, "check": True},
+    },
+)
+assert status == 504, (status, body)
+assert "timed out" in str(body).lower(), body
+
+deadline = time.monotonic() + 3
+while True:
+    zombies = []
+    leaked_processes = []
+    for entry in pathlib.Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / "stat").read_text().split()
+            command = (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+        except (FileNotFoundError, PermissionError, ProcessLookupError):
+            continue
+        if len(fields) > 2 and fields[2] == "Z":
+            zombies.append(entry.name)
+        if any(name in command for name in ("srt", "bwrap", "socat", "sleep 30")):
+            leaked_processes.append((entry.name, command[:200]))
+    current_pids = int(pathlib.Path("/sys/fs/cgroup/pids.current").read_text().strip())
+    if (
+        not zombies
+        and not leaked_processes
+        and current_pids <= baseline_pids + 2
+    ) or time.monotonic() >= deadline:
+        break
+    time.sleep(0.05)
+assert not zombies, f"Sandbox container leaked zombie processes: {zombies}"
+assert not leaked_processes, f"Sandbox container leaked live processes: {leaked_processes}"
+assert current_pids <= baseline_pids + 2, (
+    f"Sandbox container PID usage did not return to baseline: "
+    f"before={baseline_pids} after={current_pids}"
+)
 
 print("Sandbox container smoke verification passed")
 PY

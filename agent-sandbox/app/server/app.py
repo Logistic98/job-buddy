@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -248,9 +249,19 @@ def _execute(op: str, runner: Callable[[], SandboxResult]) -> SandboxResponse:
     except SandboxCommandNotFoundError as exc:
         bound.error(f"沙箱可执行文件缺失 error={exc}")
         raise HTTPException(status_code=500, detail={"request_id": request_id, "message": str(exc)}) from exc
+    except subprocess.TimeoutExpired as exc:
+        duration_ms = round((time.monotonic() - started) * 1000, 2)
+        bound.warning(f"沙箱执行超时 duration_ms={duration_ms}")
+        raise HTTPException(
+            status_code=504,
+            detail={"request_id": request_id, "message": "sandbox execution timed out"},
+        ) from exc
     except Exception as exc:  # noqa: BLE001 统一兜底，避免裸 500 traceback 泄漏到调用方
-        bound.exception(f"沙箱执行异常 error={exc}")
-        raise HTTPException(status_code=500, detail={"request_id": request_id, "message": str(exc)}) from exc
+        bound.exception(f"沙箱执行异常 error_type={type(exc).__name__}")
+        raise HTTPException(
+            status_code=500,
+            detail={"request_id": request_id, "message": "sandbox execution failed"},
+        ) from exc
     duration_ms = round((time.monotonic() - started) * 1000, 2)
     bound.info(f"沙箱执行完成 returncode={result.returncode} ok={result.ok} duration_ms={duration_ms}")
     return _response(result)
@@ -275,6 +286,7 @@ def _prepare_execution(policy, options) -> PreparedExecution:
 def _effective_config(policy, workspace: str | Path) -> SandboxRuntimeConfig:
     workspace_path = Path(workspace).expanduser().resolve()
     base = SandboxPolicies.workspace_readwrite(workspace_path)
+    base.filesystem.allowRead = _dedupe([*base.filesystem.allowRead, *_trusted_runtime_read_paths()])
     base.enableWeakerNestedSandbox = _weaker_nested_sandbox_enabled()
     if policy is None:
         return base
@@ -310,6 +322,20 @@ def _weaker_nested_sandbox_enabled() -> bool:
     """只接受可信部署环境开关，HTTP policy 不能启用兼容模式。"""
 
     return os.getenv(_WEAKER_NESTED_SANDBOX_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _trusted_runtime_read_paths() -> list[str]:
+    """只放行部署环境中可验证的 Java Runtime 根目录，不接受 HTTP 请求扩权。"""
+
+    java_home = os.getenv("JAVA_HOME", "").strip()
+    if not java_home:
+        return []
+    java_home_path = Path(java_home).expanduser().resolve()
+    if java_home_path == Path(java_home_path.anchor):
+        return []
+    if not (java_home_path / "bin" / "java").is_file():
+        return []
+    return [str(java_home_path)]
 
 
 def _execution_options(options) -> ExecutionOptions:
@@ -356,17 +382,15 @@ def _safe_cwd(raw_cwd) -> tuple[Path, Callable[[], None]]:
 
 
 def _is_allowed_cwd(path: Path) -> bool:
-    roots = [Path(tempfile.gettempdir()), Path("/tmp"), Path("/private/tmp"), Path("/var/tmp")]
     configured_workspace = os.getenv("AGENT_SANDBOX_WORKSPACE_DIR", "").strip()
-    if configured_workspace:
-        roots.append(Path(configured_workspace))
-    for root in roots:
-        try:
-            path.relative_to(root.expanduser().resolve())
-            return True
-        except ValueError:
-            continue
-    return False
+    if not configured_workspace:
+        return False
+
+    try:
+        path.relative_to(Path(configured_workspace).expanduser().resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def _narrow_allowed_domains(base_values: list[str], requested_values: list[str]) -> list[str]:

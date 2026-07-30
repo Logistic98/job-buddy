@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import tempfile
+
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.core.exceptions import SandboxProcessError
 from app.server.app import (
     _bounded_output,
     _effective_config,
+    _execute,
     _safe_cwd,
     _sandbox_process_error_detail,
     create_app,
@@ -88,7 +93,8 @@ def test_command_requires_exactly_one_command_shape() -> None:
     assert resp.status_code == 400
 
 
-def test_http_policy_cannot_weaken_workspace_or_network(tmp_path) -> None:
+def test_http_policy_cannot_weaken_workspace_or_network(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("JAVA_HOME", raising=False)
     policy = SandboxPolicySchema(
         network={
             "allowedDomains": ["example.com"],
@@ -128,6 +134,18 @@ def test_deployment_can_enable_container_compatibility_mode(tmp_path, monkeypatc
     assert config.enableWeakerNestedSandbox is True
 
 
+def test_java_home_is_a_trusted_runtime_read_path(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    java_home = tmp_path / "jdk"
+    (java_home / "bin").mkdir(parents=True)
+    (java_home / "bin" / "java").write_text("", encoding="utf-8")
+    monkeypatch.setenv("JAVA_HOME", str(java_home))
+
+    config = _effective_config(None, workspace)
+
+    assert str(java_home.resolve()) in config.filesystem.allowRead
+
+
 def test_explicit_empty_write_policy_remains_read_only(tmp_path) -> None:
     policy = SandboxPolicySchema(
         filesystem={
@@ -151,6 +169,20 @@ def test_configured_workspace_is_an_allowed_cwd(tmp_path, monkeypatch) -> None:
         assert resolved == workspace.resolve()
     finally:
         cleanup()
+
+
+def test_shared_system_temp_root_is_not_an_allowed_cwd() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        _safe_cwd(tempfile.gettempdir())
+
+    assert exc_info.value.status_code == 400
+
+
+def test_arbitrary_shared_temp_child_is_not_an_allowed_cwd(tmp_path) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        _safe_cwd(tmp_path / "caller-selected")
+
+    assert exc_info.value.status_code == 400
 
 
 def test_request_cannot_inject_process_environment(fake_srt) -> None:
@@ -177,6 +209,15 @@ def test_output_is_bounded(monkeypatch) -> None:
     output = _bounded_output("x" * 2048)
     assert len(output) < 1100
     assert output.endswith("[OUTPUT_TRUNCATED]")
+
+
+def test_unexpected_execution_error_does_not_expose_exception_message() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        _execute("code_file", lambda: (_ for _ in ()).throw(RuntimeError("secret-source-marker")))
+
+    assert exc_info.value.status_code == 500
+    assert exc_info.value.detail["message"] == "sandbox execution failed"
+    assert "secret-source-marker" not in str(exc_info.value.detail)
 
 
 def test_server_does_not_inherit_host_environment(fake_srt, monkeypatch) -> None:

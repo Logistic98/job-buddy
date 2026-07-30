@@ -114,6 +114,9 @@ class InterviewCodeRunnerTest {
             eq("http://sandbox.local:8000/v1/code-file"), bodyCaptor.capture(), eq(Map.class));
     String orchestrator = String.valueOf(bodyCaptor.getValue().get("code"));
     String javaRunner = decodeEmbeddedCode(orchestrator, "RUNNER_B64");
+    assertTrue(
+        orchestrator.contains(
+            "[\"javac\", \"-encoding\", \"UTF-8\", \"Solution.java\", \"Runner.java\"]"));
     assertTrue(javaRunner.contains("public class Runner {\n"));
     assertTrue(javaRunner.contains("method.getName().equals(\"sum\")"));
     assertFalse(javaRunner.contains("__FUNCTION_NAME__"));

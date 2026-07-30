@@ -7,9 +7,11 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Mapping, Sequence
 
@@ -30,6 +32,7 @@ class SandboxRuntime:
         env: Mapping[str, str] | None = None,
         keep_settings_file: bool = False,
         max_output_bytes: int | None = None,
+        max_process_output_bytes: int | None = None,
     ) -> None:
         self.config = (
             config
@@ -47,6 +50,16 @@ class SandboxRuntime:
             except ValueError:
                 configured_max = 1024 * 1024
         self.max_output_bytes = max(4096, min(configured_max, 16 * 1024 * 1024))
+        configured_process_max = max_process_output_bytes
+        if configured_process_max is None:
+            try:
+                configured_process_max = int(os.getenv("AGENT_SANDBOX_MAX_PROCESS_OUTPUT_BYTES", str(16 * 1024 * 1024)))
+            except ValueError:
+                configured_process_max = 16 * 1024 * 1024
+        self.max_process_output_bytes = max(
+            self.max_output_bytes,
+            min(configured_process_max, 64 * 1024 * 1024),
+        )
 
     def ensure_available(self) -> str:
         resolved = shutil.which(self.srt_bin)
@@ -85,14 +98,25 @@ class SandboxRuntime:
             # stdout/stderr 直接落临时文件，避免不可信进程的大输出被 capture_output
             # 无界聚合到 Python 堆内存。进程结束后只读取配置允许的最大字节数。
             with tempfile.TemporaryFile(mode="w+b") as stdout_file, tempfile.TemporaryFile(mode="w+b") as stderr_file:
-                proc = subprocess.run(
+                proc = subprocess.Popen(
                     args,
                     cwd=str(Path(cwd).resolve()) if cwd else (str(self.cwd) if self.cwd else None),
                     env=merged_env,
                     stdout=stdout_file,
                     stderr=stderr_file,
-                    timeout=timeout,
+                    start_new_session=True,
                 )
+                try:
+                    self._wait_with_limits(
+                        proc,
+                        stdout_file=stdout_file,
+                        stderr_file=stderr_file,
+                        timeout=timeout,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise subprocess.TimeoutExpired(["sandbox-runtime"], exc.timeout) from None
+                finally:
+                    _terminate_process_group(proc)
                 result = SandboxResult(
                     args=args,
                     returncode=proc.returncode,
@@ -114,9 +138,47 @@ class SandboxRuntime:
                 except OSError:
                     pass
 
+    def _wait_with_limits(self, proc, *, stdout_file, stderr_file, timeout: float | None) -> None:
+        started = time.monotonic()
+        while proc.poll() is None:
+            total_output_bytes = self._stream_size(stdout_file) + self._stream_size(stderr_file)
+            if total_output_bytes > self.max_process_output_bytes:
+                _terminate_process_group(proc)
+                raise SandboxProcessError(
+                    "沙箱输出超过限制",
+                    returncode=proc.returncode if proc.returncode is not None else -9,
+                    stdout=self._read_limited_output(stdout_file, text=True),
+                    stderr=self._read_limited_output(stderr_file, text=True),
+                )
+            if timeout is not None:
+                elapsed = time.monotonic() - started
+                if elapsed >= timeout:
+                    raise subprocess.TimeoutExpired(["sandbox-runtime"], timeout)
+                wait_seconds = min(0.05, max(0.001, timeout - elapsed))
+            else:
+                wait_seconds = 0.05
+            try:
+                proc.wait(timeout=wait_seconds)
+            except subprocess.TimeoutExpired:
+                continue
+
+        total_output_bytes = self._stream_size(stdout_file) + self._stream_size(stderr_file)
+        if total_output_bytes > self.max_process_output_bytes:
+            raise SandboxProcessError(
+                "沙箱输出超过限制",
+                returncode=proc.returncode if proc.returncode is not None else -9,
+                stdout=self._read_limited_output(stdout_file, text=True),
+                stderr=self._read_limited_output(stderr_file, text=True),
+            )
+
+    @staticmethod
+    def _stream_size(stream) -> int:
+        stream.flush()
+        return os.fstat(stream.fileno()).st_size
+
     def _read_limited_output(self, stream, *, text: bool) -> str:
         stream.flush()
-        size = stream.tell()
+        size = self._stream_size(stream)
         stream.seek(0)
         data = stream.read(self.max_output_bytes)
         output = data.decode("utf-8", errors="replace")
@@ -217,4 +279,68 @@ class SandboxRuntime:
             value = os.environ.get(key)
             if value:
                 env[key] = value
+        java_home = os.environ.get("JAVA_HOME")
+        if java_home:
+            env["JAVA_HOME"] = java_home
         return env
+
+
+def _terminate_process_group(proc: subprocess.Popen) -> None:
+    """终止并回收整组 srt 进程，覆盖超时和 CLI 提前退出后的残留孙进程。"""
+
+    if os.name != "posix":
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        return
+
+    process_group_id = proc.pid
+    grace_seconds = _termination_grace_seconds()
+    try:
+        os.killpg(process_group_id, signal.SIGTERM)
+    except ProcessLookupError:
+        if proc.poll() is None:
+            proc.wait()
+        return
+
+    try:
+        proc.wait(timeout=grace_seconds)
+    except subprocess.TimeoutExpired:
+        pass
+
+    deadline = time.monotonic() + grace_seconds
+    while time.monotonic() < deadline:
+        if not _process_group_exists(process_group_id):
+            break
+        time.sleep(0.01)
+
+    if _process_group_exists(process_group_id):
+        try:
+            os.killpg(process_group_id, signal.SIGKILL)
+        except (PermissionError, ProcessLookupError):
+            pass
+
+    if proc.poll() is None:
+        try:
+            proc.wait(timeout=grace_seconds)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
+def _process_group_exists(process_group_id: int) -> bool:
+    try:
+        os.killpg(process_group_id, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _termination_grace_seconds() -> float:
+    try:
+        configured = float(os.getenv("AGENT_SANDBOX_PROCESS_TERMINATION_GRACE_SECONDS", "0.5"))
+    except ValueError:
+        configured = 0.5
+    return max(0.05, min(2.0, configured))

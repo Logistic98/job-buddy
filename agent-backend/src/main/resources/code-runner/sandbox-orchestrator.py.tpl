@@ -97,7 +97,7 @@ try:
             write(os.path.join(workspace, "Solution.java"), CODE)
             write(os.path.join(workspace, "Runner.java"), RUNNER)
             compile_process = subprocess.run(
-                ["javac", "Solution.java", "Runner.java"],
+                ["javac", "-encoding", "UTF-8", "Solution.java", "Runner.java"],
                 cwd=workspace,
                 capture_output=True,
                 text=True,

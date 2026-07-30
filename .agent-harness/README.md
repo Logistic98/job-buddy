@@ -41,7 +41,7 @@ $ ./.agent-harness/scripts/smoke_sandbox_container.sh
 
 `--quick` 对 Java 使用 `test` 而不是 `verify`。Python 和前端仍执行完整的格式、测试与构建命令，避免“快速模式”变成跳过质量检查。
 
-Sandbox 的普通模块测试使用 fake srt，负责快速验证协议、参数和策略收窄；`smoke_sandbox_container.sh` 负责构建真实 Linux 镜像，以与 Compose 相同的非 root、无 capability、只读根文件系统和 namespace 兼容边界验证 `/ready`、Python、Java、JavaScript 以及文件、网络、Unix socket 隔离。为避免 macOS Docker 虚拟机与不同 Linux 发行版依赖宿主机预装自定义 profile，Sandbox 容器固定使用 `apparmor=unconfined`；该设置仅作用于此容器，其他容器和宿主机全局 AppArmor 不受影响。不得启用 privileged、添加 `CAP_SYS_ADMIN` 或挂载 Docker socket。
+Sandbox 的普通模块测试使用 fake srt，负责快速验证协议、参数和策略收窄；`smoke_sandbox_container.sh` 负责构建真实 Linux 镜像，以与 Compose 相同的轻量 PID 1 init、非 root、无 capability、只读根文件系统和 namespace 兼容边界验证 `/ready`、Python、Java、JavaScript、文件、网络、Unix socket 隔离以及子进程退出后无 zombie 泄漏。轻量 init 只负责回收 `srt` 遗留的孙进程，不扩大容器权限。为避免 macOS Docker 虚拟机与不同 Linux 发行版依赖宿主机预装自定义 profile，Sandbox 容器固定使用 `apparmor=unconfined`；该设置仅作用于此容器，其他容器和宿主机全局 AppArmor 不受影响。不得启用 privileged、添加 `CAP_SYS_ADMIN` 或挂载 Docker socket。
 
 本地服务启停测试覆盖端口监听者归属、未记录仓库进程清理、外部进程保护、PID 复用、停止后的端口释放、就绪监听与受管进程树一致性，以及启动失败后的回滚边界。前端启动固定使用 `strictPort`，避免端口冲突被 Vite 静默转换为其他端口。
 

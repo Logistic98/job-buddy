@@ -106,10 +106,11 @@ AGENT_INTERNAL_SERVICE_TOKEN=replace-with-a-random-token HOST=0.0.0.0 PORT=8061 
 
 `production` / `prod` 环境即使绑定回环地址也必须配置该令牌。配置后除 `/health` 外的接口都要求 `X-Internal-Service-Token`。
 
-底层 Runtime 将 stdout/stderr 写入临时文件并按字节上限读取，避免不可信代码通过大输出耗尽内存；HTTP 层再按字符上限截断响应。两层限制分别配置：
+底层 Runtime 将 stdout/stderr 写入临时文件，执行期间持续检查总输出字节数并在超限时终止整个进程组；进程完成后只读取有界内容，HTTP 层再按字符上限截断响应。三层限制分别配置：
 
 ```bash
 AGENT_SANDBOX_MAX_CAPTURE_BYTES=1048576
+AGENT_SANDBOX_MAX_PROCESS_OUTPUT_BYTES=16777216
 AGENT_SANDBOX_MAX_OUTPUT_CHARS=200000
 ```
 
@@ -137,6 +138,7 @@ $ docker build -t job-buddy-sandbox:1.0.0 .
 
 ```bash
 $ docker run --rm \
+  --init \
   --cap-drop ALL \
   --security-opt no-new-privileges \
   --security-opt seccomp=unconfined \
@@ -152,7 +154,9 @@ $ docker run --rm \
   job-buddy-sandbox:1.0.0
 ```
 
-生产镜像只包含运行依赖和服务源码，不复制测试目录，也不安装 `pytest`。服务以固定非 root 用户运行，镜像内提供 Python、Java 和 JavaScript 判题所需运行时。单元测试应在源码目录使用下文命令执行；容器验证以镜像启动、`GET /ready` 和受鉴权的三语言执行接口为准。
+生产镜像只包含运行依赖和服务源码，不复制测试目录，也不安装 `pytest`。容器必须启用轻量 init 作为 PID 1，负责回收 `srt` 退出后被重新收养的 `socat`、`bwrap` 等孙进程，避免 zombie 持续占用 `pids_limit`。每次执行还会使用独立进程组，并在正常结束、异常或超时时统一终止残留进程树；SIGTERM 宽限时间由 `AGENT_SANDBOX_PROCESS_TERMINATION_GRACE_SECONDS` 配置，之后升级为 SIGKILL。服务仍以固定非 root 用户运行，镜像内提供 Python、Java 和 JavaScript 判题所需运行时。单元测试应在源码目录使用下文命令执行；容器验证以镜像启动、`GET /ready`、受鉴权的三语言执行接口和无 zombie/活进程泄漏为准。
+
+macOS 原生启动时，`scripts/start.sh` 会在未显式配置 `JAVA_HOME` 时通过 `/usr/libexec/java_home` 发现本机 JDK。Sandbox 只把经 `bin/java` 验证的 JDK 根目录加入可信只读运行时路径，并向子进程透传非敏感的 `JAVA_HOME`；HTTP policy 不能借此放宽其他文件系统路径。没有安装 JDK 时，Python 与 JavaScript 仍可运行，但 Java 判题会明确失败。
 
 上游 `sandbox-runtime` 在 Linux 下依赖 `bubblewrap`、`socat`、`ripgrep`，Dockerfile 已内置这些依赖。Docker 默认 seccomp 和 `docker-default` AppArmor profile 会阻止嵌套 namespace 与 mount propagation，因此 Compose 只对 Sandbox 容器使用 `seccomp=unconfined`、`apparmor=unconfined` 和上游的 weaker nested compatibility mode，避免 macOS 与 Linux 宿主机额外安装安全策略。该设置不关闭宿主机全局 AppArmor，也不影响其他容器；Sandbox 继续以非 root、丢弃全部 capability、`no-new-privileges`、只读根文件系统、受限临时目录和资源上限提供外层隔离。不得单独开启兼容模式，也不得改用 `privileged`、添加 `CAP_SYS_ADMIN` 或挂载 Docker socket。
 

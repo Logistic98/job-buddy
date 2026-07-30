@@ -82,7 +82,7 @@ print_value "container" "$CONTAINER_NAME"
 docker inspect "$CONTAINER_ID" --format \
   'image={{.Config.Image}} status={{.State.Status}} running={{.State.Running}} restarting={{.State.Restarting}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} exit={{.State.ExitCode}} oom_killed={{.State.OOMKilled}} error={{printf "%q" .State.Error}}'
 docker inspect "$CONTAINER_ID" --format \
-  'user={{.Config.User}} apparmor={{printf "%q" .AppArmorProfile}} readonly_rootfs={{.HostConfig.ReadonlyRootfs}} pids_limit={{.HostConfig.PidsLimit}} nano_cpus={{.HostConfig.NanoCpus}} memory_limit={{.HostConfig.Memory}} security_opt={{json .HostConfig.SecurityOpt}}'
+  'user={{.Config.User}} init={{.HostConfig.Init}} apparmor={{printf "%q" .AppArmorProfile}} readonly_rootfs={{.HostConfig.ReadonlyRootfs}} pids_limit={{.HostConfig.PidsLimit}} nano_cpus={{.HostConfig.NanoCpus}} memory_limit={{.HostConfig.Memory}} security_opt={{json .HostConfig.SecurityOpt}}'
 docker inspect "$CONTAINER_ID" --format \
   'health_test={{json .Config.Healthcheck.Test}} interval_ns={{.Config.Healthcheck.Interval}} timeout_ns={{.Config.Healthcheck.Timeout}} start_period_ns={{.Config.Healthcheck.StartPeriod}} retries={{.Config.Healthcheck.Retries}}'
 
@@ -90,13 +90,79 @@ section "容器资源快照"
 docker stats --no-stream --format \
   'name={{.Name}} cpu={{.CPUPerc}} memory={{.MemUsage}} memory_percent={{.MemPerc}} pids={{.PIDs}}' \
   "$CONTAINER_ID" 2>&1 || true
-docker exec "$CONTAINER_ID" sh -c '
+RESOURCE_SNAPSHOT="$(
+  docker exec "$CONTAINER_ID" sh -c '
   printf "cpu.max="; cat /sys/fs/cgroup/cpu.max 2>/dev/null || printf "unavailable\n"
+  printf "memory.current="; cat /sys/fs/cgroup/memory.current 2>/dev/null || printf "unavailable\n"
   printf "memory.max="; cat /sys/fs/cgroup/memory.max 2>/dev/null || printf "unavailable\n"
+  printf "memory.events\n"; cat /sys/fs/cgroup/memory.events 2>/dev/null || printf "unavailable\n"
   printf "pids.current="; cat /sys/fs/cgroup/pids.current 2>/dev/null || printf "unavailable\n"
   printf "pids.max="; cat /sys/fs/cgroup/pids.max 2>/dev/null || printf "unavailable\n"
+  printf "pids.events\n"; cat /sys/fs/cgroup/pids.events 2>/dev/null || printf "unavailable\n"
+  printf "pids.events.max="; awk '\''$1 == "max" {print $2}'\'' /sys/fs/cgroup/pids.events 2>/dev/null || printf "unavailable\n"
   cat /proc/pressure/cpu 2>/dev/null || true
 ' 2>&1 || true
+)"
+printf '%s\n' "$RESOURCE_SNAPSHOT"
+
+PROCESS_SNAPSHOT="$(
+  docker exec -i "$CONTAINER_ID" python - <<'PY' 2>&1 || true
+from pathlib import Path
+
+processes = []
+for entry in Path("/proc").iterdir():
+    if not entry.name.isdigit():
+        continue
+    try:
+        stat = (entry / "stat").read_text().split()
+        status = (entry / "status").read_text().splitlines()
+    except (FileNotFoundError, PermissionError, ProcessLookupError):
+        continue
+    threads = next(
+        (line.split(":", 1)[1].strip() for line in status if line.startswith("Threads:")),
+        "?",
+    )
+    processes.append(
+        {
+            "pid": int(entry.name),
+            "ppid": stat[3],
+            "state": stat[2],
+            "threads": threads,
+            "comm": stat[1].strip("()"),
+        }
+    )
+
+zombies = [process for process in processes if process["state"] == "Z"]
+total_threads = sum(
+    int(process["threads"])
+    for process in processes
+    if str(process["threads"]).isdigit()
+)
+print(
+    f"process_count={len(processes)} total_thread_count={total_threads} "
+    f"zombie_count={len(zombies)}"
+)
+for process in sorted(
+    processes,
+    key=lambda item: int(item["threads"]) if str(item["threads"]).isdigit() else -1,
+    reverse=True,
+)[:10]:
+    print(
+        "thread_top "
+        f"pid={process['pid']} ppid={process['ppid']} state={process['state']} "
+        f"threads={process['threads']} comm={process['comm']}"
+    )
+for process in zombies[:40]:
+    print(
+        "zombie "
+        f"pid={process['pid']} ppid={process['ppid']} "
+        f"threads={process['threads']} comm={process['comm']}"
+    )
+if len(zombies) > 40:
+    print(f"zombie_truncated={len(zombies) - 40}")
+PY
+)"
+printf '%s\n' "$PROCESS_SNAPSHOT"
 
 section "Sandbox 非敏感运行参数"
 docker exec -i "$CONTAINER_ID" python - <<'PY' 2>&1 || true
@@ -227,8 +293,9 @@ else
 fi
 
 section "自动判断"
-DIAGNOSIS_SOURCE="$SRT_PROBE_OUTPUT"$'\n'"$SANDBOX_LOGS"$'\n'"$KERNEL_CLUES"
+DIAGNOSIS_SOURCE="$SRT_PROBE_OUTPUT"$'\n'"$SANDBOX_LOGS"$'\n'"$KERNEL_CLUES"$'\n'"$RESOURCE_SNAPSHOT"$'\n'"$PROCESS_SNAPSHOT"
 OOM_KILLED="$(docker inspect "$CONTAINER_ID" --format '{{.State.OOMKilled}}' 2>/dev/null || printf 'false')"
+CONTAINER_INIT="$(docker inspect "$CONTAINER_ID" --format '{{.HostConfig.Init}}' 2>/dev/null || printf 'unknown')"
 
 if grep -Eq 'probe_returncode=0' <<<"$SRT_PROBE_OUTPUT"; then
   printf '结论：30 秒真实 srt 探测成功。如果 /ready 仍返回 503，优先检查当前 5 秒应用超时与 5 秒 Docker healthcheck 超时，单核主机可能无法稳定在该预算内完成 namespace 初始化。\n'
@@ -237,6 +304,23 @@ fi
 
 if [[ "$OOM_KILLED" == "true" ]] || grep -Eiq 'out of memory|oom-kill|killed process' <<<"$DIAGNOSIS_SOURCE"; then
   printf '结论：检测到 OOM 线索。请提高 Sandbox 内存上限或降低并发，并检查宿主机可用内存与 swap。\n'
+  exit 2
+fi
+
+PID_EXHAUSTION_DETECTED=false
+if grep -Eiq "can't start new thread|cannot fork|resource temporarily unavailable|fork\\(worker\\)|zombie_count=[1-9][0-9]*" <<<"$DIAGNOSIS_SOURCE"; then
+  PID_EXHAUSTION_DETECTED=true
+elif grep -Eiq 'returncode=-6|sigabrt' <<<"$DIAGNOSIS_SOURCE" \
+  && grep -Eq 'pids.events.max=[1-9][0-9]*' <<<"$DIAGNOSIS_SOURCE"; then
+  PID_EXHAUSTION_DETECTED=true
+fi
+
+if [[ "$PID_EXHAUSTION_DETECTED" == "true" ]]; then
+  if [[ "$CONTAINER_INIT" != "true" ]]; then
+    printf '结论：检测到 PID/线程耗尽或 zombie 进程线索，且容器未启用 init。请确认 docker-compose.yml 的 agent-sandbox 配置包含 init: true，并使用 --force-recreate 重建该容器；不要只提高 pids_limit 掩盖泄漏。\n'
+  else
+    printf '结论：检测到 PID/线程耗尽或 zombie 进程线索。容器已启用 init，请检查 pids.current、pids.max、pids.events 与进程快照，确认是否存在异常并发或未回收子进程。\n'
+  fi
   exit 2
 fi
 

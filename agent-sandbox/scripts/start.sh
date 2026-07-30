@@ -12,6 +12,13 @@ if [[ -f "$ROOT_DIR/.env" ]]; then
 fi
 cd "$MODULE_DIR"
 
+if [[ -z "${JAVA_HOME:-}" && -x /usr/libexec/java_home ]]; then
+  DETECTED_JAVA_HOME="$(/usr/libexec/java_home 2>/dev/null || true)"
+  if [[ -x "$DETECTED_JAVA_HOME/bin/java" ]]; then
+    export JAVA_HOME="$DETECTED_JAVA_HOME"
+  fi
+fi
+
 HOST="${HOST:-${JOB_BUDDY_BIND_HOST:-127.0.0.1}}"
 PORT="${PORT:-8061}"
 if [[ -z "${AGENT_SANDBOX_SRT_BIN:-}" ]] && command -v npm >/dev/null 2>&1; then

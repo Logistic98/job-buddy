@@ -76,8 +76,12 @@ class InfrastructureInitializationTest(unittest.TestCase):
         compose = APPLICATION_COMPOSE.read_text(encoding="utf-8")
         dockerfile = SANDBOX_DOCKERFILE.read_text(encoding="utf-8")
         env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
+        sandbox_block = compose.split("  agent-sandbox:", 1)[1].split(
+            "\n  agent-memory:", 1
+        )[0]
 
         self.assertIn("apparmor=unconfined", compose)
+        self.assertIn("init: true", sandbox_block)
         self.assertNotIn("AGENT_SANDBOX_CONTAINER_APPARMOR_PROFILE", compose)
         self.assertIn("AGENT_SANDBOX_READINESS_TIMEOUT_SECONDS", compose)
         self.assertIn("AGENT_SANDBOX_CONTAINER_HEALTH_TIMEOUT", compose)
@@ -88,6 +92,15 @@ class InfrastructureInitializationTest(unittest.TestCase):
             (REPO_ROOT / "scripts" / "install-sandbox-apparmor.sh").exists()
         )
         self.assertFalse((REPO_ROOT / "agent-sandbox" / "apparmor").exists())
+
+    def test_memory_uses_self_hosted_storage_without_external_gateway(self):
+        env_example = ENV_EXAMPLE.read_text(encoding="utf-8")
+
+        self.assertNotIn("TDAI_MEMORY_GATEWAY", env_example)
+        self.assertNotIn("TDAI_GATEWAY_API_KEY", env_example)
+        self.assertFalse(
+            (REPO_ROOT / "agent-memory" / "app" / "tencentdb_adapter.py").exists()
+        )
 
 
 if __name__ == "__main__":
