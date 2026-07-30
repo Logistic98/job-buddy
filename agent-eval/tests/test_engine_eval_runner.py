@@ -1,4 +1,4 @@
-from scripts.run_engine_eval import _case_payload, _effect_checks, _runtime_headers
+from scripts.run_engine_eval import _case_payload, _effect_checks, _evaluate_sample, _render_markdown, _runtime_headers
 
 
 def test_case_payload_supports_recent_messages_and_previous_slots():
@@ -58,3 +58,92 @@ def test_attachment_eval_requires_every_declared_file_sentinel():
     failed = [check for check in _effect_checks(case, incomplete, {}) if not check["passed"]]
     assert [check["code"] for check in failed] == ["answer_contains_all"]
     assert failed[0]["detail"]["missing"] == ["CTX-928"]
+
+
+def test_planner_case_requires_planner_specific_trace_events():
+    common_trace = [
+        {"event": event}
+        for event in [
+            "run_start",
+            "understand_goal",
+            "task_understanding",
+            "capability_route",
+            "finalize",
+            "run_end",
+        ]
+    ]
+    case = {
+        "expected": {
+            "trace_events": [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "tool_search",
+                "plan_created",
+                "finalize",
+                "run_end",
+            ]
+        }
+    }
+    sample = {
+        "done": {
+            "status": "success",
+            "stop_reason": "task_complete",
+            "answer": "已完成。",
+            "trace_events": common_trace,
+        }
+    }
+
+    result = _evaluate_sample(case, sample)
+
+    assert result["process"]["passed"] is False
+    assert result["process"]["missing_events"] == ["plan_created", "tool_search"]
+
+
+def test_process_order_issues_are_preserved_in_result_and_report():
+    sample = {
+        "done": {
+            "status": "success",
+            "stop_reason": "task_complete",
+            "answer": "已完成。",
+            "trace_events": [
+                {"event": event}
+                for event in [
+                    "run_start",
+                    "understand_goal",
+                    "task_understanding",
+                    "finalize",
+                    "capability_route",
+                    "run_end",
+                ]
+            ],
+        }
+    }
+
+    result = _evaluate_sample({"expected": {}}, sample)
+    markdown = _render_markdown(
+        [
+            {
+                "id": "trace-order",
+                "category": "observability",
+                "pass_pow_k": False,
+                "pass_rate": 0.0,
+                "latency": {},
+                "effect_score": 1.0,
+                "speed_score": 1.0,
+                "process_score": result["process"]["score"],
+                "first_sample": result,
+            }
+        ],
+        {
+            "timestamp": "2026-07-30T00:00:00Z",
+            "runtime_url": "http://127.0.0.1:8010",
+            "repeats": 1,
+            "skipped": 0,
+        },
+    )
+
+    assert result["process"]["missing_events"] == []
+    assert result["process"]["order_issues"] == ["capability_route_after_finalize"]
+    assert "过程顺序问题：['capability_route_after_finalize']" in markdown

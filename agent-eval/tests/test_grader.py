@@ -32,6 +32,55 @@ def test_grade_trace_reports_missing_runtime_events():
     assert "capability_route" in result["missing_events"]
 
 
+def test_grade_trace_supports_planner_specific_required_events():
+    trace = [
+        {"event": event}
+        for event in [
+            "run_start",
+            "understand_goal",
+            "task_understanding",
+            "capability_route",
+            "finalize",
+            "run_end",
+        ]
+    ]
+    required = [
+        "run_start",
+        "understand_goal",
+        "task_understanding",
+        "capability_route",
+        "tool_search",
+        "plan_created",
+        "finalize",
+        "run_end",
+    ]
+
+    result = grade_trace(trace, required)
+
+    assert result["passed"] is False
+    assert result["missing_events"] == ["plan_created", "tool_search"]
+
+
+def test_case_specific_trace_events_do_not_replace_runtime_baseline():
+    trace = [
+        {"event": event}
+        for event in [
+            "run_start",
+            "task_understanding",
+            "capability_route",
+            "tool_search",
+            "plan_created",
+            "finalize",
+            "run_end",
+        ]
+    ]
+
+    result = grade_trace(trace, ["tool_search", "plan_created"])
+
+    assert result["passed"] is False
+    assert result["missing_events"] == ["understand_goal"]
+
+
 def test_grade_run_rejects_fixture_and_false_completion():
     run = {
         "status": "success",
@@ -639,11 +688,22 @@ def test_missing_next_action_does_not_skip_false_success_check():
     run["directive"].pop("next_action")
     run["answer"] = "任务未完成，服务超时"
     run["status"] = "success"
+    run["stop_reason"] = "tool_execution_failed"
 
     result = grade_run(run, {"intent": "resume.match", "domain": "job"})
 
     assert any(issue["code"] == "next_action_present" for issue in result["issues"])
     assert any(issue["code"] == "failure_not_marked_success" for issue in result["issues"])
+
+
+def test_technical_failure_terms_do_not_override_successful_structured_terminal_state():
+    run = _valid_run()
+    run["answer"] = "说明调用失败、错误处理、服务不可用与超时重试的设计方法。"
+    run["stop_reason"] = "task_complete"
+
+    result = grade_run(run, {"intent": "technical_qa", "domain": "open_domain"})
+
+    assert not any(issue["code"] == "failure_not_marked_success" for issue in result["issues"])
 
 
 def _valid_run():

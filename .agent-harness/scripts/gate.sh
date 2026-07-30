@@ -65,6 +65,8 @@ mkdir -p "$RUN_DIR"
 VERIFY_LOG="$RUN_DIR/verify.log"
 EVAL_LOG="$RUN_DIR/evaluate.log"
 SUMMARY="$RUN_DIR/summary.md"
+METADATA="$RUN_DIR/metadata.md"
+METADATA_TEST_LOG="$RUN_DIR/metadata-test.log"
 
 log() { printf "[gate] %s\n" "$*" | tee -a "$RUN_DIR/gate.log"; }
 fail_with_log() {
@@ -77,6 +79,8 @@ fail_with_log() {
     echo "- quick: $QUICK"
     echo "- run_dir: $RUN_DIR"
     echo "- reason: $message"
+    echo
+    cat "$METADATA" 2>/dev/null || true
     echo
     echo "## verify tail"
     echo '```'
@@ -91,6 +95,29 @@ fail_with_log() {
   cat "$SUMMARY" >&2
   exit 1
 }
+
+if command -v python3 >/dev/null 2>&1 \
+  && python3 .agent-harness/tests/test_run_metadata.py > "$METADATA_TEST_LOG" 2>&1; then
+  log "run metadata contract passed"
+else
+  {
+    echo "## Run metadata"
+    echo
+    echo "- collection_status: unavailable"
+  } > "$METADATA"
+  fail_with_log "run metadata contract failed"
+fi
+
+if ./.agent-harness/scripts/collect_run_metadata.sh > "$METADATA" 2> "$RUN_DIR/metadata.log"; then
+  log "run metadata collected"
+else
+  log "WARN: run metadata collection failed"
+  {
+    echo "## Run metadata"
+    echo
+    echo "- collection_status: unavailable"
+  } > "$METADATA"
+fi
 
 if [[ "$RUN_DOCTOR" -eq 1 ]]; then
   log "doctor"
@@ -133,6 +160,8 @@ fi
   echo "- eval: $RUN_EVAL"
   echo "- run_dir: $RUN_DIR"
   echo "- finished_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo
+  cat "$METADATA"
   echo
   echo "## verify tail"
   echo '```'

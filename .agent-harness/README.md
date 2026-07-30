@@ -32,6 +32,9 @@ $ ./.agent-harness/scripts/gate.sh all --full
 
 # Harness 自身测试
 $ python3 -m unittest discover -s .agent-harness/tests -p 'test_*.py'
+
+# 构建 Sandbox 镜像并验证真实 bwrap 与三语言运行时
+$ ./.agent-harness/scripts/smoke_sandbox_container.sh
 ```
 
 `verify.sh` 从顶层 `agent-*` 目录中的 `pom.xml`、`pyproject.toml` 或 `package.json` 自动发现模块，不维护第二份模块清单。Java 使用 Maven/Gradle，Python 使用 `uv`、Ruff 和 Pytest，前端使用 package scripts，并通过 npm 官方 Registry 审计生产依赖中的高危与严重漏洞。全仓验证还会检查根目录环境文件位置、Shell 语法，以及仅应用和完整基础设施两种 Compose 部署模式的渲染。
@@ -70,8 +73,13 @@ $ python3 .agent-harness/tests/test_check_flyway_migrations.py
 ├── verify.log
 ├── evaluate.log
 ├── gate.log
+├── metadata-test.log
+├── metadata.log
+├── metadata.md
 └── summary.md
 ```
+
+Gate 先运行元数据契约测试，再生成 `metadata.md`；测试会用合成敏感 JVM 参数验证采集器不会把环境变量值写入产物。`summary.md` 在成功和失败时都会包含运行前采集的 Git SHA、dirty 状态、OS/架构、CPU/内存、Java/Python/Node/Docker 版本和依赖清单摘要。确定性 Gate 不调用真实模型或 Judge，元数据会明确记录这一边界；真实模型、浏览器、完整容器和远程 CI 仍需保存独立验收证据。元数据只记录工具版本与文件哈希，不读取或输出环境变量值。
 
 仅在定位问题时使用 `--no-eval`；交付结果不应以该模式作为最终证据。
 

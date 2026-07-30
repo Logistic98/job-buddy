@@ -6,14 +6,14 @@ import re
 from typing import Any
 
 BACKEND_REQUIRED_NODES = {"A", "D1", "E", "F", "Z", "AH"}
-RUNTIME_REQUIRED_EVENTS = {
+RUNTIME_EVENT_ORDER = (
     "run_start",
     "understand_goal",
     "task_understanding",
     "capability_route",
     "finalize",
     "run_end",
-}
+)
 
 # 速度评估的时延指标键与默认权重/严重级别。target 内满分，达到 max 记 0，区间内线性衰减。
 LATENCY_METRIC_SPECS = (
@@ -47,17 +47,26 @@ FAKE_CLAIM_PATTERN = re.compile(
 )
 
 
-def grade_trace(trace: list[dict]) -> dict:
+def grade_trace(trace: list[dict], required_events: list[str] | tuple[str, ...] | None = None) -> dict:
     """按 Runtime 事件流或 Backend 节点流检查核心执行链路。"""
 
     nodes = {str(step.get("nodeId")) for step in trace if step.get("nodeId") is not None}
     events = {str(step.get("event")) for step in trace if step.get("event") is not None}
 
     if events:
-        missing_events = sorted(RUNTIME_REQUIRED_EVENTS - events)
-        order_issues = _event_order_issues([str(step.get("event")) for step in trace if step.get("event") is not None])
+        event_sequence = [str(step.get("event")) for step in trace if step.get("event") is not None]
+        additional_event_order = list(dict.fromkeys(required_events or ()))
+        required_event_set = set(RUNTIME_EVENT_ORDER) | set(additional_event_order)
+        missing_events = sorted(required_event_set - events)
+        order_issues = _event_order_issues(event_sequence)
+        if additional_event_order:
+            order_issues.extend(
+                issue
+                for issue in _event_order_issues(event_sequence, additional_event_order)
+                if issue not in order_issues
+            )
         passed = not missing_events and not order_issues
-        score = max(0.0, 1 - (len(missing_events) + len(order_issues)) / (len(RUNTIME_REQUIRED_EVENTS) + 2))
+        score = max(0.0, 1 - (len(missing_events) + len(order_issues)) / (len(required_event_set) + 2))
         return {
             "passed": passed,
             "score": 1.0 if passed else round(score, 4),
@@ -185,7 +194,7 @@ def grade_run(run: dict, expected: dict | None = None) -> dict:
 
     expected = expected or {}
     checks: list[dict] = []
-    checks.extend(_grade_trace_dimension(_list(run.get("trace_events") or run.get("trace") or [])))
+    checks.extend(_grade_trace_dimension(_list(run.get("trace_events") or run.get("trace") or []), expected))
     checks.extend(_grade_intent_dimension(run, expected))
     checks.extend(_grade_tool_dimension(run))
     checks.extend(_grade_grounding_dimension(run, expected))
@@ -240,10 +249,11 @@ def grade_run(run: dict, expected: dict | None = None) -> dict:
     }
 
 
-def _grade_trace_dimension(trace: list[dict]) -> list[dict]:
+def _grade_trace_dimension(trace: list[dict], expected: dict) -> list[dict]:
     if not trace:
         return [_check("tool_execution", "trace_missing", 0.0, 1.0, "缺少 trace_events，无法审计执行路径", "high")]
-    result = grade_trace(trace)
+    required_events = expected.get("trace_events")
+    result = grade_trace(trace, required_events if isinstance(required_events, (list, tuple)) else None)
     return [
         _check(
             "tool_execution",
@@ -698,11 +708,9 @@ def _grade_safety_dimension(run: dict, expected: dict) -> list[dict]:
 def _grade_runtime_contract_dimension(run: dict, expected: dict) -> list[dict]:
     directive = _dict(run.get("directive"))
     next_action = str(directive.get("next_action") or "")
-    answer = str(run.get("answer") or "")
-    failure_markers = ["失败", "未产出", "不可用", "超时", "错误", "未完成"]
-    says_failure = any(marker in answer for marker in failure_markers)
     success_status = str(run.get("status") or "").lower() in {"success", "done", "ok"}
-    inconsistent = says_failure and success_status
+    terminal = _structured_terminal_state(run)
+    inconsistent = success_status and terminal["failed"]
     return [
         _check(
             "runtime_contract",
@@ -717,9 +725,14 @@ def _grade_runtime_contract_dimension(run: dict, expected: dict) -> list[dict]:
             "failure_not_marked_success",
             0.0 if inconsistent else 1.0,
             0.8,
-            "回答与运行状态一致" if not inconsistent else "失败回答被标记为成功",
+            "结构化终态与运行状态一致" if not inconsistent else "失败终态被标记为成功",
             "critical",
-            {"next_action": next_action, "status": run.get("status")},
+            {
+                "next_action": next_action,
+                "status": run.get("status"),
+                "stop_reason": terminal["stop_reason"],
+                "run_end_status": terminal["run_end_status"],
+            },
         ),
     ]
 
@@ -908,14 +921,36 @@ def _latency_score(actual_ms: float, target_ms: Any, hard_ms: Any) -> float:
     return 1.0
 
 
-def _event_order_issues(events: list[str]) -> list[str]:
-    order = ["run_start", "understand_goal", "task_understanding", "capability_route", "finalize", "run_end"]
+def _event_order_issues(events: list[str], required_order: list[str] | None = None) -> list[str]:
+    order = required_order or list(RUNTIME_EVENT_ORDER)
     positions = {event: events.index(event) for event in order if event in events}
     issues = []
     for left, right in zip(order, order[1:], strict=False):
         if left in positions and right in positions and positions[left] > positions[right]:
             issues.append(f"{left}_after_{right}")
     return issues
+
+
+def _structured_terminal_state(run: dict) -> dict:
+    """从结构化终态字段判断失败，避免把技术回答中的故障术语误当成运行失败。"""
+
+    trace = _list(run.get("trace_events") or run.get("trace") or [])
+    run_end = next(
+        (_dict(item) for item in reversed(trace) if str(_dict(item).get("event") or "") == "run_end"),
+        {},
+    )
+    run_end_payload = _dict(run_end.get("payload"))
+    stop_reason = str(run.get("stop_reason") or run_end_payload.get("stop_reason") or "").strip().lower()
+    run_end_status = str(run_end_payload.get("status") or run_end.get("status") or "").strip().lower()
+    success_stop_reasons = {"", "task_complete", "complete", "completed", "success", "done"}
+    failure_statuses = {"fail", "failed", "error", "rejected", "cancelled", "canceled", "paused", "interrupted"}
+    has_error = bool(run.get("error") or run_end.get("error") or run_end_payload.get("error"))
+    failed = has_error or run_end_status in failure_statuses or stop_reason not in success_stop_reasons
+    return {
+        "failed": failed,
+        "stop_reason": stop_reason or None,
+        "run_end_status": run_end_status or None,
+    }
 
 
 def _collect_tool_events(run: dict) -> list[dict]:

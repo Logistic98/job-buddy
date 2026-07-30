@@ -134,7 +134,21 @@ def test_disallow_boss_passes_without_boss_traces():
 
 def test_failure_answer_marked_success_is_fatal():
     run = _run(answer="下游调用失败，已完成本次请求。", status="success")
+    run["stop_reason"] = "tool_execution_failed"
     result = grade_run(run, {})
+    assert any(issue["code"] == "failure_not_marked_success" for issue in result["issues"])
+    assert result["passed"] is False
+
+
+def test_failed_run_end_trace_cannot_be_marked_success():
+    run = _run(status="success")
+    run["trace_events"][-1]["payload"] = {
+        "status": "fail",
+        "stop_reason": "runtime_error",
+    }
+
+    result = grade_run(run, {})
+
     assert any(issue["code"] == "failure_not_marked_success" for issue in result["issues"])
     assert result["passed"] is False
 

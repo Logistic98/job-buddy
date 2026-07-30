@@ -183,6 +183,7 @@ cases:
       next_action: run_runtime_planner
       forbidden_intent: job.recommend
       events: [intent, message, done]
+      trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, finalize, run_end]
     latency_budget:
       ttft_ms_target: 2500
       ttft_ms_max: 5500
@@ -199,6 +200,7 @@ cases:
       answer_min_chars: 40
       disallow_boss: true
       events: [intent, message, done]
+      trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, finalize, run_end]
     latency_budget:
       ttft_ms_target: 2500
       ttft_ms_max: 5500
@@ -215,6 +217,7 @@ cases:
       forbidden_intent: job.recommend
       answer_min_chars: 40
       events: [intent, message, done]
+      trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, finalize, run_end]
     latency_budget:
       ttft_ms_target: 2500
       ttft_ms_max: 6000

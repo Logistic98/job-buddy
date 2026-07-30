@@ -266,7 +266,12 @@ def _score(checks: Iterable[dict]) -> float:
 def _evaluate_sample(case: dict, sample: dict) -> dict:
     run = _build_run(sample)
     effect = _effect_checks(case, run, sample)
-    process = grade_trace(run.get("trace_events") or [])
+    expected = case.get("expected") or {}
+    required_trace_events = expected.get("trace_events")
+    process = grade_trace(
+        run.get("trace_events") or [],
+        required_trace_events if isinstance(required_trace_events, list) else None,
+    )
     speed = grade_latency(run.get("metrics") or {}, case.get("latency_budget") or {})
     quality = grade_run(run, _grader_expected(case))
     effect_score = _score(effect)
@@ -286,6 +291,7 @@ def _evaluate_sample(case: dict, sample: dict) -> dict:
             "score": process.get("score"),
             "passed": process.get("passed"),
             "missing_events": process.get("missing_events"),
+            "order_issues": process.get("order_issues"),
         },
         "speed": {"score": speed.get("score"), "passed": speed.get("passed"), "issues": speed.get("issues")},
         "quality": {"score": quality.get("score"), "passed": quality.get("passed"), "issues": quality.get("issues")},
@@ -311,6 +317,8 @@ def _grader_expected(case: dict) -> dict:
         out["disallow_boss"] = True
     if exp.get("expect_llm_usage"):
         out["expect_llm_usage"] = True
+    if isinstance(exp.get("trace_events"), list):
+        out["trace_events"] = exp["trace_events"]
     if case.get("latency_budget"):
         out["latency_budget"] = case["latency_budget"]
     out["min_score"] = float(exp.get("min_score", 0.7))
@@ -436,7 +444,11 @@ def _render_markdown(results: list[dict], meta: dict) -> str:
             if not fs.get("speed", {}).get("passed", True):
                 lines.append(f"- 速度超预算：{[i.get('code') for i in fs.get('speed', {}).get('issues', [])]}")
             if not fs.get("process", {}).get("passed", True):
-                lines.append(f"- 过程缺失事件：{fs.get('process', {}).get('missing_events')}")
+                process = fs.get("process", {})
+                if process.get("missing_events"):
+                    lines.append(f"- 过程缺失事件：{process.get('missing_events')}")
+                if process.get("order_issues"):
+                    lines.append(f"- 过程顺序问题：{process.get('order_issues')}")
             crit = [i for i in fs.get("quality", {}).get("issues", []) if i.get("severity") == "critical"]
             if crit:
                 lines.append(f"- 质量严重问题：{[i.get('code') for i in crit]}")
