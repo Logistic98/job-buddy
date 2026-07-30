@@ -45,7 +45,8 @@
     SELECT
       <include refid="questionColumns" />
     FROM interview_question
-    WHERE enabled = TRUE
+    WHERE tenant_id = #{tenantId}
+      AND enabled = TRUE
     <include refid="questionFilters" />
     ORDER BY updated_at DESC
     LIMIT #{limit}
@@ -55,7 +56,8 @@
   <select id="countQuestions" resultType="int">
     SELECT COUNT(*)
     FROM interview_question
-    WHERE enabled = TRUE
+    WHERE tenant_id = #{tenantId}
+      AND enabled = TRUE
     <include refid="questionFilters" />
   </select>
 
@@ -63,7 +65,8 @@
     SELECT
       <include refid="questionColumns" />
     FROM interview_question
-    WHERE enabled = TRUE
+    WHERE tenant_id = #{tenantId}
+      AND enabled = TRUE
     <if test="bankType != null and bankType != ''">
       AND CASE WHEN bank_type = 'leetcode' THEN 'leetcode' ELSE 'qa' END = #{bankType}
     </if>
@@ -85,14 +88,16 @@
   <select id="listBankTypes" resultType="string">
     SELECT DISTINCT CASE WHEN bank_type = 'leetcode' THEN 'leetcode' ELSE 'qa' END
     FROM interview_question
-    WHERE enabled = TRUE
+    WHERE tenant_id = #{tenantId}
+      AND enabled = TRUE
     ORDER BY 1 ASC
   </select>
 
   <select id="listCategories" resultType="string">
     SELECT DISTINCT category
     FROM interview_question
-    WHERE enabled = TRUE
+    WHERE tenant_id = #{tenantId}
+      AND enabled = TRUE
       AND category IS NOT NULL
       AND category != ''
     <if test="bankType != null and bankType != ''">
@@ -104,7 +109,8 @@
   <select id="listDifficulties" resultType="string">
     SELECT DISTINCT difficulty
     FROM interview_question
-    WHERE enabled = TRUE
+    WHERE tenant_id = #{tenantId}
+      AND enabled = TRUE
       AND difficulty IS NOT NULL
       AND difficulty != ''
     <if test="bankType != null and bankType != ''">
@@ -120,7 +126,8 @@
         ELSE question_type
       END
     FROM interview_question
-    WHERE enabled = TRUE
+    WHERE tenant_id = #{tenantId}
+      AND enabled = TRUE
       AND question_type IS NOT NULL
       AND question_type != ''
     <if test="bankType != null and bankType != ''">
@@ -133,17 +140,20 @@
     SELECT
       <include refid="questionColumns" />
     FROM interview_question
-    WHERE question_id = #{questionId}
+    WHERE tenant_id = #{tenantId}
+      AND question_id = #{questionId}
   </select>
 
   <select id="countQuestion" resultType="int">
     SELECT COUNT(*)
     FROM interview_question
-    WHERE question_id = #{questionId}
+    WHERE tenant_id = #{tenantId}
+      AND question_id = #{questionId}
   </select>
 
   <insert id="insertQuestion">
     INSERT INTO interview_question(
+      tenant_id,
       title,
       bank_type,
       category,
@@ -158,6 +168,7 @@
       question_id
     )
     VALUES (
+      #{question.tenantId},
       #{question.title},
       #{question.bankType},
       #{question.category},
@@ -187,7 +198,8 @@
       coding_meta_json = #{question.codingMetaJson},
       enabled = #{question.enabled},
       updated_at = #{question.updatedAt}
-    WHERE question_id = #{question.questionId}
+    WHERE tenant_id = #{question.tenantId}
+      AND question_id = #{question.questionId}
   </update>
 
   <update id="softDeleteQuestion">
@@ -195,25 +207,29 @@
     SET
       enabled = FALSE,
       updated_at = #{updatedAt}
-    WHERE question_id = #{questionId}
+    WHERE tenant_id = #{tenantId}
+      AND question_id = #{questionId}
   </update>
 
   <update id="updateQuestionCategory">
     UPDATE interview_question
     SET category = #{category}, updated_at = #{updatedAt}
-    WHERE question_id = #{questionId}
+    WHERE tenant_id = #{tenantId}
+      AND question_id = #{questionId}
   </update>
 
   <update id="updateQuestionDifficulty">
     UPDATE interview_question
     SET difficulty = #{difficulty}, updated_at = #{updatedAt}
-    WHERE question_id = #{questionId}
+    WHERE tenant_id = #{tenantId}
+      AND question_id = #{questionId}
   </update>
 
   <update id="updateQuestionTags">
     UPDATE interview_question
     SET tags_json = #{tagsJson}, updated_at = #{updatedAt}
-    WHERE question_id = #{questionId}
+    WHERE tenant_id = #{tenantId}
+      AND question_id = #{questionId}
   </update>
 
   <insert id="insertExam">

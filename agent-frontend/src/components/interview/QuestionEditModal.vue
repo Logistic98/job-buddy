@@ -133,7 +133,7 @@
           </div>
 
           <div v-else-if="currentStep === 1" class="practice-section">
-            <div class="question-section-heading">
+            <div v-if="form.bankType === 'leetcode' || isChoiceForm" class="question-section-heading">
               <div>
                 <span class="practice-field-label">{{ manualContentSectionLabel }}</span>
                 <small>{{ manualContentHint }}</small>
@@ -974,7 +974,7 @@ const manualContentPlaceholder = computed(() =>
       ? '请输入完整题干，不要在这里重复填写选项'
       : '请输入需要回答的问题，可补充回答范围或评分要求',
 )
-const manualAnswerLabel = computed(() => (form.bankType === 'leetcode' ? '解题思路 / 参考答案' : '参考答案 / 评分要点'))
+const manualAnswerLabel = computed(() => (form.bankType === 'leetcode' ? '解题思路 / 参考答案' : '参考答案'))
 const manualAnswerPlaceholder = computed(() =>
   form.bankType === 'leetcode'
     ? '支持 Markdown，可填写核心算法、正确性说明、示例代码和复杂度分析'

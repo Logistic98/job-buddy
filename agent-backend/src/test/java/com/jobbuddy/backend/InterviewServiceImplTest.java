@@ -40,6 +40,7 @@ import org.mockito.ArgumentCaptor;
  */
 class InterviewServiceImplTest {
   private static final JsonCodec JSON = new JsonCodec();
+  private static final String TENANT_ID = "tenant-1";
 
   private final InterviewRepository repository = mock(InterviewRepository.class);
   private final InterviewCodeRunner codeRunner = mock(InterviewCodeRunner.class);
@@ -53,14 +54,14 @@ class InterviewServiceImplTest {
    */
   @Test
   void pageQuestionsShouldClampPageAndSizeAndComputePages() {
-    when(repository.countQuestions(null, null, null, null)).thenReturn(45);
-    when(repository.listQuestions(null, null, null, null, 1, 100))
+    when(repository.countQuestions(TENANT_ID, null, null, null, null)).thenReturn(45);
+    when(repository.listQuestions(TENANT_ID, null, null, null, null, 1, 100))
         .thenReturn(Collections.<Map<String, Object>>emptyList());
 
     Map<String, Object> result =
         JSON.toMap(
             service.pageQuestions(
-                null, null, null, null, Integer.valueOf(0), Integer.valueOf(500)));
+                TENANT_ID, null, null, null, null, Integer.valueOf(0), Integer.valueOf(500)));
 
     assertEquals(Integer.valueOf(1), result.get("page"));
     assertEquals(Integer.valueOf(100), result.get("size"));
@@ -73,12 +74,12 @@ class InterviewServiceImplTest {
    */
   @Test
   void pageQuestionsShouldUseDefaultsAndCeilTotalPages() {
-    when(repository.countQuestions(null, null, null, null)).thenReturn(41);
-    when(repository.listQuestions(null, null, null, null, 1, 20))
+    when(repository.countQuestions(TENANT_ID, null, null, null, null)).thenReturn(41);
+    when(repository.listQuestions(TENANT_ID, null, null, null, null, 1, 20))
         .thenReturn(Collections.<Map<String, Object>>emptyList());
 
     Map<String, Object> result =
-        JSON.toMap(service.pageQuestions(null, null, null, null, null, null));
+        JSON.toMap(service.pageQuestions(TENANT_ID, null, null, null, null, null, null));
 
     assertEquals(Integer.valueOf(20), result.get("size"));
     assertEquals(Integer.valueOf(3), result.get("pages"));
@@ -100,7 +101,8 @@ class InterviewServiceImplTest {
                * 验证执行。
                */
               public void execute() {
-                service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null);
+                service.saveQuestion(
+                    TENANT_ID, JSON.convert(payload, InterviewQuestionRequest.class), null);
               }
             });
     assertEquals("题目标题不能为空", error.getMessage());
@@ -126,12 +128,13 @@ class InterviewServiceImplTest {
     test.put("expected", Arrays.asList(0, 1));
     codingMeta.put("tests", Arrays.asList(test));
     payload.put("codingMeta", codingMeta);
-    when(repository.findQuestion(anyString())).thenReturn(new LinkedHashMap<String, Object>());
+    when(repository.findQuestion(eq(TENANT_ID), anyString()))
+        .thenReturn(new LinkedHashMap<String, Object>());
 
-    service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null);
+    service.saveQuestion(TENANT_ID, JSON.convert(payload, InterviewQuestionRequest.class), null);
 
     ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass((Class) Map.class);
-    verify(repository).saveQuestion(captor.capture());
+    verify(repository).saveQuestion(eq(TENANT_ID), captor.capture());
     Map<String, Object> saved = captor.getValue();
     assertEquals("leetcode", saved.get("bankType"));
     assertEquals("编程题", saved.get("questionType"));
@@ -151,12 +154,13 @@ class InterviewServiceImplTest {
     payload.put("bankType", "qa");
     payload.put("questionType", "问答");
     payload.put("answer", "提示词注入；越权调用；敏感信息泄露");
-    when(repository.findQuestion(anyString())).thenReturn(new LinkedHashMap<String, Object>());
+    when(repository.findQuestion(eq(TENANT_ID), anyString()))
+        .thenReturn(new LinkedHashMap<String, Object>());
 
-    service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null);
+    service.saveQuestion(TENANT_ID, JSON.convert(payload, InterviewQuestionRequest.class), null);
 
     ArgumentCaptor<Map<String, Object>> captor = ArgumentCaptor.forClass((Class) Map.class);
-    verify(repository).saveQuestion(captor.capture());
+    verify(repository).saveQuestion(eq(TENANT_ID), captor.capture());
     assertEquals("简答", captor.getValue().get("questionType"));
   }
 
@@ -180,7 +184,8 @@ class InterviewServiceImplTest {
         assertThrows(
             IllegalArgumentException.class,
             () ->
-                service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null));
+                service.saveQuestion(
+                    TENANT_ID, JSON.convert(payload, InterviewQuestionRequest.class), null));
 
     assertEquals("codingMeta.tests 至少需要 1 条测试用例", error.getMessage());
   }
@@ -233,7 +238,7 @@ class InterviewServiceImplTest {
     Map<String, Object> codingMeta = (Map<String, Object>) items.get(0).get("codingMeta");
     assertEquals("java", codingMeta.get("language"));
     assertEquals(Integer.valueOf(3), Integer.valueOf(((List) codingMeta.get("tests")).size()));
-    verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
+    verify(repository, never()).saveQuestion(anyString(), org.mockito.ArgumentMatchers.anyMap());
   }
 
   /**
@@ -280,7 +285,7 @@ class InterviewServiceImplTest {
     Map<String, Object> capturedArguments = captor.getValue().toMap(JSON);
     assertEquals("生成一道考察 Java 集合线程安全性的单选题", capturedArguments.get("requirements"));
     assertEquals("单选", capturedArguments.get("question_type"));
-    verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
+    verify(repository, never()).saveQuestion(anyString(), org.mockito.ArgumentMatchers.anyMap());
   }
 
   /**
@@ -310,7 +315,7 @@ class InterviewServiceImplTest {
             () -> service.generateQuestions(JSON.convert(payload, InterviewGenerateRequest.class)));
 
     assertEquals("模型返回内容不是完整 JSON，请重新生成", error.getMessage());
-    verify(repository, never()).saveQuestion(org.mockito.ArgumentMatchers.anyMap());
+    verify(repository, never()).saveQuestion(anyString(), org.mockito.ArgumentMatchers.anyMap());
   }
 
   /**
@@ -324,7 +329,7 @@ class InterviewServiceImplTest {
       item.put("title", "Agent 工程题 " + index);
       pool.add(item);
     }
-    when(repository.findEnabled("qa", null, "中等", "简答")).thenReturn(pool);
+    when(repository.findEnabled(TENANT_ID, "qa", null, "中等", "简答")).thenReturn(pool);
     Map<String, Object> storedExam = new LinkedHashMap<String, Object>();
     storedExam.put("examId", "practice-rule-100");
     storedExam.put("title", "Agent 工程综合练习");
@@ -367,10 +372,10 @@ class InterviewServiceImplTest {
   void createSmartExamShouldValidateSelectionAndPersistSmartStrategy() {
     Map<String, Object> javaQuestion = smartCandidate("q-java", "Java 并发可见性", "Java 并发");
     Map<String, Object> redisQuestion = smartCandidate("q-redis", "Redis 持久化", "Redis");
-    when(repository.findEnabled(null, null, null, null))
+    when(repository.findEnabled(TENANT_ID, null, null, null, null))
         .thenReturn(Arrays.asList(javaQuestion, redisQuestion));
-    when(repository.findQuestion("q-java")).thenReturn(javaQuestion);
-    when(repository.findQuestion("q-redis")).thenReturn(redisQuestion);
+    when(repository.findQuestion(TENANT_ID, "q-java")).thenReturn(javaQuestion);
+    when(repository.findQuestion(TENANT_ID, "q-redis")).thenReturn(redisQuestion);
     Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
     toolResult.put("success", Boolean.TRUE);
     Map<String, Object> output = new LinkedHashMap<String, Object>();
@@ -431,7 +436,7 @@ class InterviewServiceImplTest {
   @Test
   void createSmartExamShouldRejectQuestionOutsideCandidateCatalog() {
     Map<String, Object> javaQuestion = smartCandidate("q-java", "Java 并发可见性", "Java 并发");
-    when(repository.findEnabled(null, null, null, null))
+    when(repository.findEnabled(TENANT_ID, null, null, null, null))
         .thenReturn(Collections.singletonList(javaQuestion));
     Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
     toolResult.put("success", Boolean.TRUE);
@@ -480,7 +485,7 @@ class InterviewServiceImplTest {
 
     InterviewSmartExamRequest request = new InterviewSmartExamRequest();
     request.setRequirements("选择 Java 并发题组成一套专项练习");
-    when(repository.findEnabled(null, null, null, null))
+    when(repository.findEnabled(TENANT_ID, null, null, null, null))
         .thenReturn(Collections.<Map<String, Object>>emptyList());
     IllegalArgumentException error =
         assertThrows(
@@ -542,7 +547,8 @@ class InterviewServiceImplTest {
         assertThrows(
             IllegalArgumentException.class,
             () ->
-                service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null));
+                service.saveQuestion(
+                    TENANT_ID, JSON.convert(payload, InterviewQuestionRequest.class), null));
 
     assertEquals("codingMeta.tests 必须是数组", error.getMessage());
   }
@@ -561,7 +567,8 @@ class InterviewServiceImplTest {
         assertThrows(
             IllegalArgumentException.class,
             () ->
-                service.saveQuestion(JSON.convert(payload, InterviewQuestionRequest.class), null));
+                service.saveQuestion(
+                    TENANT_ID, JSON.convert(payload, InterviewQuestionRequest.class), null));
 
     assertEquals("算法题必须维护 codingMeta 字段", error.getMessage());
   }
@@ -580,7 +587,7 @@ class InterviewServiceImplTest {
            * 验证执行。
            */
           public void execute() {
-            service.batchQuestions(JSON.convert(noIds, InterviewBatchRequest.class));
+            service.batchQuestions(TENANT_ID, JSON.convert(noIds, InterviewBatchRequest.class));
           }
         });
 
@@ -594,7 +601,7 @@ class InterviewServiceImplTest {
            * 验证执行。
            */
           public void execute() {
-            service.batchQuestions(JSON.convert(noFields, InterviewBatchRequest.class));
+            service.batchQuestions(TENANT_ID, JSON.convert(noFields, InterviewBatchRequest.class));
           }
         });
   }
@@ -607,11 +614,13 @@ class InterviewServiceImplTest {
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
     payload.put("questionIds", Arrays.asList("q1", "  ", null, "q2"));
     payload.put("action", "delete");
+    when(repository.batchDeleteQuestions(TENANT_ID, Arrays.asList("q1", "q2"))).thenReturn(2);
 
     Map<String, Object> result =
-        JSON.toMap(service.batchQuestions(JSON.convert(payload, InterviewBatchRequest.class)));
+        JSON.toMap(
+            service.batchQuestions(TENANT_ID, JSON.convert(payload, InterviewBatchRequest.class)));
 
-    verify(repository).batchDeleteQuestions(eq(Arrays.asList("q1", "q2")));
+    verify(repository).batchDeleteQuestions(eq(TENANT_ID), eq(Arrays.asList("q1", "q2")));
     assertEquals(Integer.valueOf(2), result.get("count"));
     assertEquals("delete", result.get("action"));
   }

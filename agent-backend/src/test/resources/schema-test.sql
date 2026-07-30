@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS job_buddy_blacklist_item (
 
 CREATE TABLE IF NOT EXISTS interview_question (
   question_id VARCHAR(64) PRIMARY KEY,
+  tenant_id VARCHAR(64) NOT NULL DEFAULT 'default-tenant',
   bank_type VARCHAR(32) NOT NULL DEFAULT 'qa',
   title VARCHAR(512) NOT NULL,
   category VARCHAR(128),

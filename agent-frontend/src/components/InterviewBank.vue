@@ -714,7 +714,7 @@ const props = defineProps({
   initialExamId: { type: String, default: '' },
 })
 
-const emit = defineEmits(['practice-created', 'back-to-bank', 'compose-practice'])
+const emit = defineEmits(['practice-created', 'back-to-bank', 'compose-practice', 'exam-deleted'])
 
 const {
   activeMode,

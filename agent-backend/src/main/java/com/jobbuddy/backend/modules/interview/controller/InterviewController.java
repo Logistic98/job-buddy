@@ -74,6 +74,7 @@ public class InterviewController {
    * @param difficulty 难度
    * @param page 页码
    * @param size 数量
+   * @param request HTTP 请求
    * @return 统一接口响应
    */
   @Operation(summary = "分页查询面试题")
@@ -84,48 +85,63 @@ public class InterviewController {
       @RequestParam(value = "category", required = false) String category,
       @RequestParam(value = "difficulty", required = false) String difficulty,
       @RequestParam(value = "page", required = false) Integer page,
-      @RequestParam(value = "size", required = false) Integer size) {
+      @RequestParam(value = "size", required = false) Integer size,
+      HttpServletRequest request) {
     return ApiResponse.success(
-        interviewService.pageQuestions(keyword, bankType, category, difficulty, page, size));
+        interviewService.pageQuestions(
+            AuthenticatedUserContext.tenantId(request),
+            keyword,
+            bankType,
+            category,
+            difficulty,
+            page,
+            size));
   }
 
   /**
    * 查询题库元数据。
    *
    * @param bankType 题库类型
+   * @param request HTTP 请求
    * @return 统一接口响应
    */
   @Operation(summary = "查询题库元数据")
   @GetMapping("/questions/meta")
   public ApiResponse<InterviewQuestionMetaResponse> questionMeta(
-      @RequestParam(value = "bankType", required = false) String bankType) {
-    return ApiResponse.success(interviewService.questionMeta(bankType));
+      @RequestParam(value = "bankType", required = false) String bankType,
+      HttpServletRequest request) {
+    return ApiResponse.success(
+        interviewService.questionMeta(AuthenticatedUserContext.tenantId(request), bankType));
   }
 
   /**
    * 创建面试题。
    *
    * @param payload 请求载荷
+   * @param request HTTP 请求
    * @return 统一接口响应
    */
   @Operation(summary = "创建面试题")
   @PostMapping("/questions")
   public ApiResponse<InterviewQuestionResponse> createQuestion(
-      @RequestBody InterviewQuestionRequest payload) {
-    return ApiResponse.success(interviewService.saveQuestion(payload, null));
+      @RequestBody InterviewQuestionRequest payload, HttpServletRequest request) {
+    return ApiResponse.success(
+        interviewService.saveQuestion(AuthenticatedUserContext.tenantId(request), payload, null));
   }
 
   /**
    * 批量导入面试题。
    *
    * @param payload 请求载荷
+   * @param request HTTP 请求
    * @return 统一接口响应
    */
   @Operation(summary = "批量导入面试题")
   @PostMapping("/questions/import")
   public ApiResponse<InterviewImportResponse> importQuestions(
-      @RequestBody InterviewImportRequest payload) {
-    return ApiResponse.success(interviewService.importQuestions(payload));
+      @RequestBody InterviewImportRequest payload, HttpServletRequest request) {
+    return ApiResponse.success(
+        interviewService.importQuestions(AuthenticatedUserContext.tenantId(request), payload));
   }
 
   /**
@@ -158,13 +174,15 @@ public class InterviewController {
    * 批量处理面试题。
    *
    * @param payload 请求载荷
+   * @param request HTTP 请求
    * @return 统一接口响应
    */
   @Operation(summary = "批量处理面试题")
   @PostMapping("/questions/batch")
   public ApiResponse<InterviewBatchResponse> batchQuestions(
-      @RequestBody InterviewBatchRequest payload) {
-    return ApiResponse.success(interviewService.batchQuestions(payload));
+      @RequestBody InterviewBatchRequest payload, HttpServletRequest request) {
+    return ApiResponse.success(
+        interviewService.batchQuestions(AuthenticatedUserContext.tenantId(request), payload));
   }
 
   /**
@@ -172,25 +190,32 @@ public class InterviewController {
    *
    * @param questionId 题目标识
    * @param payload 请求载荷
+   * @param request HTTP 请求
    * @return 统一接口响应
    */
   @Operation(summary = "更新面试题")
   @PutMapping("/questions/{questionId}")
   public ApiResponse<InterviewQuestionResponse> updateQuestion(
-      @PathVariable String questionId, @RequestBody InterviewQuestionRequest payload) {
-    return ApiResponse.success(interviewService.saveQuestion(payload, questionId));
+      @PathVariable String questionId,
+      @RequestBody InterviewQuestionRequest payload,
+      HttpServletRequest request) {
+    return ApiResponse.success(
+        interviewService.saveQuestion(
+            AuthenticatedUserContext.tenantId(request), payload, questionId));
   }
 
   /**
    * 删除面试题。
    *
    * @param questionId 题目标识
+   * @param request HTTP 请求
    * @return 统一接口响应
    */
   @Operation(summary = "删除面试题")
   @DeleteMapping("/questions/{questionId}")
-  public ApiResponse<QuestionIdResponse> deleteQuestion(@PathVariable String questionId) {
-    interviewService.deleteQuestion(questionId);
+  public ApiResponse<QuestionIdResponse> deleteQuestion(
+      @PathVariable String questionId, HttpServletRequest request) {
+    interviewService.deleteQuestion(AuthenticatedUserContext.tenantId(request), questionId);
     return ApiResponse.success(new QuestionIdResponse(questionId));
   }
 

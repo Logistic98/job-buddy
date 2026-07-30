@@ -147,12 +147,13 @@ describe('QuestionEditModal', () => {
 
     await fillQaBasics(wrapper)
     await wrapper.find('.question-wizard-next').trigger('click')
-    expect(wrapper.find('.practice-section').text()).toContain('问答题干')
+    expect(wrapper.find('.question-section-heading').exists()).toBe(false)
+    expect(wrapper.find('.markdown-editor-head .practice-field-label').text()).toBe('题目描述')
     expect(wrapper.find('.question-wizard-save').exists()).toBe(false)
     await wrapper.find('#question-content-markdown').setValue('请说明线程池的核心参数。')
     await wrapper.find('.question-wizard-next').trigger('click')
 
-    expect(wrapper.find('.practice-section').text()).toContain('参考答案 / 评分要点')
+    expect(wrapper.find('.markdown-answer-editor .practice-field-label').text()).toBe('参考答案')
     expect(wrapper.find('.question-wizard-save').text()).toBe('保存题目')
     await wrapper.find('.question-answer-textarea').setValue('核心参数包括核心线程数、最大线程数和队列。')
     await wrapper.find('.question-wizard-save').trigger('click')
@@ -387,6 +388,7 @@ describe('QuestionEditModal', () => {
     await fillAlgorithmBasics(wrapper)
     await wrapper.find('.question-wizard-next').trigger('click')
 
+    expect(wrapper.find('.question-section-heading').text()).toContain('算法题面与代码入口')
     expect(wrapper.findAllComponents(CodeHighlightEditor)).toHaveLength(1)
     expect(wrapper.find('.coding-meta-editor select').element.value).toBe('python')
     expect(wrapper.find('input[placeholder="例如：twoSum"]').element.value).toBe('solution')

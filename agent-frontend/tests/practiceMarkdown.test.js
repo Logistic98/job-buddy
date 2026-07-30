@@ -17,6 +17,17 @@ describe('PracticeMarkdown', () => {
   it('renders fenced code and lists instead of raw Markdown markers', async () => {
     const wrapper = await renderMarkdown('示例：\n\n```python\nprint("ok")\n```\n\n- 第一步\n- 第二步')
 
+    await expect
+      .poll(
+        () => ({
+          hasCodeBlock: wrapper.find('pre').exists(),
+          hasCopyButton: wrapper.find('.practice-code-copy').exists(),
+          listItemCount: wrapper.findAll('li').length,
+        }),
+        { timeout: 5000 },
+      )
+      .toEqual({ hasCodeBlock: true, hasCopyButton: true, listItemCount: 2 })
+
     expect(wrapper.find('pre').exists()).toBe(true)
     expect(wrapper.find('pre code').text()).toContain('print("ok")')
     expect(wrapper.find('.practice-code-copy').text()).toBe('复制代码')

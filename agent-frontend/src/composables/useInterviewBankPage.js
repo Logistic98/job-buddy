@@ -22,6 +22,7 @@ import {
   questionStem,
   tagLabels,
 } from '../utils/interviewBank'
+import { detectCodeLanguage } from '../utils/codeHighlight'
 import { copyText } from '../utils/clipboard'
 import {
   buildDebugFormDefaults,
@@ -168,7 +169,17 @@ export function useInterviewBankPage(props, emit) {
       shouldShowExamOpening(props.initialExamId, currentExam.value, examDetailLoading.value, error.value),
   )
   const examTotalCount = computed(() => currentExam.value?.questions?.length || 0)
-  const answeredCount = computed(() => (currentExam.value?.questions || []).filter(isQuestionAnswered).length)
+  const answeredCount = computed(() => {
+    const exam = currentExam.value
+    const questions = exam?.questions || []
+    if (exam?.status === 'submitted' && exam.answeredCount != null) {
+      const submittedCount = Number(exam.answeredCount)
+      if (Number.isFinite(submittedCount)) {
+        return Math.min(questions.length, Math.max(0, Math.trunc(submittedCount)))
+      }
+    }
+    return questions.filter(isQuestionAnswered).length
+  })
   const unansweredQuestions = computed(() =>
     (currentExam.value?.questions || []).filter((item) => !isQuestionAnswered(item)),
   )
@@ -324,9 +335,8 @@ export function useInterviewBankPage(props, emit) {
 
   async function startSelectedPractice() {
     if (!selectedIds.value.length || examLoading.value) return
-    const selectedQuestions = questions.value.filter((item) => selectedSet.value.has(item.questionId))
     const title = `${currentBankTypeLabel()} 所选题练习（${selectedIds.value.length} 题）`
-    await createManualPractice(selectedIds.value, title, selectedQuestions.length === 1, (exam) =>
+    await createManualPractice(selectedIds.value, title, selectedIds.value.length === 1, (exam) =>
       emit('practice-created', exam),
     )
   }
@@ -446,6 +456,7 @@ export function useInterviewBankPage(props, emit) {
         activeQuestionId.value = ''
         practiceHomeVisible.value = true
       }
+      emit('exam-deleted', examId)
       Object.assign(examDeleteDialog, {
         visible: false,
         exam: null,
@@ -466,9 +477,16 @@ export function useInterviewBankPage(props, emit) {
     const meta = codingMeta((currentExam.value?.questions || []).find((item) => item.questionId === questionId) || {})
     const functionName = meta.functionName || extractFunctionName(answers[questionId], oldLanguage) || 'solution'
     const oldTemplate = buildDefaultTemplate(functionName, oldLanguage).trim()
+    const configuredTemplate = String(meta.template || '').trim()
+    const configuredLanguage = normalizeCodingLanguage(meta.language)
     const current = String(answers[questionId] || '').trim()
     codingLanguageByQuestion[questionId] = nextLanguage
-    if (!current || current === oldTemplate) answers[questionId] = buildDefaultTemplate(functionName, nextLanguage)
+    if (!current || current === configuredTemplate || current === oldTemplate) {
+      answers[questionId] =
+        nextLanguage === configuredLanguage && configuredTemplate
+          ? String(meta.template)
+          : buildDefaultTemplate(functionName, nextLanguage)
+    }
     delete codingResults[questionId]
   }
   function isQuestionAnswered(item) {
@@ -478,8 +496,9 @@ export function useInterviewBankPage(props, emit) {
       const language = currentCodingLanguage(item.questionId)
       const meta = codingMeta(item)
       const functionName = meta.functionName || extractFunctionName(value, language) || 'solution'
-      const template = buildDefaultTemplate(functionName, language).trim()
-      return value !== template && !/(TODO|pass\s*$)/i.test(value)
+      const configuredTemplate = String(meta.template || '').trim()
+      const defaultTemplate = buildDefaultTemplate(functionName, language).trim()
+      return value !== configuredTemplate && value !== defaultTemplate && !/(TODO|pass\s*$)/i.test(value)
     }
     return true
   }
@@ -538,15 +557,21 @@ export function useInterviewBankPage(props, emit) {
     const list = exam?.questions || []
     for (const q of list) {
       const meta = codingMeta(q)
-      const language = 'python'
+      const configuredLanguage = normalizeCodingLanguage(meta.language)
+      const configuredTemplate = String(meta.template || '')
+      const userAnswer = String(q.userAnswer ?? '')
+      const language =
+        keepUserAnswer && userAnswer
+          ? normalizeCodingLanguage(detectCodeLanguage(userAnswer, configuredLanguage))
+          : configuredLanguage
       const functionName =
-        meta.functionName || extractFunctionName(meta.template, normalizeCodingLanguage(meta.language)) || 'solution'
+        meta.functionName ||
+        extractFunctionName(userAnswer, language) ||
+        extractFunctionName(configuredTemplate, configuredLanguage) ||
+        'solution'
+      const template = configuredTemplate.trim() ? configuredTemplate : buildDefaultTemplate(functionName, language)
       codingLanguageByQuestion[q.questionId] = language
-      answers[q.questionId] = keepUserAnswer
-        ? q.userAnswer || (isCodingQuestion(q) ? buildDefaultTemplate(functionName, language) : '')
-        : isCodingQuestion(q)
-          ? buildDefaultTemplate(functionName, language)
-          : ''
+      answers[q.questionId] = keepUserAnswer && userAnswer ? userAnswer : isCodingQuestion(q) ? template : ''
       if (q.correct != null) codingResults[q.questionId] = { passed: Boolean(q.correct), rows: [] }
     }
     activeQuestionId.value = list[0]?.questionId || ''

@@ -22,21 +22,23 @@ import java.util.List;
 /**
  * 管理题库、模拟练习、答卷提交与隔离代码运行。
  *
- * <p>试卷读写受认证租户和用户约束，代码通过沙箱执行器运行，不落到 Backend 宿主机。
+ * <p>题库读写受认证租户约束，试卷读写同时受认证租户和用户约束，代码通过沙箱执行器运行，不落到 Backend 宿主机。
  */
 public interface InterviewService {
   /**
    * 查询题目列表。
    *
+   * @param tenantId 租户标识
    * @param keyword 关键词
    * @param category 题目分类
    * @return 题目列表
    */
-  List<InterviewQuestionResponse> listQuestions(String keyword, String category);
+  List<InterviewQuestionResponse> listQuestions(String tenantId, String keyword, String category);
 
   /**
    * 获取分页题目。
    *
+   * @param tenantId 租户标识
    * @param keyword 关键词
    * @param bankType 题库类型
    * @param category 题目分类
@@ -46,6 +48,7 @@ public interface InterviewService {
    * @return 分页题目
    */
   InterviewQuestionPageResponse pageQuestions(
+      String tenantId,
       String keyword,
       String bankType,
       String category,
@@ -56,42 +59,48 @@ public interface InterviewService {
   /**
    * 获取题目元数据。
    *
+   * @param tenantId 租户标识
    * @param bankType 题库类型
    * @return 题目元数据
    */
-  InterviewQuestionMetaResponse questionMeta(String bankType);
+  InterviewQuestionMetaResponse questionMeta(String tenantId, String bankType);
 
   /**
    * 保存题目。
    *
+   * @param tenantId 租户标识
    * @param request 请求对象
    * @param questionId 题目标识
    * @return 保存后的题目
    */
-  InterviewQuestionResponse saveQuestion(InterviewQuestionRequest request, String questionId);
+  InterviewQuestionResponse saveQuestion(
+      String tenantId, InterviewQuestionRequest request, String questionId);
 
   /**
    * 删除题目。
    *
+   * @param tenantId 租户标识
    * @param questionId 题目标识
    */
-  void deleteQuestion(String questionId);
+  void deleteQuestion(String tenantId, String questionId);
 
   /**
    * 获取批次题目。
    *
+   * @param tenantId 租户标识
    * @param request 请求对象
    * @return 批次题目
    */
-  InterviewBatchResponse batchQuestions(InterviewBatchRequest request);
+  InterviewBatchResponse batchQuestions(String tenantId, InterviewBatchRequest request);
 
   /**
    * 导入题目。
    *
+   * @param tenantId 租户标识
    * @param request 请求对象
    * @return 导入后的题目列表
    */
-  InterviewImportResponse importQuestions(InterviewImportRequest request);
+  InterviewImportResponse importQuestions(String tenantId, InterviewImportRequest request);
 
   /**
    * 生成题目。

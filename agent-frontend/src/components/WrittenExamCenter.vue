@@ -45,6 +45,7 @@
         embedded
         @back-to-bank="handleBackToBank"
         @compose-practice="handleComposePractice"
+        @exam-deleted="handleExamDeleted"
       />
       <InterviewBank v-else key="written-bank" mode="bank" embedded @practice-created="handlePracticeCreated" />
     </KeepAlive>
@@ -99,6 +100,10 @@ function handleBackToBank() {
   activeExamId.value = ''
   compositionDialogOpen.value = false
   activeTab.value = 'bank'
+}
+
+function handleExamDeleted(examId) {
+  if (activeExamId.value === examId) activeExamId.value = ''
 }
 
 function handleComposePractice(mode = 'smart') {

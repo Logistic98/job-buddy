@@ -334,6 +334,344 @@ describe('WrittenExamCenter', () => {
     wrapper.unmount()
   })
 
+  it('clears the parent navigation target after deleting the active practice', async () => {
+    const question = {
+      questionId: 'q-active',
+      title: '线程池参数',
+      bankType: 'qa',
+      difficulty: '中等',
+      questionType: '简答',
+      content: '说明线程池核心参数。',
+      answer: '核心线程数、最大线程数与队列容量。',
+    }
+    const exam = {
+      examId: 'practice-active',
+      title: '待删除练习',
+      status: 'running',
+      totalCount: 1,
+      answeredCount: 0,
+      remainingSeconds: 1800,
+      startedAt: '2026-07-30T00:00:00Z',
+      strategy: { mode: 'manual', showAnswer: true },
+      questions: [question],
+    }
+    mocks.listExams.mockResolvedValue([exam])
+    mocks.getExam.mockResolvedValue(exam)
+
+    const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
+    await flushPromises()
+    wrapper.findComponent({ name: 'InterviewBank' }).vm.$emit('practice-created', exam)
+    await flushPromises()
+
+    let practiceDesk = wrapper.findComponent({ name: 'InterviewBank' })
+    expect(practiceDesk.props('initialExamId')).toBe('practice-active')
+    expect(wrapper.find('.practice-active-workbench').exists()).toBe(true)
+
+    await wrapper
+      .findAll('.practice-overview-actions button')
+      .find((button) => button.text() === '练习记录')
+      .trigger('click')
+    await wrapper.find('.practice-record-actions .danger-text').trigger('click')
+    await wrapper.find('.practice-record-delete-modal .danger-btn').trigger('click')
+    await flushPromises()
+
+    practiceDesk = wrapper.findComponent({ name: 'InterviewBank' })
+    expect(mocks.deleteExam).toHaveBeenCalledWith('practice-active')
+    expect(practiceDesk.props('initialExamId')).toBe('')
+    expect(wrapper.find('.practice-entry-loading').exists()).toBe(false)
+    expect(wrapper.find('.practice-records-home').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('uses the complete cross-page selection to choose the manual practice answer mode', async () => {
+    const questionOne = {
+      questionId: 'q-page-1',
+      title: '第一页题目',
+      bankType: 'leetcode',
+      difficulty: '简单',
+      questionType: '编程题',
+      content: '返回输入值。',
+      answer: '直接返回。',
+    }
+    const questionTwo = {
+      questionId: 'q-page-2',
+      title: '第二页题目',
+      bankType: 'leetcode',
+      difficulty: '简单',
+      questionType: '编程题',
+      content: '返回输入值。',
+      answer: '直接返回。',
+    }
+    mocks.listQuestions.mockImplementation(({ page, size }) =>
+      Promise.resolve({
+        items: page === 2 ? [questionTwo] : [questionOne],
+        total: 11,
+        page,
+        size,
+        pages: 2,
+      }),
+    )
+    mocks.createRandomExam.mockResolvedValue({
+      examId: 'practice-cross-page',
+      status: 'running',
+      remainingSeconds: 2700,
+      questions: [questionOne, questionTwo],
+    })
+
+    const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.find('.interview-table tbody input[type="checkbox"]').setValue(true)
+    await wrapper
+      .findAll('.bank-pagination button')
+      .find((button) => button.text() === '下一页')
+      .trigger('click')
+    await flushPromises()
+    await wrapper.find('.interview-table tbody input[type="checkbox"]').setValue(true)
+    await wrapper
+      .findAll('.selection-toolbar button')
+      .find((button) => button.text() === '开始练习')
+      .trigger('click')
+    await flushPromises()
+
+    expect(mocks.createRandomExam).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questionIds: ['q-page-1', 'q-page-2'],
+        showAnswer: false,
+      }),
+    )
+    wrapper.unmount()
+  })
+
+  it('restores coding languages and templates while keeping existing user answers', async () => {
+    const javaTemplate = ['class Solution {', '    int solve(int value) {', '        return value;', '    }', '}'].join(
+      '\n',
+    )
+    const javascriptTemplate = ['function solve(value) {', '  throw new Error("TODO");', '}'].join('\n')
+    const javascriptAnswer = ['function solve(value) {', '  return value + 1;', '}'].join('\n')
+    const exam = {
+      examId: 'practice-code-state',
+      title: '多语言算法练习',
+      status: 'running',
+      totalCount: 2,
+      answeredCount: 1,
+      remainingSeconds: 1800,
+      strategy: { mode: 'smart', showAnswer: false },
+      questions: [
+        {
+          questionId: 'q-java-template',
+          title: 'Java 模板题',
+          bankType: 'leetcode',
+          difficulty: '简单',
+          questionType: '编程题',
+          content: '返回输入值。',
+          answer: '直接返回输入。',
+          codingMeta: {
+            language: 'java',
+            functionName: 'solve',
+            parameterCount: 1,
+            template: javaTemplate,
+            tests: [{ name: '示例', args: [1], expected: 1 }],
+          },
+        },
+        {
+          questionId: 'q-javascript-answer',
+          title: 'JavaScript 已作答题',
+          bankType: 'leetcode',
+          difficulty: '简单',
+          questionType: '编程题',
+          content: '返回输入值加一。',
+          answer: '返回输入值加一。',
+          userAnswer: javascriptAnswer,
+          codingMeta: {
+            language: 'javascript',
+            functionName: 'solve',
+            parameterCount: 1,
+            template: javascriptTemplate,
+            tests: [{ name: '示例', args: [1], expected: 2 }],
+          },
+        },
+      ],
+    }
+    mocks.listExams.mockResolvedValue([exam])
+    mocks.getExam.mockResolvedValue(exam)
+
+    const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.findAll('.written-center-tabs button')[1].trigger('click')
+    await flushPromises()
+    await wrapper.find('.practice-record-main').trigger('click')
+    await flushPromises()
+
+    let editor = wrapper.findComponent(CodeHighlightEditor)
+    expect(editor.props('language')).toBe('java')
+    expect(editor.find('textarea').element.value).toBe(javaTemplate)
+    expect(wrapper.find('.practice-overview-progress').text()).toContain('1 / 2 已完成')
+
+    await wrapper.find('.practice-editor-toolbar select').setValue('python')
+    await flushPromises()
+    editor = wrapper.findComponent(CodeHighlightEditor)
+    expect(editor.props('language')).toBe('python')
+    expect(editor.find('textarea').element.value).toBe('def solve(*args):\n    # TODO\n    pass\n')
+
+    await wrapper.findAll('.practice-question-number')[1].trigger('click')
+    await flushPromises()
+    editor = wrapper.findComponent(CodeHighlightEditor)
+    expect(editor.props('language')).toBe('javascript')
+    expect(editor.find('textarea').element.value).toBe(javascriptAnswer)
+    wrapper.unmount()
+  })
+
+  it('restores the configured Python template after switching away and back', async () => {
+    const pythonTemplate = 'def solution(value):\n    return value\n'
+    const exam = {
+      examId: 'practice-python-template',
+      title: 'Python 模板切换练习',
+      status: 'running',
+      totalCount: 1,
+      answeredCount: 0,
+      remainingSeconds: 1800,
+      strategy: { mode: 'manual', showAnswer: false },
+      questions: [
+        {
+          questionId: 'q-python-template',
+          title: 'Python 初始模板题',
+          bankType: 'leetcode',
+          difficulty: '简单',
+          questionType: '编程题',
+          content: '返回输入值。',
+          answer: '直接返回输入。',
+          codingMeta: {
+            language: 'python',
+            functionName: 'solution',
+            parameterCount: 1,
+            template: pythonTemplate,
+            tests: [{ name: '示例', args: [1], expected: 1 }],
+          },
+        },
+      ],
+    }
+    mocks.listExams.mockResolvedValue([exam])
+    mocks.getExam.mockResolvedValue(exam)
+
+    const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.findAll('.written-center-tabs button')[1].trigger('click')
+    await flushPromises()
+    await wrapper.find('.practice-record-main').trigger('click')
+    await flushPromises()
+
+    let editor = wrapper.findComponent(CodeHighlightEditor)
+    expect(editor.props('language')).toBe('python')
+    expect(editor.find('textarea').element.value).toBe(pythonTemplate)
+
+    await wrapper.find('.practice-editor-toolbar select').setValue('javascript')
+    await flushPromises()
+    editor = wrapper.findComponent(CodeHighlightEditor)
+    expect(editor.props('language')).toBe('javascript')
+    expect(editor.find('textarea').element.value).toBe('function solution() {\n  // TODO\n}')
+
+    await wrapper.find('.practice-editor-toolbar select').setValue('python')
+    await flushPromises()
+    editor = wrapper.findComponent(CodeHighlightEditor)
+    expect(editor.props('language')).toBe('python')
+    expect(editor.find('textarea').element.value).toBe(pythonTemplate)
+    wrapper.unmount()
+  })
+
+  it('detects the submitted coding language when reopening a practice record', async () => {
+    const pythonAnswer = 'def solve(*args):\n    return args[0]\n'
+    const exam = {
+      examId: 'practice-switched-language',
+      title: '切换语言后的练习',
+      status: 'submitted',
+      totalCount: 1,
+      answeredCount: 1,
+      score: 100,
+      strategy: { mode: 'manual', showAnswer: false },
+      questions: [
+        {
+          questionId: 'q-switched-language',
+          title: 'Java 元数据、Python 作答',
+          bankType: 'leetcode',
+          difficulty: '简单',
+          questionType: '编程题',
+          content: '返回输入值。',
+          answer: '直接返回输入。',
+          userAnswer: pythonAnswer,
+          correct: true,
+          codingMeta: {
+            language: 'java',
+            functionName: 'solve',
+            parameterCount: 1,
+            template: 'class Solution { public Object solve(Object... args) { return args[0]; } }',
+            tests: [{ name: '示例', args: [1], expected: 1 }],
+          },
+        },
+      ],
+    }
+    mocks.listExams.mockResolvedValue([exam])
+    mocks.getExam.mockResolvedValue(exam)
+
+    const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.findAll('.written-center-tabs button')[1].trigger('click')
+    await flushPromises()
+    await wrapper.find('.practice-record-main').trigger('click')
+    await flushPromises()
+
+    const editor = wrapper.findComponent(CodeHighlightEditor)
+    expect(editor.props('language')).toBe('python')
+    expect(editor.find('textarea').element.value).toBe(pythonAnswer)
+    wrapper.unmount()
+  })
+
+  it('uses the submitted answered count when a correct coding answer matches the configured template', async () => {
+    const pythonAnswer = 'def add(left, right):\n    return left + right\n'
+    const exam = {
+      examId: 'practice-submitted-code',
+      title: '已提交代码练习',
+      status: 'submitted',
+      totalCount: 1,
+      answeredCount: 1,
+      score: 100,
+      strategy: { mode: 'manual', showAnswer: false },
+      questions: [
+        {
+          questionId: 'q-submitted-code',
+          title: '两数相加',
+          bankType: 'leetcode',
+          difficulty: '简单',
+          questionType: '编程题',
+          content: '返回两个整数之和。',
+          answer: '返回 left + right。',
+          userAnswer: pythonAnswer,
+          correct: true,
+          codingMeta: {
+            language: 'python',
+            functionName: 'add',
+            parameterCount: 2,
+            template: pythonAnswer,
+            tests: [{ name: '示例', args: [1, 2], expected: 3 }],
+          },
+        },
+      ],
+    }
+    mocks.listExams.mockResolvedValue([exam])
+    mocks.getExam.mockResolvedValue(exam)
+
+    const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.findAll('.written-center-tabs button')[1].trigger('click')
+    await flushPromises()
+    await wrapper.find('.practice-record-main').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.practice-overview-progress').text()).toContain('1 / 1 已完成')
+    expect(wrapper.find('.exam-progress-bar > span').attributes('style')).toContain('width: 100%')
+    wrapper.unmount()
+  })
+
   it('uses the highlighted editor for a coding practice answer', async () => {
     const question = {
       questionId: 'q-code',
@@ -375,8 +713,9 @@ describe('WrittenExamCenter', () => {
     const editor = wrapper.findComponent(CodeHighlightEditor)
     expect(editor.exists()).toBe(true)
     expect(editor.props('language')).toBe('python')
+    expect(editor.find('textarea').element.value).toBe(question.codingMeta.template)
     expect(editor.findAll('.code-token-keyword').map((token) => token.text())).toEqual(
-      expect.arrayContaining(['def', 'pass']),
+      expect.arrayContaining(['class', 'def', 'return']),
     )
     expect(editor.find('textarea').attributes('aria-label')).toBe('编程题代码答案')
 
