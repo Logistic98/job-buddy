@@ -51,7 +51,7 @@
         <div class="memory-card-head">
           <div>
             <h3>记忆管理</h3>
-            <p>可以手动新增、删除或清空记忆。建议把稳定偏好、求职约束、面试复盘沉淀为记忆。</p>
+            <p>可以手动新增、更新、删除或清空记忆。建议把稳定偏好、求职约束、面试复盘沉淀为记忆。</p>
           </div>
           <button class="danger-btn" :disabled="!memories.length" @click="clearAll">清空记忆</button>
         </div>
@@ -64,10 +64,13 @@
               aria-label="记忆内容"
               aria-required="true"
               placeholder="例如：优先看上海 Agent 应用开发岗，薪资 40-50k，排除外包驻场"
-              @keyup.enter="create"
+              @keyup.enter="submit"
             />
           </label>
-          <button class="primary-btn" @click="create">新增记忆</button>
+          <div class="memory-editor-actions">
+            <button v-if="editingId" class="secondary-btn" @click="cancelEdit">取消</button>
+            <button class="primary-btn" @click="submit">{{ editingId ? '保存修改' : '新增记忆' }}</button>
+          </div>
         </div>
         <div class="source-list memory-list">
           <article v-for="item in memories" :key="item.id" class="source-item memory-item">
@@ -79,6 +82,7 @@
               <span :class="['source-state', item.enabled ? 'enabled' : 'disabled']">{{
                 item.enabled ? '启用' : '关闭'
               }}</span
+              ><button class="secondary-text" aria-label="编辑记忆" @click="startEdit(item)">编辑</button
               ><button class="danger-text" @click="remove(item.id)">删除</button>
             </div>
           </article>
@@ -94,7 +98,7 @@
 
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import { addMemory, clearMemories, deleteMemory, listMemories } from '../../api/settings'
+import { addMemory, clearMemories, deleteMemory, listMemories, updateMemory } from '../../api/settings'
 import { useScopedSettings } from '../../composables/useScopedSettings'
 import { validateInteger, validateLength } from '../../utils/formValidation'
 import AppSwitch from '../AppSwitch.vue'
@@ -117,6 +121,7 @@ const {
 } = useScopedSettings('memory', normalizeMemory)
 const memories = ref([])
 const form = ref({ content: '' })
+const editingId = ref('')
 const memorySourceLabels = {
   manual: '手动添加',
   'agent-memory': '自动沉淀',
@@ -149,16 +154,32 @@ async function save() {
   return saveMemory()
 }
 
-async function create() {
+async function submit() {
   try {
     validateLength(form.value.content, '记忆内容', { max: 2000, required: true })
-    const item = await addMemory({ ...form.value, source: 'manual', enabled: true })
+    const payload = { ...form.value, source: 'manual', enabled: true }
+    if (editingId.value) {
+      const item = await updateMemory(editingId.value, payload)
+      memories.value = memories.value.map((row) => (row.id === editingId.value ? item : row))
+      cancelEdit()
+      return
+    }
+    const item = await addMemory(payload)
     const key = memoryKey(item)
     memories.value = [item, ...memories.value.filter((row) => memoryKey(row) !== key)]
     form.value.content = ''
   } catch (err) {
     error.value = err.message || '记忆保存失败'
   }
+}
+function startEdit(item) {
+  editingId.value = item.id
+  form.value.content = item.content
+  error.value = ''
+}
+function cancelEdit() {
+  editingId.value = ''
+  form.value.content = ''
 }
 function memoryKey(item) {
   const content = String(item?.content || '')
@@ -181,6 +202,7 @@ async function remove(memoryId) {
   try {
     await deleteMemory(memoryId)
     memories.value = memories.value.filter((item) => item.id !== memoryId)
+    if (editingId.value === memoryId) cancelEdit()
   } catch (err) {
     error.value = err.message || '记忆删除失败'
   }
@@ -190,6 +212,7 @@ async function clearAll() {
   try {
     await clearMemories()
     memories.value = []
+    cancelEdit()
   } catch (err) {
     error.value = err.message || '记忆清空失败'
   }

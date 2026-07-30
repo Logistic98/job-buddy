@@ -64,11 +64,15 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
   @Override
   public ChatSessionState getOrCreate(String sessionId) {
     ChatSessionState existing = get(sessionId);
-    if (existing != null) return existing;
+    if (existing != null) {
+      existing.newlyCreated = false;
+      return existing;
+    }
     Owner owner = owner(sessionId);
     ChatSessionState created =
         ChatSessionRepository.newSession(owner.tenantId, owner.userId, sessionId);
     save(created);
+    created.newlyCreated = true;
     return created;
   }
 

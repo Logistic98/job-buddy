@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import { listMemories } from '../src/api/settings'
+import { clearMemories, listMemories, updateMemory } from '../src/api/settings'
 import MemorySettingsPanel from '../src/components/settings/MemorySettingsPanel.vue'
 
 vi.mock('../src/api/settings', () => ({
@@ -9,6 +9,7 @@ vi.mock('../src/api/settings', () => ({
   clearMemories: vi.fn(),
   deleteMemory: vi.fn(),
   listMemories: vi.fn().mockResolvedValue([]),
+  updateMemory: vi.fn(),
 }))
 
 vi.mock('../src/composables/useScopedSettings', () => ({
@@ -84,5 +85,66 @@ describe('MemorySettingsPanel', () => {
     ])
     expect(wrapper.text()).not.toContain('manual')
     expect(wrapper.text()).not.toContain('agent-memory')
+  })
+
+  it('edits an existing memory and refreshes the rendered content', async () => {
+    listMemories.mockResolvedValueOnce([
+      {
+        id: 'mem_1',
+        content: '优先上海岗位',
+        source: 'manual',
+        enabled: true,
+        updatedAt: '2026-07-27T11:51:00Z',
+      },
+    ])
+    updateMemory.mockResolvedValueOnce({
+      id: 'mem_1',
+      content: '优先杭州岗位',
+      source: 'manual',
+      enabled: true,
+      updatedAt: '2026-07-31T03:00:00Z',
+    })
+    const wrapper = mount(MemorySettingsPanel)
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="编辑记忆"]').trigger('click')
+    const editor = wrapper.get('.memory-editor input')
+    expect(editor.element.value).toBe('优先上海岗位')
+    await editor.setValue('优先杭州岗位')
+    await wrapper.get('.memory-editor .primary-btn').trigger('click')
+    await flushPromises()
+
+    expect(updateMemory).toHaveBeenCalledWith('mem_1', {
+      content: '优先杭州岗位',
+      source: 'manual',
+      enabled: true,
+    })
+    expect(wrapper.text()).toContain('优先杭州岗位')
+    expect(wrapper.text()).not.toContain('优先上海岗位')
+  })
+
+  it('returns to create mode after clearing memories while editing', async () => {
+    listMemories.mockResolvedValueOnce([
+      {
+        id: 'mem_1',
+        content: '优先上海岗位',
+        source: 'manual',
+        enabled: true,
+        updatedAt: '2026-07-27T11:51:00Z',
+      },
+    ])
+    clearMemories.mockResolvedValueOnce()
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true)
+    const wrapper = mount(MemorySettingsPanel)
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="编辑记忆"]').trigger('click')
+    expect(wrapper.get('.memory-editor .primary-btn').text()).toBe('保存修改')
+    await wrapper.get('.danger-btn').trigger('click')
+    await flushPromises()
+
+    expect(clearMemories).toHaveBeenCalled()
+    expect(wrapper.get('.memory-editor .primary-btn').text()).toBe('新增记忆')
+    expect(wrapper.get('.memory-editor input').element.value).toBe('')
   })
 })

@@ -112,6 +112,31 @@ class SystemSettingsMemoryTest {
   }
 
   /**
+   * 验证更新记忆时规范化内容并保持租户与用户边界。
+   */
+  @Test
+  void updateMemoryShouldNormalizeContentAndDelegateWithOwner() {
+    AgentMemoryClient client = mock(AgentMemoryClient.class);
+    when(client.list("tenant-a", "user-a")).thenReturn(Collections.emptyList());
+    SystemMemoryResponse updated = new SystemMemoryResponse();
+    updated.setId("mem_1");
+    updated.setContent("优先杭州岗位");
+    when(client.update(eq("tenant-a"), eq("user-a"), eq("mem_1"), any(SystemMemoryRequest.class)))
+        .thenReturn(updated);
+    SystemSettingsServiceImpl service = newService(statefulMapper(memoryEnabledState()), client);
+    SystemMemoryRequest request = new SystemMemoryRequest();
+    request.setContent("  优先杭州岗位  ");
+
+    SystemMemoryResponse result = service.updateMemory("tenant-a", "user-a", "mem_1", request);
+
+    assertEquals("优先杭州岗位", result.getContent());
+    org.mockito.ArgumentCaptor<SystemMemoryRequest> captor =
+        org.mockito.ArgumentCaptor.forClass(SystemMemoryRequest.class);
+    verify(client).update(eq("tenant-a"), eq("user-a"), eq("mem_1"), captor.capture());
+    assertEquals("优先杭州岗位", captor.getValue().getContent());
+  }
+
+  /**
    * 验证 SystemSettingsMemory 的去重与幂等边界。
    */
   @Test

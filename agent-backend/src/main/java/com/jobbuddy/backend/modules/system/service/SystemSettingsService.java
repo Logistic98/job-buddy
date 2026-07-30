@@ -63,6 +63,18 @@ public interface SystemSettingsService {
   SystemMemoryResponse addMemory(String tenantId, String userId, SystemMemoryRequest request);
 
   /**
+   * 更新记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param memoryId 记忆标识
+   * @param request 请求对象
+   * @return 更新后的记忆
+   */
+  SystemMemoryResponse updateMemory(
+      String tenantId, String userId, String memoryId, SystemMemoryRequest request);
+
+  /**
    * 写入自动记忆候选，但不在 Backend 创建第二套正文存储。
    *
    * @param tenantId 租户标识

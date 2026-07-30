@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 聊天 SSE 链路的无状态纯函数：意图/能力路由解析、岗位上下文拼装、工具事件累积、匹配结果摘要等。 从 ChatSseServiceImpl
@@ -22,6 +23,19 @@ import java.util.Map;
 public final class ChatSseSupport {
 
   public static final String SELECTED_JOB_CONTEXT_KEY = "_selected_job";
+  private static final List<String> MEMORY_SAVE_OPT_OUT_SIGNALS =
+      List.of("不要记住", "别记住", "不用记住", "无需记住", "不希望你记住", "不想让你记住");
+  private static final List<String> EXPLICIT_MEMORY_SAVE_SIGNALS =
+      List.of("请记住", "帮我记住", "替我记住", "记一下", "记下来");
+  private static final Pattern STABLE_IDENTITY_MEMORY_PATTERN =
+      Pattern.compile(
+          "(?:^|[\\s，,。.!！？?；;：:])"
+              + "(?:(?:记住[\\s，,：:]*)?我叫(?!什么|啥|谁|你|他|她|大家)"
+              + "|我的(?:名字|姓名)(?:是|叫)(?!什么|啥|谁|哪位)"
+              + "|(?:以后|今后)(?:请)?叫我(?!怎么|什么|啥)"
+              + "|请叫我(?!怎么|什么|啥)"
+              + "|称呼我为(?!什么|啥|谁|哪位))"
+              + "(?=[\\p{L}\\p{N}_])");
 
   /**
    * 创建对话 SSE 支持组件实例。
@@ -36,6 +50,9 @@ public final class ChatSseSupport {
    */
   public static boolean shouldCaptureLongTermMemory(String message) {
     String text = message == null ? "" : message;
+    if (containsAny(text, MEMORY_SAVE_OPT_OUT_SIGNALS)) return false;
+    if (containsAny(text, EXPLICIT_MEMORY_SAVE_SIGNALS)
+        || STABLE_IDENTITY_MEMORY_PATTERN.matcher(text).find()) return true;
     if (text.contains("排除") || text.contains("不要") || text.contains("不考虑") || text.contains("约束"))
       return true;
     return text.contains("偏好")
@@ -45,6 +62,13 @@ public final class ChatSseSupport {
         || text.contains("希望")
         || text.contains("喜欢")
         || text.contains("倾向");
+  }
+
+  private static boolean containsAny(String text, List<String> signals) {
+    for (String signal : signals) {
+      if (text.contains(signal)) return true;
+    }
+    return false;
   }
 
   /**

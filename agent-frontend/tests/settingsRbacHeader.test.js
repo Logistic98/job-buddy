@@ -26,6 +26,7 @@ vi.mock('../src/api/settings', () => ({
   refreshServiceHealth: vi.fn().mockResolvedValue({}),
   restoreWorkspaceDefaults: vi.fn(),
   saveSettings: vi.fn(),
+  updateMemory: vi.fn(),
 }))
 
 vi.mock('../src/api/users', () => ({

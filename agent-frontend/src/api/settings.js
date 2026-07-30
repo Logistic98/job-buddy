@@ -38,6 +38,15 @@ export async function addMemory(payload) {
   return parseApiResponse(response, '记忆保存失败')
 }
 
+export async function updateMemory(memoryId, payload) {
+  const response = await apiFetch(`/settings/memories/${encodeURIComponent(memoryId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  return parseApiResponse(response, '记忆更新失败')
+}
+
 export async function deleteMemory(memoryId) {
   const response = await apiFetch(`/settings/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' })
   return parseApiResponse(response, '记忆删除失败')

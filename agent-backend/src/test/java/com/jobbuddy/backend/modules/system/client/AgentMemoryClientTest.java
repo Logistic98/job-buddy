@@ -2,6 +2,7 @@ package com.jobbuddy.backend.modules.system.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -81,6 +82,35 @@ class AgentMemoryClientTest {
     SystemMemoryResponse created = client.create("tenant-a", "user-a", request);
 
     assertEquals("mem_2", created.getId());
+    server.verify();
+  }
+
+  /**
+   * 验证更新记忆时使用受属主约束的 PUT 接口。
+   */
+  @Test
+  void updateWritesContentToOwnedMemory() {
+    RestTemplate restTemplate = new RestTemplate();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+    AgentMemoryClient client = client(restTemplate);
+    server
+        .expect(requestTo("http://127.0.0.1:8030/v1/memories/mem_2"))
+        .andExpect(method(HttpMethod.PUT))
+        .andExpect(header("X-Tenant-Id", "tenant-a"))
+        .andExpect(header("X-Operator-Id", "user-a"))
+        .andExpect(content().json("{\"content\":\"优先杭州岗位\"}"))
+        .andRespond(
+            withSuccess(
+                "{\"code\":200,\"message\":\"success\",\"data\":{"
+                    + "\"id\":\"mem_2\",\"scope\":\"long_term\","
+                    + "\"content\":\"优先杭州岗位\",\"source\":\"manual\",\"enabled\":true}}",
+                MediaType.APPLICATION_JSON));
+    SystemMemoryRequest request = new SystemMemoryRequest();
+    request.setContent("优先杭州岗位");
+
+    SystemMemoryResponse updated = client.update("tenant-a", "user-a", "mem_2", request);
+
+    assertEquals("优先杭州岗位", updated.getContent());
     server.verify();
   }
 

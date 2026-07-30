@@ -225,6 +225,22 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   }
 
   /**
+   * 更新记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param memoryId 记忆标识
+   * @param request 请求对象
+   * @return 更新后的记忆
+   */
+  public synchronized SystemMemoryResponse updateMemory(
+      String tenantId, String userId, String memoryId, SystemMemoryRequest request) {
+    migrateLegacyMemories(tenantId, userId);
+    SystemMemoryRequest normalized = normalizeMemoryRequest(request, "manual");
+    return agentMemoryClient.update(tenantId, userId, memoryId, normalized);
+  }
+
+  /**
    * 写入本地数据记忆。
    *
    * @param tenantId 租户标识

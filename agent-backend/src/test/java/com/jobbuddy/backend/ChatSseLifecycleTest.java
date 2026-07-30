@@ -12,6 +12,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
@@ -37,12 +38,82 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
  * 验证 ChatSseLifecycle 的核心行为、异常路径与边界条件。
  */
 class ChatSseLifecycleTest {
+
+  /**
+   * 验证新会话的 SSE 主链路只向 Runtime 发送当前消息，不查询不存在的聊天历史。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void newSessionTaskUnderstandingShouldSkipHistoryRead() throws Exception {
+    ChatSessionStore sessionStore = mock(ChatSessionStore.class);
+    IntentService intentService = mock(IntentService.class);
+    AgentIntegrationService integrationService = mock(AgentIntegrationService.class);
+    ChatSseServiceImpl service = newService(sessionStore, intentService, integrationService);
+    when(sessionStore.getOrCreate(anyString()))
+        .thenAnswer(
+            invocation -> {
+              ChatSessionState state = new ChatSessionState();
+              state.tenantId = "tenant-a";
+              state.userId = "user-a";
+              state.sessionId = invocation.getArgument(0);
+              state.newlyCreated = true;
+              return state;
+            });
+    when(sessionStore.appendUserMessageOnce(anyString(), anyString(), anyString()))
+        .thenReturn(true);
+    IntentResult preIntent =
+        new IntentResult(
+            "job",
+            "resume.match",
+            0.88,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "run_resume_match",
+            Collections.<String, Object>emptyMap());
+    preIntent.setRouter("rule");
+    when(intentService.classify(anyString())).thenReturn(preIntent);
+    JsonNodeFactory nodes = JsonNodeFactory.instance;
+    com.fasterxml.jackson.databind.node.ObjectNode result = nodes.objectNode();
+    result.put("status", "success");
+    com.fasterxml.jackson.databind.node.ObjectNode directive = result.putObject("directive");
+    directive.put("domain", "job");
+    directive.put("intent", "resume.match");
+    directive.put("confidence", 0.95);
+    directive.put("risk", "low");
+    directive.put("needs_clarification", false);
+    directive.put("next_action", "run_resume_match");
+    directive.put("router", "validated_intent_hint");
+    directive.set("slots", nodes.objectNode());
+    when(integrationService.runRuntime(any(RuntimeRunRequest.class)))
+        .thenReturn(RuntimeRunResult.fromJson(result));
+    ChatStreamRequest request = new ChatStreamRequest();
+    request.setTurnId("turn-new-session");
+    request.setMessage("分析当前简历与目标岗位的匹配度");
+    request.setAuthenticatedTenantId("tenant-a");
+    request.setAuthenticatedUserId("user-a");
+
+    SseEmitter emitter = service.stream(request);
+
+    ArgumentCaptor<RuntimeRunRequest> runtimeRequest =
+        ArgumentCaptor.forClass(RuntimeRunRequest.class);
+    verify(integrationService, timeout(3000)).runRuntime(runtimeRequest.capture());
+    assertEquals(1, runtimeRequest.getValue().messages().size());
+    assertEquals("user", runtimeRequest.getValue().messages().get(0).role());
+    assertEquals("分析当前简历与目标岗位的匹配度", runtimeRequest.getValue().messages().get(0).content().asText());
+    verify(sessionStore, org.mockito.Mockito.never())
+        .listMessages(anyString(), anyString(), anyString());
+    assertTrue(waitUntilRemoved(cancelledMap(service), emitter, 3000));
+    service.shutdownExecutors();
+  }
 
   /**
    * 验证新建服务。

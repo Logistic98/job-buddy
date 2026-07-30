@@ -25,6 +25,39 @@ import org.junit.jupiter.api.Test;
 class ChatSessionStoreTest {
 
   /**
+   * 验证首次创建的会话携带仅限当前请求使用的新建标记。
+   */
+  @Test
+  void getOrCreateShouldMarkNewlyCreatedSession() {
+    ChatSessionRepository repository = mock(ChatSessionRepository.class);
+    ChatSessionCache cache = mock(ChatSessionCache.class);
+    ChatSessionStore store = new ChatSessionStoreImpl(repository, cache);
+    store.bindOwner("session-a", "tenant-a", "user-a");
+
+    ChatSessionState state = store.getOrCreate("session-a");
+
+    assertTrue(state.newlyCreated);
+  }
+
+  /**
+   * 验证缓存中已有的会话不会沿用瞬时新建标记。
+   */
+  @Test
+  void getOrCreateShouldClearNewlyCreatedMarkerForExistingSession() {
+    ChatSessionRepository repository = mock(ChatSessionRepository.class);
+    ChatSessionCache cache = mock(ChatSessionCache.class);
+    ChatSessionState cached = ChatSessionRepository.newSession("tenant-a", "user-a", "session-a");
+    cached.newlyCreated = true;
+    when(cache.get("session-a")).thenReturn(cached);
+    ChatSessionStore store = new ChatSessionStoreImpl(repository, cache);
+    store.bindOwner("session-a", "tenant-a", "user-a");
+
+    ChatSessionState state = store.getOrCreate("session-a");
+
+    assertFalse(state.newlyCreated);
+  }
+
+  /**
    * 验证 ChatSessionStore 中会话的身份认证与会话边界。
    */
   @Test

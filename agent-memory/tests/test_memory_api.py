@@ -10,7 +10,6 @@ from app.store import MemoryStore
 def make_client(monkeypatch) -> TestClient:
     monkeypatch.setattr(server, "local_store", MemoryStore())
     monkeypatch.setattr(server.postgres_store, "dsn", "")
-    monkeypatch.setattr(server.adapter, "enabled", False)
     token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
     headers = {"X-Internal-Service-Token": token} if token else None
     return TestClient(server.app, headers=headers)
@@ -40,6 +39,20 @@ def test_health_returns_503_when_postgres_is_not_ready(monkeypatch):
 
     assert response.status_code == 503
     assert response.json()["data"]["status"] == "DOWN"
+
+
+def test_health_reports_self_hosted_postgres_backend(monkeypatch):
+    client = make_client(monkeypatch)
+    monkeypatch.setattr(server.postgres_store, "dsn", "postgresql://configured")
+    monkeypatch.setattr(server.postgres_store, "ensure_ready", AsyncMock(return_value=None))
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["status"] == "UP"
+    assert data["backend"] == "postgresql"
+    assert "gateway" not in data
 
 
 def test_list_and_clear_long_term_memories(monkeypatch):

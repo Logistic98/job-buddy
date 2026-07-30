@@ -38,6 +38,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,6 +81,7 @@ public class ChatSseServiceImpl implements ChatSseService {
   private final ChatSseEventSender sender;
   private final ChatSseHeartbeatScheduler heartbeatScheduler;
   private final ChatMemoryWriter memoryWriter;
+  private final ChatMemoryCommandHandler memoryCommandHandler;
   private final ChatTaskContextBuilder taskContextBuilder;
   private final RuntimeManagedRequestFactory requestFactory;
   private final SelectedJobAnalysisHandler selectedJobAnalysisHandler;
@@ -168,9 +170,11 @@ public class ChatSseServiceImpl implements ChatSseService {
     this.heartbeatScheduler =
         new ChatSseHeartbeatScheduler(namedThreadFactory("chat-sse-heartbeat"));
     this.memoryWriter = new ChatMemoryWriter(settingsService, executor);
+    this.memoryCommandHandler = new ChatMemoryCommandHandler(settingsService);
     this.taskContextBuilder = new ChatTaskContextBuilder(sessionStore);
     this.requestFactory =
-        new RuntimeManagedRequestFactory(integrationService, personalContextBuilder, properties);
+        new RuntimeManagedRequestFactory(
+            integrationService, personalContextBuilder, resumeStorageService, properties);
     CurrentResumeLoader resumeLoader = new CurrentResumeLoader(resumeStorageService);
     SelectedJobContextResolver selectedJobContextResolver =
         new SelectedJobContextResolver(bossCliService);
@@ -419,8 +423,10 @@ public class ChatSseServiceImpl implements ChatSseService {
    * @throws IOException 文件或网络读写失败时抛出
    */
   private void handle(ChatStreamRequest request, SseEmitter emitter) throws IOException {
+    boolean sessionIdProvided =
+        request.getSessionId() != null && !request.getSessionId().trim().isEmpty();
     String sessionId =
-        request.getSessionId() == null || request.getSessionId().isEmpty()
+        !sessionIdProvided
             ? "sess_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12)
             : request.getSessionId();
     // 首包优先：先把会话反馈直接写入 SSE，不做任何 DB/文件 IO，避免用户看到长时间空白。
@@ -563,6 +569,27 @@ public class ChatSseServiceImpl implements ChatSseService {
       return;
     }
 
+    Optional<ChatMemoryMutationResult> memoryMutation =
+        memoryCommandHandler.handle(
+            request.getAuthenticatedTenantId(),
+            request.getAuthenticatedUserId(),
+            request.getMessage());
+    if (memoryMutation.isPresent()) {
+      ChatMemoryMutationResult result = memoryMutation.get();
+      sender.sendToolStatus(
+          emitter,
+          sessionId,
+          state,
+          toolStatus(
+              "memory_" + result.action(),
+              "长期记忆" + memoryActionLabel(result.action()),
+              result.success() ? "success" : "error",
+              result.summary(),
+              null));
+      sender.sendAssistant(emitter, sessionId, state, result.assistantMessage());
+      return;
+    }
+
     // 仅正常路径提示“任务理解中”：确定性短路（续跑/换一批）不再出现该过程框。
     // 该 running 状态只发流不落库，后续 success 状态会累积到内存状态并在本轮结束时统一落库。
     sender.send(
@@ -570,6 +597,7 @@ public class ChatSseServiceImpl implements ChatSseService {
         "tool_status",
         toolStatus(
             "runtime_understanding", "Runtime 任务理解", "running", "已收到请求，正在理解你的问题并准备作答。", null));
+    long understandingStartedNanos = System.nanoTime();
 
     // 保持原有记忆边界：选中岗位分析已在上方直接返回，不写入长期记忆；普通问答才进入记忆提取。
     if (!resumeAfterAuthRequested && !flipJobsRequested) {
@@ -590,7 +618,9 @@ public class ChatSseServiceImpl implements ChatSseService {
 
     // 快速预分类：先经过 agent-intent 这层独立、廉价的意图与风险预判，再决定是否进入较重的 runtime 链路。
     // 预判结果作为提示注入 runtime（不替换权威路由），并通过 intent_precheck 事件透出用于观测。
+    long precheckStartedNanos = System.nanoTime();
     IntentResult preIntent = intentService.classify(effectiveMessage);
+    long precheckElapsedMillis = elapsedMillis(precheckStartedNanos);
     sender.send(emitter, "intent_precheck", preIntent);
     if (isSafetyGateBlocked(preIntent)) {
       sender.sendToolStatus(
@@ -607,9 +637,19 @@ public class ChatSseServiceImpl implements ChatSseService {
       return;
     }
 
+    long runtimeUnderstandingStartedNanos = System.nanoTime();
     Map<String, Object> directive =
-        runTaskUnderstanding(sessionId, effectiveMessage, state, preIntent);
+        runTaskUnderstanding(sessionId, effectiveMessage, state, preIntent, !state.newlyCreated);
+    long runtimeUnderstandingElapsedMillis = elapsedMillis(runtimeUnderstandingStartedNanos);
     IntentResult intent = intentFromRuntime(directive);
+    log.info(
+        "智能引擎任务理解分段耗时 sessionId={} precheckMs={} runtimeStageMs={} totalMs={} preRouter={} runtimeRouter={}",
+        sessionId,
+        precheckElapsedMillis,
+        runtimeUnderstandingElapsedMillis,
+        elapsedMillis(understandingStartedNanos),
+        preIntent == null ? null : preIntent.getRouter(),
+        intent.getRouter());
     Object selectedJobContext =
         state.lastSlots == null ? null : state.lastSlots.get(SELECTED_JOB_CONTEXT_KEY);
     state.lastSlots =
@@ -635,6 +675,13 @@ public class ChatSseServiceImpl implements ChatSseService {
     handleDirective(emitter, sessionId, effectiveMessage, state, directive, intent);
   }
 
+  private String memoryActionLabel(String action) {
+    if ("create".equals(action)) return "新增";
+    if ("update".equals(action)) return "更新";
+    if ("delete".equals(action)) return "删除";
+    return "处理";
+  }
+
   /**
    * 安全门控：仅当配置开关开启，且预判为高风险并建议拒绝时拦截。默认关闭，主链路行为与现状一致。
    *
@@ -654,15 +701,28 @@ public class ChatSseServiceImpl implements ChatSseService {
    * @param message 消息内容
    * @param state 状态
    * @param preIntent 前置意图结果
+   * @param loadHistory 是否读取既有会话历史
    * @return 任务理解结果
    */
   private Map<String, Object> runTaskUnderstanding(
-      String sessionId, String message, ChatSessionState state, IntentResult preIntent) {
+      String sessionId,
+      String message,
+      ChatSessionState state,
+      IntentResult preIntent,
+      boolean loadHistory) {
     // 任务理解只需意图/能力路由/directive，这里短路 Runtime 图，跳过上下文装配、Tool Search、Planner、合成，
     // 把一次多余的 LLM/工具往返从首字延迟链路上移除；真正的答案合成由后续流式托管调用完成。
+    long contextStartedNanos = System.nanoTime();
+    java.util.List<Map<String, Object>> messages =
+        loadHistory
+            ? taskContextBuilder.build(state, message)
+            : taskContextBuilder.buildCurrentMessageOnly(message);
+    Map<String, Object> understandingContext =
+        requestFactory.buildUnderstandingContext(message, preIntent, state);
+    long contextElapsedMillis = elapsedMillis(contextStartedNanos);
     RuntimeRunRequest request =
         RuntimeRequestBuilder.forEntrypoint(sessionId, message, "chat.stream")
-            .messages(taskContextBuilder.build(state, message))
+            .messages(messages)
             .budget(1, 0, 1, Math.min(properties.getRuntimeMaxTokens(), 4096))
             .metadata("understanding_only", true)
             .metadata("intent_hint", intentHint(preIntent))
@@ -677,10 +737,16 @@ public class ChatSseServiceImpl implements ChatSseService {
                 state == null || state.attachments == null
                     ? Collections.emptyList()
                     : attachmentReferences(state.attachments))
-            .metadata(
-                "personal_context", requestFactory.buildUnderstandingContext(message, null, state))
+            .metadata("personal_context", understandingContext)
             .build();
+    long runtimeCallStartedNanos = System.nanoTime();
     RuntimeRunResult runtimeResult = integrationService.runRuntime(request);
+    long runtimeCallElapsedMillis = elapsedMillis(runtimeCallStartedNanos);
+    log.info(
+        "Runtime 任务理解调用耗时 sessionId={} contextMs={} runtimeCallMs={}",
+        sessionId,
+        contextElapsedMillis,
+        runtimeCallElapsedMillis);
     Map<String, Object> result =
         runtimeResult == null ? Collections.<String, Object>emptyMap() : runtimeResult.toMap(JSON);
     Map<String, Object> directive = RuntimeRequestBuilder.extractDirective(result);
@@ -695,6 +761,16 @@ public class ChatSseServiceImpl implements ChatSseService {
     }
     directive.put("runtime_result", result == null ? Collections.emptyMap() : result);
     return directive;
+  }
+
+  /**
+   * 把单调时钟起点转换为毫秒耗时。
+   *
+   * @param startedNanos {@link System#nanoTime()} 起点
+   * @return 非负毫秒耗时
+   */
+  private static long elapsedMillis(long startedNanos) {
+    return Math.max(0L, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos));
   }
 
   /**

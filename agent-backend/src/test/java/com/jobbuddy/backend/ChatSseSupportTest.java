@@ -28,6 +28,15 @@ class ChatSseSupportTest {
     assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("我希望做后端"));
     assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("我喜欢远程办公"));
     assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("我倾向 Java 后端开发"));
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("记住我叫小明"));
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("请记住：我的名字是小明"));
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("我的名字是小明"));
+    assertEquals(true, ChatSseSupport.shouldCaptureLongTermMemory("以后请叫我小明"));
+    assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory("不要记住我叫小明"));
+    assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory("你记住我叫什么了吗"));
+    assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory("我的名字是什么？"));
+    assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory("我叫你帮我看下这个岗位"));
+    assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory("请叫我怎么处理这个问题"));
     assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory("帮我看下这个岗位"));
     assertEquals(false, ChatSseSupport.shouldCaptureLongTermMemory(null));
   }

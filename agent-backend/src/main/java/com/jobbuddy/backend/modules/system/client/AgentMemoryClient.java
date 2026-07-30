@@ -125,6 +125,33 @@ public class AgentMemoryClient {
   }
 
   /**
+   * 更新用户记忆。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param memoryId 记忆标识
+   * @param request 请求参数
+   * @return 更新后的记忆记录
+   */
+  public SystemMemoryResponse update(
+      String tenantId, String userId, String memoryId, SystemMemoryRequest request) {
+    String normalizedId = requireMemoryId(memoryId);
+    Map<String, Object> payload = new LinkedHashMap<String, Object>();
+    payload.put("content", request == null ? "" : request.getContent());
+    Map<String, Object> envelope =
+        exchange(
+            URI.create(baseUrl() + "/v1/memories/" + normalizedId),
+            HttpMethod.PUT,
+            entity(tenantId, userId, payload),
+            false);
+    Object data = requireSuccess(envelope);
+    if (!(data instanceof Map)) throw new IllegalStateException("agent-memory 返回的记忆结构不正确");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> item = (Map<String, Object>) data;
+    return memory(item);
+  }
+
+  /**
    * 删除用户记忆。
    *
    * @param tenantId 租户标识
@@ -132,10 +159,7 @@ public class AgentMemoryClient {
    * @param memoryId 记忆标识
    */
   public void delete(String tenantId, String userId, String memoryId) {
-    String normalizedId = memoryId == null ? "" : memoryId.trim();
-    if (!normalizedId.matches("mem_[a-zA-Z0-9]{1,64}")) {
-      throw new IllegalArgumentException("记忆标识格式不正确");
-    }
+    String normalizedId = requireMemoryId(memoryId);
     Map<String, Object> envelope =
         exchange(
             URI.create(baseUrl() + "/v1/memories/" + normalizedId),
@@ -143,6 +167,20 @@ public class AgentMemoryClient {
             entity(tenantId, userId, null),
             false);
     requireSuccess(envelope);
+  }
+
+  /**
+   * 校验记忆标识。
+   *
+   * @param memoryId 记忆标识
+   * @return 规范化后的记忆标识
+   */
+  private String requireMemoryId(String memoryId) {
+    String normalizedId = memoryId == null ? "" : memoryId.trim();
+    if (!normalizedId.matches("mem_[a-zA-Z0-9]{1,64}")) {
+      throw new IllegalArgumentException("记忆标识格式不正确");
+    }
+    return normalizedId;
   }
 
   /**

@@ -10,13 +10,11 @@ from pydantic import BaseModel, Field
 from .env import load_root_dotenv
 from .internal_auth import install_internal_auth
 from .store import MEMORY_KINDS, MemoryStore, PostgresMemoryStore, normalize_kind
-from .tencentdb_adapter import TencentDBMemoryAdapter
 
 load_root_dotenv()
 
 local_store = MemoryStore()
 postgres_store = PostgresMemoryStore()
-adapter = TencentDBMemoryAdapter()
 
 DEFAULT_TENANT = "default-tenant"
 ANONYMOUS_OPERATOR = "anonymous"
@@ -62,10 +60,6 @@ def _resolve_identity(header_tenant: str | None, header_operator: str | None) ->
     tenant_id = (header_tenant or DEFAULT_TENANT).strip() or DEFAULT_TENANT
     operator_id = (header_operator or ANONYMOUS_OPERATOR).strip() or ANONYMOUS_OPERATOR
     return tenant_id, operator_id
-
-
-def _owned_scope(tenant_id: str, operator_id: str, scope: str) -> str:
-    return f"{tenant_id}:{operator_id}:{scope}"
 
 
 def _audit(action: str, operator_id: str, *, outcome: str, **fields) -> None:
@@ -151,35 +145,16 @@ async def health():
                     },
                 },
             )
-    if not adapter.enabled:
-        return {
-            "code": 200,
-            "message": "success",
-            "data": {
-                "status": "UP",
-                "service": "agent-memory",
-                "memory_kinds": list(MEMORY_KINDS),
-                **local_backend_status(),
-            },
-        }
-    try:
-        gateway = await adapter.health()
-        return {
-            "code": 200,
-            "message": "success",
-            "data": {
-                "status": "UP",
-                "service": "agent-memory",
-                "backend": "tencentdb-agent-memory",
-                "gateway": gateway,
-            },
-        }
-    except Exception as exc:
-        return {
-            "code": 200,
-            "message": "success",
-            "data": {"status": "DEGRADED", "service": "agent-memory", "reason": str(exc), **local_backend_status()},
-        }
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "status": "UP",
+            "service": "agent-memory",
+            "memory_kinds": list(MEMORY_KINDS),
+            **local_backend_status(),
+        },
+    }
 
 
 @app.post("/v1/memories")
@@ -190,15 +165,6 @@ async def create_memory(
 ) -> dict:
     tenant_id, operator_id = _resolve_identity(x_tenant_id, x_operator_id)
     kind = normalize_kind(request.kind)
-    if request.scope != "long_term" and adapter.is_available():
-        try:
-            data = await adapter.capture(
-                _owned_scope(tenant_id, operator_id, request.scope), request.content, request.role
-            )
-            _audit("create", operator_id, outcome="gateway", tenant_id=tenant_id, scope=request.scope, kind=kind)
-            return {"code": 200, "message": "success", "data": data}
-        except Exception as exc:
-            logger.warning("memory capture 网关失败，降级本地存储: scope={}, error={}", request.scope, exc)
     data = await add_local_memory(
         request.scope,
         request.content,
@@ -244,20 +210,6 @@ async def search_memories(
     x_operator_id: str | None = Header(default=None),
 ) -> dict:
     tenant_id, operator_id = _resolve_identity(x_tenant_id, x_operator_id)
-    if scope != "long_term" and adapter.is_available():
-        try:
-            data = await adapter.recall(q, _owned_scope(tenant_id, operator_id, scope or "session"))
-            _audit(
-                "recall",
-                operator_id,
-                outcome="gateway",
-                tenant_id=tenant_id,
-                scope=scope,
-                hits=len(data) if isinstance(data, list) else None,
-            )
-            return {"code": 200, "message": "success", "data": data}
-        except Exception as exc:
-            logger.warning("memory recall 网关失败，降级本地检索: scope={}, error={}", scope, exc)
     data = await search_local_memories(q, scope, tenant_id=tenant_id, operator_id=operator_id)
     _audit("recall", operator_id, outcome="local", tenant_id=tenant_id, scope=scope, hits=len(data))
     return {"code": 200, "message": "success", "data": data}

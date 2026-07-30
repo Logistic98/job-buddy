@@ -128,7 +128,7 @@ const settingsMenu = [
     letter: 'MM',
     label: '记忆管理',
     en: 'Memory',
-    desc: '长期记忆新增、删除、清空',
+    desc: '长期记忆新增、更新、删除、清空',
   },
   {
     key: 'services',

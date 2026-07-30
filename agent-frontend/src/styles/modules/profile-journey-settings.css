@@ -649,6 +649,11 @@
   gap: 10px;
   margin-top: 14px;
 }
+.memory-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .memory-editor-field {
   display: flex;
   min-width: 0;
@@ -683,6 +688,13 @@
   border: 0;
   background: transparent;
   color: #e11d48;
+  font-weight: 800;
+  cursor: pointer;
+}
+.memory-item .secondary-text {
+  border: 0;
+  background: transparent;
+  color: #3157ff;
   font-weight: 800;
   cursor: pointer;
 }

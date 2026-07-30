@@ -123,6 +123,28 @@ public class SystemSettingsController {
   }
 
   /**
+   * 更新记忆。
+   *
+   * @param memoryId 记忆标识
+   * @param payload 请求载荷
+   * @param request 请求对象
+   * @return 统一接口响应
+   */
+  @Operation(summary = "更新记忆")
+  @PutMapping("/memories/{memoryId}")
+  public ApiResponse<SystemMemoryResponse> updateMemory(
+      @PathVariable String memoryId,
+      @RequestBody SystemMemoryRequest payload,
+      HttpServletRequest request) {
+    return ApiResponse.success(
+        systemSettingsService.updateMemory(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
+            memoryId,
+            payload));
+  }
+
+  /**
    * 删除记忆。
    *
    * @param memoryId 记忆标识
