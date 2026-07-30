@@ -108,6 +108,7 @@ beforeEach(() => {
   mocks.updateProject.mockReset()
   mocks.generateQuestions.mockReset()
   mocks.addMaterial.mockReset()
+  mocks.deleteMaterial.mockReset()
   mocks.addQuestion.mockReset()
 })
 
@@ -543,6 +544,38 @@ describe('ProjectDeepDive two-level workflow', () => {
     expect(mocks.addMaterial).toHaveBeenNthCalledWith(1, 'p1', zip)
     expect(mocks.addMaterial).toHaveBeenNthCalledWith(2, 'p1', binary)
     expect(wrapper.text()).toContain('已完成 2 个文件上传')
+  })
+
+  it('clears completed upload feedback after deleting the uploaded file', async () => {
+    mocks.route.query = { project: 'p1' }
+    const uploadedFile = new File(['material'], 'acceptance.md', { type: 'text/markdown' })
+    const uploadedMaterial = {
+      materialId: 'm-uploaded',
+      fileName: uploadedFile.name,
+      contentType: uploadedFile.type,
+      sizeBytes: uploadedFile.size,
+      createdAt: '2026-07-30T10:00:00Z',
+    }
+    mocks.detail.mockResolvedValue({ ...detail, materials: [] })
+    mocks.addMaterial.mockResolvedValue({ ...detail, materials: [uploadedMaterial] })
+    mocks.deleteMaterial.mockResolvedValue({ name: 'materialId', value: uploadedMaterial.materialId })
+    const wrapper = mount(ProjectDeepDive)
+    await flushPromises()
+
+    await wrapper.findAll('.project-workbench-steps button')[1].trigger('click')
+    const input = wrapper.find('.material-file-input')
+    Object.defineProperty(input.element, 'files', { configurable: true, value: [uploadedFile] })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(wrapper.find('.inline-feedback.success').text()).toBe('已完成 1 个文件上传')
+
+    await wrapper.find('.material-card-delete').trigger('click')
+    await wrapper.find('.history-delete-modal .danger-btn').trigger('click')
+    await flushPromises()
+
+    expect(mocks.deleteMaterial).toHaveBeenCalledWith(uploadedMaterial.materialId)
+    expect(wrapper.find('.inline-feedback.success').exists()).toBe(false)
   })
 
   it('selects all project files for one batch download', async () => {

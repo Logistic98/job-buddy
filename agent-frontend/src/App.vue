@@ -108,9 +108,16 @@ watch(
 )
 
 async function handleLogout() {
-  await auth.logout()
-  if (healthTimer) window.clearInterval(healthTimer)
-  healthTimer = null
+  auth.logoutPending = true
+  try {
+    await router.push('/login')
+    if (router.currentRoute.value.path !== '/login') return
+    await auth.logout()
+    if (healthTimer) window.clearInterval(healthTimer)
+    healthTimer = null
+  } finally {
+    auth.logoutPending = false
+  }
 }
 
 function resetBusinessState() {

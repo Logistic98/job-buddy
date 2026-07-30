@@ -89,6 +89,81 @@ describe('ServiceMonitorPanel', () => {
     wrapper.unmount()
   })
 
+  it('renders degraded checks separately and excludes them from the running success rate', async () => {
+    getSettings.mockResolvedValueOnce({
+      services: {},
+      serviceStatuses: serviceStatuses([
+        { status: 'running', checkedAt: firstCheckedAt, message: '运行中' },
+        { status: 'degraded', checkedAt: secondCheckedAt, message: '运行降级：gateway unavailable' },
+      ]),
+    })
+
+    const wrapper = mount(ServiceMonitorPanel)
+    await flushPromises()
+
+    expect(wrapper.get('.health-state.degraded').text()).toBe('运行降级')
+    expect(wrapper.text()).toContain('50.00% 运行成功率')
+    expect(wrapper.findAll('.uptime-bar.degraded')).toHaveLength(1)
+
+    await wrapper.find('.service-health-summary').trigger('click')
+    expect(wrapper.findAll('.history-dot.degraded')).toHaveLength(1)
+    expect(wrapper.text()).toContain('运行降级：gateway unavailable')
+
+    wrapper.unmount()
+  })
+
+  it('clears a stale refresh error after the next successful health check', async () => {
+    refreshServiceHealth
+      .mockRejectedValueOnce(new Error('第一次刷新失败'))
+      .mockRejectedValueOnce(new Error('第二次刷新失败'))
+
+    const wrapper = mount(ServiceMonitorPanel)
+    await flushPromises()
+    const refreshButton = wrapper.find('.service-health-head .secondary-btn')
+
+    await refreshButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('第一次刷新失败')
+
+    await refreshButton.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('第二次刷新失败')
+
+    refreshServiceHealth.mockResolvedValueOnce(
+      serviceStatuses([{ status: 'running', checkedAt: secondCheckedAt, message: '运行中' }]),
+    )
+    await refreshButton.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('clears a stale polling error after the next successful status load', async () => {
+    const wrapper = mount({
+      components: { ServiceMonitorPanel },
+      template: '<KeepAlive><ServiceMonitorPanel /></KeepAlive>',
+    })
+    await flushPromises()
+
+    getSettings.mockRejectedValueOnce(new Error('轮询失败'))
+    await vi.advanceTimersByTimeAsync(10000)
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('轮询失败')
+
+    getSettings.mockResolvedValueOnce({
+      services: {},
+      serviceStatuses: serviceStatuses([{ status: 'running', checkedAt: secondCheckedAt, message: '运行中' }]),
+    })
+    await vi.advanceTimersByTimeAsync(10000)
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
   it('shows environment-managed container addresses as read-only', async () => {
     getSettings.mockResolvedValueOnce({
       services: {

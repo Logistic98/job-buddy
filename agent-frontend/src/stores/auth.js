@@ -9,6 +9,7 @@ export const useAuthStore = defineStore('auth', {
     user: readAuthUser(),
     loading: false,
     initialized: false,
+    logoutPending: false,
     sessionRevision: 0,
     error: '',
   }),

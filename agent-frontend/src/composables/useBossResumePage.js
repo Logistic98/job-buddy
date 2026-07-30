@@ -1,4 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { generateJobProfileSummary } from '../api/resume'
 import { useResumeStore } from '../stores/resume'
 import { createUuid } from '../utils/clientId'
@@ -69,6 +70,7 @@ export function useBossResumePage() {
     window.removeEventListener('beforeunload', handleBeforeUnload)
     document.removeEventListener('click', handleExpectationOutsideClick)
   })
+  onBeforeRouteLeave(() => confirmRouteLeave())
   watch(() => profile.value?.resumeId, resetForm, { immediate: true })
   watch(() => profile.value?.parsed, resetForm)
   watch(
@@ -666,6 +668,10 @@ export function useBossResumePage() {
     if (!dirty.value) return
     event.preventDefault()
     event.returnValue = ''
+  }
+  function confirmRouteLeave() {
+    if (!dirty.value) return true
+    return window.confirm('求职画像有未保存的修改，离开后这些修改将丢失。确认离开当前页面吗？')
   }
   function isEntryExpanded(kind, id) {
     return expandedEntries[kind].includes(id)

@@ -1,14 +1,18 @@
 package com.jobbuddy.backend.modules.system.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.system.dto.response.ServiceStatusesResponse;
+import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -204,25 +208,130 @@ public class ServiceHealthMonitor {
       return data;
     }
     String healthUrl = healthUrl(id, baseUrl);
+    HttpURLConnection connection = null;
     try {
-      HttpURLConnection connection = (HttpURLConnection) new URL(healthUrl).openConnection();
+      connection = (HttpURLConnection) new URL(healthUrl).openConnection();
       connection.setRequestMethod("GET");
       connection.setConnectTimeout(HEALTH_TIMEOUT_MILLIS);
       connection.setReadTimeout(HEALTH_TIMEOUT_MILLIS);
       int code = connection.getResponseCode();
-      boolean success = code >= 200 && code < 300;
       data.put("healthUrl", healthUrl);
-      data.put("status", success ? "running" : "down");
-      data.put("success", success);
-      data.put("message", success ? "运行中" : "健康检查失败，HTTP " + code);
-      connection.disconnect();
+      if (code < 200 || code >= 300) {
+        data.put("status", "down");
+        data.put("success", false);
+        data.put("message", "健康检查失败，HTTP " + code);
+        return data;
+      }
+      BusinessHealth businessHealth = readBusinessHealth(connection);
+      String businessStatus = businessHealth.status().toUpperCase(Locale.ROOT);
+      if ("DEGRADED".equals(businessStatus)) {
+        data.put("status", "degraded");
+        data.put("success", false);
+        data.put("message", withReason("运行降级", businessHealth.reason()));
+      } else if (isBusinessDown(businessStatus)) {
+        data.put("status", "down");
+        data.put("success", false);
+        data.put("message", withReason("健康检查失败，业务状态 " + businessStatus, businessHealth.reason()));
+      } else if (businessStatus.isBlank() || isBusinessUp(businessStatus)) {
+        data.put("status", "running");
+        data.put("success", true);
+        data.put("message", "运行中");
+      } else {
+        data.put("status", "unknown");
+        data.put("success", false);
+        data.put("message", withReason("未知业务状态 " + businessStatus, businessHealth.reason()));
+      }
     } catch (Exception exception) {
       data.put("healthUrl", healthUrl);
       data.put("status", "down");
       data.put("success", false);
       data.put("message", exception.getMessage() == null ? "服务不可达" : exception.getMessage());
+    } finally {
+      if (connection != null) connection.disconnect();
     }
     return data;
+  }
+
+  /**
+   * 从统一健康响应或直接健康对象中读取业务状态。
+   *
+   * <p>旧服务可能返回空正文、纯文本或不含 status 的 JSON，此时保留 HTTP 2xx 即运行中的兼容语义。
+   *
+   * @param connection 已返回 2xx 的健康检查连接
+   * @return 业务健康信号
+   */
+  private BusinessHealth readBusinessHealth(HttpURLConnection connection) {
+    try (InputStream input = connection.getInputStream()) {
+      String body = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+      String json = body.trim();
+      if (!json.startsWith("{")) return new BusinessHealth("", "");
+      JsonNode root = jsonCodec.readTree(json);
+      JsonNode details = root.path("data").isObject() ? root.path("data") : root;
+      String status = text(details.path("status"));
+      String reason =
+          firstText(details.path("reason"), details.path("message"), root.path("reason"));
+      return new BusinessHealth(status, reason);
+    } catch (Exception ignored) {
+      return new BusinessHealth("", "");
+    }
+  }
+
+  /**
+   * 判断业务健康状态是否明确不可用。
+   *
+   * @param status 标准化后的业务状态
+   * @return 是否不可用
+   */
+  private boolean isBusinessDown(String status) {
+    return "DOWN".equals(status) || "UNHEALTHY".equals(status) || "FAILED".equals(status);
+  }
+
+  /**
+   * 判断业务健康状态是否明确正常。
+   *
+   * @param status 标准化后的业务状态
+   * @return 是否正常
+   */
+  private boolean isBusinessUp(String status) {
+    return "UP".equals(status)
+        || "HEALTHY".equals(status)
+        || "OK".equals(status)
+        || "RUNNING".equals(status);
+  }
+
+  /**
+   * 组合健康摘要和下游原因。
+   *
+   * @param summary 健康摘要
+   * @param reason 下游原因
+   * @return 用户可见消息
+   */
+  private String withReason(String summary, String reason) {
+    return reason == null || reason.isBlank() ? summary : summary + "：" + reason;
+  }
+
+  /**
+   * 返回第一个非空文本节点。
+   *
+   * @param candidates 候选节点
+   * @return 文本
+   */
+  private String firstText(JsonNode... candidates) {
+    for (JsonNode candidate : candidates) {
+      String value = text(candidate);
+      if (!value.isBlank()) return value;
+    }
+    return "";
+  }
+
+  /**
+   * 安全读取文本节点。
+   *
+   * @param node JSON 节点
+   * @return 文本
+   */
+  private String text(JsonNode node) {
+    return node != null && node.isTextual() ? node.asText().trim() : "";
   }
 
   /**
@@ -236,5 +345,23 @@ public class ServiceHealthMonitor {
     String value = baseUrl.trim();
     if (value.endsWith("/")) value = value.substring(0, value.length() - 1);
     return value + ("sandbox".equals(serviceId) ? "/ready" : "/health");
+  }
+
+  private static final class BusinessHealth {
+    private final String status;
+    private final String reason;
+
+    private BusinessHealth(String status, String reason) {
+      this.status = status;
+      this.reason = reason;
+    }
+
+    private String status() {
+      return status;
+    }
+
+    private String reason() {
+      return reason;
+    }
   }
 }

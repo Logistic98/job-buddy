@@ -8,6 +8,13 @@ const mocks = vi.hoisted(() => ({
   getJobProfile: vi.fn(),
   saveJobProfile: vi.fn(),
 }))
+const routerMocks = vi.hoisted(() => ({
+  onBeforeRouteLeave: vi.fn(),
+}))
+
+vi.mock('vue-router', () => ({
+  onBeforeRouteLeave: routerMocks.onBeforeRouteLeave,
+}))
 
 vi.mock('../src/api/resume', () => ({
   deleteResume: vi.fn(),
@@ -64,6 +71,30 @@ beforeEach(() => {
     provider: 'AI',
   })
   mocks.saveJobProfile.mockResolvedValue({ resumeId: 'profile-1', parsed: profile.parsed })
+})
+
+describe('BossResumePage unsaved changes guard', () => {
+  it('allows clean navigation and requires confirmation before leaving a dirty profile', async () => {
+    const wrapper = mount(BossResumePage)
+    await flushPromises()
+
+    const routeLeaveGuard = routerMocks.onBeforeRouteLeave.mock.calls.at(-1)[0]
+    const confirmLeave = vi.spyOn(window, 'confirm')
+    expect(routeLeaveGuard()).toBe(true)
+    expect(confirmLeave).not.toHaveBeenCalled()
+
+    await wrapper.get('input[placeholder="请输入姓名"]').setValue('Codex E2E 未保存画像')
+    expect(wrapper.get('.profile-save-indicator').text()).toContain('有未保存的修改')
+
+    confirmLeave.mockReturnValueOnce(false)
+    expect(routeLeaveGuard()).toBe(false)
+    expect(confirmLeave).toHaveBeenLastCalledWith('求职画像有未保存的修改，离开后这些修改将丢失。确认离开当前页面吗？')
+
+    confirmLeave.mockReturnValueOnce(true)
+    expect(routeLeaveGuard()).toBe(true)
+    expect(confirmLeave).toHaveBeenCalledTimes(2)
+    confirmLeave.mockRestore()
+  })
 })
 
 describe('BossResumePage profile overview', () => {

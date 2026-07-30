@@ -397,6 +397,7 @@ export function useProjectDeepDivePage() {
           ...detail,
           materials: (detail.materials || []).filter((item) => item.materialId !== deletedId),
         })
+      materialUploadStatus.value = ''
       closeMaterialDeleteDialog()
     } catch (e) {
       materialError.value = e.message || '材料删除失败'

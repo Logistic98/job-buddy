@@ -2818,6 +2818,10 @@ button:disabled {
   background: #ecfdf3;
   color: #027a48;
 }
+.health-state.degraded {
+  background: #fffaeb;
+  color: #b54708;
+}
 .health-state.down {
   background: #fff1f3;
   color: #c01048;

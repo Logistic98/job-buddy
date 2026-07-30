@@ -296,7 +296,9 @@
         v-model="input"
         :disabled="chat.loading"
         :placeholder="composerPlaceholder"
-        @keydown.enter.exact.prevent="submit"
+        @compositionstart="startComposing"
+        @compositionend="finishComposing"
+        @keydown.enter.exact="handleComposerEnter"
       />
       <p v-if="profileContextSummary" class="composer-profile-context">本次已使用：{{ profileContextSummary }}</p>
       <div class="composer-footer">
@@ -379,6 +381,7 @@ const props = defineProps({ resumeId: { type: String, default: '' }, resumeName:
 const chat = useChatStore()
 const job = useJobStore()
 const input = ref('')
+const isComposing = ref(false)
 const composerInput = ref(null)
 const chatScroll = ref(null)
 const composerEl = ref(null)
@@ -976,6 +979,22 @@ async function submit() {
   input.value = ''
   const sent = await chat.send(text, props.resumeId)
   if (!sent && !chat.loading) input.value = text
+}
+
+function startComposing() {
+  isComposing.value = true
+}
+
+function finishComposing() {
+  isComposing.value = false
+}
+
+function handleComposerEnter(event) {
+  // Enter 在输入法组合态中用于确认候选词，不能被当作发送操作。
+  // keyCode 229 兼容少数不会可靠设置 isComposing 的浏览器和输入法。
+  if (isComposing.value || event?.isComposing || event?.keyCode === 229) return
+  event?.preventDefault()
+  submit()
 }
 
 function applyPrompt(text) {

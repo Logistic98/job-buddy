@@ -1,6 +1,8 @@
 package com.jobbuddy.backend.modules.system.service.impl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -9,8 +11,15 @@ import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.system.client.AgentMemoryClient;
 import com.jobbuddy.backend.modules.system.mapper.SystemSettingsMapper;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -18,6 +27,67 @@ import org.junit.jupiter.api.Test;
  */
 class SystemSettingsServiceHealthMonitorTest {
   private static final JsonCodec JSON = new JsonCodec();
+
+  private HttpServer server;
+  private String baseUrl;
+
+  /**
+   * 启动可控的下游健康端点。
+   *
+   * @throws IOException 端口绑定失败时抛出
+   */
+  @BeforeEach
+  void setUp() throws IOException {
+    server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext(
+        "/degraded/health",
+        exchange ->
+            respond(
+                exchange,
+                200,
+                """
+                {"code":200,"message":"success","data":{"status":"DEGRADED","reason":"gateway unavailable"}}
+                """));
+    server.createContext(
+        "/up/health",
+        exchange ->
+            respond(
+                exchange,
+                200,
+                """
+                {"code":200,"message":"success","data":{"status":"UP"}}
+                """));
+    server.createContext(
+        "/healthy/health", exchange -> respond(exchange, 200, "{\"status\":\"healthy\"}"));
+    server.createContext("/legacy/health", exchange -> respond(exchange, 200, "ok"));
+    server.createContext(
+        "/missing-status/health",
+        exchange -> respond(exchange, 200, "{\"code\":200,\"message\":\"success\",\"data\":{}}"));
+    server.createContext(
+        "/starting/health",
+        exchange ->
+            respond(
+                exchange,
+                200,
+                "{\"code\":200,\"message\":\"success\",\"data\":{\"status\":\"STARTING\"}}"));
+    server.createContext(
+        "/unavailable/health",
+        exchange ->
+            respond(
+                exchange,
+                503,
+                "{\"code\":503,\"message\":\"unavailable\",\"data\":{\"status\":\"DOWN\"}}"));
+    server.start();
+    baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
+  }
+
+  /**
+   * 停止测试下游服务。
+   */
+  @AfterEach
+  void tearDown() {
+    server.stop(0);
+  }
 
   /**
    * 验证读取设置时保留服务健康历史。
@@ -76,6 +146,55 @@ class SystemSettingsServiceHealthMonitorTest {
   }
 
   /**
+   * 验证 HTTP 200 中的业务降级状态不会被误计为运行成功。
+   */
+  @Test
+  void mapsUnifiedDegradedHealthToUnsuccessfulDegradedStatus() {
+    Map<String, Object> memory = memoryStatus("/degraded");
+
+    assertEquals("degraded", memory.get("status"));
+    assertFalse((Boolean) memory.get("success"));
+    assertEquals("运行降级：gateway unavailable", memory.get("message"));
+  }
+
+  /**
+   * 验证健康状态和旧式健康正文都保留 HTTP 2xx 兼容语义。
+   */
+  @Test
+  void keepsHealthyAndLegacyTwoHundredResponsesRunning() {
+    for (String path : List.of("/up", "/healthy", "/legacy", "/missing-status")) {
+      Map<String, Object> memory = memoryStatus(path);
+      assertEquals("running", memory.get("status"));
+      assertTrue((Boolean) memory.get("success"));
+      assertEquals("运行中", memory.get("message"));
+    }
+  }
+
+  /**
+   * 验证非 2xx 健康响应始终标记为不可用。
+   */
+  @Test
+  void mapsNonTwoHundredResponseToDown() {
+    Map<String, Object> memory = memoryStatus("/unavailable");
+
+    assertEquals("down", memory.get("status"));
+    assertFalse((Boolean) memory.get("success"));
+    assertEquals("健康检查失败，HTTP 503", memory.get("message"));
+  }
+
+  /**
+   * 验证未知但明确返回的业务状态不会被误计为运行成功。
+   */
+  @Test
+  void mapsUnsupportedBusinessStatusToUnknown() {
+    Map<String, Object> memory = memoryStatus("/starting");
+
+    assertEquals("unknown", memory.get("status"));
+    assertFalse((Boolean) memory.get("success"));
+    assertEquals("未知业务状态 STARTING", memory.get("message"));
+  }
+
+  /**
    * 验证空值服务配置属性。
    *
    * @return emptyService 配置属性
@@ -89,6 +208,21 @@ class SystemSettingsServiceHealthMonitorTest {
     properties.setEvalUrl("");
     properties.setSandboxUrl("");
     return properties;
+  }
+
+  /**
+   * 探测指定模拟健康端点并读取 Memory 状态。
+   *
+   * @param path 模拟端点前缀
+   * @return Memory 服务状态
+   */
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> memoryStatus(String path) {
+    AgentServiceProperties properties = emptyServiceProperties();
+    properties.setMemoryUrl(baseUrl + path);
+    ServiceHealthMonitor monitor = new ServiceHealthMonitor(properties, new JobBuddyProperties());
+    Map<String, Object> statuses = JSON.toMap(monitor.refresh().statuses());
+    return (Map<String, Object>) statuses.get("memory");
   }
 
   /**
@@ -113,5 +247,22 @@ class SystemSettingsServiceHealthMonitorTest {
   private int historySize(Map<String, Object> statuses, String serviceId) {
     Map<String, Object> status = (Map<String, Object>) statuses.get(serviceId);
     return ((List<Map<String, Object>>) status.get("history")).size();
+  }
+
+  /**
+   * 写入模拟健康响应。
+   *
+   * @param exchange HTTP 交换
+   * @param statusCode HTTP 状态码
+   * @param body 响应正文
+   * @throws IOException 写入失败时抛出
+   */
+  private static void respond(HttpExchange exchange, int statusCode, String body)
+      throws IOException {
+    byte[] bytes = body.trim().getBytes(StandardCharsets.UTF_8);
+    exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+    exchange.sendResponseHeaders(statusCode, bytes.length);
+    exchange.getResponseBody().write(bytes);
+    exchange.close();
   }
 }

@@ -134,7 +134,7 @@
             </div>
             <div class="service-health-axis">
               <span>{{ source.historyStartText }}</span
-              ><span>{{ source.history.length ? `${source.uptimeText} 可用率` : '暂无监测记录' }}</span
+              ><span>{{ source.history.length ? `${source.uptimeText} 运行成功率` : '暂无监测记录' }}</span
               ><span>现在</span>
             </div>
             <div v-if="expandedServiceId === source.id" class="service-history-detail">
@@ -233,6 +233,7 @@ async function loadLatestHealth() {
   try {
     const latest = await getSettings()
     recordStatuses(latest?.serviceStatuses)
+    error.value = ''
   } catch (err) {
     error.value = err.message || '服务健康状态加载失败'
   }
@@ -240,6 +241,7 @@ async function loadLatestHealth() {
 async function forceRefreshHealth() {
   try {
     recordStatuses(await refreshServiceHealth())
+    error.value = ''
   } catch (err) {
     error.value = err.message || '服务健康状态刷新失败'
   }
@@ -281,7 +283,11 @@ function historyPointTitle(point) {
   return `${formatFullTime(point.checkedAt)} · ${statusText(point.status)}${point.message ? ` · ${point.message}` : ''}`
 }
 function statusText(status) {
-  return { running: '运行成功', down: '未运行', not_configured: '未配置', unknown: '未知' }[status] || status || '未知'
+  return (
+    { running: '运行成功', degraded: '运行降级', down: '未运行', not_configured: '未配置', unknown: '未知' }[status] ||
+    status ||
+    '未知'
+  )
 }
 function formatTime(value) {
   return value

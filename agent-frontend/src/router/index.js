@@ -66,7 +66,7 @@ router.beforeEach(async (to) => {
     await auth.init().catch(() => {})
   }
   if (to.meta.public) {
-    return auth.isLoggedIn ? { path: '/chat' } : true
+    return auth.isLoggedIn && !auth.logoutPending ? { path: '/chat' } : true
   }
   if (!auth.isLoggedIn) {
     return { path: '/login' }

@@ -909,6 +909,9 @@
 .uptime-bar.running {
   background: #65b32e;
 }
+.uptime-bar.degraded {
+  background: #f59e0b;
+}
 .uptime-bar.down {
   background: #ef4444;
 }
@@ -978,6 +981,9 @@
 .history-dot.running {
   background: #65b32e;
 }
+.history-dot.degraded {
+  background: #f59e0b;
+}
 .history-dot.down {
   background: #ef4444;
 }
@@ -1022,6 +1028,7 @@
   min-width: 112px;
 }
 .memory-list .memory-item .source-state,
+.memory-list .memory-item .secondary-text,
 .memory-list .memory-item .danger-text {
   white-space: nowrap;
   min-width: 44px;

@@ -86,15 +86,18 @@ describe('App job card synchronization', () => {
 
     expect(finishLoginNavigation).toBeTypeOf('function')
     expect(router.currentRoute.value.path).toBe('/chat')
-    expect(wrapper.find('.chat-page').exists()).toBe(false)
-    expect(wrapper.find('.system-shell').exists()).toBe(false)
-    expect(wrapper.find('.app-boot-screen').exists()).toBe(true)
+    expect(auth.isLoggedIn).toBe(true)
+    expect(auth.logoutPending).toBe(true)
+    expect(wrapper.find('.chat-page').exists()).toBe(true)
+    expect(wrapper.find('.system-shell').exists()).toBe(true)
 
     finishLoginNavigation(true)
     await flushPromises()
     await nextTick()
 
     expect(router.currentRoute.value.path).toBe('/login')
+    expect(auth.isLoggedIn).toBe(false)
+    expect(auth.logoutPending).toBe(false)
     expect(wrapper.text()).toContain('login')
     expect(wrapper.find('.app-boot-screen').exists()).toBe(false)
 
