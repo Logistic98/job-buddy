@@ -125,7 +125,7 @@ class BossAuthServiceImplTest {
     Map<String, Object> waiting = new LinkedHashMap<String, Object>();
     waiting.put("status", "waiting");
     waiting.put("image_base64", "shared-qr-image");
-    when(bossCli.qrStatus("qr-a", "token-qr-a")).thenReturn(envelope(waiting));
+    when(bossCli.qrSnapshot("qr-a", "token-qr-a")).thenReturn(envelope(waiting));
     BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
 
     Map<String, Object> response = JSON.toMap(service.startQrLogin("jobs-import"));
@@ -133,6 +133,32 @@ class BossAuthServiceImplTest {
     assertEquals("qr-a", response.get("qrSessionId"));
     assertEquals("shared-qr-image", response.get("imageBase64"));
     verify(bossCli, never()).qrStart();
+    verify(bossCli, never()).qrStatus(eq("qr-a"), any());
+  }
+
+  /**
+   * 验证未指定二维码会话时只读取快照，不进入上游长轮询。
+   */
+  @Test
+  void genericLoginStatusShouldReadActiveQrSnapshotWithoutLongPolling() {
+    AuthenticationScope.set("tenant-a", "user-a");
+    BossCliService bossCli = mock(BossCliService.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    when(repository.findActiveQrSession("tenant-a", "user-a"))
+        .thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    when(repository.findQrSession("qr-a")).thenReturn(qrOwner("tenant-a", "user-a", "qr-a"));
+    Map<String, Object> waiting = new LinkedHashMap<String, Object>();
+    waiting.put("status", "waiting");
+    waiting.put("image_base64", "shared-qr-image");
+    when(bossCli.qrSnapshot("qr-a", "token-qr-a")).thenReturn(envelope(waiting));
+    BossAuthServiceImpl service = new BossAuthServiceImpl(bossCli, repository);
+
+    Map<String, Object> response = JSON.toMap(service.loginStatus("settings", null));
+
+    assertEquals("waiting", response.get("status"));
+    assertEquals("shared-qr-image", response.get("imageBase64"));
+    verify(bossCli, never()).qrStatus(eq("qr-a"), any());
+    verify(bossCli, never()).status();
   }
 
   /**

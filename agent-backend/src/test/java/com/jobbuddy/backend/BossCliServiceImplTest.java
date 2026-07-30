@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -157,6 +158,31 @@ class BossCliServiceImplTest {
 
     Map<?, ?> resultData = (Map<?, ?>) result.get("data");
     assertEquals("confirmed", resultData.get("status"));
+  }
+
+  /**
+   * 验证二维码快照显式关闭上游等待。
+   */
+  @Test
+  void qrSnapshotShouldDisableUpstreamLongPolling() {
+    BossBrowserClient browserClient = mock(BossBrowserClient.class);
+    Map<String, Object> data = new LinkedHashMap<String, Object>();
+    data.put("authenticated", false);
+    data.put("status", "qr_waiting");
+    data.put("image_base64", "snapshot-image");
+    when(browserClient.post(eq("/login/qr/status"), anyMap()))
+        .thenReturn(envelope(200, "success", data));
+    BossCliServiceImpl service = newService(browserClient);
+
+    Map<String, Object> result = JSON.toMap(service.qrSnapshot("qr1", "opaque-token"));
+
+    Map<?, ?> resultData = (Map<?, ?>) result.get("data");
+    assertEquals("waiting", resultData.get("status"));
+    assertEquals("snapshot-image", resultData.get("image_base64"));
+    verify(browserClient)
+        .post(
+            eq("/login/qr/status"),
+            argThat(payload -> Boolean.FALSE.equals(payload.get("wait_for_update"))));
   }
 
   /**

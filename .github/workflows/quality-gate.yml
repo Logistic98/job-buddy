@@ -170,6 +170,15 @@ jobs:
           version: "0.10.6"
           enable-cache: true
       - run: ./.agent-harness/scripts/gate.sh agent-sandbox --quick
+      - name: Allow nested user namespaces on the ephemeral runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Ubuntu 24.04 AppArmor strips capabilities required by nested bwrap namespaces.
+          restriction_path="/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
+          if [[ -r "$restriction_path" && "$(<"$restriction_path")" == "1" ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - run: ./.agent-harness/scripts/smoke_sandbox_container.sh
 
   gate-eval:

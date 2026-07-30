@@ -314,13 +314,16 @@ async function save() {
         await auth.logout()
         return
       }
-    } else
+    } else {
+      const changesCurrentUser = selected.value.userId === auth.user?.userId
       await updateUser(selected.value.userId, {
         username: form.username,
         displayName: form.displayName,
         enabled: form.enabled,
         roleIds: form.roleIds,
       })
+      if (changesCurrentUser && form.enabled) await auth.refresh()
+    }
     if (modal.value) closeModal()
     await load()
   } catch (e) {

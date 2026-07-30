@@ -47,9 +47,10 @@ _AUTH_REQUIRED_CODES = {7}
 _AUTH_EXPIRED_CODES = {37}
 
 _QR_LOGIN_TTL_SECONDS = 240
-# 单次扫码状态检查保持短长轮询；前端严格等待上一轮完成后再发下一轮，
-# 兼顾扫码反馈速度与无并发堆积的风控边界。
-_QR_POLL_TIMEOUT_SECONDS = 3.0
+# boss-cli 的扫码与手机确认接口是服务端长轮询：上游客户端单轮等待 35 秒。
+# 前端严格等待上一轮完成后再发下一轮，因此这里保持同一契约既不会堆积并发，
+# 也不会因本地短超时反复中断尚未返回的扫码状态。
+_QR_POLL_TIMEOUT_SECONDS = 35.0
 _QR_WARMUP_TIMEOUT_SECONDS = 15.0
 
 
@@ -823,6 +824,30 @@ class BossCliEngine:
         async with self._lock:
             return await asyncio.to_thread(self._qr_poll_sync)
 
+    def qr_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        """返回二维码会话的本地快照，不访问 Boss 或等待长轮询。"""
+        snapshot = json.loads(json.dumps(state or {}, ensure_ascii=False))
+        qr_id = str(snapshot.get("qr_id") or "")
+        if not qr_id:
+            base = self._status_payload(False, [], reason="credential_missing")
+            base["status"] = "auth_required"
+            return base
+
+        phase = str(snapshot.get("status") or "qr_ready")
+        if time.time() > float(snapshot.get("expires_at") or 0) and phase not in {"scanned", "confirmed"}:
+            base = self._status_payload(False, [], reason="qr_expired")
+            base["status"] = "qr_expired"
+            return self._with_qr_image_from_state(base, snapshot)
+        if phase == "confirmed":
+            base = self._status_payload(False, [], reason="qr_confirmed")
+            base["status"] = "qr_confirmed"
+            return self._with_qr_image_from_state(base, snapshot)
+
+        scanned = phase == "scanned"
+        base = self._status_payload(False, [], reason="qr_waiting_confirm" if scanned else "qr_waiting_scan")
+        base["status"] = "qr_waiting"
+        return self._with_qr_image_from_state(base, snapshot)
+
     def _qr_poll_sync(self) -> dict[str, Any]:
         state = dict(self._qr_state or {})
         if not state or not state.get("qr_id"):
@@ -906,7 +931,9 @@ class BossCliEngine:
                 self._constants.QR_SCAN_LOGIN_URL, params={"qrId": qr_id}, timeout=_QR_POLL_TIMEOUT_SECONDS
             )
             resp.raise_for_status()
-            return resp.json().get("login") is True
+            # boss-cli 的确认契约以长轮询返回 HTTP 200 为成功，不要求响应体包含
+            # login=true。部分上游响应体为空，强制解析 JSON 会让已确认用户永久卡住。
+            return resp.status_code == 200
         except httpx.TimeoutException as exc:
             logger.warning(f"Boss 二维码确认状态检查暂时超时，将继续轮询：{exc}")
             return False
@@ -980,10 +1007,14 @@ class BossCliEngine:
         return self._with_qr_image(base)
 
     def _with_qr_image(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if self._qr_state.get("image_base64"):
-            payload["image_base64"] = self._qr_state.get("image_base64")
-            payload["image_mime"] = self._qr_state.get("image_mime", "image/png")
-            payload["qr_version"] = self._qr_state.get("qr_version")
+        return self._with_qr_image_from_state(payload, self._qr_state)
+
+    @staticmethod
+    def _with_qr_image_from_state(payload: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
+        if state.get("image_base64"):
+            payload["image_base64"] = state.get("image_base64")
+            payload["image_mime"] = state.get("image_mime", "image/png")
+            payload["qr_version"] = state.get("qr_version")
         return payload
 
     # ── 结果分类辅助 ─────────────────────────────────────────────────

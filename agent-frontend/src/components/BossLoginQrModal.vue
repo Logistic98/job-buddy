@@ -5,7 +5,7 @@
       <h2>Boss 直聘扫码登录</h2>
       <p v-if="!embedded">使用 Boss 直聘 App 扫码确认，系统会保存登录态并继续搜索。</p>
 
-      <div v-if="state.imageBase64" class="qr-wrap">
+      <div v-if="state.imageBase64 && qrDisplayReady" class="qr-wrap">
         <img :src="qrImageSrc" alt="Boss 登录二维码" />
         <p class="qr-hint">{{ stageHint }}</p>
       </div>
@@ -62,16 +62,21 @@ const state = reactive({
 const loading = ref(false)
 const errorMessage = ref('')
 const statusChecking = ref(false)
+const qrDisplayReady = ref(false)
 const processingSince = ref(0)
 const nowTick = ref(Date.now())
 let pollTimer = null
 let pollInFlight = false
 let disposed = false
 let uiTimer = null
+let qrArmTimer = null
 let authFlowSeq = 0
 // Boss 工具的 qrStatus 在未登录时恒返回 waiting，从不下发 expired，因此二维码过期必须由前端兜底，
 // 否则会无限轮询一张失效二维码、持续触发后端登录态检查（间接访问 Boss），存在风控风险。
 const QR_LIFETIME_MS = 120000
+// 二维码请求从浏览器穿过 Backend、Runtime 到 Tool 约需 2 秒。只有首轮 scan
+// 长轮询持续建立一段时间后才展示二维码，防止用户扫到尚未被 Boss 服务端监听的会话。
+const QR_LISTENER_ARM_MS = 3000
 let qrDeadline = 0
 
 function armQrDeadline() {
@@ -91,6 +96,9 @@ const qrImageSrc = computed(() =>
 )
 
 const statusText = computed(() => {
+  if (state.imageBase64 && !qrDisplayReady.value && ['qr_ready', 'waiting'].includes(state.status)) {
+    return '正在准备二维码'
+  }
   switch (state.status) {
     case 'checking':
       return '正在确认登录态'
@@ -118,6 +126,9 @@ const statusText = computed(() => {
 const stageHint = computed(() => {
   if (state.status === 'checking') return '正在校验 Boss 直聘登录态。'
   if (!state.imageBase64 && state.status === 'idle') return '正在生成二维码'
+  if (state.imageBase64 && !qrDisplayReady.value && ['qr_ready', 'waiting'].includes(state.status)) {
+    return '正在建立扫码连接，请稍候'
+  }
   if (state.status === 'expired') return '二维码已过期，点击“刷新二维码”重新生成'
   if (state.status === 'logged_in') return '登录完成，继续处理请求。'
   if (state.status === 'confirmed') return '手机端已确认，保存登录态中。'
@@ -153,7 +164,8 @@ const statusKicker = computed(() => {
 const statusDetail = computed(() => {
   if (state.status === 'checking') return '正在校验已有登录态，失效后会自动生成二维码。'
   if (['qr_ready', 'waiting'].includes(state.status)) {
-    return statusChecking.value ? '正在获取最新扫码结果…' : '状态每秒自动更新，扫码后无需手动刷新。'
+    if (!qrDisplayReady.value) return '正在连接 Boss 扫码服务，二维码准备好后会自动显示。'
+    return statusChecking.value ? '正在等待 Boss 返回最新扫码结果…' : '系统会持续自动检查，扫码后无需手动刷新。'
   }
   if (state.status === 'scanned') return `已检测到扫码，请在 App 中确认。已等待 ${processingSeconds.value} 秒。`
   if (state.status === 'confirmed') return `手机端已确认，正在建立可用登录态。已处理 ${processingSeconds.value} 秒。`
@@ -193,6 +205,7 @@ async function startLoginFlow() {
     state.imageMime = initial.imageMime || 'image/png'
     state.status = initial.status || 'qr_ready'
     state.expiresAt = initial.expiresAt || null
+    qrDisplayReady.value = false
     if (state.qrSessionId) {
       armQrDeadline()
       startPolling()
@@ -244,6 +257,7 @@ async function refreshQr(setLoading = true, flowSeq = ++authFlowSeq) {
     state.imageMime = data.imageMime || 'image/png'
     state.status = data.status || 'qr_ready'
     state.expiresAt = data.expiresAt
+    qrDisplayReady.value = false
     if (data.error) {
       errorMessage.value = data.error.message || '二维码生成失败'
       return
@@ -285,6 +299,8 @@ function applyStatus(data) {
   if (data.imageBase64 && data.imageBase64 !== state.imageBase64) {
     state.imageBase64 = data.imageBase64
     state.imageMime = data.imageMime || state.imageMime || 'image/png'
+    qrDisplayReady.value = false
+    clearQrArmTimer()
     armQrDeadline()
   }
   const nextStatus = data.status || state.status
@@ -308,7 +324,25 @@ function applyStatus(data) {
 
 function startPolling() {
   stopPolling()
-  scheduleNextPoll(1000)
+  // Boss App 扫码时，上游 scan 长轮询需要已经建立。二维码生成后立即发起首轮
+  // 状态请求，确保浏览器真正绘制出二维码前监听已经开始；后续轮次仍在上一轮
+  // 完成后按间隔调度，避免并发堆积请求。
+  void runPoll()
+}
+
+function armQrDisplay() {
+  if (qrDisplayReady.value || qrArmTimer || !state.imageBase64) return
+  qrArmTimer = window.setTimeout(() => {
+    qrArmTimer = null
+    if (pollInFlight && props.visible && state.qrSessionId && ['qr_ready', 'waiting'].includes(state.status)) {
+      qrDisplayReady.value = true
+    }
+  }, QR_LISTENER_ARM_MS)
+}
+
+function clearQrArmTimer() {
+  if (qrArmTimer) window.clearTimeout(qrArmTimer)
+  qrArmTimer = null
 }
 
 function scheduleNextPoll(delay) {
@@ -332,6 +366,7 @@ async function runPoll() {
   }
   pollInFlight = true
   statusChecking.value = true
+  armQrDisplay()
   try {
     const data = await getBossLoginStatus(props.sessionId, state.qrSessionId)
     applyStatus(data)
@@ -340,6 +375,7 @@ async function runPoll() {
       errorMessage.value = err.message || '刷新状态失败'
     }
   } finally {
+    if (!qrDisplayReady.value) clearQrArmTimer()
     pollInFlight = false
     statusChecking.value = false
     scheduleNextPoll(['scanned', 'confirmed'].includes(state.status) ? 250 : 1000)
@@ -349,6 +385,7 @@ async function runPoll() {
 function stopPolling() {
   if (pollTimer) window.clearTimeout(pollTimer)
   pollTimer = null
+  clearQrArmTimer()
 }
 
 function startUiTicker(status) {
@@ -377,6 +414,7 @@ function handleClose() {
   const shouldCancel = qrSessionId && !['logged_in', 'expired', 'cancelled'].includes(state.status)
   state.qrSessionId = null
   state.imageBase64 = null
+  qrDisplayReady.value = false
   state.status = 'idle'
   emit('close')
   if (shouldCancel) {

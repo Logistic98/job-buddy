@@ -74,7 +74,7 @@ public class BossAuthServiceImpl implements BossAuthService {
     String activeQrSessionId = qrSessionIdForOwner();
     if (activeQrSessionId != null) {
       requireQrOwner(activeQrSessionId);
-      Map<String, Object> active = qrLoginStatus(activeQrSessionId);
+      Map<String, Object> active = qrLoginSnapshot(activeQrSessionId);
       active.put("authRequired", !Boolean.TRUE.equals(active.get("ok")));
       active.put("message", "继续使用当前账号未完成的 Boss 登录二维码。");
       return jsonCodec.convert(active, BossLoginQrResponse.class);
@@ -119,11 +119,13 @@ public class BossAuthServiceImpl implements BossAuthService {
       return jsonCodec.convert(
           loggedInResponse(true, "Boss 登录态缓存有效。"), BossLoginStatusResponse.class);
     String qrSessionId = trimToNull(qrSessionIdOverride);
-    if (qrSessionId == null) qrSessionId = qrSessionIdForOwner();
     if (qrSessionId != null) {
       requireQrOwner(qrSessionId);
       return jsonCodec.convert(qrLoginStatus(qrSessionId), BossLoginStatusResponse.class);
     }
+    qrSessionId = qrSessionIdForOwner();
+    if (qrSessionId != null)
+      return jsonCodec.convert(qrLoginSnapshot(qrSessionId), BossLoginStatusResponse.class);
     return jsonCodec.convert(validateLoginState(false), BossLoginStatusResponse.class);
   }
 
@@ -246,6 +248,40 @@ public class BossAuthServiceImpl implements BossAuthService {
     synchronized (lock) {
       return qrLoginStatusLocked(qrSessionId);
     }
+  }
+
+  /**
+   * 获取当前二维码的本地快照，不占用上游长轮询。
+   *
+   * @param qrSessionId 二维码会话标识
+   * @return 二维码当前快照
+   */
+  private Map<String, Object> qrLoginSnapshot(String qrSessionId) {
+    Map<String, Object> qrSession = requireQrOwner(qrSessionId);
+    Map<String, Object> result =
+        jsonCodec.toMap(
+            bossCliService.qrSnapshot(qrSessionId, requiredToolSessionToken(qrSession)));
+    Map<String, Object> data =
+        Boolean.TRUE.equals(result.get("ok"))
+            ? asMap(result.get("data"))
+            : new LinkedHashMap<String, Object>();
+    data.remove("credential_json");
+    data.remove("session_token");
+
+    Map<String, Object> response = new LinkedHashMap<String, Object>();
+    response.put("qrSessionId", qrSessionId);
+    response.put("status", data.get("status"));
+    response.put("updatedAt", data.get("updated_at"));
+    response.put("expiresAt", data.get("expires_at"));
+    response.put("imageBase64", data.get("image_base64"));
+    response.put("imageMime", data.get("image_mime"));
+    response.put("qrVersion", data.get("qr_version"));
+    response.put(
+        "error", Boolean.TRUE.equals(result.get("ok")) ? data.get("error") : result.get("error"));
+    response.put("ok", false);
+    response.put("authenticated", false);
+    response.put("provider", BossAuthProviders.DISPLAY_PROVIDER);
+    return response;
   }
 
   /**

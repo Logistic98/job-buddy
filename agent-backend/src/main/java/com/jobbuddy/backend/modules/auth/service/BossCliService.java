@@ -52,6 +52,15 @@ public interface BossCliService {
   BossCliQrResult qrStatus(String sessionId, String sessionToken);
 
   /**
+   * 获取二维码本地快照，不等待上游扫码长轮询。
+   *
+   * @param sessionId 会话标识
+   * @param sessionToken 会话令牌
+   * @return 二维码当前快照
+   */
+  BossCliQrResult qrSnapshot(String sessionId, String sessionToken);
+
+  /**
    * 取消二维码登录。
    *
    * @param sessionId 会话标识

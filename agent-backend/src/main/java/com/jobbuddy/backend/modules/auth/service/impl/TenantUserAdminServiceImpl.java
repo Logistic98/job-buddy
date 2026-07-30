@@ -148,6 +148,7 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
         request.getEnabled() == null
             ? Boolean.TRUE.equals(existing.get("enabled"))
             : request.getEnabled();
+    boolean enabledChanged = Boolean.TRUE.equals(existing.get("enabled")) != enabled;
     try {
       repository.updateUser(
           tenantId,
@@ -174,7 +175,11 @@ public class TenantUserAdminServiceImpl implements TenantUserAdminService {
       }
     }
     rbacService.protectManagementAccess(tenantId);
-    loginService.invalidateUserSessions(userId);
+    if (enabledChanged) {
+      loginService.invalidateUserSessions(userId);
+    } else {
+      loginService.evictUserSessionCache(userId);
+    }
     return getRequired(tenantId, userId);
   }
 

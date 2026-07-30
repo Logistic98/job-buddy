@@ -204,6 +204,59 @@ def test_qr_scan_and_confirm_treat_connect_timeout_as_waiting(tmp_path):
     assert engine._qr_confirm(client, "qr-timeout") is False  # noqa: SLF001
 
 
+def test_qr_long_poll_matches_boss_cli_timeout_contract(tmp_path):
+    engine = _engine(tmp_path)
+
+    with engine._qr_client() as client:  # noqa: SLF001
+        assert client.timeout.read == 35.0
+
+
+def test_qr_snapshot_returns_image_without_polling_upstream(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    state = {
+        "status": "qr_ready",
+        "qr_id": "qr-snapshot",
+        "cookies": {"qr": "session"},
+        "expires_at": 9999999999,
+        "image_base64": "snapshot-image",
+        "image_mime": "image/png",
+        "qr_version": 1,
+    }
+    monkeypatch.setattr(
+        engine,
+        "_qr_client",
+        lambda cookies=None: (_ for _ in ()).throw(AssertionError("本地快照不得访问 Boss")),
+    )
+
+    result = engine.qr_snapshot(state)
+
+    assert result["status"] == "qr_waiting"
+    assert result["reason"] == "qr_waiting_scan"
+    assert result["image_base64"] == "snapshot-image"
+
+
+def test_qr_confirm_accepts_successful_empty_response(tmp_path):
+    engine = _engine(tmp_path)
+    captured = {}
+
+    class _ConfirmedResponse:
+        status_code = 200
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    class _ConfirmedClient:
+        @staticmethod
+        def get(url, *, params, timeout):
+            captured.update({"url": url, "params": params, "timeout": timeout})
+            return _ConfirmedResponse()
+
+    assert engine._qr_confirm(_ConfirmedClient(), "qr-confirmed") is True  # noqa: SLF001
+    assert captured["params"] == {"qrId": "qr-confirmed"}
+    assert captured["timeout"] == 35.0
+
+
 def test_qr_poll_returns_each_intermediate_stage_before_dispatch(tmp_path, monkeypatch):
     engine = _engine(tmp_path)
     engine._qr_state = {  # noqa: SLF001

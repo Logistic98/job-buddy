@@ -223,9 +223,33 @@ public class BossCliServiceImpl implements BossCliService {
    * @return 二维码状态
    */
   public BossCliQrResult qrStatus(String sessionId, String sessionToken) {
+    return qrStatus(sessionId, sessionToken, true);
+  }
+
+  /**
+   * 获取二维码本地快照，不等待 Boss 长轮询。
+   *
+   * @param sessionId 会话标识
+   * @param sessionToken 会话令牌
+   * @return 二维码当前快照
+   */
+  public BossCliQrResult qrSnapshot(String sessionId, String sessionToken) {
+    return qrStatus(sessionId, sessionToken, false);
+  }
+
+  /**
+   * 获取二维码状态或本地快照。
+   *
+   * @param sessionId 会话标识
+   * @param sessionToken 会话令牌
+   * @param waitForUpdate 是否等待上游扫码状态变化
+   * @return 二维码状态
+   */
+  private BossCliQrResult qrStatus(String sessionId, String sessionToken, boolean waitForUpdate) {
     Map<String, Object> requestPayload = new LinkedHashMap<String, Object>();
     requestPayload.put("session_id", sessionId);
     requestPayload.put("session_token", sessionToken);
+    requestPayload.put("wait_for_update", waitForUpdate);
     Map<String, Object> envelope = browserClient.post("/login/qr/status", requestPayload);
     Map<String, Object> response = new LinkedHashMap<String, Object>();
     int code = code(envelope);

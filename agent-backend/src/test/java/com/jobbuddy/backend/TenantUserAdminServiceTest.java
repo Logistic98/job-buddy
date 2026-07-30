@@ -94,7 +94,7 @@ class TenantUserAdminServiceTest {
    * 验证 TenantUserAdminService 中用户的持久化与状态变更规则。
    */
   @Test
-  void updateChangesGloballyUniqueUsernameAndKeepsUnchangedRoles() {
+  void updateChangesProfileAndKeepsSessionWhenEnabledStatusIsUnchanged() {
     UserAuthRepository repository = mock(UserAuthRepository.class);
     UserLoginService loginService = mock(UserLoginService.class);
     DynamicRbacService rbacService = mock(DynamicRbacService.class);
@@ -119,7 +119,29 @@ class TenantUserAdminServiceTest {
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.anyString(),
             org.mockito.ArgumentMatchers.anyList());
+    verify(loginService).evictUserSessionCache("manager-1");
+    verify(loginService, never()).invalidateUserSessions(anyString());
+  }
+
+  /**
+   * 验证启用状态实际变化时撤销该用户的全部登录会话。
+   */
+  @Test
+  void updateInvalidatesSessionsWhenEnabledStatusChanges() {
+    UserAuthRepository repository = mock(UserAuthRepository.class);
+    UserLoginService loginService = mock(UserLoginService.class);
+    DynamicRbacService rbacService = mock(DynamicRbacService.class);
+    when(repository.findUserById("tenant-1", "manager-1")).thenReturn(user("manager-1", true));
+    ManagedUserUpdateRequest request = new ManagedUserUpdateRequest();
+    request.setEnabled(false);
+    TenantUserAdminService service =
+        new TenantUserAdminServiceImpl(
+            repository, loginService, rbacService, mock(RbacDelegationPolicy.class));
+
+    service.update("tenant-1", actor(), "manager-1", request);
+
     verify(loginService).invalidateUserSessions("manager-1");
+    verify(loginService, never()).evictUserSessionCache(anyString());
   }
 
   /**

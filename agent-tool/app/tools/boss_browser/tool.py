@@ -134,6 +134,7 @@ async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
                 await service.qr_status(
                     str(payload.get("session_id") or "").strip(),
                     str(payload.get("session_token") or "").strip(),
+                    wait_for_update=payload.get("wait_for_update") is not False,
                 )
             )
         if operation == "qr_cancel":

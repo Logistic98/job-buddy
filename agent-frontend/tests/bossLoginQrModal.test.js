@@ -71,10 +71,17 @@ describe('BossLoginQrModal embedded mode', () => {
       },
     })
 
-    await vi.advanceTimersByTimeAsync(1000)
+    await Promise.resolve()
     expect(mocks.getBossLoginStatus).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.qr-wrap').exists()).toBe(false)
+    expect(wrapper.find('.qr-placeholder').text()).toContain('正在建立扫码连接')
 
-    await vi.advanceTimersByTimeAsync(10000)
+    await vi.advanceTimersByTimeAsync(2999)
+    expect(wrapper.find('.qr-wrap').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(wrapper.find('.qr-wrap').exists()).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(7000)
     expect(mocks.getBossLoginStatus).toHaveBeenCalledTimes(1)
 
     resolveFirst({ status: 'waiting' })
@@ -109,9 +116,10 @@ describe('BossLoginQrModal embedded mode', () => {
     })
 
     expect(wrapper.findAll('.login-stage')[0].classes()).toContain('current')
-    expect(wrapper.find('.login-status-card').text()).toContain('状态每秒自动更新')
+    expect(mocks.getBossLoginStatus).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.login-status-card').text()).toContain('正在连接 Boss 扫码服务')
 
-    await vi.advanceTimersByTimeAsync(1000)
+    await Promise.resolve()
     expect(wrapper.find('.login-status-card strong').text()).toBe('已扫码，请在手机上确认登录')
     expect(wrapper.findAll('.login-stage')[0].classes()).toContain('done')
     expect(wrapper.findAll('.login-stage')[1].classes()).toContain('current')

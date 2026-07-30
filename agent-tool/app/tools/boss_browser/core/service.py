@@ -99,12 +99,22 @@ class BossService:
         result["expires_at"] = expires_at
         return result
 
-    async def qr_status(self, session_id: str, session_token: str) -> dict[str, Any]:
+    async def qr_status(
+        self,
+        session_id: str,
+        session_token: str,
+        *,
+        wait_for_update: bool = True,
+    ) -> dict[str, Any]:
         state = self._qr_codec.decode(
             owner_key=self._owner_key,
             session_id=session_id,
             token=session_token,
         )
+        if not wait_for_update:
+            result = self._session.qr_snapshot(state)
+            result["session_id"] = session_id
+            return result
         self._session.import_qr_state(state)
         result = await self._session.poll_qr_login()
         if result.get("authenticated"):

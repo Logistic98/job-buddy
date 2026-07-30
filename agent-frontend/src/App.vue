@@ -1,5 +1,5 @@
 <template>
-  <router-view v-if="auth.initialized && !auth.isLoggedIn" />
+  <router-view v-if="auth.initialized && !auth.isLoggedIn && route.meta.public" />
   <div v-else-if="auth.isLoggedIn" class="system-shell">
     <AppSidebar
       :session-count="chat.sessions.length"

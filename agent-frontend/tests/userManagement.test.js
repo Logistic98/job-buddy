@@ -52,6 +52,10 @@ beforeEach(() => {
 
 describe('UserManagement', () => {
   it('shows administrator role and updates the globally unique username', async () => {
+    const auth = useAuthStore()
+    auth.user = { userId: 'admin-user', username: 'admin' }
+    const refresh = vi.spyOn(auth, 'refresh').mockResolvedValue(auth.user)
+    const logout = vi.spyOn(auth, 'logout').mockResolvedValue()
     const wrapper = mount(UserManagement, { attachTo: document.body })
     await flushPromises()
     await wrapper.find('.rbac-action-btn').trigger('click')
@@ -73,6 +77,8 @@ describe('UserManagement', () => {
       enabled: true,
       roleIds: ['role-admin'],
     })
+    expect(refresh).toHaveBeenCalledOnce()
+    expect(logout).not.toHaveBeenCalled()
 
     wrapper.unmount()
   })
