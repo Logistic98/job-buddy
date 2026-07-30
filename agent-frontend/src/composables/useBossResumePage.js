@@ -531,12 +531,10 @@ export function useBossResumePage() {
       return false
     }
     saving.value = true
-    const summaryWasEmpty = !form.summary.trim()
     try {
       await resume.saveProfile(buildParsed('手动填写'))
       dirty.value = false
-      saveHint.value = summaryWasEmpty ? '求职画像已保存，正在生成画像摘要' : '求职画像已保存。'
-      if (summaryWasEmpty) void requestAiSummary({ autoApply: true, showCompare: false, saveAfterApply: true })
+      saveHint.value = '求职画像已保存。'
       return true
     } catch (err) {
       error.value = err.message

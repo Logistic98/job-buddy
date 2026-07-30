@@ -14,6 +14,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -77,20 +79,22 @@ public class GlobalExceptionHandler {
   }
 
   /**
-   * 处理参数校验异常。
+   * 处理参数校验异常。显式固定 JSON 响应类型，避免只接受 SSE 的请求在流建立前因内容协商丢失统一错误体。
    *
    * @param exception 异常
    * @return 参数校验错误响应
    */
   @ExceptionHandler(MethodArgumentNotValidException.class)
-  @ResponseStatus(HttpStatus.BAD_REQUEST)
-  public ApiResponse<Void> handleValidation(MethodArgumentNotValidException exception) {
+  public ResponseEntity<ApiResponse<Void>> handleValidation(
+      MethodArgumentNotValidException exception) {
     String message =
         exception.getBindingResult().getFieldErrors().stream()
             .findFirst()
             .map(error -> error.getField() + ": " + error.getDefaultMessage())
             .orElse(ErrorCode.BAD_REQUEST.getMessage());
-    return ApiResponse.error(ErrorCode.BAD_REQUEST.getCode(), message);
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(ApiResponse.error(ErrorCode.BAD_REQUEST.getCode(), message));
   }
 
   /**

@@ -132,6 +132,25 @@ describe('BossResumePage profile overview', () => {
     expect(wrapper.get('.profile-overview-actions button').text()).toBe('保存')
   })
 
+  it('saves a cleared overview without automatically generating a replacement', async () => {
+    mocks.getJobProfile.mockResolvedValueOnce({
+      ...profile,
+      parsed: { ...profile.parsed, summary: '已有画像摘要' },
+    })
+    const wrapper = mount(BossResumePage)
+    await flushPromises()
+
+    await wrapper.get('.profile-overview-trigger').trigger('click')
+    await wrapper.get('.profile-overview-editor textarea').setValue('')
+    await wrapper.get('.profile-overview-actions button').trigger('click')
+    await flushPromises()
+
+    expect(mocks.saveJobProfile).toHaveBeenCalledTimes(1)
+    expect(mocks.saveJobProfile.mock.calls[0][0].summary).toBe('')
+    expect(mocks.generateJobProfileSummary).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('求职画像已保存。')
+  })
+
   it('extracts the overview from the latest unsaved profile information', async () => {
     const wrapper = mount(BossResumePage)
     await flushPromises()
@@ -143,6 +162,7 @@ describe('BossResumePage profile overview', () => {
     await flushPromises()
 
     expect(mocks.generateJobProfileSummary).toHaveBeenCalledTimes(1)
+    expect(mocks.saveJobProfile).not.toHaveBeenCalled()
     expect(mocks.generateJobProfileSummary.mock.calls[0][0].expected_titles).toEqual(['Java', '大模型应用开发工程师'])
     expect(wrapper.get('.profile-overview-editor textarea').element.value).toBe('AI 提取后的画像摘要')
   })
