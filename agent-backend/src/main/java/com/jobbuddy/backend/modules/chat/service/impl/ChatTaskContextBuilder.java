@@ -55,6 +55,18 @@ final class ChatTaskContextBuilder {
   }
 
   /**
+   * 为确定的新会话只装配当前用户消息。新会话不存在可承接的历史语义，跳过一次无收益的远端消息查询。
+   *
+   * @param currentMessage 当前消息
+   * @return 只包含当前用户消息的构建结果
+   */
+  List<Map<String, Object>> buildCurrentMessageOnly(String currentMessage) {
+    List<Map<String, Object>> messages = new ArrayList<Map<String, Object>>(1);
+    messages.add(message("user", compact(currentMessage)));
+    return messages;
+  }
+
+  /**
    * 加载历史记录。
    *
    * @param state 状态

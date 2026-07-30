@@ -168,7 +168,9 @@ class AgentExecutor:
         except Exception as e:
             # 异常时优先恢复最近检查点，保留可续跑现场后再记录失败终态。
             timer.end()
-            latest_checkpoint = await self.checkpoint_store.load_latest(session_id)
+            # 失败恢复只能读取本轮已落盘状态。按 session 取最新可能命中上一轮，
+            # 让旧 directive/task_understanding 污染本轮失败响应。
+            latest_checkpoint = await self.checkpoint_store.load_latest_by_run(session_id, run_id)
             if latest_checkpoint and latest_checkpoint.get("state"):
                 latest_state = self._hydrate_state(latest_checkpoint.get("state") or {})
                 latest_state.update(
@@ -307,6 +309,7 @@ class AgentExecutor:
                     TraceEventName.TASK_UNDERSTANDING.value,
                     self._upstream_task_trace_payload(upstream_directive),
                     run_id=run_id,
+                    duration_ms=self._upstream_understanding_duration_ms(upstream_directive),
                 )
                 await self.trace_recorder.record(
                     trace_id,
@@ -364,6 +367,7 @@ class AgentExecutor:
                         "needs_clarification": task.clarification.needed,
                     },
                     run_id=run_id,
+                    duration_ms=self._understanding_duration_ms(task),
                 )
                 route_payload = task.routing.model_dump()
                 workflow = task.metadata.get("workflow") if isinstance(task.metadata, dict) else None
@@ -451,6 +455,11 @@ class AgentExecutor:
                         accumulated.append(text)
                         yield {"event": "token", "data": {"text": text}}
 
+            if not accumulated and graph_state.get("answer"):
+                verified_answer = str(graph_state["answer"])
+                accumulated.append(verified_answer)
+                yield {"event": "token", "data": {"text": verified_answer}}
+
             timer.end()
             answer = "".join(accumulated)
             reasoning = "".join(reasoning_acc)
@@ -532,8 +541,27 @@ class AgentExecutor:
             return False
         contract = task.metadata.get("capability_contract") if task and isinstance(task.metadata, dict) else None
         required = {str(item) for item in ((contract or {}).get("required_tools") or [])}
-        succeeded = {item.tool_name for item in results if item.success}
+        succeeded = {
+            item.tool_name
+            for item in results
+            if item.success and self._required_tool_evidence_valid(item.tool_name, item.output)
+        }
         return required.issubset(succeeded)
+
+    def _required_tool_evidence_valid(self, tool_name: str, output) -> bool:
+        if tool_name == "web_search":
+            if not isinstance(output, dict):
+                return False
+            results = output.get("results")
+            return isinstance(results, list) and any(
+                isinstance(item, dict)
+                and bool(str(item.get("title") or "").strip())
+                and str(item.get("url") or "").strip().lower().startswith(("http://", "https://"))
+                for item in results
+            )
+        if tool_name != "sandbox_code_execute":
+            return True
+        return isinstance(output, dict) and output.get("sandboxed") is True and output.get("exit_code") == 0
 
     def _workflow_has_external_action(self, task: TaskUnderstandingResult | None) -> bool:
         workflow = task.metadata.get("workflow") if task and isinstance(task.metadata, dict) else None
@@ -608,6 +636,35 @@ class AgentExecutor:
         routing.setdefault("capability_contract", directive.get("capability_contract") or {})
         routing["reused_upstream"] = True
         return routing
+
+    def _understanding_duration_ms(self, task: TaskUnderstandingResult | None) -> int | None:
+        """读取任务理解实测耗时，非法或缺失值不进入 Trace。"""
+        if task is None or not isinstance(task.metadata, dict):
+            return None
+        metrics = task.metadata.get("understanding_metrics")
+        if not isinstance(metrics, dict):
+            return None
+        return self._valid_understanding_duration_ms(metrics.get("duration_ms"))
+
+    def _upstream_understanding_duration_ms(self, directive: Dict) -> int | None:
+        """从可信上游 directive 中读取第一阶段任务理解耗时。"""
+        task = directive.get("task") if isinstance(directive.get("task"), dict) else {}
+        metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        metrics = (
+            metadata.get("understanding_metrics") if isinstance(metadata.get("understanding_metrics"), dict) else {}
+        )
+        return self._valid_understanding_duration_ms(metrics.get("duration_ms"))
+
+    @staticmethod
+    def _valid_understanding_duration_ms(duration_ms) -> int | None:
+        if (
+            not isinstance(duration_ms, int)
+            or isinstance(duration_ms, bool)
+            or duration_ms < 0
+            or duration_ms > 3_600_000
+        ):
+            return None
+        return duration_ms
 
     def _upstream_planner_query(self, metadata: Dict) -> str:
         directive = metadata.get("upstream_directive")

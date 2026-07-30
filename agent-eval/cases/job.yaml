@@ -79,21 +79,23 @@ cases:
       forbidden_intent: job.recommend
       events: [intent, message, done]
   - id: code_generation_not_job_search
-    input: "帮我写一个 Python 脚本处理 CSV"
+    input: "写 Python 代码统计字符串 JobBuddy 中字母 d 的出现次数，并执行验证"
     expected:
       domain: runtime
       intent: code_generation_task
       runtime_capability: runtime.code_generation_task
       runtime_next_action: run_runtime_planner
       forbidden_intent: job.recommend
+      required_tools: [sandbox_code_execute]
   - id: runtime_code_task_not_job_search
-    input: "帮我写一个 Python 脚本处理 CSV"
+    input: "写 Python 代码统计字符串 JobBuddy 中字母 d 的出现次数，并执行验证"
     expected:
       domain: runtime
       intent: code_generation_task
       next_action: run_runtime_planner
       forbidden_intent: job.recommend
-      trace_events: [run_start, task_understanding, capability_route, finalize, run_end]
+      required_tools: [sandbox_code_execute]
+      trace_events: [run_start, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
   - id: career_profile_context_injected
     profile: career
     user_profile:

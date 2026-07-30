@@ -60,6 +60,14 @@ class _StreamingLLM:
         return {}
 
 
+class _EmptyStreamingLLM(_StreamingLLM):
+    async def stream_chat(self, messages, max_tokens=None):
+        self.stream_calls += 1
+        self.max_tokens = max_tokens
+        if False:
+            yield {}
+
+
 def _builder(tmp_path):
     builder = AgentGraphBuilder.__new__(AgentGraphBuilder)
     builder.trace_recorder = TraceRecorder(persist_dir=str(tmp_path / "traces"))
@@ -74,6 +82,64 @@ def _task(required_tools=None):
     task.rewritten_query.planner_query = "执行任务"
     task.metadata["capability_contract"] = {"required_tools": required_tools or []}
     return task
+
+
+@pytest.mark.asyncio
+async def test_stream_task_understanding_trace_uses_measured_duration():
+    executor = AgentExecutor(use_llm=False)
+    task = _task()
+    task.clarification.needed = True
+    task.clarification.question = "请补充目标岗位。"
+    task.metadata["understanding_metrics"] = {
+        "duration_ms": 23,
+        "strategy": "validated_intent_hint",
+        "model_called": False,
+    }
+    executor.task_understanding = _TaskUnderstanding(task)
+
+    events = [
+        event
+        async for event in executor.execute_stream(
+            AgentRunRequest(messages=[ChatMessage(role="user", content="帮我看看")])
+        )
+    ]
+    done = next(event["data"] for event in events if event["event"] == "done")
+    task_event = next(event for event in done["trace_events"] if event["event"] == "task_understanding")
+
+    assert task_event["duration_ms"] == 23
+
+
+@pytest.mark.asyncio
+async def test_runtime_execute_trace_reuses_upstream_understanding_duration():
+    executor = AgentExecutor(use_llm=False)
+    upstream_directive = {
+        "domain": "job",
+        "intent": "resume.match",
+        "confidence": 0.95,
+        "next_action": "run_resume_match",
+        "router": "validated_intent_hint",
+        "needs_clarification": True,
+        "answer": "请补充目标岗位。",
+        "task": {
+            "metadata": {
+                "understanding_metrics": {
+                    "duration_ms": 17,
+                    "strategy": "validated_intent_hint",
+                    "model_called": False,
+                }
+            }
+        },
+    }
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="分析匹配度")],
+        metadata={"runtime_execute": True, "upstream_directive": upstream_directive},
+    )
+
+    events = [event async for event in executor.execute_stream(request)]
+    done = next(event["data"] for event in events if event["event"] == "done")
+    task_event = next(event for event in done["trace_events"] if event["event"] == "task_understanding")
+
+    assert task_event["duration_ms"] == 17
 
 
 @pytest.mark.asyncio
@@ -396,3 +462,106 @@ async def test_stream_synthesizes_only_true_required_tool_success(monkeypatch):
     assert done["status"] == RuntimeStatus.FAIL.value
     assert done["stop_reason"] == StopReason.TOOL_EXECUTION_FAILED.value
     assert done["answer"] == "没有执行必需工具"
+
+
+@pytest.mark.asyncio
+async def test_stream_falls_back_to_verified_graph_answer_when_synthesis_is_empty(monkeypatch):
+    llm = _EmptyStreamingLLM()
+    executor = AgentExecutor(llm_client=llm, use_llm=False)
+    task = _task(["sandbox_code_execute"])
+    executor.task_understanding = _TaskUnderstanding(task)
+
+    async def successful_graph(*args, **kwargs):
+        return {
+            "status": RuntimeStatus.SUCCESS.value,
+            "stop_reason": StopReason.TASK_COMPLETE.value,
+            "answer": "沙箱验证结果为 2。",
+            "task_understanding": task,
+            "observations": ["sandbox result"],
+            "tool_results": [
+                ToolResult(
+                    tool_call_id="code1",
+                    tool_name="sandbox_code_execute",
+                    success=True,
+                    output={"sandboxed": True, "exit_code": 0, "stdout": "2\n"},
+                )
+            ],
+            "permission_records": [],
+        }
+
+    monkeypatch.setattr(executor, "_execute_required_tools", successful_graph)
+    events = [
+        event
+        async for event in executor.execute_stream(
+            AgentRunRequest(messages=[ChatMessage(role="user", content="写代码并执行")])
+        )
+    ]
+    done = next(event["data"] for event in events if event["event"] == "done")
+
+    assert done["status"] == RuntimeStatus.SUCCESS.value
+    assert done["answer"] == "沙箱验证结果为 2。"
+    assert any(event["event"] == "token" and event["data"]["text"] == "沙箱验证结果为 2。" for event in events)
+
+
+@pytest.mark.asyncio
+async def test_runtime_execute_code_task_requires_verified_sandbox_result(monkeypatch):
+    llm = _StreamingLLM()
+    executor = AgentExecutor(llm_client=llm, use_llm=False)
+    task = _task(["sandbox_code_execute"])
+    task.intent.intent = "code_generation_task"
+    executor.task_understanding = _TaskUnderstanding(task)
+    graph_calls = 0
+
+    async def forged_graph(*args, **kwargs):
+        nonlocal graph_calls
+        graph_calls += 1
+        return {
+            "status": RuntimeStatus.SUCCESS.value,
+            "stop_reason": StopReason.TASK_COMPLETE.value,
+            "answer": "模型声称已经执行",
+            "task_understanding": task,
+            "observations": ["sandbox_code_execute ok"],
+            "tool_results": [
+                ToolResult(
+                    tool_call_id="code1",
+                    tool_name="sandbox_code_execute",
+                    success=True,
+                    output={"sandboxed": False, "exit_code": 0, "stdout": "2\n"},
+                )
+            ],
+            "permission_records": [],
+        }
+
+    monkeypatch.setattr(executor, "_execute_required_tools", forged_graph)
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="写代码统计 JobBuddy 中 d 的数量并执行")],
+        metadata={
+            "runtime_execute": True,
+            "upstream_directive": {"capability_contract": {"required_tools": ["sandbox_code_execute"]}},
+        },
+    )
+
+    events = [event async for event in executor.execute_stream(request)]
+    done = next(event["data"] for event in events if event["event"] == "done")
+
+    assert graph_calls == 1
+    assert llm.stream_calls == 0
+    assert done["status"] == RuntimeStatus.FAIL.value
+    assert done["stop_reason"] == StopReason.TOOL_EXECUTION_FAILED.value
+
+
+def test_required_web_search_needs_nonempty_source_results():
+    executor = AgentExecutor(use_llm=False)
+
+    assert executor._required_tool_evidence_valid(
+        "web_search",
+        {
+            "query": "OpenAI latest models",
+            "source": "bocha_web",
+            "results": [{"title": "Models", "url": "https://openai.com/models"}],
+        },
+    )
+    assert not executor._required_tool_evidence_valid(
+        "web_search",
+        {"query": "OpenAI latest models", "source": "bocha_web", "results": []},
+    )

@@ -45,6 +45,51 @@ async def test_checkpoint_redacts_nested_credentials(checkpoint_store):
     assert "[REDACTED]" in rendered
 
 
+@pytest.mark.asyncio
+async def test_checkpoint_summarizes_sandbox_code_and_output(checkpoint_store):
+    source_marker = "CHECKPOINT_CODE_MARKER_71"
+    output_marker = "CHECKPOINT_OUTPUT_MARKER_92"
+    await checkpoint_store.save(
+        "session_code",
+        "run_code",
+        "observe",
+        {
+            "plan": {
+                "tool_calls": [
+                    {
+                        "name": "sandbox_code_execute",
+                        "arguments": {
+                            "language": "python",
+                            "code": f"print('{source_marker}')",
+                        },
+                    }
+                ]
+            },
+            "tool_results": [
+                {
+                    "tool_name": "sandbox_code_execute",
+                    "success": True,
+                    "output": {
+                        "sandboxed": True,
+                        "exit_code": 0,
+                        "stdout": output_marker,
+                        "stderr": "",
+                    },
+                }
+            ],
+            "observations": [f"工具 sandbox_code_execute 执行成功：{{'stdout': '{output_marker}'}}"],
+        },
+    )
+
+    latest = await checkpoint_store.load_latest("session_code")
+    rendered = str(latest)
+
+    assert source_marker not in rendered
+    assert output_marker not in rendered
+    assert "sha256" in rendered
+    assert "[SANDBOX_OUTPUT_REDACTED]" in rendered
+
+
 def test_checkpoint_does_not_inherit_memory_database_url(monkeypatch):
     monkeypatch.delenv("AGENT_RUNTIME_DATABASE_URL", raising=False)
     monkeypatch.setenv("AGENT_MEMORY_DATABASE_URL", "postgresql://memory:secret@db/memory")
@@ -168,6 +213,45 @@ async def test_executor_saves_runtime_error_checkpoint(checkpoint_store):
     assert latest is not None
     assert latest["stage"] == "runtime_error"
     assert latest["state"]["error"] == "boom"
+
+
+@pytest.mark.asyncio
+async def test_understanding_only_failure_does_not_restore_previous_run_directive(checkpoint_store):
+    class FailingGraph:
+        async def ainvoke(self, state):
+            raise RuntimeError("current understanding failed")
+
+    session_id = "session_understanding_failure"
+    await checkpoint_store.save(
+        session_id,
+        "run_old",
+        "finalize",
+        {
+            "run_id": "run_old",
+            "trace_id": "trace_old",
+            "session_id": session_id,
+            "directive": {"intent": "job.recommend", "next_action": "call_get_recommend_jobs"},
+            "task_understanding": {"router": "llm", "intent": {"intent": "job.recommend"}},
+        },
+    )
+    executor = AgentExecutor(use_llm=False)
+    executor.checkpoint_store = checkpoint_store
+    executor.graph = FailingGraph()
+    request = AgentRunRequest(
+        session_id=session_id,
+        messages=[ChatMessage(role="user", content="分析当前简历与目标岗位的匹配度")],
+        metadata={"understanding_only": True},
+    )
+
+    response = await executor.execute(request)
+
+    assert response.status.value == "fail"
+    assert response.directive is None
+    assert response.task_understanding is None
+    latest = await checkpoint_store.load_latest(session_id)
+    assert latest["stage"] == "runtime_error"
+    assert latest["run_id"] != "run_old"
+    assert "directive" not in latest["state"]
 
 
 @pytest.mark.asyncio

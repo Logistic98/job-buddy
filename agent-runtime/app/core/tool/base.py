@@ -16,6 +16,14 @@ from app.models.schemas import ToolCall, ToolDefinition, ToolResult
 ToolProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
+class ToolExecutionFailure(ValueError):
+    """表示工具已执行但业务终态失败，并携带可审计的结构化输出。"""
+
+    def __init__(self, message: str, *, output: Any) -> None:
+        super().__init__(message)
+        self.output = output
+
+
 class ToolExecutionContext(BaseModel):
     """工具执行上下文。"""
 
@@ -121,6 +129,19 @@ class BaseTool(ABC):
                 tool_name=self.name,
                 success=True,
                 output=normalized_output,
+                latency_ms=TimeUtils.calculate_latency_ms(start_timestamp, TimeUtils.get_timestamp()),
+                metadata=metadata,
+            )
+        except ToolExecutionFailure as e:
+            normalized_output, metadata = self._normalize_output(tool_call, e.output)
+            error_message = str(e).strip() or f"工具 {self.name} 执行失败"
+            logger.warning(f"工具执行失败：tool={self.name}, error={error_message}")
+            return ToolResult(
+                tool_call_id=tool_call.id,
+                tool_name=self.name,
+                success=False,
+                output=normalized_output,
+                error=error_message,
                 latency_ms=TimeUtils.calculate_latency_ms(start_timestamp, TimeUtils.get_timestamp()),
                 metadata=metadata,
             )

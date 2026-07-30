@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from hashlib import sha256
 from threading import Lock
 from typing import Any, Dict, Optional
 
@@ -56,12 +57,13 @@ class CheckpointStore:
         if not settings.config.checkpoint.enabled:
             return
         persisted_state = self._persistence_snapshot(state)
+        persisted_state = self._summarize_execution_payloads(self._json_safe(persisted_state))
         payload = {
             "session_id": session_id,
             "run_id": run_id,
             "stage": stage,
             "saved_at": TimeUtils.get_formatted_time(),
-            "state": self._json_safe(redact_sensitive(persisted_state)),
+            "state": redact_sensitive(persisted_state),
         }
         sequence = time.time_ns()
         pool = await self._get_pool()
@@ -215,3 +217,41 @@ class CheckpointStore:
                 else:
                     snapshot.pop("context_summary", None)
         return snapshot
+
+    def _summarize_execution_payloads(self, value: Any, parent_key: str = "") -> Any:
+        """检查点只保存可审计摘要，不保存可执行源码、命令、argv 或原始进程输出。"""
+
+        if parent_key == "observations" and isinstance(value, list):
+            return [
+                (
+                    "[SANDBOX_OUTPUT_REDACTED]"
+                    if isinstance(item, str) and "sandbox_code_execute" in item
+                    else self._summarize_execution_payloads(item)
+                )
+                for item in value
+            ]
+        if isinstance(value, dict):
+            summarized: Dict[str, Any] = {}
+            for key, item in value.items():
+                normalized = str(key).strip().lower()
+                if normalized in {"code", "command", "argv", "stdout", "stderr"}:
+                    summarized[str(key)] = self._execution_value_summary(item)
+                else:
+                    summarized[str(key)] = self._summarize_execution_payloads(item, normalized)
+            return summarized
+        if isinstance(value, list):
+            return [self._summarize_execution_payloads(item) for item in value]
+        return value
+
+    def _execution_value_summary(self, value: Any) -> Dict[str, Any]:
+        text = (
+            value
+            if isinstance(value, str)
+            else json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+        )
+        encoded = text.encode("utf-8", errors="replace")
+        return {
+            "redacted": True,
+            "chars": len(text),
+            "sha256": sha256(encoded).hexdigest(),
+        }

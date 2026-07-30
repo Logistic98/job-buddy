@@ -1,7 +1,8 @@
 """任务理解与能力路由编排器。
 
 本服务只负责"选哪个能力卡 + 抽哪些槽位 + 用哪条路由路径"的编排：
-- LLM 是默认路由器；生产链路的关键词/配置打分仅作显式降级。
+- LLM 是默认路由器；会话捷径与受 Profile 约束的双重校验 Hint 是显式快路径。
+- 生产链路的关键词/配置打分不单独授予能力、风险或工具权限。
 - 只有测试或显式离线模式传入 allow_semantic_fallback=True 时，才使用配置驱动语义兜底。
 
 具体职责被拆分到独立模块以保持单一职责：
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from loguru import logger
@@ -50,6 +52,7 @@ DEFAULT_TASK_UNDERSTANDING_PROMPT = """
 4. 只能选择能力卡中存在的 capability_id；无法可靠解析时返回 needs_clarification。
 5. 高风险或缺少必填槽位的请求必须显式 needs_clarification 或 need_confirm。
 6. 技术问答、代码生成、复杂工程任务应进入 runtime/open_domain 能力。
+7. 用户明确要求联网、上网、搜索网页或 search/browse the web 时，只能选择允许 web_search 的能力；不要把明确联网请求当作无需工具的普通问答。
 
 输出 JSON schema:
 {
@@ -100,6 +103,8 @@ class TaskUnderstandingService:
     async def understand(
         self, request: AgentRunRequest, session_id: str, run_id: str, trace_id: str
     ) -> TaskUnderstandingResult:
+        started_at = time.perf_counter()
+        model_called = False
         metadata = request.metadata or {}
         profile_id = str(metadata.get("profile") or metadata.get("agent_profile") or "default")
         profile = self.capability_registry.get_profile(profile_id)
@@ -111,7 +116,10 @@ class TaskUnderstandingService:
         result: Optional[TaskUnderstandingResult] = self._understand_with_shortcut(
             profile, message, previous_slots, trace_id
         )
+        if result is None:
+            result = self._understand_with_validated_intent_hint(profile, request, message, trace_id)
         if result is None and self.llm_client:
+            model_called = True
             result = await self._understand_with_model(profile, request, message, previous_slots, trace_id)
         if result is None and (self.allow_semantic_fallback or self.llm_client):
             # LLM 可访问但 JSON 不稳定时，回退到配置语义路由。
@@ -119,13 +127,142 @@ class TaskUnderstandingService:
         if result is None:
             result = self.result_builder.build_llm_unavailable(profile, message, trace_id)
 
+        self._apply_explicit_tool_requirements(message, result)
         result.trace_id = trace_id
         result.profile = profile.id
         result.metadata.update({"session_id": session_id, "run_id": run_id})
+        duration_ms = min(3_600_000, max(0, int((time.perf_counter() - started_at) * 1000)))
+        result.metadata["understanding_metrics"] = {
+            "duration_ms": duration_ms,
+            "strategy": result.router,
+            "model_called": model_called,
+        }
         selected = result.routing.selected_capability
         workflow = self.workflow_registry.match(selected.capability_id if selected else None, profile.id)
         if workflow is not None:
             result.metadata["workflow"] = workflow.metadata()
+        return result
+
+    def _apply_explicit_tool_requirements(
+        self,
+        message: str,
+        result: TaskUnderstandingResult,
+    ) -> None:
+        """把用户明确指定的低风险只读工具提升为本轮必需工具。
+
+        Capability 的 allowlist 仍是权限上界；这里不能给能力卡未授权的工具扩权。
+        该约束用于阻止 Backend 的 runtime_execute 快路径跳过用户明确要求的联网搜索。
+        """
+        if not self._explicit_web_search_requested(message):
+            return
+        metadata = result.metadata if isinstance(result.metadata, dict) else {}
+        contract = metadata.get("capability_contract")
+        if not isinstance(contract, dict):
+            return
+        allowed = {
+            str(item)
+            for item in [
+                *(contract.get("required_tools") or []),
+                *(contract.get("allowed_tools") or []),
+            ]
+        }
+        if "web_search" not in allowed:
+            return
+        required = [str(item) for item in (contract.get("required_tools") or [])]
+        if "web_search" not in required:
+            required.append("web_search")
+        contract["required_tools"] = required
+        metadata["explicit_tool_requirements"] = ["web_search"]
+        result.metadata = metadata
+
+    def _explicit_web_search_requested(self, message: str) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        if re.search(r"(?:不要|不用|无需|禁止|别)(?:再)?(?:联网|上网|网络|网页|web|online)", text):
+            return False
+        chinese_patterns = (
+            r"(?:联网|上网)(?:查找|查询|搜索|检索|搜|查|浏览)",
+            r"(?:搜索|查找|查询|检索|搜一下|查一下)(?:网页|网络|互联网)",
+            r"(?:网页|网络|互联网)(?:搜索|查找|查询|检索)",
+        )
+        if any(re.search(pattern, text) for pattern in chinese_patterns):
+            return True
+        return bool(
+            re.search(
+                r"\b(?:web\s+search|search\s+the\s+web|browse\s+(?:the\s+)?(?:web|internet)|"
+                r"look\s+up\s+online|online\s+search)\b",
+                text,
+            )
+        )
+
+    def _understand_with_validated_intent_hint(
+        self,
+        profile: ProfileDefinition,
+        request: AgentRunRequest,
+        message: str,
+        trace_id: str,
+    ) -> Optional[TaskUnderstandingResult]:
+        policy = profile.intent_hint_fast_path
+        metadata = request.metadata if isinstance(request.metadata, dict) else {}
+        hint = metadata.get("intent_hint")
+        if not policy.enabled or not isinstance(hint, dict):
+            return None
+        if len(request.messages or []) != 1 or request.messages[0].role != "user":
+            return None
+        if metadata.get("previous_slots") not in (None, {}):
+            return None
+        if metadata.get("attachments") not in (None, []):
+            return None
+        if hint.get("router") != "rule" or hint.get("needs_clarification") is not False:
+            return None
+        try:
+            hint_confidence = float(hint.get("confidence"))
+        except (TypeError, ValueError):
+            return None
+        if not 0.0 <= hint_confidence <= 1.0 or hint_confidence < policy.min_hint_confidence:
+            return None
+
+        capability = profile.capability_by_intent(str(hint.get("intent") or ""))
+        if capability is None or capability.id not in policy.allowed_capability_ids:
+            return None
+        if capability.risk != "low" or capability.execution_mode != "STABLE_WORKFLOW":
+            return None
+        if (
+            hint.get("domain") != capability.domain
+            or hint.get("intent") != capability.intent
+            or hint.get("next_action") != capability.next_action
+            or hint.get("risk") != capability.risk
+        ):
+            return None
+
+        slots = self.slot_extractor.extract(profile, message)
+        scored = self._score_capabilities(profile, message, slots)
+        semantic_confidence, reason, semantic_capability = scored[0]
+        if semantic_capability.id != capability.id or semantic_confidence < policy.min_semantic_confidence:
+            return None
+        candidates = [
+            self.result_builder.candidate(
+                card,
+                score,
+                score_reason,
+                self.result_builder.missing_required(card, slots),
+            )
+            for score, score_reason, card in scored[:5]
+        ]
+        result = self.result_builder.build(
+            profile=profile,
+            message=message,
+            trace_id=trace_id,
+            capability=capability,
+            candidates=candidates,
+            confidence=semantic_confidence,
+            slots=slots,
+            router="validated_intent_hint",
+            reason=reason,
+        )
+        if result.clarification.needed:
+            return None
         return result
 
     def build_directive(self, profile: ProfileDefinition, result: TaskUnderstandingResult) -> Optional[Dict[str, Any]]:
@@ -205,7 +342,6 @@ class TaskUnderstandingService:
             "recent_messages": [self._compact_message(item) for item in (request.messages or [])[-8:]],
             "metadata": self._safe_metadata(request.metadata or {}),
             "previous_slots": previous_slots,
-            "capabilities": capability_payload,
         }
         try:
             response = await self.llm_client.chat(

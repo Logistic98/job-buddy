@@ -11,6 +11,12 @@ prompts:
 preferences:
   agent_design: "Profile 只描述能力卡、槽位和风险，不在 Runtime Core 中硬编码 Boss/简历/岗位规则。"
 
+intent_hint_fast_path:
+  enabled: true
+  allowed_capability_ids: ["job.recommend", "resume.match"]
+  min_hint_confidence: 0.88
+  min_semantic_confidence: 0.85
+
 conversation_shortcuts:
   - id: resume_switch_rematch
     phrases: []
@@ -318,13 +324,18 @@ capabilities:
     intent: code_generation_task
     execution_intent: generate_artifact
     execution_mode: COMPLEX_AGENT_TASK
-    description: 编写代码、脚本、数据处理程序或工程实现。该能力进入 Runtime Planner，不触发岗位搜索。
+    description: 编写代码、脚本、数据处理程序或工程实现。该能力进入 Runtime Planner，并必须先在隔离沙箱执行候选代码，不触发岗位搜索。
     examples: ["帮我写一个 Python 脚本处理 CSV", "生成代码实现", "写个 Shell 脚本", "处理 Excel 文件"]
     keywords: ["写一个", "写个", "生成代码", "代码实现", "脚本", "Shell脚本", "Python脚本", "处理 CSV", "处理CSV", "Excel"]
     risk: medium
     next_action: run_runtime_planner
     planner_needed: true
-    allowed_tools: ["file_read", "file_write", "file_edit", "glob", "grep", "shell_exec", "web_search", "web_fetch"]
+    required_tools: ["sandbox_code_execute"]
+    allowed_tools: ["sandbox_code_execute", "file_read", "file_write", "file_edit", "glob", "grep", "shell_exec", "web_search", "web_fetch"]
+    evidence_requirements: ["sandbox_code_execute 成功 ToolResult", "sandboxed=true", "exit_code=0", "stdout/stderr 执行证据"]
+    eval_rubric:
+      required_tool_success: ["sandbox_code_execute"]
+      require_sandboxed: true
     secondary: ["plan", "code_generation", "technical"]
     capability_tags: ["runtime", "code", "planner"]
 

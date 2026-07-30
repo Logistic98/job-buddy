@@ -22,7 +22,9 @@ def test_code_generation_capability_uses_explicit_bounded_tool_scope():
 
     assert capability is not None
     assert capability.tool_scope == "allowlist"
+    assert capability.required_tools == ["sandbox_code_execute"]
     assert set(capability.allowed_tools) == {
+        "sandbox_code_execute",
         "file_read",
         "file_write",
         "file_edit",
@@ -32,4 +34,3 @@ def test_code_generation_capability_uses_explicit_bounded_tool_scope():
         "web_search",
         "web_fetch",
     }
-    assert capability.required_tools == []

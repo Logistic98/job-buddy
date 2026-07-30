@@ -196,9 +196,11 @@ def grade_run(run: dict, expected: dict | None = None) -> dict:
     checks: list[dict] = []
     checks.extend(_grade_trace_dimension(_list(run.get("trace_events") or run.get("trace") or []), expected))
     checks.extend(_grade_intent_dimension(run, expected))
-    checks.extend(_grade_tool_dimension(run))
+    if not expected.get("understanding_only"):
+        checks.extend(_grade_tool_dimension(run))
     checks.extend(_grade_grounding_dimension(run, expected))
-    checks.extend(_grade_output_dimension(run, expected))
+    if not expected.get("understanding_only"):
+        checks.extend(_grade_output_dimension(run, expected))
     checks.extend(_grade_safety_dimension(run, expected))
     checks.extend(_grade_runtime_contract_dimension(run, expected))
     checks.extend(_grade_latency_dimension(run, expected))
@@ -283,14 +285,28 @@ def _grade_intent_dimension(run: dict, expected: dict) -> list[dict]:
             "已输出结构化意图" if intent else "缺少结构化意图",
             "critical",
         ),
-        # semantic_config_shortcut 是高频会话捷径（如“换一批”）的规则路由生产路径，先于 LLM 命中，属合法 router。
+        # 会话捷径与受双重校验的低风险 Hint 都是显式生产快路径，属合法 router。
         _check(
             "task_understanding",
             "llm_first",
-            1.0 if router in {"llm", "llm_unavailable", "semantic_config_shortcut"} else 0.4,
+            1.0
+            if router
+            in {
+                "llm",
+                "llm_unavailable",
+                "semantic_config_shortcut",
+                "validated_intent_hint",
+            }
+            else 0.4,
             0.8,
-            "任务理解由 LLM、会话捷径或显式 LLM 不可用结果产生"
-            if router in {"llm", "llm_unavailable", "semantic_config_shortcut"}
+            "任务理解由 LLM、受校验快路径或显式 LLM 不可用结果产生"
+            if router
+            in {
+                "llm",
+                "llm_unavailable",
+                "semantic_config_shortcut",
+                "validated_intent_hint",
+            }
             else "任务理解不是 LLM-first 结果",
             "high",
             {"router": router},

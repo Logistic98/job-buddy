@@ -1,5 +1,8 @@
+import json
+
 import pytest
 
+from app.core.capability.models import ProfileDefinition
 from app.core.capability.registry import CapabilityRegistry
 from app.core.intent.task_understanding import TaskUnderstandingService
 from app.models.schemas import AgentRunRequest, ChatMessage
@@ -34,7 +37,18 @@ async def test_profile_capability_cards_are_loaded_from_yaml():
     role_extractor = next(item for item in profile.slot_extractors if item.name == "role")
     agent_role = next(item for item in role_extractor.values if item["value"] == "大模型应用开发")
     assert "Agent 平台开发" in agent_role["aliases"]
-    assert profile.capability_by_id("runtime.code_generation_task").next_action == "run_runtime_planner"
+    code_capability = profile.capability_by_id("runtime.code_generation_task")
+    assert code_capability.next_action == "run_runtime_planner"
+    assert code_capability.required_tools == ["sandbox_code_execute"]
+    assert profile.intent_hint_fast_path.enabled is True
+    assert profile.intent_hint_fast_path.allowed_capability_ids == ["job.recommend", "resume.match"]
+
+
+def test_intent_hint_fast_path_is_disabled_by_default():
+    profile = ProfileDefinition(id="custom", name="Custom")
+
+    assert profile.intent_hint_fast_path.enabled is False
+    assert profile.intent_hint_fast_path.allowed_capability_ids == []
 
 
 @pytest.mark.asyncio
@@ -66,6 +80,75 @@ async def test_task_understanding_open_domain_does_not_force_job_context():
     assert result.intent.domain == "open_domain"
     assert result.intent.intent == "general_qa"
     assert result.next_action == "run_runtime_planner"
+
+
+@pytest.mark.asyncio
+async def test_explicit_web_search_request_promotes_web_search_to_required_tool():
+    llm = FakeIntentLLM(
+        {
+            "resolved_query": "联网查找 OpenAI 最新模型",
+            "retrieval_query": "OpenAI 最新模型",
+            "planner_query": "联网查找 OpenAI 最新模型并引用来源",
+            "context_dependency": "none",
+            "context_type": [],
+            "selected_capability_id": "open_domain.technical_qa",
+            "confidence": 0.95,
+            "secondary": [],
+            "slots": {},
+            "missing_required": [],
+            "needs_clarification": False,
+            "clarification_question": None,
+            "risk_level": "low",
+            "answer": None,
+            "reason": "用户要求联网查询最新技术信息",
+        }
+    )
+    service = TaskUnderstandingService(llm_client=llm)
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="联网查找 OpenAI 最新模型")],
+        metadata={"profile": "job-buddy"},
+    )
+
+    result = await service.understand(request, "s1", "r1", "t1")
+    directive = service.build_directive(service.get_profile("job-buddy"), result)
+
+    assert result.intent.intent == "technical_qa"
+    assert result.metadata["capability_contract"]["required_tools"] == ["web_search"]
+    assert result.metadata["explicit_tool_requirements"] == ["web_search"]
+    assert directive["capability_contract"]["required_tools"] == ["web_search"]
+
+
+@pytest.mark.asyncio
+async def test_ordinary_technical_qa_keeps_web_search_optional():
+    llm = FakeIntentLLM(
+        {
+            "resolved_query": "解释 Spring 事务传播机制",
+            "retrieval_query": "Spring 事务传播机制",
+            "planner_query": "解释 Spring 事务传播机制",
+            "context_dependency": "none",
+            "context_type": [],
+            "selected_capability_id": "open_domain.technical_qa",
+            "confidence": 0.96,
+            "secondary": [],
+            "slots": {},
+            "missing_required": [],
+            "needs_clarification": False,
+            "clarification_question": None,
+            "risk_level": "low",
+            "answer": None,
+            "reason": "普通技术概念问答",
+        }
+    )
+    service = TaskUnderstandingService(llm_client=llm)
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="解释一下 Spring 事务传播机制")],
+        metadata={"profile": "job-buddy"},
+    )
+
+    result = await service.understand(request, "s1", "r1", "t1")
+
+    assert result.metadata["capability_contract"]["required_tools"] == []
+    assert "explicit_tool_requirements" not in result.metadata
 
 
 @pytest.mark.asyncio
@@ -134,6 +217,153 @@ async def test_task_understanding_uses_llm_result_before_semantic_fallback():
     assert result.intent.intent == "resume.match"
     assert result.next_action == "run_resume_match"
     assert result.slots.filled["role"] == "Agent 应用开发"
+    metrics = result.metadata["understanding_metrics"]
+    assert metrics["strategy"] == "llm"
+    assert metrics["model_called"] is True
+    assert isinstance(metrics["duration_ms"], int)
+    assert 0 <= metrics["duration_ms"] <= 3_600_000
+
+
+@pytest.mark.asyncio
+async def test_validated_intent_hint_skips_llm_and_derives_result_from_local_profile():
+    llm = FakeIntentLLM({"selected_capability_id": "open_domain.general_qa", "confidence": 0.5})
+    service = TaskUnderstandingService(llm_client=llm)
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="帮我筛选上海大模型应用开发 40-50K 岗位")],
+        metadata={
+            "profile": "job-buddy",
+            "intent_hint": {
+                "domain": "job",
+                "intent": "job.recommend",
+                "confidence": 0.9,
+                "risk": "low",
+                "needs_clarification": False,
+                "next_action": "call_get_recommend_jobs",
+                "router": "rule",
+                "required_tools": ["untrusted_tool"],
+            },
+        },
+    )
+
+    result = await service.understand(request, "s1", "r1", "t1")
+
+    assert llm.calls == 0
+    assert result.router == "validated_intent_hint"
+    assert result.intent.domain == "job"
+    assert result.intent.intent == "job.recommend"
+    assert result.intent.confidence == pytest.approx(0.8717)
+    assert result.next_action == "call_get_recommend_jobs"
+    assert result.risk_flags.risk_level == "low"
+    assert result.slots.filled["city"] == "上海"
+    assert result.slots.filled["role"] == "大模型应用开发"
+    assert result.metadata["capability_contract"]["required_tools"] == ["boss_browser"]
+    assert result.metadata["understanding_metrics"] == {
+        "duration_ms": result.metadata["understanding_metrics"]["duration_ms"],
+        "strategy": "validated_intent_hint",
+        "model_called": False,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "metadata_override,messages",
+    [
+        ({"intent_hint": {"router": "scorer"}}, None),
+        ({"intent_hint": {"domain": "runtime"}}, None),
+        ({"intent_hint": {"next_action": "reject_with_reason"}}, None),
+        ({"intent_hint": {"needs_clarification": True}}, None),
+        ({"previous_slots": {"role": "大模型应用开发"}}, None),
+        ({"attachments": [{"id": "attachment-1"}]}, None),
+        (
+            {},
+            [
+                ChatMessage(role="user", content="上一轮"),
+                ChatMessage(role="assistant", content="回复"),
+                ChatMessage(role="user", content="帮我筛选上海大模型应用开发 40-50K 岗位"),
+            ],
+        ),
+    ],
+)
+async def test_untrusted_or_contextual_intent_hint_falls_back_to_llm(metadata_override, messages):
+    llm = FakeIntentLLM(
+        {
+            "selected_capability_id": "job.recommend",
+            "confidence": 0.9,
+            "needs_clarification": False,
+            "slots": {"role": "大模型应用开发"},
+        }
+    )
+    hint = {
+        "domain": "job",
+        "intent": "job.recommend",
+        "confidence": 0.9,
+        "risk": "low",
+        "needs_clarification": False,
+        "next_action": "call_get_recommend_jobs",
+        "router": "rule",
+    }
+    override_hint = metadata_override.get("intent_hint")
+    if override_hint:
+        hint.update(override_hint)
+    metadata = {"profile": "job-buddy", "intent_hint": hint}
+    metadata.update({key: value for key, value in metadata_override.items() if key != "intent_hint"})
+    request = AgentRunRequest(
+        messages=messages or [ChatMessage(role="user", content="帮我筛选上海大模型应用开发 40-50K 岗位")],
+        metadata=metadata,
+    )
+    service = TaskUnderstandingService(llm_client=llm)
+
+    result = await service.understand(request, "s1", "r1", "t1")
+
+    assert llm.calls == 1
+    assert result.router == "llm"
+
+
+@pytest.mark.asyncio
+async def test_intent_hint_requires_local_semantic_top1_agreement():
+    llm = FakeIntentLLM({"selected_capability_id": "resume.match", "confidence": 0.9})
+    service = TaskUnderstandingService(llm_client=llm)
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="分析当前简历是否匹配 Agent 应用开发岗位")],
+        metadata={
+            "profile": "job-buddy",
+            "intent_hint": {
+                "domain": "job",
+                "intent": "job.recommend",
+                "confidence": 0.9,
+                "risk": "low",
+                "needs_clarification": False,
+                "next_action": "call_get_recommend_jobs",
+                "router": "rule",
+            },
+        },
+    )
+
+    result = await service.understand(request, "s1", "r1", "t1")
+
+    assert llm.calls == 1
+    assert result.router == "llm"
+
+
+@pytest.mark.asyncio
+async def test_llm_prompt_does_not_duplicate_capability_catalog_in_user_payload():
+    llm = FakeIntentLLM({"selected_capability_id": "resume.match", "confidence": 0.9})
+    service = TaskUnderstandingService(llm_client=llm)
+    request = AgentRunRequest(
+        messages=[ChatMessage(role="user", content="分析当前简历是否匹配 Agent 应用开发岗位")],
+        metadata={"profile": "job-buddy"},
+    )
+
+    await service.understand(request, "s1", "r1", "t1")
+
+    user_payload = json.loads(llm.last_messages[-1].content)
+    capability_system_messages = [
+        message
+        for message in llm.last_messages
+        if message.role == "system" and "能力卡目录按 id 稳定排序" in message.content
+    ]
+    assert "capabilities" not in user_payload
+    assert len(capability_system_messages) == 1
 
 
 @pytest.mark.asyncio

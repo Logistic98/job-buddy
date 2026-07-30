@@ -1,6 +1,7 @@
 import httpx
 import pytest
 
+import app.tools_builtin.sandbox_code_tool as sandbox_code_tool_module
 import app.tools_builtin.shell_tool as shell_tool_module
 from app.core.common.constants import PermissionMode
 from app.core.tool.runtime import ToolRuntime
@@ -146,6 +147,7 @@ class _FakeSandboxResponse:
 class _FakeSandboxClient:
     last_payload = None
     fail_with = None
+    response_body = None
 
     def __init__(self, *args, **kwargs):
         pass
@@ -160,7 +162,111 @@ class _FakeSandboxClient:
         if _FakeSandboxClient.fail_with is not None:
             raise _FakeSandboxClient.fail_with
         _FakeSandboxClient.last_payload = {"url": url, "json": json}
-        return _FakeSandboxResponse()
+        return _FakeSandboxResponse(body=_FakeSandboxClient.response_body)
+
+
+@pytest.mark.asyncio
+async def test_sandbox_code_execute_uses_fixed_interpreter_and_isolated_policy(
+    fresh_registry, tool_context, monkeypatch
+):
+    _FakeSandboxClient.fail_with = None
+    _FakeSandboxClient.last_payload = None
+    _FakeSandboxClient.response_body = None
+    monkeypatch.setattr(sandbox_code_tool_module.httpx, "AsyncClient", _FakeSandboxClient)
+    runtime = ToolRuntime(fresh_registry)
+    call = ToolCall(
+        id="code1",
+        name="sandbox_code_execute",
+        arguments={"language": "python", "code": "print('JobBuddy'.count('d'))"},
+    )
+
+    result = await runtime.execute(call, PermissionMode.DEFAULT, tool_context)
+
+    assert result.success
+    assert result.output["exit_code"] == 0
+    assert result.output["sandboxed"] is True
+    assert result.output["language"] == "python"
+    payload = _FakeSandboxClient.last_payload
+    assert payload["url"].endswith("/v1/code-file")
+    assert payload["json"]["code"] == "print('JobBuddy'.count('d'))"
+    assert payload["json"]["suffix"] == ".py"
+    assert payload["json"]["interpreter"] == ["python3"]
+    assert "cwd" not in payload["json"]["options"]
+    assert payload["json"]["policy"]["network"]["allowedDomains"] == []
+    assert payload["json"]["policy"]["filesystem"]["allowWrite"] == []
+
+
+@pytest.mark.asyncio
+async def test_sandbox_code_execute_nonzero_exit_preserves_structured_evidence(
+    fresh_registry, tool_context, monkeypatch
+):
+    _FakeSandboxClient.fail_with = None
+    _FakeSandboxClient.response_body = {
+        "ok": False,
+        "returncode": 7,
+        "stdout": "partial output\n",
+        "stderr": "candidate failed\n",
+        "args": ["must-not-propagate"],
+    }
+    monkeypatch.setattr(sandbox_code_tool_module.httpx, "AsyncClient", _FakeSandboxClient)
+
+    result = await ToolRuntime(fresh_registry).execute(
+        ToolCall(
+            id="code_nonzero",
+            name="sandbox_code_execute",
+            arguments={"language": "python", "code": "raise SystemExit(7)"},
+        ),
+        PermissionMode.DEFAULT,
+        tool_context,
+    )
+    _FakeSandboxClient.response_body = None
+
+    assert not result.success
+    assert result.output == {
+        "language": "python",
+        "exit_code": 7,
+        "stdout": "partial output\n",
+        "stderr": "candidate failed\n",
+        "sandboxed": True,
+    }
+    assert result.data == result.output
+    assert "must-not-propagate" not in str(result.model_dump())
+    assert "candidate failed" not in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_sandbox_code_execute_rejects_untrusted_language_and_fails_closed(
+    fresh_registry, tool_context, monkeypatch
+):
+    _FakeSandboxClient.response_body = None
+    runtime = ToolRuntime(fresh_registry)
+    invalid = await runtime.execute(
+        ToolCall(
+            id="code_invalid",
+            name="sandbox_code_execute",
+            arguments={"language": "../../bin/sh", "code": "echo unsafe"},
+        ),
+        PermissionMode.DEFAULT,
+        tool_context,
+    )
+    assert not invalid.success
+    assert "language" in (invalid.error or "")
+
+    _FakeSandboxClient.fail_with = httpx.ConnectError("connection refused")
+    monkeypatch.setattr(sandbox_code_tool_module.httpx, "AsyncClient", _FakeSandboxClient)
+    unavailable = await runtime.execute(
+        ToolCall(
+            id="code_unavailable",
+            name="sandbox_code_execute",
+            arguments={"language": "python", "code": "print('never on host')"},
+        ),
+        PermissionMode.DEFAULT,
+        tool_context,
+    )
+    _FakeSandboxClient.fail_with = None
+    assert not unavailable.success
+    assert "agent-sandbox" in (unavailable.error or "")
+    assert "宿主机" in (unavailable.error or "")
 
 
 @pytest.mark.asyncio

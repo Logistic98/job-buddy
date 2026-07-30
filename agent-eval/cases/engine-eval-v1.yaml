@@ -57,6 +57,36 @@ cases:
       done_ms_target: 4000
       done_ms_max: 9000
 
+  # ---- 受校验 Hint 快路径：仅做瞬时理解，不调用模型、工具或 Boss ----
+  - id: validated_hint_resume_match_understanding
+    category: understanding_fast_path
+    input: "分析当前简历与目标岗位的匹配度"
+    metadata:
+      understanding_only: true
+      intent_hint:
+        domain: job
+        intent: resume.match
+        confidence: 0.88
+        risk: low
+        needs_clarification: false
+        next_action: run_resume_match
+        router: rule
+    expected:
+      domain: job
+      intent: resume.match
+      next_action: run_resume_match
+      router_in: [validated_intent_hint]
+      expect_status: success
+      expect_no_llm_usage: true
+      trace_events: [run_start, understand_goal, task_understanding, capability_route, finalize, run_end]
+    latency_budget:
+      ttfb_ms_target: 300
+      ttfb_ms_max: 800
+      ttft_ms_target: null
+      ttft_ms_max: null
+      done_ms_target: 800
+      done_ms_max: 2000
+
   # ---- 直达合成快路径：开放域问答不跑工具，理解禁用思考，应较快首字 ----
   - id: open_domain_technical_qa
     category: direct_synthesis_fast_path
@@ -76,6 +106,23 @@ cases:
       done_ms_target: 6000
       done_ms_max: 11000
 
+  - id: explicit_web_search_latest_model
+    category: required_web_search_path
+    input: "联网查找 OpenAI 最新模型，并给出来源链接"
+    expected:
+      domain: open_domain
+      next_action: run_runtime_planner
+      required_tools: [web_search]
+      trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
+      answer_min_chars: 40
+    latency_budget:
+      ttfb_ms_target: 500
+      ttfb_ms_max: 1500
+      ttft_ms_target: 9000
+      ttft_ms_max: 18000
+      done_ms_target: 15000
+      done_ms_max: 30000
+
   - id: open_domain_concept_no_career_overfit
     category: direct_synthesis_fast_path
     input: "解释一下现金流折现法"
@@ -94,14 +141,15 @@ cases:
       done_ms_max: 11000
 
   - id: code_generation_not_job_search
-    category: direct_synthesis_fast_path
-    input: "帮我写一个 Python 脚本处理 CSV"
+    category: sandbox_code_execution_path
+    input: "写 Python 代码统计字符串 JobBuddy 中字母 d 的出现次数，并执行验证"
     expected:
       domain: runtime
       intent: code_generation_task
       next_action: run_runtime_planner
       forbidden_intent: job.recommend
-      trace_events: [run_start, task_understanding, capability_route, finalize, run_end]
+      required_tools: [sandbox_code_execute]
+      trace_events: [run_start, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
     latency_budget:
       ttft_ms_target: 2500
       ttft_ms_max: 5500
@@ -273,13 +321,14 @@ cases:
       done_ms_max: 16000
 
   - id: code_generation_agent_tool
-    category: direct_synthesis_fast_path
+    category: sandbox_code_execution_path
     input: "帮我用 Python 写一个带重试的 Agent 工具调用示例"
     expected:
       domain: runtime
       intent: code_generation_task
       next_action: run_runtime_planner
       forbidden_intent: job.recommend
+      required_tools: [sandbox_code_execute]
       answer_min_chars: 40
       events: [intent, message, done]
     latency_budget:

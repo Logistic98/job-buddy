@@ -11,8 +11,13 @@ import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -142,12 +147,21 @@ class RuntimeManagedTaskHandler {
       }
     }
     if (answer.isEmpty()) answer = stringValue(directive == null ? null : directive.get("answer"));
+    Map<String, Object> sandboxStatus = sandboxExecutionStatus(runtimeResult);
+    if (!sandboxStatus.isEmpty()) {
+      sender.sendToolStatus(emitter, sessionId, state, sandboxStatus);
+    }
+    Map<String, Object> webSearchStatus = webSearchExecutionStatus(runtimeResult);
+    if (!webSearchStatus.isEmpty()) {
+      sender.sendToolStatus(emitter, sessionId, state, webSearchStatus);
+    }
     Map<String, Object> resultDetail = new LinkedHashMap<String, Object>();
     resultDetail.put("status", runtimeResult.get("status"));
     resultDetail.put("runId", firstPresent(runtimeResult, "run_id", "runId"));
     resultDetail.put("stopReason", firstPresent(runtimeResult, "stop_reason", "stopReason"));
     if (streamFailed) resultDetail.put("error", streamError);
     boolean hasAnswer = answer != null && !answer.trim().isEmpty();
+    boolean runtimeFailed = explicitRuntimeFailure(runtimeResult);
     if (!hasAnswer) {
       String reason =
           streamFailed
@@ -168,9 +182,12 @@ class RuntimeManagedTaskHandler {
               : Collections.<String, Object>singletonMap("runtimeResult", resultDetail));
       return;
     }
-    if (streamFailed) {
+    if (streamFailed || runtimeFailed) {
       // 已流式展示部分内容但中途报错：保留已下发文本，但以错误态提示结果可能不完整，避免把残缺回答当成功。
-      String reason = "Runtime 流式中断，已展示内容可能不完整：" + streamError;
+      String reason =
+          streamFailed
+              ? "Runtime 流式中断，已展示内容可能不完整：" + streamError
+              : "Runtime 执行未成功，已保留诊断回答：" + stringValue(resultDetail.get("stopReason"));
       sender.sendToolStatus(
           emitter,
           sessionId,
@@ -190,5 +207,121 @@ class RuntimeManagedTaskHandler {
     // 推理过程随助手消息一并落库，刷新或切换会话后仍可回看本轮的思考过程。
     if (!reasoning.isEmpty()) finalMeta.put("reasoning", reasoning);
     sender.sendAssistant(emitter, sessionId, state, answer, finalMeta);
+  }
+
+  /**
+   * 把 Runtime 的结构化代码工具结果投影为用户可审计的过程事件。只保留有界执行摘要，不透传候选源码、Sandbox
+   * argv 或完整原始响应。
+   *
+   * @param runtimeResult Runtime 终态
+   * @return 沙箱执行过程事件；未调用代码工具时返回空 Map
+   */
+  static Map<String, Object> sandboxExecutionStatus(Map<String, Object> runtimeResult) {
+    Object rawResults = runtimeResult == null ? null : runtimeResult.get("tool_results");
+    if (!(rawResults instanceof List)) return Collections.emptyMap();
+    Map<?, ?> selected = null;
+    for (Object item : (List<?>) rawResults) {
+      if (!(item instanceof Map)) continue;
+      Map<?, ?> row = (Map<?, ?>) item;
+      if ("sandbox_code_execute".equals(stringValue(row.get("tool_name")))) selected = row;
+    }
+    if (selected == null) return Collections.emptyMap();
+
+    Object rawOutput = selected.get("output");
+    Map<?, ?> output = rawOutput instanceof Map ? (Map<?, ?>) rawOutput : Collections.emptyMap();
+    boolean toolSuccess = Boolean.TRUE.equals(selected.get("success"));
+    boolean sandboxed = Boolean.TRUE.equals(output.get("sandboxed"));
+    Object exitCode = output.get("exit_code");
+    boolean exitedCleanly = exitCode instanceof Number && ((Number) exitCode).intValue() == 0;
+    boolean success = toolSuccess && sandboxed && exitedCleanly;
+    Map<String, Object> detail = new LinkedHashMap<String, Object>();
+    detail.put("toolName", "sandbox_code_execute");
+    detail.put("sandboxed", sandboxed);
+    detail.put("language", boundedText(output.get("language"), 40));
+    detail.put("exitCode", output.get("exit_code"));
+    String stdout = output.get("stdout") == null ? "" : String.valueOf(output.get("stdout"));
+    String stderr = output.get("stderr") == null ? "" : String.valueOf(output.get("stderr"));
+    String combinedOutput = stdout + "\u0000" + stderr;
+    detail.put("outputChars", stdout.length() + stderr.length());
+    detail.put("outputSha256", sha256(combinedOutput));
+    detail.put("latencyMs", selected.get("latency_ms"));
+    if (!success) detail.put("errorCategory", "sandbox_execution_failed");
+    String summary = success ? "候选代码已由 agent-sandbox 隔离执行并通过验证。" : "候选代码未能在 agent-sandbox 中成功执行。";
+    return toolStatus(
+        "runtime_sandbox_code_execute", "沙箱代码执行", success ? "success" : "error", summary, detail);
+  }
+
+  private static String sha256(String value) {
+    try {
+      byte[] digest =
+          MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(digest);
+    } catch (NoSuchAlgorithmException exception) {
+      throw new IllegalStateException("SHA-256 不可用", exception);
+    }
+  }
+
+  /**
+   * 把 Runtime 的网页搜索结果投影为用户可审计的过程事件。只保留标题与公网 URL，不透传网页摘要或原始响应。
+   *
+   * @param runtimeResult Runtime 终态
+   * @return 联网搜索过程事件；未调用搜索工具时返回空 Map
+   */
+  static Map<String, Object> webSearchExecutionStatus(Map<String, Object> runtimeResult) {
+    Object rawResults = runtimeResult == null ? null : runtimeResult.get("tool_results");
+    if (!(rawResults instanceof List)) return Collections.emptyMap();
+    Map<?, ?> selected = null;
+    for (Object item : (List<?>) rawResults) {
+      if (!(item instanceof Map)) continue;
+      Map<?, ?> row = (Map<?, ?>) item;
+      if ("web_search".equals(stringValue(row.get("tool_name")))) selected = row;
+    }
+    if (selected == null) return Collections.emptyMap();
+
+    Object rawOutput = selected.get("output");
+    Map<?, ?> output = rawOutput instanceof Map ? (Map<?, ?>) rawOutput : Collections.emptyMap();
+    List<Map<String, Object>> sources = new java.util.ArrayList<Map<String, Object>>();
+    Object rawSources = output.get("results");
+    if (rawSources instanceof List) {
+      for (Object item : (List<?>) rawSources) {
+        if (!(item instanceof Map)) continue;
+        Map<?, ?> source = (Map<?, ?>) item;
+        String title = boundedText(source.get("title"), 180);
+        String url = boundedHttpUrl(source.get("url"), 500);
+        if (title.isEmpty() || url.isEmpty()) continue;
+        Map<String, Object> projected = new LinkedHashMap<String, Object>();
+        projected.put("title", title);
+        projected.put("url", url);
+        sources.add(projected);
+        if (sources.size() >= 5) break;
+      }
+    }
+    boolean success = Boolean.TRUE.equals(selected.get("success")) && !sources.isEmpty();
+    Map<String, Object> detail = new LinkedHashMap<String, Object>();
+    detail.put("query", boundedText(output.get("query"), 240));
+    detail.put("provider", boundedText(output.get("source"), 60));
+    detail.put("sourceCount", sources.size());
+    detail.put("sources", sources);
+    detail.put("latencyMs", selected.get("latency_ms"));
+    if (!success) detail.put("error", boundedText(selected.get("error"), 500));
+    String summary = success ? "联网搜索已完成，取得 " + sources.size() + " 个可引用来源。" : "联网搜索未取得可引用来源。";
+    return toolStatus("runtime_web_search", "联网搜索", success ? "success" : "error", summary, detail);
+  }
+
+  static boolean explicitRuntimeFailure(Map<String, Object> runtimeResult) {
+    String status = stringValue(runtimeResult == null ? null : runtimeResult.get("status"));
+    return !status.isEmpty() && !"success".equalsIgnoreCase(status);
+  }
+
+  private static String boundedText(Object value, int maxChars) {
+    String text =
+        stringValue(value).replace("\u0000", "").replace("\r\n", "\n").replace('\r', '\n').trim();
+    return text.length() <= maxChars ? text : text.substring(0, maxChars) + "...";
+  }
+
+  private static String boundedHttpUrl(Object value, int maxChars) {
+    String url = boundedText(value, maxChars);
+    String lower = url.toLowerCase(java.util.Locale.ROOT);
+    return lower.startsWith("https://") || lower.startsWith("http://") ? url : "";
   }
 }

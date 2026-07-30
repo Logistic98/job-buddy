@@ -453,6 +453,45 @@ def test_grade_run_accepts_conversation_shortcut_router():
     assert not any(issue["code"] == "llm_first" for issue in result["issues"])
 
 
+def test_grade_run_accepts_validated_intent_hint_router():
+    run = {
+        "status": "success",
+        "answer": "",
+        "directive": {
+            "domain": "job",
+            "intent": "resume.match",
+            "router": "validated_intent_hint",
+            "confidence": 0.95,
+            "next_action": "run_resume_match",
+        },
+        "trace_events": [
+            {"event": event}
+            for event in [
+                "run_start",
+                "understand_goal",
+                "task_understanding",
+                "capability_route",
+                "finalize",
+                "run_end",
+            ]
+        ],
+    }
+
+    result = grade_run(
+        run,
+        {
+            "intent": "resume.match",
+            "domain": "job",
+            "understanding_only": True,
+        },
+    )
+
+    assert not any(issue["code"] == "llm_first" for issue in result["issues"])
+    assert not any(
+        issue["code"] in {"tool_events_missing", "answer_present_or_explicit_failure"} for issue in result["issues"]
+    )
+
+
 def test_grade_capability_inventory_accepts_complete_contracts():
     profile = {
         "capabilities": [

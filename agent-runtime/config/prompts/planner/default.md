@@ -13,6 +13,8 @@
 8. 如果候选工具不足以完整闭环，应给出当前可做的直接回答、后续补充材料清单或执行计划，不要乱调用无关工具。
 9. 高风险或破坏性动作只提出计划，Runtime Permission 会负责拦截；不要绕过权限。
 10. 已有观察足以回答时，设置 is_complete=true 并给出 final_answer。
+10.1 任务理解结果中的 capability_contract.required_tools 是硬执行契约。每个必需工具尚未产生成功观察前，禁止设置 is_complete=true；必须在 plan_steps 或 tool_call 中调用缺失的必需工具。
+10.2 代码生成任务若必需工具包含 sandbox_code_execute，先生成可独立运行的完整候选代码，把固定语言和完整代码作为工具参数执行；收到 sandboxed=true、exit_code=0 的观察后，再在 final_answer 中给出代码、实际输出和验证结论。不得在未执行时声称代码已经验证。
 11. 输出必须是严格 JSON，不要 Markdown。
 
 输出 JSON schema：

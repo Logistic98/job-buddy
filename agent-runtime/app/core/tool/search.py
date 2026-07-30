@@ -1,6 +1,7 @@
 """使用词法与倒数排名信号选出有界工具候选。"""
 
 import math
+import re
 from collections import Counter
 from typing import Dict, List, Tuple
 
@@ -96,12 +97,16 @@ class ToolSearchService:
 
     def _tokens(self, text: str) -> List[str]:
         raw = (text or "").replace("_", " ").replace(".", " ").replace("-", " ").lower()
-        tokens = [item.strip() for item in raw.split() if item.strip()]
-        # 中文短查询通常无法按空格切词，保留原始短语作为召回项。
-        compact = raw.strip()
-        if compact and compact not in tokens:
-            tokens.append(compact)
-        return tokens
+        tokens: List[str] = []
+        for segment in re.findall(r"[a-z0-9]+|[\u4e00-\u9fff]+", raw):
+            tokens.append(segment)
+            if not re.fullmatch(r"[\u4e00-\u9fff]+", segment) or len(segment) < 2:
+                continue
+            # 中文查询通常没有空格。2-4 gram 让“联网查找openai最新模型”
+            # 能命中工具提示中的“联网/查找/最新/模型”，同时保持词项数量有界。
+            for size in range(2, min(4, len(segment)) + 1):
+                tokens.extend(segment[index : index + size] for index in range(len(segment) - size + 1))
+        return list(dict.fromkeys(token for token in tokens if token))
 
     def _dedupe(self, tools: List[ToolDefinition], limit: int) -> List[ToolDefinition]:
         deduped = []

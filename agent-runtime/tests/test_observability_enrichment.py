@@ -7,7 +7,7 @@ from app.core.common.constants import TraceEventName
 from app.core.llm.usage import record_usage, start_usage_tracking
 from app.core.observability.trace import TraceRecorder
 from app.core.tool.gateway import ToolGatewayResult
-from app.models.schemas import ToolCall, ToolResult
+from app.models.schemas import AgentRunRequest, ChatMessage, TaskUnderstandingResult, ToolCall, ToolResult
 
 
 class _StubGateway:
@@ -26,7 +26,11 @@ class _StubGateway:
 
 
 class _StubCheckpointStore:
+    def __init__(self):
+        self.stages = []
+
     async def save(self, *args, **kwargs):
+        self.stages.append(args[2])
         return None
 
 
@@ -96,6 +100,129 @@ async def test_tool_failure_emits_tool_execute_failed_event(tmp_path):
     assert failed[0].payload["error"] == "上游超时"
     assert failed[0].payload["permission_denied"] is False
     assert state["failure_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_task_understanding_trace_uses_measured_duration_at_top_level(tmp_path):
+    task = TaskUnderstandingResult(profile="default", router="llm", original_query="解释任务")
+    task.metadata["understanding_metrics"] = {
+        "duration_ms": 137,
+        "strategy": "llm",
+        "model_called": True,
+    }
+
+    class _TaskService:
+        async def understand(self, *args, **kwargs):
+            return task
+
+        def get_profile(self, profile_id):
+            return type("Profile", (), {"directive_type": None})()
+
+        def build_directive(self, profile, result):
+            return None
+
+    builder = AgentGraphBuilder.__new__(AgentGraphBuilder)
+    builder.task_understanding = _TaskService()
+    builder.trace_recorder = TraceRecorder(persist_dir=str(tmp_path / "traces"))
+    builder.checkpoint_store = _StubCheckpointStore()
+    state = {
+        "run_id": "run_understanding_duration",
+        "trace_id": "trace_understanding_duration",
+        "session_id": "session_understanding_duration",
+        "request": AgentRunRequest(messages=[ChatMessage(role="user", content="解释任务")]),
+        "messages": [ChatMessage(role="user", content="解释任务")],
+        "metadata": {},
+        "logs": [],
+        "tool_results": [],
+    }
+
+    await builder._task_understanding(state)
+
+    event = next(
+        item
+        for item in builder.trace_recorder.list_by_run("run_understanding_duration")
+        if item.event == TraceEventName.TASK_UNDERSTANDING.value
+    )
+    assert event.duration_ms == 137
+
+
+@pytest.mark.asyncio
+async def test_understanding_only_skips_ephemeral_checkpoints(tmp_path):
+    task = TaskUnderstandingResult(profile="default", router="llm", original_query="解释任务")
+    task.metadata["understanding_metrics"] = {
+        "duration_ms": 1,
+        "strategy": "llm",
+        "model_called": True,
+    }
+
+    class _TaskService:
+        async def understand(self, *args, **kwargs):
+            return task
+
+        def get_profile(self, profile_id):
+            return type("Profile", (), {"directive_type": None})()
+
+        def build_directive(self, profile, result):
+            return None
+
+    builder = AgentGraphBuilder.__new__(AgentGraphBuilder)
+    builder.task_understanding = _TaskService()
+    builder.trace_recorder = TraceRecorder(persist_dir=str(tmp_path / "traces"))
+    builder.checkpoint_store = _StubCheckpointStore()
+    state = {
+        "run_id": "run_understanding_only",
+        "trace_id": "trace_understanding_only",
+        "session_id": "session_understanding_only",
+        "request": AgentRunRequest(
+            messages=[ChatMessage(role="user", content="解释任务")],
+            metadata={"understanding_only": True},
+        ),
+        "messages": [ChatMessage(role="user", content="解释任务")],
+        "metadata": {"understanding_only": True},
+        "logs": [],
+        "tool_results": [],
+    }
+
+    await builder._understand_goal(state)
+    await builder._task_understanding(state)
+    await builder._finalize(state)
+
+    assert builder.checkpoint_store.stages == []
+
+
+@pytest.mark.asyncio
+async def test_regular_run_keeps_pre_directive_checkpoints(tmp_path):
+    task = TaskUnderstandingResult(profile="default", router="llm", original_query="解释任务")
+
+    class _TaskService:
+        async def understand(self, *args, **kwargs):
+            return task
+
+        def get_profile(self, profile_id):
+            return type("Profile", (), {"directive_type": None})()
+
+        def build_directive(self, profile, result):
+            return None
+
+    builder = AgentGraphBuilder.__new__(AgentGraphBuilder)
+    builder.task_understanding = _TaskService()
+    builder.trace_recorder = TraceRecorder(persist_dir=str(tmp_path / "traces"))
+    builder.checkpoint_store = _StubCheckpointStore()
+    state = {
+        "run_id": "run_regular",
+        "trace_id": "trace_regular",
+        "session_id": "session_regular",
+        "request": AgentRunRequest(messages=[ChatMessage(role="user", content="解释任务")]),
+        "messages": [ChatMessage(role="user", content="解释任务")],
+        "metadata": {},
+        "logs": [],
+        "tool_results": [],
+    }
+
+    await builder._understand_goal(state)
+    await builder._task_understanding(state)
+
+    assert builder.checkpoint_store.stages == ["understand_goal", "task_understanding"]
 
 
 @pytest.mark.asyncio

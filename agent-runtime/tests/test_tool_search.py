@@ -19,6 +19,16 @@ async def test_search_by_chinese_hint(fresh_registry):
 
 
 @pytest.mark.asyncio
+async def test_search_extracts_chinese_terms_from_unsegmented_query(fresh_registry):
+    service = ToolSearchService(fresh_registry)
+
+    results = await service.search("联网查找openai最新模型")
+
+    assert results
+    assert any(item.name == "web_search" for item in results)
+
+
+@pytest.mark.asyncio
 async def test_search_empty_query_returns_limited_list(fresh_registry):
     service = ToolSearchService(fresh_registry)
     results = await service.search("", limit=3)

@@ -242,6 +242,30 @@ export function selectToolEventHighlights(item = {}) {
     add('下一步', actionLabels[action] || action)
   }
 
+  if (item.id === 'runtime_sandbox_code_execute') {
+    const languageLabels = {
+      python: 'Python',
+      javascript: 'JavaScript',
+      java: 'Java',
+      shell: 'Shell',
+    }
+    add('执行环境', payload.sandboxed === true ? 'agent-sandbox' : '未验证')
+    add('语言', languageLabels[String(payload.language || '').toLowerCase()] || payload.language)
+    add('退出码', payload.exitCode)
+    add('输出字符数', payload.outputChars)
+  }
+
+  if (item.id === 'runtime_web_search') {
+    const providerLabels = {
+      bocha_web: '博查 Web Search',
+      bocha_ai: '博查 AI Search',
+      duckduckgo_html: 'DuckDuckGo',
+    }
+    add('搜索词', payload.query)
+    add('搜索来源', providerLabels[String(payload.provider || '').toLowerCase()] || payload.provider)
+    add('参考来源', payload.sourceCount === undefined ? '' : `${payload.sourceCount} 个`)
+  }
+
   if (item.id === 'resume_match') {
     const score = firstValue([top, payload], ['score'])
     add('匹配评分', score === null ? '' : `${score}/100`)

@@ -130,6 +130,33 @@ def test_build_plan_coerces_non_string_depends_on_and_arguments(tool_defs):
     assert calls[0].plan_step_id == "first"
 
 
+def test_build_plan_infers_missing_sandbox_language_from_objective(tool_defs):
+    planner = RuntimePlanner(llm_client=None)
+
+    _, calls = planner._build_plan_and_calls(
+        "写 Python 代码统计字符串中的字符数量并执行",
+        {
+            "tool_call": {
+                "name": "sandbox_code_execute",
+                "arguments": {"code": "print('JobBuddy'.count('d'))"},
+            }
+        },
+        tool_defs,
+    )
+
+    assert calls[0].arguments == {
+        "language": "python",
+        "code": "print('JobBuddy'.count('d'))",
+    }
+
+
+def test_code_generation_never_uses_argumentless_deterministic_fallback(tool_defs):
+    planner = RuntimePlanner(llm_client=None)
+    sandbox_tool = [tool for tool in tool_defs if tool.name == "sandbox_code_execute"]
+
+    assert planner._is_deterministic_tool_request("写 Python 代码并执行", sandbox_tool) is False
+
+
 def test_build_plan_assigns_deterministic_ids_and_normalizes_numeric_dependencies(tool_defs):
     planner = RuntimePlanner(llm_client=None)
     plan, calls = planner._build_plan_and_calls(

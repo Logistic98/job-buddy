@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """智能引擎效果/速度/过程联合评估 runner。
 
-直连 agent-runtime 流式入口 /v1/agent/runs/stream，逐事件采集真实时延与 trace，
+直连 agent-runtime 生产入口采集真实时延与 trace；任务理解用例调用非流式
+`/v1/agent/runs`，其余执行用例调用 `/v1/agent/runs/stream`，
 对每个用例分别评估三类信号并落盘报告，用于性能与质量的迭代回归：
 
   效果（effect）：意图/领域/动作是否正确、是否拒绝越权、回答是否可用。
@@ -63,10 +64,19 @@ def _case_payload(case: dict) -> dict:
     }
     if isinstance(case.get("metadata"), dict):
         metadata.update(case["metadata"])
-    payload = {"messages": messages, "stream": True, "metadata": metadata}
+    payload = {
+        "messages": messages,
+        "stream": not _is_understanding_only_case(case),
+        "metadata": metadata,
+    }
     if case.get("session_id"):
         payload["session_id"] = case["session_id"]
     return payload
+
+
+def _is_understanding_only_case(case: dict) -> bool:
+    metadata = case.get("metadata")
+    return isinstance(metadata, dict) and metadata.get("understanding_only") is True
 
 
 def _runtime_headers() -> dict[str, str]:
@@ -130,6 +140,54 @@ def _stream_case(runtime_url: str, case: dict, timeout: float) -> dict:
     return {"metrics": metrics, "events": events, "done": done_data, "error": error}
 
 
+def _nonstream_case(runtime_url: str, case: dict, timeout: float) -> dict:
+    """调用生产任务理解使用的非流式入口，并归一为通用评估样本。"""
+    import httpx
+
+    payload = _case_payload(case)
+    metrics: dict[str, Any] = {
+        "ttfb_ms": None,
+        "ttft_ms": None,
+        "ttfr_ms": None,
+        "done_ms": None,
+        "server_latency_ms": None,
+    }
+    done_data: dict = {}
+    error: str | None = None
+    start = time.perf_counter()
+    url = runtime_url.rstrip("/") + "/v1/agent/runs"
+    try:
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
+            response = client.post(url, json=payload, headers=_runtime_headers())
+            response.raise_for_status()
+            body = response.json()
+            done_data = _unwrap_nonstream_response(body)
+    except Exception as exc:  # noqa: BLE001 网络/上游异常归一为可记录错误，不中断整批
+        error = f"{type(exc).__name__}: {exc}"
+    elapsed = _now_ms(start)
+    metrics["ttfb_ms"] = elapsed
+    metrics["done_ms"] = elapsed
+    metrics["server_latency_ms"] = done_data.get("latency_ms")
+    events = [{"event": "done", "elapsed_ms": elapsed, "data": done_data}] if done_data else []
+    return {"metrics": metrics, "events": events, "done": done_data, "error": error}
+
+
+def _unwrap_nonstream_response(body: Any) -> dict:
+    """提取统一响应信封中的 AgentRunResponse。"""
+    if not isinstance(body, dict):
+        raise ValueError("Runtime non-stream response must be a JSON object")
+    data = body.get("data")
+    if body.get("code") != 200 or not isinstance(data, dict):
+        raise ValueError("Runtime non-stream response has an invalid envelope")
+    return data
+
+
+def _execute_case(runtime_url: str, case: dict, timeout: float) -> dict:
+    if _is_understanding_only_case(case):
+        return _nonstream_case(runtime_url, case, timeout)
+    return _stream_case(runtime_url, case, timeout)
+
+
 def _directive_from_trace(trace_events: list[dict]) -> dict:
     # 同名事件可能出现多次（如仅有事件名的占位），优先取带 payload 的那一条。
     candidates = [ev for ev in trace_events if ev.get("event") == "task_understanding"]
@@ -166,6 +224,9 @@ def _build_run(sample: dict) -> dict:
             job_cards = data
         elif name == "tool_status" and isinstance(data, dict):
             tool_events.append(data)
+    tool_results = done.get("tool_results") or done.get("toolResults") or []
+    if not isinstance(tool_results, list):
+        tool_results = []
     return {
         "status": done.get("status"),
         "stop_reason": done.get("stop_reason"),
@@ -175,6 +236,9 @@ def _build_run(sample: dict) -> dict:
         "trace_events": trace_events,
         "job_cards": job_cards,
         "tool_events": tool_events,
+        "tool_results": tool_results,
+        "task_understanding": done.get("task_understanding") or {},
+        "server_metrics": done.get("metrics") or {},
         "metrics": sample.get("metrics") or {},
     }
 
@@ -245,6 +309,35 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
         required = [str(item) for item in exp["answer_contains_all"]]
         missing = [item for item in required if item not in answer]
         add("answer_contains_all", not missing, {"required": required, "missing": missing})
+    if "required_tools" in exp:
+        required_tools = [str(item) for item in exp.get("required_tools") or []]
+        tool_results = [item for item in run.get("tool_results") or [] if isinstance(item, dict)]
+        missing_tools = []
+        invalid_tools = []
+        for tool_name in required_tools:
+            named_results = [
+                item for item in tool_results if str(item.get("tool_name") or item.get("toolName") or "") == tool_name
+            ]
+            if not named_results:
+                missing_tools.append(tool_name)
+                continue
+            valid = any(_valid_required_tool_result(tool_name, item) for item in named_results)
+            if not valid:
+                invalid_tools.append(tool_name)
+        add(
+            "required_tools",
+            not missing_tools and not invalid_tools,
+            {
+                "required": required_tools,
+                "missing": missing_tools,
+                "invalid": invalid_tools,
+            },
+        )
+    if exp.get("expect_no_llm_usage"):
+        server_metrics = run.get("server_metrics") or {}
+        token_usage = server_metrics.get("token_usage") if isinstance(server_metrics.get("token_usage"), dict) else {}
+        llm_calls = token_usage.get("llm_calls")
+        add("expect_no_llm_usage", llm_calls == 0, {"actual_llm_calls": llm_calls})
     if exp.get("expect_rejection"):
         rejected = stop_reason in {"safety_blocked", "rejected"} or any(
             w in answer for w in ["不能", "无法", "不支持", "拒绝", "不会"]
@@ -261,6 +354,24 @@ def _score(checks: Iterable[dict]) -> float:
     if not items:
         return 1.0
     return round(sum(1 for c in items if c["passed"]) / len(items), 4)
+
+
+def _valid_required_tool_result(tool_name: str, result: dict) -> bool:
+    if result.get("success") is not True:
+        return False
+    if tool_name == "web_search":
+        output = result.get("output")
+        rows = output.get("results") if isinstance(output, dict) else None
+        return isinstance(rows, list) and any(
+            isinstance(item, dict)
+            and bool(str(item.get("title") or "").strip())
+            and str(item.get("url") or "").strip().lower().startswith(("http://", "https://"))
+            for item in rows
+        )
+    if tool_name != "sandbox_code_execute":
+        return True
+    output = result.get("output")
+    return isinstance(output, dict) and output.get("sandboxed") is True and output.get("exit_code") == 0
 
 
 def _evaluate_sample(case: dict, sample: dict) -> dict:
@@ -319,6 +430,8 @@ def _grader_expected(case: dict) -> dict:
         out["expect_llm_usage"] = True
     if isinstance(exp.get("trace_events"), list):
         out["trace_events"] = exp["trace_events"]
+    if _is_understanding_only_case(case):
+        out["understanding_only"] = True
     if case.get("latency_budget"):
         out["latency_budget"] = case["latency_budget"]
     out["min_score"] = float(exp.get("min_score", 0.7))
@@ -376,6 +489,7 @@ def _sample_record(entry: dict) -> dict:
         "trace_id": done.get("trace_id"),
         "event_timeline": timeline,
         "trace_events": done.get("trace_events") or [],
+        "tool_results": done.get("tool_results") or [],
         "server_metrics": done.get("metrics"),
     }
 
@@ -549,7 +663,7 @@ def main() -> int:
     for case in cases:
         samples = []
         for _ in range(max(1, args.repeats)):
-            sample = _stream_case(args.runtime_url, case, args.timeout)
+            sample = _execute_case(args.runtime_url, case, args.timeout)
             ev = _evaluate_sample(case, sample)
             samples.append({"sample": sample, "eval": ev})
         agg = _aggregate(case, samples)

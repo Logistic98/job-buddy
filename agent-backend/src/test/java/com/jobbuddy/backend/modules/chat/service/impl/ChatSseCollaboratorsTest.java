@@ -14,6 +14,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
@@ -30,6 +31,7 @@ import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.prompt.model.PersonalContext;
 import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
 import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
+import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import java.io.IOException;
 import java.util.Arrays;
@@ -525,51 +527,103 @@ class ChatSseCollaboratorsTest {
    * 验证 ChatSseCollaborators 中简历的核心业务契约。
    */
   @Test
-  void buildUnderstandingContextShouldKeepReferencesWithoutFullResumeOrJd() {
+  void buildUnderstandingContextShouldUseSessionCatalogWithoutLoadingPersonalContext() {
     PersonalContextBuilder builder = mock(PersonalContextBuilder.class);
-    Map<String, Object> resume = new LinkedHashMap<String, Object>();
-    resume.put("name", "6年经验简历");
-    resume.put("skills", Arrays.asList("Java", "Python", "Agent"));
-    resume.put(
-        "experiences",
+    ResumeStorageService resumeStorageService = mock(ResumeStorageService.class);
+    ResumeRecord resume = new ResumeRecord();
+    Map<String, Object> parsedResume = new LinkedHashMap<String, Object>();
+    parsedResume.put("targetRole", "Agent 应用研发");
+    parsedResume.put("currentTitle", "AI 应用研发工程师");
+    parsedResume.put("skills", Arrays.asList("Java", "Python", "Agent"));
+    parsedResume.put(
+        "projects",
         Arrays.asList(
             Collections.<String, Object>singletonMap(
-                "description", "FULL_RESUME_BODY_SHOULD_NOT_ENTER_INTENT_PROMPT")));
+                "description", "FULL_RESUME_PROJECT_SHOULD_NOT_ENTER_INTENT_PROMPT")));
+    resume.setParsed(parsedResume);
+    when(resumeStorageService.get("resume-6-years", "tenant-a", "user-a")).thenReturn(resume);
     Map<String, Object> job = new LinkedHashMap<String, Object>();
     job.put("securityId", "job-1");
     job.put("jobName", "大模型应用开发岗");
     job.put("brandName", "上海示例科技");
     job.put("jobDescription", "FULL_JOB_DESCRIPTION_SHOULD_NOT_ENTER_INTENT_PROMPT_这是完整岗位正文");
-    PersonalContext context =
-        new PersonalContext(
-            "general",
-            Collections.<String, Object>emptyMap(),
-            resume,
-            Arrays.asList(job),
-            Collections.<Map<String, Object>>emptyList(),
-            Collections.<Map<String, Object>>emptyList(),
-            Collections.<Map<String, Object>>emptyList(),
-            Collections.<Map<String, Object>>emptyList(),
-            "任务：general。已读取当前简历摘要。当前会话岗位 1 个。");
-    when(builder.build(anyString(), anyString(), anyString(), any(), any())).thenReturn(context);
     RuntimeManagedRequestFactory factory =
         new RuntimeManagedRequestFactory(
-            mock(AgentIntegrationService.class), builder, new JobBuddyProperties());
+            mock(AgentIntegrationService.class),
+            builder,
+            resumeStorageService,
+            new JobBuddyProperties());
     ChatSessionState state = new ChatSessionState();
     state.tenantId = "tenant-a";
     state.userId = "user-a";
+    state.resumeId = "resume-6-years";
+    state.jobs = Arrays.asList(job);
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.88,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "run_job_recommend",
+            Collections.<String, Object>emptyMap());
 
-    Map<String, Object> compact = factory.buildUnderstandingContext("现在这个6年的简历呢", null, state);
+    Map<String, Object> compact =
+        factory.buildUnderstandingContext("根据当前简历推荐适合我的岗位", intent, state);
 
     String serialized = String.valueOf(compact);
-    assertFalse(serialized.contains("FULL_RESUME_BODY"));
     assertFalse(serialized.contains("FULL_JOB_DESCRIPTION"));
+    assertFalse(serialized.contains("FULL_RESUME_PROJECT"));
+    assertEquals("job.recommend", compact.get("task_type"));
     Map<?, ?> resumeRef = (Map<?, ?>) compact.get("resume_ref");
-    assertEquals("6年经验简历", resumeRef.get("name"));
+    assertEquals(Boolean.TRUE, resumeRef.get("available"));
+    assertEquals("Agent 应用研发", resumeRef.get("targetRole"));
+    assertEquals("AI 应用研发工程师", resumeRef.get("current_title"));
     assertEquals(3, resumeRef.get("skills_count"));
+    assertEquals(1, resumeRef.get("projects_count"));
     List<?> jobRefs = (List<?>) compact.get("current_job_refs");
     assertEquals("job-1", ((Map<?, ?>) jobRefs.get(0)).get("securityId"));
     assertEquals(Boolean.TRUE, ((Map<?, ?>) jobRefs.get(0)).get("has_job_description"));
+    verifyNoInteractions(builder);
+    verify(resumeStorageService).get("resume-6-years", "tenant-a", "user-a");
+  }
+
+  /**
+   * 验证简历匹配的任务理解只使用会话中的简历可用性标记，不为路由额外查询数据库。
+   */
+  @Test
+  void buildUnderstandingContextForResumeMatchShouldNotLoadResumeRecord() {
+    PersonalContextBuilder builder = mock(PersonalContextBuilder.class);
+    ResumeStorageService resumeStorageService = mock(ResumeStorageService.class);
+    RuntimeManagedRequestFactory factory =
+        new RuntimeManagedRequestFactory(
+            mock(AgentIntegrationService.class),
+            builder,
+            resumeStorageService,
+            new JobBuddyProperties());
+    ChatSessionState state = new ChatSessionState();
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    state.resumeId = "resume-6-years";
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "resume.match",
+            0.88,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "run_resume_match",
+            Collections.<String, Object>emptyMap());
+
+    Map<String, Object> compact =
+        factory.buildUnderstandingContext("分析当前简历与目标岗位的匹配度", intent, state);
+
+    assertEquals("resume.match", compact.get("task_type"));
+    Map<?, ?> resumeRef = (Map<?, ?>) compact.get("resume_ref");
+    assertEquals(Collections.singletonMap("available", true), resumeRef);
+    verifyNoInteractions(builder, resumeStorageService);
   }
 
   /**
@@ -619,6 +673,110 @@ class ChatSseCollaboratorsTest {
     assertEquals(Boolean.TRUE, ((Map<?, ?>) attachments.get(0)).get("untrusted"));
   }
 
+  /**
+   * 验证 Runtime 的沙箱代码执行结果会转换为独立过程事件，避免只显示泛化的“Runtime 已返回回答”。
+   */
+  @Test
+  void sandboxCodeExecutionShouldExposeAuditableToolStatus() {
+    Map<String, Object> output = new LinkedHashMap<String, Object>();
+    output.put("language", "python");
+    output.put("exit_code", 0);
+    output.put("stdout", "2\n");
+    output.put("stderr", "");
+    output.put("sandboxed", true);
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("tool_name", "sandbox_code_execute");
+    toolResult.put("success", true);
+    toolResult.put("output", output);
+    toolResult.put("latency_ms", 37);
+    Map<String, Object> runtimeResult = new LinkedHashMap<String, Object>();
+    runtimeResult.put("tool_results", Collections.singletonList(toolResult));
+
+    Map<String, Object> status = RuntimeManagedTaskHandler.sandboxExecutionStatus(runtimeResult);
+
+    assertEquals("runtime_sandbox_code_execute", status.get("id"));
+    assertEquals("沙箱代码执行", status.get("title"));
+    assertEquals("success", status.get("status"));
+    assertTrue(String.valueOf(status.get("summary")).contains("agent-sandbox"));
+    Map<?, ?> detail = (Map<?, ?>) status.get("detail");
+    assertEquals(Boolean.TRUE, detail.get("sandboxed"));
+    assertEquals("python", detail.get("language"));
+    assertEquals(0, detail.get("exitCode"));
+    assertEquals(2, detail.get("outputChars"));
+    assertTrue(String.valueOf(detail.get("outputSha256")).matches("[0-9a-f]{64}"));
+    assertFalse(detail.containsKey("stdout"));
+    assertFalse(detail.containsKey("stderr"));
+  }
+
+  /**
+   * 验证候选代码非零退出时仍保留沙箱证据，但过程和 Runtime 终态都不能被标记为成功。
+   */
+  @Test
+  void sandboxCodeExecutionFailureShouldExposeAuditableToolStatus() {
+    Map<String, Object> output = new LinkedHashMap<String, Object>();
+    output.put("language", "python");
+    output.put("exit_code", 7);
+    output.put("stdout", "partial output");
+    output.put("stderr", "candidate failed");
+    output.put("sandboxed", true);
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("tool_name", "sandbox_code_execute");
+    toolResult.put("success", false);
+    toolResult.put("output", output);
+    toolResult.put("error", "候选代码执行失败");
+    Map<String, Object> runtimeResult = new LinkedHashMap<String, Object>();
+    runtimeResult.put("status", "fail");
+    runtimeResult.put("tool_results", Collections.singletonList(toolResult));
+
+    Map<String, Object> status = RuntimeManagedTaskHandler.sandboxExecutionStatus(runtimeResult);
+
+    assertEquals("error", status.get("status"));
+    Map<?, ?> detail = (Map<?, ?>) status.get("detail");
+    assertEquals(Boolean.TRUE, detail.get("sandboxed"));
+    assertEquals(7, detail.get("exitCode"));
+    assertEquals("sandbox_execution_failed", detail.get("errorCategory"));
+    assertFalse(detail.containsKey("stdout"));
+    assertFalse(detail.containsKey("stderr"));
+    assertFalse(detail.containsKey("error"));
+    assertTrue(RuntimeManagedTaskHandler.explicitRuntimeFailure(runtimeResult));
+  }
+
+  /**
+   * 验证 Runtime 的联网搜索结果会转换为独立过程事件，并只投影有界来源摘要。
+   */
+  @Test
+  void webSearchShouldExposeAuditableToolStatus() {
+    Map<String, Object> source = new LinkedHashMap<String, Object>();
+    source.put("title", "OpenAI Models");
+    source.put("url", "https://openai.com/models");
+    source.put("snippet", "不应进入过程事件的长摘要");
+    Map<String, Object> output = new LinkedHashMap<String, Object>();
+    output.put("query", "OpenAI latest models");
+    output.put("source", "bocha_web");
+    output.put("results", Collections.singletonList(source));
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("tool_name", "web_search");
+    toolResult.put("success", true);
+    toolResult.put("output", output);
+    toolResult.put("latency_ms", 128);
+    Map<String, Object> runtimeResult = new LinkedHashMap<String, Object>();
+    runtimeResult.put("tool_results", Collections.singletonList(toolResult));
+
+    Map<String, Object> status = RuntimeManagedTaskHandler.webSearchExecutionStatus(runtimeResult);
+
+    assertEquals("runtime_web_search", status.get("id"));
+    assertEquals("联网搜索", status.get("title"));
+    assertEquals("success", status.get("status"));
+    Map<?, ?> detail = (Map<?, ?>) status.get("detail");
+    assertEquals("OpenAI latest models", detail.get("query"));
+    assertEquals("bocha_web", detail.get("provider"));
+    assertEquals(1, detail.get("sourceCount"));
+    List<?> sources = (List<?>) detail.get("sources");
+    assertEquals("OpenAI Models", ((Map<?, ?>) sources.get(0)).get("title"));
+    assertEquals("https://openai.com/models", ((Map<?, ?>) sources.get(0)).get("url"));
+    assertFalse(String.valueOf(status).contains("不应进入过程事件的长摘要"));
+  }
+
   // ---- ChatMemoryWriter ----
 
   private static final Executor DIRECT =
@@ -642,10 +800,12 @@ class ChatSseCollaboratorsTest {
     SystemSettingsService settings = mock(SystemSettingsService.class);
     ChatMemoryWriter writer = new ChatMemoryWriter(settings, DIRECT);
     writer.captureLongTermMemoryAsync("tenant-a", "user-a", "排除外包岗位");
+    writer.captureLongTermMemoryAsync("tenant-a", "user-a", "记住我叫小明");
     writer.captureLongTermMemoryAsync("tenant-a", "user-a", "帮我看下这个岗位");
     writer.captureLongTermMemoryAsync("tenant-a", "user-a", "  ");
     writer.captureLongTermMemoryAsync("tenant-a", "user-a", null);
     verify(settings).writeLocalMemory("tenant-a", "user-a", "排除外包岗位", "chat");
+    verify(settings).writeLocalMemory("tenant-a", "user-a", "记住我叫小明", "chat");
     verify(settings, never())
         .writeLocalMemory(eq("tenant-a"), eq("user-a"), eq("帮我看下这个岗位"), anyString());
   }

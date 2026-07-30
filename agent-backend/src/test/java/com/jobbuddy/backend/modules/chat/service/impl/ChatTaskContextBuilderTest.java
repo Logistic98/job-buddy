@@ -3,6 +3,7 @@ package com.jobbuddy.backend.modules.chat.service.impl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.jobbuddy.backend.modules.chat.dto.response.ChatMessageResponse;
@@ -17,6 +18,22 @@ import org.junit.jupiter.api.Test;
  * 验证 ChatTaskContextBuilder 的核心行为、异常路径与边界条件。
  */
 class ChatTaskContextBuilderTest {
+
+  /**
+   * 验证新会话只装配当前消息，不为不存在的历史记录访问数据库。
+   */
+  @Test
+  void shouldBuildCurrentMessageWithoutLoadingHistoryForNewSession() {
+    ChatSessionStore store = mock(ChatSessionStore.class);
+
+    List<Map<String, Object>> messages =
+        new ChatTaskContextBuilder(store).buildCurrentMessageOnly("分析当前简历与目标岗位的匹配度");
+
+    assertEquals(1, messages.size());
+    assertEquals("user", messages.get(0).get("role"));
+    assertEquals("分析当前简历与目标岗位的匹配度", messages.get(0).get("content"));
+    verifyNoInteractions(store);
+  }
 
   /**
    * 验证 ChatTaskContextBuilder 的去重与幂等边界。

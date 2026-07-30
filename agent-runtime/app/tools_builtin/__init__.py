@@ -6,6 +6,7 @@ from app.tools_builtin.file_read_tool import FileReadTool
 from app.tools_builtin.file_write_tool import FileWriteTool
 from app.tools_builtin.interview_tools import InterviewPaperComposeTool, InterviewQuestionGenerateTool
 from app.tools_builtin.resume_tools import JobProfileSummaryTool, ResumeAnalyzeTool, ResumeMatchTool, ResumeParseTool
+from app.tools_builtin.sandbox_code_tool import SandboxCodeExecuteTool
 from app.tools_builtin.search_tools import GlobTool, GrepTool
 from app.tools_builtin.shell_tool import ShellTool
 from app.tools_builtin.web_fetch_tool import WebFetchTool
@@ -23,6 +24,7 @@ def _builtin_tool_instances():
         GrepTool(),
         WebFetchTool(),
         WebSearchTool(),
+        SandboxCodeExecuteTool(),
         ShellTool(),
         InterviewPaperComposeTool(),
         InterviewQuestionGenerateTool(),

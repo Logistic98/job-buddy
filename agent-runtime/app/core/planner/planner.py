@@ -116,6 +116,7 @@ class RuntimePlanner:
             step_arguments = item.get("tool_arguments")
             if not isinstance(step_arguments, dict):
                 step_arguments = {}
+            step_arguments = self._normalize_tool_arguments(tool_name, step_arguments, objective)
             # LLM 常用数字索引表达依赖。缺省步骤 ID 采用稳定的 step_N，数字依赖按 0-based
             # 索引解析；字符串若已命中显式步骤 ID，则优先按 ID 处理。越界索引保留字符串，
             # 交由 Graph 依赖校验产生明确失败，而不是随机 ID 导致不可复现的误判。
@@ -157,6 +158,7 @@ class RuntimePlanner:
                 call_arguments = item.get("arguments")
                 if not isinstance(call_arguments, dict):
                     call_arguments = {}
+                call_arguments = self._normalize_tool_arguments(name, call_arguments, objective)
                 calls.append(
                     ToolCall(
                         id=f"toolu_{TimeUtils.gen_step_id()}",
@@ -186,6 +188,24 @@ class RuntimePlanner:
         if plan.need_clarification:
             plan.stop_reason = StopReason.NEED_CLARIFICATION.value
         return plan, [] if plan.is_complete or plan.need_clarification else calls
+
+    def _normalize_tool_arguments(self, tool_name: str | None, arguments: dict, objective: str) -> dict:
+        """补齐可由用户目标确定性推导的代码语言，不猜测代码正文或执行策略。"""
+
+        normalized = dict(arguments)
+        if tool_name != "sandbox_code_execute" or normalized.get("language"):
+            return normalized
+        objective_text = (objective or "").lower()
+        language = None
+        if any(term in objective_text for term in ("javascript", "typescript", "node.js", "nodejs")):
+            language = "javascript"
+        elif "java" in objective_text:
+            language = "java"
+        elif any(term in objective_text for term in ("shell", "bash", "sh 脚本")):
+            language = "shell"
+        elif "python" in objective_text:
+            language = "python"
+        return {**normalized, "language": language} if language else normalized
 
     def _fallback_plan(
         self,
@@ -293,6 +313,7 @@ class RuntimePlanner:
         return any(
             tool.read_only
             and not tool.destructive
+            and self._can_build_default_arguments(tool)
             and self._tool_metadata_match_score(objective, tool) >= DETERMINISTIC_TOOL_MATCH_MIN_SCORE
             for tool in tools
         )
@@ -303,7 +324,11 @@ class RuntimePlanner:
         元数据匹配分数仅用于优先明显命中的只读工具；同分以及完全无匹配时保持候选原始顺序。
         不回退到可写或破坏性工具，避免无 LLM 环境扩大执行权限。
         """
-        read_only_tools = [tool for tool in tools if tool.read_only and not tool.destructive]
+        read_only_tools = [
+            tool
+            for tool in tools
+            if tool.read_only and not tool.destructive and self._can_build_default_arguments(tool)
+        ]
         if not read_only_tools:
             return None
         scored = [
@@ -374,6 +399,15 @@ class RuntimePlanner:
             elif key in {"pattern", "keyword"}:
                 args[key] = objective[:80]
         return args
+
+    def _can_build_default_arguments(self, tool: ToolDefinition) -> bool:
+        properties = (tool.input_schema or {}).get("properties") or {}
+        required = (tool.input_schema or {}).get("required") or []
+        objective_fields = {"text", "query", "objective", "pattern", "keyword"}
+        return all(
+            key in objective_fields or (isinstance(properties.get(key), dict) and "default" in properties[key])
+            for key in required
+        )
 
     def _dedupe_calls(self, calls: List[ToolCall]) -> List[ToolCall]:
         deduped: List[ToolCall] = []

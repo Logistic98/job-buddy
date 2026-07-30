@@ -120,7 +120,8 @@ class AgentGraphBuilder:
         state.setdefault("tool_results", [])
         state.setdefault("permission_records", [])
         state.setdefault("logs", [])
-        await self.checkpoint_store.save(state["session_id"], state["run_id"], "understand_goal", state)
+        if not metadata.get("understanding_only"):
+            await self.checkpoint_store.save(state["session_id"], state["run_id"], "understand_goal", state)
         return state
 
     async def _task_understanding(self, state: AgentGraphState) -> AgentGraphState:
@@ -147,6 +148,12 @@ class AgentGraphBuilder:
         state["task_understanding"] = result
         state["directive"] = directive
         state["objective"] = result.rewritten_query.planner_query or result.original_query or state.get("objective", "")
+        understanding_metrics = (
+            result.metadata.get("understanding_metrics", {}) if isinstance(result.metadata, dict) else {}
+        )
+        duration_ms = understanding_metrics.get("duration_ms")
+        if not isinstance(duration_ms, int) or isinstance(duration_ms, bool):
+            duration_ms = None
         await self.trace_recorder.record(
             state["trace_id"],
             TraceEventName.TASK_UNDERSTANDING.value,
@@ -162,6 +169,7 @@ class AgentGraphBuilder:
             run_id=state["run_id"],
             node_id="task_understanding_node",
             status="success",
+            duration_ms=duration_ms,
         )
         route_payload = result.routing.model_dump()
         workflow = result.metadata.get("workflow") if isinstance(result.metadata, dict) else None
@@ -194,7 +202,8 @@ class AgentGraphBuilder:
                 output=directive or result.model_dump(),
             )
         )
-        await self.checkpoint_store.save(state["session_id"], state["run_id"], "task_understanding", state)
+        if not (state.get("metadata") or {}).get("understanding_only"):
+            await self.checkpoint_store.save(state["session_id"], state["run_id"], "task_understanding", state)
         return state
 
     async def _collect_context(self, state: AgentGraphState) -> AgentGraphState:
@@ -661,7 +670,8 @@ class AgentGraphBuilder:
             stage="finalize",
             component="planner",
         )
-        await self.checkpoint_store.save(state["session_id"], state["run_id"], "finalize", state)
+        if not (state.get("metadata") or {}).get("understanding_only"):
+            await self.checkpoint_store.save(state["session_id"], state["run_id"], "finalize", state)
         return state
 
     def _can_execute_in_parallel(self, calls: List[ToolCall], plan: Optional[AgentPlan] = None) -> bool:

@@ -3,6 +3,8 @@
 ## Trace 与日志
 
 - Runtime 用结构化 Trace 记录运行、理解、路由、计划、工具、模型用量、上下文压缩和终态。
+- `task_understanding` 事件在顶层记录实测 `duration_ms`，结果元数据记录 `strategy` 与 `model_called`；Backend 日志分别记录 Intent 预判、会话目录装配、Runtime HTTP 调用和任务理解总耗时。
+- `understanding_only` 性能评估必须调用生产使用的非流式 `POST /v1/agent/runs`，解析统一响应 envelope，并同时校验终态成功、路由正确和 `llm_calls=0`；不得用流式接口的事件终态替代该链路。
 - JSONL 是本地回放与规则评估的数据源，内存窗口支持实时查询。
 - 事件只追加扩展，payload 写入前限制深度和长度；
 - 上下文只记录 section 与计数，不保存正文、密钥、完整凭据或非必要个人信息。
@@ -28,7 +30,7 @@ agent-eval 提供 `/v1/eval/trace`、`/v1/eval/run`、`/v1/eval/capabilities`、
 
 `.agent-harness/scripts/verify.sh` 负责测试和构建，`evaluate.sh` 负责行为评估，`gate.sh` 组合两者形成交付门禁。
 
-- `evaluate.sh` 同时运行评分器自检和真实 Runtime 代码契约，覆盖终态 Trace、Token 预算、Checkpoint 脱敏与高风险工具复核，避免把构造样例当作 Runtime 证据。
+- `evaluate.sh` 同时运行评分器自检和真实 Runtime 代码契约，覆盖终态 Trace、Token 预算、Checkpoint 脱敏、高风险工具复核与受校验 Hint 快路径，避免把构造样例当作 Runtime 证据。
 - 规则评分以结构化 `status`、`stop_reason`、终态 Trace 和错误字段判断运行成败，不以回答正文中的“失败”“错误”或“超时”等裸子串推断终态；
 - Live Eval 的 Planner 类用例除通用事件外还必须出现 `tool_search` 与 `plan_created`，缺失时过程评分不得通过。
 - Gate 摘要记录 Git 状态、依赖清单摘要、运行环境与资源信息；真实模型、浏览器、容器启动和远程 CI 仍需独立证据，不能由确定性 Gate 代替。

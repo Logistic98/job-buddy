@@ -9,6 +9,8 @@ import com.jobbuddy.backend.modules.chat.service.AgentIntegrationService;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.prompt.model.PersonalContext;
 import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
+import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
+import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,6 +26,7 @@ class RuntimeManagedRequestFactory {
   private static final JsonCodec JSON = new JsonCodec();
   private final AgentIntegrationService integrationService;
   private final PersonalContextBuilder personalContextBuilder;
+  private final ResumeStorageService resumeStorageService;
   private final JobBuddyProperties properties;
 
   /**
@@ -37,8 +40,25 @@ class RuntimeManagedRequestFactory {
       AgentIntegrationService integrationService,
       PersonalContextBuilder personalContextBuilder,
       JobBuddyProperties properties) {
+    this(integrationService, personalContextBuilder, null, properties);
+  }
+
+  /**
+   * 创建带轻量简历目录读取能力的运行时托管请求工厂实例。
+   *
+   * @param integrationService 集成服务
+   * @param personalContextBuilder 个人上下文构建器
+   * @param resumeStorageService 简历存储服务
+   * @param properties 配置属性
+   */
+  RuntimeManagedRequestFactory(
+      AgentIntegrationService integrationService,
+      PersonalContextBuilder personalContextBuilder,
+      ResumeStorageService resumeStorageService,
+      JobBuddyProperties properties) {
     this.integrationService = integrationService;
     this.personalContextBuilder = personalContextBuilder;
+    this.resumeStorageService = resumeStorageService;
     this.properties = properties;
   }
 
@@ -77,40 +97,31 @@ class RuntimeManagedRequestFactory {
    * @param state 状态
    * @return 任务理解上下文
    */
-  @SuppressWarnings("unchecked")
   Map<String, Object> buildUnderstandingContext(
       String message, IntentResult intent, ChatSessionState state) {
-    Map<String, Object> full = buildPersonalContext(message, intent, state);
-    if (full.isEmpty()) return Collections.emptyMap();
-
     Map<String, Object> compact = new LinkedHashMap<String, Object>();
-    putText(compact, "task_type", full.get("task_type"), 80);
-    putText(compact, "summary", full.get("summary"), 500);
-    Object sources = full.get("sources");
-    if (sources instanceof List)
-      compact.put("sources", new java.util.ArrayList<Object>((List<?>) sources));
+    String taskType =
+        intent == null || intent.getIntent() == null || intent.getIntent().trim().isEmpty()
+            ? "general"
+            : intent.getIntent().trim();
+    compact.put("task_type", taskType);
 
-    Object resumeValue = full.get("resume_summary");
-    if (resumeValue instanceof Map && !((Map<?, ?>) resumeValue).isEmpty()) {
-      Map<String, Object> resume = (Map<String, Object>) resumeValue;
-      Map<String, Object> reference = new LinkedHashMap<String, Object>();
-      reference.put("available", true);
-      for (String key :
-          new String[] {"name", "targetRole", "years_experience", "work_years", "current_title"}) {
-        putText(reference, key, resume.get(key), 180);
-      }
-      reference.put("skills_count", collectionSize(resume.get("skills")));
-      reference.put("projects_count", collectionSize(resume.get("projects")));
-      reference.put("experiences_count", collectionSize(resume.get("experiences")));
-      compact.put("resume_ref", reference);
+    if (state != null && state.resumeId != null && !state.resumeId.trim().isEmpty()) {
+      compact.put(
+          "resume_ref",
+          "resume.match".equals(taskType)
+              ? Collections.<String, Object>singletonMap("available", true)
+              : buildResumeReference(state));
     }
 
-    Object jobsValue = full.get("current_jobs");
-    if (jobsValue instanceof List) {
+    List<Map<String, Object>> jobs =
+        state == null || state.jobs == null
+            ? Collections.<Map<String, Object>>emptyList()
+            : state.jobs;
+    if (!jobs.isEmpty()) {
       List<Map<String, Object>> refs = new java.util.ArrayList<Map<String, Object>>();
-      for (Object item : (List<?>) jobsValue) {
-        if (!(item instanceof Map)) continue;
-        Map<String, Object> job = (Map<String, Object>) item;
+      for (Map<String, Object> job : jobs) {
+        if (job == null) continue;
         Map<String, Object> ref = new LinkedHashMap<String, Object>();
         copyFirstText(ref, "securityId", job, 220, "securityId", "id", "jobId", "encryptJobId");
         copyFirstText(ref, "jobName", job, 180, "jobName", "job_name", "title", "name");
@@ -120,12 +131,74 @@ class RuntimeManagedRequestFactory {
         if (refs.size() >= 8) break;
       }
       compact.put("current_job_refs", refs);
-      compact.put("current_jobs_count", ((List<?>) jobsValue).size());
     }
-    compact.put("favorite_jobs_count", collectionSize(full.get("favorite_jobs")));
-    compact.put("journey_records_count", collectionSize(full.get("journey_records")));
-    compact.put("long_term_memory_count", collectionSize(full.get("long_term_memory")));
+    compact.put("current_jobs_count", jobs.size());
+    compact.put(
+        "summary", understandingSummary(taskType, compact.containsKey("resume_ref"), jobs.size()));
     return compact;
+  }
+
+  /**
+   * 读取当前简历的有界目录字段。该路径只访问租户范围内的一条本地简历记录，不加载画像、长期记忆或其他业务集合，也不把简历正文放入 Prompt。
+   *
+   * @param state 会话状态
+   * @return 简历目录引用
+   */
+  private Map<String, Object> buildResumeReference(ChatSessionState state) {
+    Map<String, Object> reference = new LinkedHashMap<String, Object>();
+    reference.put("available", true);
+    if (resumeStorageService == null
+        || state == null
+        || state.tenantId == null
+        || state.userId == null) {
+      return reference;
+    }
+    try {
+      ResumeRecord record =
+          resumeStorageService.get(state.resumeId.trim(), state.tenantId, state.userId);
+      Map<String, Object> parsed =
+          record == null || record.getParsed() == null
+              ? Collections.<String, Object>emptyMap()
+              : record.getParsed();
+      copyFirstText(reference, "targetRole", parsed, 180, "targetRole", "target_role");
+      copyFirstText(
+          reference,
+          "current_title",
+          parsed,
+          180,
+          "currentTitle",
+          "current_title",
+          "currentRole",
+          "current_role");
+      reference.put("skills_count", collectionSize(parsed.get("skills")));
+      reference.put("projects_count", collectionSize(parsed.get("projects")));
+      reference.put("experiences_count", collectionSize(parsed.get("experiences")));
+    } catch (RuntimeException error) {
+      log.warn(
+          "读取任务理解简历目录失败 resumeId={} tenantId={} userId={}: {}",
+          state.resumeId,
+          state.tenantId,
+          state.userId,
+          error.getMessage());
+    }
+    return reference;
+  }
+
+  /**
+   * 生成不触发数据库或下游服务读取的任务理解目录摘要。
+   *
+   * @param taskType 前置任务类型
+   * @param resumeAvailable 是否已选择简历
+   * @param currentJobsCount 当前会话岗位数量
+   * @return 精简目录摘要
+   */
+  private String understandingSummary(
+      String taskType, boolean resumeAvailable, int currentJobsCount) {
+    StringBuilder builder = new StringBuilder();
+    builder.append("任务：").append(taskType).append("。");
+    if (resumeAvailable) builder.append("已选择当前简历。");
+    if (currentJobsCount > 0) builder.append("当前会话岗位 ").append(currentJobsCount).append(" 个。");
+    return builder.toString();
   }
 
   /**

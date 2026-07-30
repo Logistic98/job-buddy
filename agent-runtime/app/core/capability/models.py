@@ -35,6 +35,15 @@ class ConversationShortcut(BaseModel):
     reason: str = "conversation shortcut"
 
 
+class IntentHintFastPathPolicy(BaseModel):
+    """前置意图提示的受校验快路径策略，默认关闭。"""
+
+    enabled: bool = False
+    allowed_capability_ids: List[str] = Field(default_factory=list)
+    min_hint_confidence: float = Field(default=0.9, ge=0.0, le=1.0)
+    min_semantic_confidence: float = Field(default=0.9, ge=0.0, le=1.0)
+
+
 class CapabilityCard(BaseModel):
     """面向 Agent 的能力卡。
 
@@ -113,6 +122,7 @@ class ProfileDefinition(BaseModel):
     prompts: Dict[str, str] = Field(default_factory=dict)
     preferences: Dict[str, Any] = Field(default_factory=dict)
     planner_defaults: Dict[str, Any] = Field(default_factory=dict)
+    intent_hint_fast_path: IntentHintFastPathPolicy = Field(default_factory=IntentHintFastPathPolicy)
     slot_extractors: List[SlotExtractorConfig] = Field(default_factory=list)
     conversation_shortcuts: List[ConversationShortcut] = Field(default_factory=list)
     capabilities: List[CapabilityCard] = Field(default_factory=list)

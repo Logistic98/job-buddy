@@ -169,6 +169,44 @@ describe('assistant presentation helpers', () => {
     ])
   })
 
+  it('shows auditable sandbox execution evidence', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'runtime_sandbox_code_execute',
+      payload: {
+        language: 'python',
+        exitCode: 0,
+        sandboxed: true,
+        outputChars: 2,
+        outputSha256: 'a'.repeat(64),
+      },
+    })
+
+    expect(highlights).toEqual([
+      { label: '执行环境', value: 'agent-sandbox' },
+      { label: '语言', value: 'Python' },
+      { label: '退出码', value: '0' },
+      { label: '输出字符数', value: '2' },
+    ])
+    expect(JSON.stringify(highlights)).not.toContain('outputSha256')
+  })
+
+  it('shows auditable web search evidence', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'runtime_web_search',
+      payload: {
+        query: 'OpenAI latest models',
+        provider: 'bocha_web',
+        sourceCount: 5,
+      },
+    })
+
+    expect(highlights).toEqual([
+      { label: '搜索词', value: 'OpenAI latest models' },
+      { label: '搜索来源', value: '博查 Web Search' },
+      { label: '参考来源', value: '5 个' },
+    ])
+  })
+
   it('selects high-signal reasoning sentences with a bounded count', () => {
     const highlights = selectReasoningHighlights(
       '先读取上下文。目标是判断当前简历与岗位的匹配度。。依据是 Java、RAG 和 Agent 项目经验。普通补充说明。主要风险是缺少证券行业背景。下一步建议补强金融场景案例。',

@@ -81,3 +81,5 @@ async def test_job_buddy_profile_routes_code_generation_to_complex_runtime_task(
     assert directive["domain"] == "runtime"
     assert directive["intent"] == "code_generation_task"
     assert directive["task"]["routing"]["execution_mode"] == "COMPLEX_AGENT_TASK"
+    assert directive["capability_contract"]["required_tools"] == ["sandbox_code_execute"]
+    assert directive["task"]["routing"]["capability_contract"]["required_tools"] == ["sandbox_code_execute"]
