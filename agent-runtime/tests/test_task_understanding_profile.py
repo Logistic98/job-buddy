@@ -83,11 +83,15 @@ async def test_task_understanding_open_domain_does_not_force_job_context():
 
 
 @pytest.mark.asyncio
-async def test_explicit_web_search_request_promotes_web_search_to_required_tool():
+async def test_explicit_web_search_request_promotes_web_search_to_required_tool(monkeypatch):
+    monkeypatch.setattr(
+        "app.core.intent.task_understanding.TimeUtils.get_current_date",
+        lambda: "2026-07-31",
+    )
     llm = FakeIntentLLM(
         {
             "resolved_query": "联网查找 OpenAI 最新模型",
-            "retrieval_query": "OpenAI 最新模型",
+            "retrieval_query": "OpenAI 最新模型 发布 2025",
             "planner_query": "联网查找 OpenAI 最新模型并引用来源",
             "context_dependency": "none",
             "context_type": [],
@@ -113,9 +117,12 @@ async def test_explicit_web_search_request_promotes_web_search_to_required_tool(
     directive = service.build_directive(service.get_profile("job-buddy"), result)
 
     assert result.intent.intent == "technical_qa"
+    assert result.rewritten_query.retrieval_query == "OpenAI 最新模型 发布 2026"
     assert result.metadata["capability_contract"]["required_tools"] == ["web_search"]
     assert result.metadata["explicit_tool_requirements"] == ["web_search"]
     assert directive["capability_contract"]["required_tools"] == ["web_search"]
+    understanding_payload = json.loads(llm.last_messages[-1].content)
+    assert understanding_payload["runtime_context"]["current_date"] == "2026-07-31"
 
 
 @pytest.mark.asyncio

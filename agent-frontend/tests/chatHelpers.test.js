@@ -195,14 +195,25 @@ describe('assistant presentation helpers', () => {
       id: 'runtime_web_search',
       payload: {
         query: 'OpenAI latest models',
+        queries: ['OpenAI latest models', 'site:openai.com OpenAI latest models 2026'],
         provider: 'bocha_web',
+        rawCount: 7,
+        deduplicatedCount: 5,
+        preferredSourceDomains: ['openai.com'],
+        preferredSourceFound: true,
         sourceCount: 5,
       },
     })
 
     expect(highlights).toEqual([
       { label: '搜索词', value: 'OpenAI latest models' },
+      {
+        label: '扩展查询',
+        value: 'site:openai.com OpenAI latest models 2026',
+      },
       { label: '搜索来源', value: '博查 Web Search' },
+      { label: '结果去重', value: '7 → 5 个' },
+      { label: '官方来源', value: '已命中 openai.com' },
       { label: '参考来源', value: '5 个' },
     ])
   })

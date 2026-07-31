@@ -17,6 +17,12 @@ class TimeUtils:
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     @staticmethod
+    def get_current_date() -> str:
+        """返回运行节点本地日期，供相对时间任务建立可审计基准。"""
+
+        return datetime.now().strftime("%Y-%m-%d")
+
+    @staticmethod
     def gen_trace_id(trace_id: str = None) -> str:
         return trace_id or f"trace_{uuid4().hex[:24]}"
 

@@ -752,7 +752,13 @@ class ChatSseCollaboratorsTest {
     source.put("snippet", "不应进入过程事件的长摘要");
     Map<String, Object> output = new LinkedHashMap<String, Object>();
     output.put("query", "OpenAI latest models");
+    output.put(
+        "queries", List.of("OpenAI latest models", "site:openai.com OpenAI latest models 2026"));
     output.put("source", "bocha_web");
+    output.put("raw_count", 3);
+    output.put("deduplicated_count", 1);
+    output.put("preferred_source_domains", List.of("openai.com"));
+    output.put("preferred_source_found", true);
     output.put("results", Collections.singletonList(source));
     Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
     toolResult.put("tool_name", "web_search");
@@ -769,7 +775,14 @@ class ChatSseCollaboratorsTest {
     assertEquals("success", status.get("status"));
     Map<?, ?> detail = (Map<?, ?>) status.get("detail");
     assertEquals("OpenAI latest models", detail.get("query"));
+    assertEquals(
+        List.of("OpenAI latest models", "site:openai.com OpenAI latest models 2026"),
+        detail.get("queries"));
     assertEquals("bocha_web", detail.get("provider"));
+    assertEquals(3, detail.get("rawCount"));
+    assertEquals(1, detail.get("deduplicatedCount"));
+    assertEquals(List.of("openai.com"), detail.get("preferredSourceDomains"));
+    assertEquals(true, detail.get("preferredSourceFound"));
     assertEquals(1, detail.get("sourceCount"));
     List<?> sources = (List<?>) detail.get("sources");
     assertEquals("OpenAI Models", ((Map<?, ?>) sources.get(0)).get("title"));

@@ -299,12 +299,43 @@ class RuntimeManagedTaskHandler {
     boolean success = Boolean.TRUE.equals(selected.get("success")) && !sources.isEmpty();
     Map<String, Object> detail = new LinkedHashMap<String, Object>();
     detail.put("query", boundedText(output.get("query"), 240));
+    List<String> queries = new java.util.ArrayList<String>();
+    Object rawQueries = output.get("queries");
+    if (rawQueries instanceof List) {
+      for (Object item : (List<?>) rawQueries) {
+        String query = boundedText(item, 240);
+        if (query.isEmpty() || queries.contains(query)) continue;
+        queries.add(query);
+        if (queries.size() >= 3) break;
+      }
+    }
+    detail.put("queries", queries);
     detail.put("provider", boundedText(output.get("source"), 60));
+    detail.put("rawCount", output.get("raw_count"));
+    detail.put("deduplicatedCount", output.get("deduplicated_count"));
+    List<String> preferredSourceDomains = new java.util.ArrayList<String>();
+    Object rawPreferredSourceDomains = output.get("preferred_source_domains");
+    if (rawPreferredSourceDomains instanceof List) {
+      for (Object item : (List<?>) rawPreferredSourceDomains) {
+        String domain = boundedText(item, 120);
+        if (domain.isEmpty() || preferredSourceDomains.contains(domain)) continue;
+        preferredSourceDomains.add(domain);
+        if (preferredSourceDomains.size() >= 3) break;
+      }
+    }
+    detail.put("preferredSourceDomains", preferredSourceDomains);
+    boolean preferredSourceFound = Boolean.TRUE.equals(output.get("preferred_source_found"));
+    detail.put("preferredSourceFound", preferredSourceFound);
     detail.put("sourceCount", sources.size());
     detail.put("sources", sources);
     detail.put("latencyMs", selected.get("latency_ms"));
     if (!success) detail.put("error", boundedText(selected.get("error"), 500));
-    String summary = success ? "联网搜索已完成，取得 " + sources.size() + " 个可引用来源。" : "联网搜索未取得可引用来源。";
+    String summary =
+        success
+            ? (preferredSourceDomains.isEmpty() || preferredSourceFound
+                ? "联网搜索已完成，取得 " + sources.size() + " 个可引用来源。"
+                : "联网搜索已完成，但未命中推断的官方域名，当前结果仅作为第三方线索。")
+            : "联网搜索未取得可引用来源。";
     return toolStatus("runtime_web_search", "联网搜索", success ? "success" : "error", summary, detail);
   }
 

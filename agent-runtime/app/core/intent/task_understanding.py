@@ -33,6 +33,7 @@ from app.core.intent.text_match import (
     tokens,
 )
 from app.core.prompt.loader import PromptTemplateLoader
+from app.core.utils.time_utils import TimeUtils
 from app.core.workflow.registry import WorkflowRegistry
 from app.models.schemas import (
     AgentRunRequest,
@@ -53,6 +54,7 @@ DEFAULT_TASK_UNDERSTANDING_PROMPT = """
 5. 高风险或缺少必填槽位的请求必须显式 needs_clarification 或 need_confirm。
 6. 技术问答、代码生成、复杂工程任务应进入 runtime/open_domain 能力。
 7. 用户明确要求联网、上网、搜索网页或 search/browse the web 时，只能选择允许 web_search 的能力；不要把明确联网请求当作无需工具的普通问答。
+8. runtime_context.current_date 是运行时当前日期；“最新、近期、当前、今年”等相对时间不得被改写为其他年份。
 
 输出 JSON schema:
 {
@@ -338,8 +340,10 @@ class TaskUnderstandingService:
         user_payload = {
             "profile": {"id": profile.id, "name": profile.name, "domain": profile.domain},
             "message": message,
-            # 路由只需要近期意图线索，截断长答案正文，避免历史消息把理解调用的 prefill 撑大拖慢首字。
-            "recent_messages": [self._compact_message(item) for item in (request.messages or [])[-8:]],
+            "runtime_context": {"current_date": TimeUtils.get_current_date()},
+            # 当前问题已由 message 单独传入，历史区移除同一条末尾 user 消息并清理空字段，
+            # 避免重复 prefill；仍保留之前七条意图线索，信息窗口不缩小。
+            "recent_messages": self._recent_messages_for_prompt(request, message),
             "metadata": self._safe_metadata(request.metadata or {}),
             "previous_slots": previous_slots,
         }
@@ -438,7 +442,10 @@ class TaskUnderstandingService:
         # 查询改写、上下文依赖和澄清信息按各自协议边界逐项收敛。
         result.rewritten_query = QueryRewrite(
             resolved_query=str(data.get("resolved_query") or result.rewritten_query.resolved_query),
-            retrieval_query=str(data.get("retrieval_query") or result.rewritten_query.retrieval_query),
+            retrieval_query=self._normalize_relative_time_query(
+                message,
+                str(data.get("retrieval_query") or result.rewritten_query.retrieval_query),
+            ),
             planner_query=str(data.get("planner_query") or result.rewritten_query.planner_query),
         )
         dependency = str(data.get("context_dependency") or "").strip().lower()
@@ -459,6 +466,22 @@ class TaskUnderstandingService:
         if data.get("risk_level"):
             result.risk_flags.risk_level = str(data.get("risk_level"))
         return result
+
+    def _normalize_relative_time_query(self, original_query: str, retrieval_query: str) -> str:
+        """修正模型为相对时间请求擅自补入的过期年份。
+
+        用户明确写出的年份必须原样保留；只有原问题没有年份、同时表达相对时间时，
+        才把模型生成检索词中的年份收敛为 Runtime 当前年份。
+        """
+
+        original = str(original_query or "")
+        rewritten = str(retrieval_query or "").strip()
+        if not rewritten or re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)", original):
+            return rewritten
+        if not re.search(r"最新|近期|最近|当前|今年|today|latest|recent|current", original, re.IGNORECASE):
+            return rewritten
+        current_year = TimeUtils.get_current_date()[:4]
+        return re.sub(r"(?<!\d)(?:19|20)\d{2}(?!\d)", current_year, rewritten)
 
     def _score_capabilities(
         self, profile: ProfileDefinition, message: str, slots: Dict[str, Any]
@@ -605,11 +628,27 @@ class TaskUnderstandingService:
         }
 
     def _compact_message(self, message: ChatMessage, limit: int = 400) -> Dict[str, Any]:
-        data = message.model_dump()
-        content = str(data.get("content") or "")
+        content = str(message.content or "")
+        data: Dict[str, Any] = {"role": message.role, "content": content}
+        if message.name:
+            data["name"] = message.name
+        if message.tool_call_id:
+            data["tool_call_id"] = message.tool_call_id
         if len(content) > limit:
             data["content"] = content[:limit] + "...(truncated)"
         return data
+
+    def _recent_messages_for_prompt(self, request: AgentRunRequest, current_message: str) -> List[Dict[str, Any]]:
+        messages = list(request.messages or [])
+        limit = 8
+        if (
+            messages
+            and messages[-1].role == "user"
+            and str(messages[-1].content or "").strip() == str(current_message or "").strip()
+        ):
+            messages = messages[:-1]
+            limit = 7
+        return [self._compact_message(item) for item in messages[-limit:]]
 
     def _last_user_message(self, request: AgentRunRequest) -> str:
         for msg in reversed(request.messages or []):

@@ -1,10 +1,12 @@
 """查询已配置搜索服务并规范化有界结果摘要。"""
 
+import asyncio
 import html
 import json
 import re
+from datetime import datetime
 from typing import Any, Dict, List
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 
 import httpx
 
@@ -27,6 +29,11 @@ class WebSearchTool(BaseTool):
             "timeout_seconds": {"type": "integer", "description": "请求超时秒数"},
             "freshness": {"type": "string", "description": "Bocha freshness 参数，默认 noLimit"},
             "search_type": {"type": "string", "description": "bocha_web 或 bocha_ai，默认 bocha_web"},
+            "expand_query": {
+                "type": "boolean",
+                "description": "时效性问题是否生成一条有界补充查询，默认 true",
+                "default": True,
+            },
         },
         "required": ["query"],
     }
@@ -50,26 +57,236 @@ class WebSearchTool(BaseTool):
         timeout = int(arguments.get("timeout_seconds") or self.timeout_seconds)
         search_type = str(arguments.get("search_type") or "bocha_web").strip().lower()
         freshness = str(arguments.get("freshness") or settings.config.web_search.freshness or "noLimit")
+        expand_query = arguments.get("expand_query") is not False
+        queries = self._expand_queries(query) if expand_query else [query]
+        preferred_source_domains = self._preferred_source_domains(query)
 
         warnings: List[str] = []
-        bocha_result = await self._search_bocha(query, limit, timeout, freshness, search_type)
-        if bocha_result.get("results"):
-            return bocha_result
-        if bocha_result.get("warning"):
-            warnings.append(str(bocha_result["warning"]))
+        responses = await asyncio.gather(
+            *[self._search_bocha(item, limit, timeout, freshness, search_type) for item in queries],
+            return_exceptions=True,
+        )
+        combined: List[Dict[str, Any]] = []
+        sources: List[str] = []
+        for query_index, response in enumerate(responses):
+            if isinstance(response, Exception):
+                warnings.append(f"Bocha 查询失败：{response}")
+                continue
+            sources.append(str(response.get("source") or "bocha"))
+            if response.get("warning"):
+                warnings.append(str(response["warning"]))
+            for provider_rank, row in enumerate(response.get("results") or []):
+                combined.append({**row, "_query_index": query_index, "_provider_rank": provider_rank})
+        if combined:
+            ranked = self._rank_results(query, combined, limit)
+            preferred_source_found = self._contains_preferred_source(ranked, preferred_source_domains)
+            if (
+                preferred_source_domains
+                and not preferred_source_found
+                and settings.config.web_search.fallback_to_duckduckgo
+            ):
+                try:
+                    duck = await self._search_duckduckgo(queries[-1], limit, timeout)
+                    sources.append(str(duck.get("source") or "duckduckgo_html"))
+                    for provider_rank, row in enumerate(duck.get("results") or []):
+                        combined.append(
+                            {
+                                **row,
+                                "_query_index": len(queries),
+                                "_provider_rank": provider_rank,
+                            }
+                        )
+                    ranked = self._rank_results(query, combined, limit)
+                    preferred_source_found = self._contains_preferred_source(ranked, preferred_source_domains)
+                except Exception as exc:
+                    warnings.append(f"官方来源降级查询失败：{exc}")
+            if preferred_source_domains and not preferred_source_found:
+                warnings.append("未检索到推断的官方域名来源；现有结果只能作为第三方线索，不能视为官方确认。")
+            return {
+                "query": query,
+                "queries": queries,
+                "source": "+".join(dict.fromkeys(sources)) if sources else "bocha",
+                "results": ranked,
+                "raw_count": len(combined),
+                "deduplicated_count": len(ranked),
+                "preferred_source_domains": preferred_source_domains,
+                "preferred_source_found": preferred_source_found,
+                "warnings": warnings,
+            }
 
         if settings.config.web_search.fallback_to_duckduckgo:
             duck = await self._search_duckduckgo(query, limit, timeout)
+            duck["queries"] = queries
+            duck["raw_count"] = len(duck.get("results") or [])
+            duck["results"] = self._rank_results(query, duck.get("results") or [], limit)
+            duck["deduplicated_count"] = len(duck["results"])
+            duck["preferred_source_domains"] = preferred_source_domains
+            duck["preferred_source_found"] = self._contains_preferred_source(duck["results"], preferred_source_domains)
+            if preferred_source_domains and not duck["preferred_source_found"]:
+                warnings.append("未检索到推断的官方域名来源；现有结果只能作为第三方线索，不能视为官方确认。")
             duck["warnings"] = warnings + duck.get("warnings", [])
             return duck
 
         return {
             "query": query,
+            "queries": queries,
             "source": "bocha",
             "results": [],
+            "raw_count": 0,
+            "deduplicated_count": 0,
+            "preferred_source_domains": preferred_source_domains,
+            "preferred_source_found": False,
             "warnings": warnings or ["Bocha 搜索没有返回结果"],
             "next_actions": ["检查 BOCHA_API_KEY 是否配置", "尝试换一个更具体的搜索关键词"],
         }
+
+    def _expand_queries(self, query: str, current_year: int | None = None) -> List[str]:
+        """为时效性问题生成至多一条互补查询，避免无界扩展。"""
+
+        primary = re.sub(r"\s+", " ", str(query or "")).strip()
+        if not primary:
+            return []
+        if not re.search(r"最新|近期|最近|当前|今年|发布|latest|recent|current|release", primary, re.IGNORECASE):
+            return [primary]
+        year = current_year or datetime.now().year
+        expanded = primary
+        if not re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)", expanded):
+            expanded = f"{expanded} {year}"
+        preferred_domains = self._preferred_source_domains(primary)
+        if preferred_domains:
+            if not re.search(r"\bsite:[^\s]+", expanded, re.IGNORECASE):
+                expanded = f"site:{preferred_domains[0]} {expanded}"
+        else:
+            expanded = f"{expanded} 最新进展"
+        return list(dict.fromkeys([primary, expanded]))[:2]
+
+    def _preferred_source_domains(self, query: str) -> List[str]:
+        """从显式 site 条件或主体名推断一个有界官方域名候选。"""
+
+        explicit = [
+            domain.lower().removeprefix("www.")
+            for domain in re.findall(r"\bsite:([A-Za-z0-9.-]+\.[A-Za-z]{2,})", str(query or ""), re.IGNORECASE)
+        ]
+        if explicit:
+            return list(dict.fromkeys(explicit))[:1]
+        entities = self._latin_entities(query)
+        if not entities:
+            return []
+        normalized = re.sub(r"[^a-z0-9]", "", entities[0].lower())
+        return [f"{normalized}.com"] if len(normalized) >= 3 else []
+
+    def _contains_preferred_source(self, rows: List[Dict[str, Any]], domains: List[str]) -> bool:
+        if not domains:
+            return False
+        for row in rows or []:
+            host = (urlparse(str(row.get("url") or "")).hostname or "").lower().removeprefix("www.")
+            if any(host == domain or host.endswith(f".{domain}") for domain in domains):
+                return True
+        return False
+
+    def _rank_results(self, query: str, rows: List[Dict[str, Any]], limit: int) -> List[Dict[str, str]]:
+        """按 URL/标题去重，并稳定融合权威性、相关性、时效和提供方顺序。"""
+
+        unique: List[tuple[int, Dict[str, Any]]] = []
+        seen_urls: set[str] = set()
+        seen_titles: List[str] = []
+        for index, row in enumerate(rows or []):
+            if not isinstance(row, dict):
+                continue
+            canonical_url = self._canonical_url(str(row.get("url") or ""))
+            title_key = self._normalized_title(str(row.get("title") or ""))
+            if canonical_url and canonical_url in seen_urls:
+                continue
+            if title_key and any(self._title_similarity(title_key, previous) >= 0.72 for previous in seen_titles):
+                continue
+            if canonical_url:
+                seen_urls.add(canonical_url)
+            if title_key:
+                seen_titles.append(title_key)
+            unique.append((index, row))
+
+        ranked = sorted(
+            unique,
+            key=lambda item: self._result_score(query, item[1], item[0]),
+            reverse=True,
+        )
+        return [
+            {str(key): str(value) for key, value in row.items() if not str(key).startswith("_")}
+            for _, row in ranked[: max(1, limit)]
+        ]
+
+    def _result_score(self, query: str, row: Dict[str, Any], original_index: int) -> tuple:
+        host = (urlparse(str(row.get("url") or "")).hostname or "").lower()
+        entities = self._latin_entities(query)
+        official_score = int(any(entity.lower() in host.replace("-", "") for entity in entities))
+        content = " ".join(
+            [
+                str(row.get("title") or ""),
+                str(row.get("snippet") or ""),
+                str(row.get("site_name") or ""),
+            ]
+        )
+        relevance_score = len(self._search_terms(query) & self._search_terms(content))
+        published_score = self._published_timestamp(str(row.get("published_date") or ""))
+        query_index = int(row.get("_query_index") or 0)
+        provider_rank = int(row.get("_provider_rank") or original_index)
+        return official_score, relevance_score, published_score, -query_index, -provider_rank, -original_index
+
+    def _latin_entities(self, query: str) -> List[str]:
+        stop_words = {
+            "current",
+            "latest",
+            "model",
+            "models",
+            "official",
+            "recent",
+            "release",
+            "search",
+            "web",
+        }
+        return [
+            token
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9-]{2,}", str(query or ""))
+            if token.lower() not in stop_words
+        ]
+
+    def _search_terms(self, value: str) -> set[str]:
+        text = str(value or "").lower()
+        terms = {token for token in re.findall(r"[a-z0-9]+", text) if len(token) >= 2}
+        for sequence in re.findall(r"[\u4e00-\u9fff]+", text):
+            terms.update(sequence[index : index + 2] for index in range(max(0, len(sequence) - 1)))
+        return terms
+
+    def _canonical_url(self, value: str) -> str:
+        parsed = urlparse(value.strip())
+        if not parsed.scheme or not parsed.netloc:
+            return value.strip()
+        host = (parsed.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        port = f":{parsed.port}" if parsed.port else ""
+        path = re.sub(r"/+$", "", parsed.path or "/") or "/"
+        return urlunparse((parsed.scheme.lower(), f"{host}{port}", path, "", "", ""))
+
+    def _normalized_title(self, value: str) -> str:
+        text = re.sub(r"[|｜_\-—–].*$", "", value.lower())
+        return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", text)
+
+    def _title_similarity(self, left: str, right: str) -> float:
+        if left == right:
+            return 1.0
+        left_grams = {left[index : index + 2] for index in range(max(0, len(left) - 1))}
+        right_grams = {right[index : index + 2] for index in range(max(0, len(right) - 1))}
+        union = left_grams | right_grams
+        return len(left_grams & right_grams) / len(union) if union else 0.0
+
+    def _published_timestamp(self, value: str) -> float:
+        if not value:
+            return 0.0
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return 0.0
 
     async def _search_bocha(
         self, query: str, limit: int, timeout: int, freshness: str, search_type: str

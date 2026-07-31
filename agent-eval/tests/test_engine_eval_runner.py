@@ -230,6 +230,92 @@ def test_web_search_eval_requires_nonempty_referenced_results():
     assert empty_check["detail"]["invalid"] == ["web_search"]
 
 
+def test_web_search_quality_eval_checks_query_expansion_deduplication_and_preferred_domain():
+    case = {
+        "expected": {
+            "web_search_quality": {
+                "query_max_chars": 80,
+                "forbidden_query_fragments": ["包括模型名称"],
+                "require_expansion": True,
+                "max_queries": 2,
+                "require_unique_urls": True,
+                "preferred_source_domains_any": ["openai.com"],
+                "require_preferred_source_flag": True,
+            }
+        }
+    }
+    valid = _build_run(
+        {
+            "done": {
+                "tool_results": [
+                    {
+                        "tool_name": "web_search",
+                        "success": True,
+                        "output": {
+                            "query": "OpenAI 最新模型 发布 2026",
+                            "queries": [
+                                "OpenAI 最新模型 发布 2026",
+                                "site:openai.com OpenAI 最新模型 发布 2026",
+                            ],
+                            "preferred_source_domains": ["openai.com"],
+                            "preferred_source_found": True,
+                            "results": [
+                                {
+                                    "title": "Introducing GPT-5",
+                                    "url": "https://openai.com/index/introducing-gpt-5/",
+                                },
+                                {
+                                    "title": "OpenAI model news",
+                                    "url": "https://news.example.com/openai",
+                                },
+                            ],
+                        },
+                    }
+                ]
+            }
+        }
+    )
+    invalid = _build_run(
+        {
+            "done": {
+                "tool_results": [
+                    {
+                        "tool_name": "web_search",
+                        "success": True,
+                        "output": {
+                            "query": "联网搜索并整理 OpenAI 最新模型，包括模型名称、主要能力和适用场景",
+                            "queries": ["联网搜索并整理 OpenAI 最新模型，包括模型名称、主要能力和适用场景"],
+                            "results": [
+                                {
+                                    "title": "重复媒体稿",
+                                    "url": "https://news.example.com/openai?from=desktop",
+                                },
+                                {
+                                    "title": "重复媒体稿移动版",
+                                    "url": "https://news.example.com/openai?from=mobile",
+                                },
+                            ],
+                        },
+                    }
+                ]
+            }
+        }
+    )
+
+    valid_check = next(check for check in _effect_checks(case, valid, {}) if check["code"] == "web_search_quality")
+    invalid_check = next(check for check in _effect_checks(case, invalid, {}) if check["code"] == "web_search_quality")
+
+    assert valid_check["passed"] is True
+    assert invalid_check["passed"] is False
+    assert set(invalid_check["detail"]["issues"]) == {
+        "forbidden_query_fragment",
+        "missing_query_expansion",
+        "duplicate_result_urls",
+        "preferred_source_missing",
+        "preferred_source_unverified",
+    }
+
+
 def test_planner_case_requires_planner_specific_trace_events():
     common_trace = [
         {"event": event}

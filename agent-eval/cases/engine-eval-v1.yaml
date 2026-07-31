@@ -113,6 +113,14 @@ cases:
       domain: open_domain
       next_action: run_runtime_planner
       required_tools: [web_search]
+      web_search_quality:
+        query_max_chars: 80
+        forbidden_query_fragments: ["包括模型名称", "主要能力和适用场景"]
+        require_expansion: true
+        max_queries: 2
+        require_unique_urls: true
+        preferred_source_domains_any: ["openai.com"]
+        require_preferred_source_flag: true
       trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
       answer_min_chars: 40
     latency_budget:

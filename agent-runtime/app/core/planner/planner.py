@@ -258,7 +258,7 @@ class RuntimePlanner:
                 plan.final_answer = "当前没有可用工具，无法继续执行。"
             plan.stop_reason = StopReason.TOOL_UNAVAILABLE.value
             return plan, None
-        arguments = self._build_default_arguments(selected, objective)
+        arguments = self._build_default_arguments(selected, objective, task_understanding)
         call = ToolCall(
             id=f"toolu_{TimeUtils.gen_step_id()}",
             name=selected.name,
@@ -383,7 +383,12 @@ class RuntimePlanner:
             return term in objective_words
         return term in objective
 
-    def _build_default_arguments(self, tool: ToolDefinition, objective: str) -> dict:
+    def _build_default_arguments(
+        self,
+        tool: ToolDefinition,
+        objective: str,
+        task_understanding: Optional[TaskUnderstandingResult] = None,
+    ) -> dict:
         properties = (tool.input_schema or {}).get("properties") or {}
         args = {
             key: value.get("default")
@@ -398,6 +403,11 @@ class RuntimePlanner:
                 args[key] = objective
             elif key in {"pattern", "keyword"}:
                 args[key] = objective[:80]
+        if tool.name == "web_search" and task_understanding:
+            rewrite = task_understanding.rewritten_query
+            search_query = rewrite.retrieval_query or rewrite.resolved_query
+            if search_query and search_query.strip():
+                args["query"] = search_query.strip()
         return args
 
     def _can_build_default_arguments(self, tool: ToolDefinition) -> bool:

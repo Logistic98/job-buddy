@@ -33,6 +33,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -333,6 +334,54 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
                 "invalid": invalid_tools,
             },
         )
+    if isinstance(exp.get("web_search_quality"), dict):
+        quality = exp["web_search_quality"]
+        web_outputs = [
+            item.get("output")
+            for item in (run.get("tool_results") or [])
+            if isinstance(item, dict)
+            and item.get("success") is True
+            and str(item.get("tool_name") or item.get("toolName") or "") == "web_search"
+            and isinstance(item.get("output"), dict)
+        ]
+        output = web_outputs[0] if web_outputs else {}
+        query = str(output.get("query") or "")
+        queries = output.get("queries") if isinstance(output.get("queries"), list) else ([query] if query else [])
+        results = output.get("results") if isinstance(output.get("results"), list) else []
+        issues: list[str] = []
+        max_chars = quality.get("query_max_chars")
+        if max_chars is not None and len(query) > int(max_chars):
+            issues.append("query_too_long")
+        forbidden = [str(item) for item in quality.get("forbidden_query_fragments") or []]
+        if any(fragment and fragment in query for fragment in forbidden):
+            issues.append("forbidden_query_fragment")
+        if quality.get("require_expansion") and len(queries) < 2:
+            issues.append("missing_query_expansion")
+        max_queries = quality.get("max_queries")
+        if max_queries is not None and len(queries) > int(max_queries):
+            issues.append("too_many_queries")
+        urls = [str(item.get("url") or "") for item in results if isinstance(item, dict)]
+        canonical_urls = [_canonical_result_url(url) for url in urls if url]
+        if quality.get("require_unique_urls") and len(canonical_urls) != len(set(canonical_urls)):
+            issues.append("duplicate_result_urls")
+        preferred_domains = [str(item).lower() for item in quality.get("preferred_source_domains_any") or []]
+        hosts = [(urlparse(url).hostname or "").lower() for url in urls]
+        if preferred_domains and not any(
+            host == domain or host.endswith(f".{domain}") for host in hosts for domain in preferred_domains
+        ):
+            issues.append("preferred_source_missing")
+        if quality.get("require_preferred_source_flag") and output.get("preferred_source_found") is not True:
+            issues.append("preferred_source_unverified")
+        add(
+            "web_search_quality",
+            bool(output) and not issues,
+            {
+                "query": query,
+                "queries": queries,
+                "result_count": len(results),
+                "issues": list(dict.fromkeys(issues)),
+            },
+        )
     if exp.get("expect_no_llm_usage"):
         server_metrics = run.get("server_metrics") or {}
         token_usage = server_metrics.get("token_usage") if isinstance(server_metrics.get("token_usage"), dict) else {}
@@ -372,6 +421,15 @@ def _valid_required_tool_result(tool_name: str, result: dict) -> bool:
         return True
     output = result.get("output")
     return isinstance(output, dict) and output.get("sandboxed") is True and output.get("exit_code") == 0
+
+
+def _canonical_result_url(value: str) -> str:
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    path = (parsed.path or "/").rstrip("/") or "/"
+    return f"{parsed.scheme.lower()}://{host}{path}"
 
 
 def _evaluate_sample(case: dict, sample: dict) -> dict:

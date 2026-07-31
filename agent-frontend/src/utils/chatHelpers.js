@@ -226,9 +226,10 @@ export function selectToolEventHighlights(item = {}) {
   const sources = [payload, directive, intent, top, selectedJob, slots]
   const highlights = []
   const seenLabels = new Set()
+  const highlightLimit = item.id === 'runtime_web_search' ? 6 : 4
   const add = (label, rawValue) => {
     const value = conciseScalar(rawValue)
-    if (!value || seenLabels.has(label) || highlights.length >= 4) return
+    if (!value || seenLabels.has(label) || highlights.length >= highlightLimit) return
     seenLabels.add(label)
     highlights.push({ label, value })
   }
@@ -260,9 +261,27 @@ export function selectToolEventHighlights(item = {}) {
       bocha_web: '博查 Web Search',
       bocha_ai: '博查 AI Search',
       duckduckgo_html: 'DuckDuckGo',
+      'bocha_web+duckduckgo_html': '博查 Web Search + DuckDuckGo',
     }
     add('搜索词', payload.query)
+    const expandedQueries = Array.isArray(payload.queries)
+      ? payload.queries.filter((query) => query && query !== payload.query)
+      : []
+    add('扩展查询', expandedQueries.join('；'))
     add('搜索来源', providerLabels[String(payload.provider || '').toLowerCase()] || payload.provider)
+    if (
+      payload.rawCount !== undefined &&
+      payload.deduplicatedCount !== undefined &&
+      payload.rawCount !== payload.deduplicatedCount
+    ) {
+      add('结果去重', `${payload.rawCount} → ${payload.deduplicatedCount} 个`)
+    }
+    const preferredDomains = Array.isArray(payload.preferredSourceDomains)
+      ? payload.preferredSourceDomains.filter(Boolean)
+      : []
+    if (preferredDomains.length) {
+      add('官方来源', `${payload.preferredSourceFound === true ? '已命中' : '未命中'} ${preferredDomains.join('、')}`)
+    }
     add('参考来源', payload.sourceCount === undefined ? '' : `${payload.sourceCount} 个`)
   }
 

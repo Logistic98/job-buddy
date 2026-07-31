@@ -113,6 +113,46 @@ async def test_fallback_completes_when_observations_present(tool_defs):
     assert "abc" in (plan.final_answer or "")
 
 
+@pytest.mark.asyncio
+async def test_web_search_fallback_uses_retrieval_query_instead_of_planner_objective(tool_defs):
+    capability = CapabilityCard(
+        id="open_domain.technical_qa",
+        name="技术问答",
+        domain="open_domain",
+        intent="technical_qa",
+        next_action="run_runtime_planner",
+        planner_needed=True,
+        required_tools=["web_search"],
+        allowed_tools=["web_search"],
+    )
+    profile = ProfileDefinition(id="job-buddy", name="JobBuddy", capabilities=[capability])
+    task = TaskResultBuilder(CapabilityRegistry()).build(
+        profile=profile,
+        message="联网查找 OpenAI 最新模型",
+        trace_id="trace-search",
+        capability=capability,
+        candidates=[],
+        confidence=1.0,
+        slots={},
+        router="llm",
+        reason="test",
+    )
+    task.rewritten_query.retrieval_query = "OpenAI 最新模型 发布 2026"
+    objective = "联网搜索并整理 OpenAI 最新发布的模型信息，包括模型名称、发布时间、主要能力和适用场景"
+
+    _, call = await RuntimePlanner(llm_client=None).create_or_update_plan(
+        objective=objective,
+        messages=[],
+        observations=[],
+        tools=[tool for tool in tool_defs if tool.name == "web_search"],
+        task_understanding=task,
+    )
+
+    assert call is not None
+    assert call.arguments["query"] == "OpenAI 最新模型 发布 2026"
+    assert call.arguments["query"] != objective
+
+
 def test_build_plan_coerces_non_string_depends_on_and_arguments(tool_defs):
     planner = RuntimePlanner(llm_client=None)
     data = {
