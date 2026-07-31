@@ -32,6 +32,10 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -518,6 +522,156 @@ class JobRuntimeServiceImplTest {
   }
 
   /**
+   * 同一用户、同一条件的并发缓存未命中只允许一个请求访问 Boss，其他请求等待并复用候选池。
+   *
+   * @throws Exception 并发测试失败时抛出
+   */
+  @Test
+  void recommendJobsFastShouldCoalesceConcurrentCacheMisses() throws Exception {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(2);
+    properties.setRecommendOverfetchFactor(1);
+    properties.setBossSearchMaxPages(1);
+    properties.setBossSearchPageDelayMillis(0);
+    CountDownLatch firstSearchStarted = new CountDownLatch(1);
+    CountDownLatch duplicateSearchStarted = new CountDownLatch(1);
+    CountDownLatch releaseSearch = new CountDownLatch(1);
+    AtomicInteger searchCalls = new AtomicInteger();
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenAnswer(
+            invocation -> {
+              if (searchCalls.incrementAndGet() == 1) {
+                firstSearchStarted.countDown();
+              } else {
+                duplicateSearchStarted.countDown();
+              }
+              releaseSearch.await(2, TimeUnit.SECONDS);
+              return jobsWithPrefix("shared-", 3);
+            });
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "大模型应用开发");
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            slots);
+
+    CompletableFuture<List<Map<String, Object>>> first =
+        CompletableFuture.supplyAsync(() -> recommendWithScope(service, intent, "s1"));
+    assertTrue(firstSearchStarted.await(1, TimeUnit.SECONDS));
+    CompletableFuture<List<Map<String, Object>>> second =
+        CompletableFuture.supplyAsync(() -> recommendWithScope(service, intent, "s2"));
+    boolean duplicateStarted = duplicateSearchStarted.await(250, TimeUnit.MILLISECONDS);
+    releaseSearch.countDown();
+    List<Map<String, Object>> firstResult = first.get(2, TimeUnit.SECONDS);
+    List<Map<String, Object>> secondResult = second.get(2, TimeUnit.SECONDS);
+
+    assertFalse(duplicateStarted, "并发缓存未命中不应重复访问 Boss");
+    assertEquals(1, searchCalls.get());
+    assertEquals(firstResult, secondResult);
+  }
+
+  /**
+   * 同条件的并发换一批在等待首屏候选池后，仍应按自己的消费游标继续补页。
+   *
+   * @throws Exception 并发测试失败时抛出
+   */
+  @Test
+  void concurrentFlipShouldTopUpAfterWaitingForSmallerCandidatePool() throws Exception {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(2);
+    properties.setRecommendOverfetchFactor(1);
+    properties.setBossSearchMaxPages(1);
+    properties.setBossSearchMaxPageDepth(3);
+    properties.setBossSearchPageDelayMillis(0);
+    CountDownLatch firstSearchStarted = new CountDownLatch(1);
+    CountDownLatch releaseFirstSearch = new CountDownLatch(1);
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenAnswer(
+            invocation -> {
+              firstSearchStarted.countDown();
+              releaseFirstSearch.await(2, TimeUnit.SECONDS);
+              return jobsWithPrefix("first-", 2);
+            });
+    when(bossCliService.searchJobsPage(any(IntentResult.class), eq(2)))
+        .thenReturn(jobsWithPrefix("second-", 2));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> firstSlots = new LinkedHashMap<String, Object>();
+    firstSlots.put("role", "大模型应用开发");
+    IntentResult firstIntent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            firstSlots);
+    Map<String, Object> flipSlots = new LinkedHashMap<String, Object>(firstSlots);
+    flipSlots.put("candidate_offset", 2);
+    IntentResult flipIntent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            flipSlots);
+
+    CompletableFuture<List<Map<String, Object>>> first =
+        CompletableFuture.supplyAsync(() -> recommendWithScope(service, firstIntent, "s1"));
+    assertTrue(firstSearchStarted.await(1, TimeUnit.SECONDS));
+    CompletableFuture<List<Map<String, Object>>> flip =
+        CompletableFuture.supplyAsync(() -> recommendWithScope(service, flipIntent, "s2"));
+    releaseFirstSearch.countDown();
+    List<Map<String, Object>> firstResult = first.get(2, TimeUnit.SECONDS);
+    List<Map<String, Object>> flipResult = flip.get(2, TimeUnit.SECONDS);
+
+    assertEquals(2, firstResult.size());
+    assertEquals(2, flipResult.size());
+    assertTrue(
+        flipResult.stream()
+            .allMatch(row -> String.valueOf(row.get("securityId")).startsWith("second-")));
+    verify(bossCliService, times(1)).searchJobsFirstPage(any(IntentResult.class));
+    verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), eq(2));
+  }
+
+  /**
    * 验证 JobRuntimeServiceImpl 中工具的失败恢复、超时与降级边界。
    */
   @Test
@@ -537,6 +691,16 @@ class JobRuntimeServiceImplTest {
 
     // agent-tool 默认 20 秒 × 2 次尝试，Java 首屏还需预留退避、限速和转发余量。
     assertTrue(service.bossCandidatePoolTimeoutSeconds() >= 50);
+  }
+
+  private static List<Map<String, Object>> recommendWithScope(
+      JobRuntimeServiceImpl service, IntentResult intent, String sessionId) {
+    AuthenticationScope.set("tenant-a", "user-a");
+    try {
+      return service.recommendJobsFast(intent, sessionId, null);
+    } finally {
+      AuthenticationScope.clear();
+    }
   }
 
   /**

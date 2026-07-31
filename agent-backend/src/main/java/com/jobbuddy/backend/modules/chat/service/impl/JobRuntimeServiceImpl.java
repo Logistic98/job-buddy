@@ -22,7 +22,9 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -41,6 +43,8 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
 
   private final Map<String, CacheEntry> fastSearchCache =
       new ConcurrentHashMap<String, CacheEntry>();
+  private final Map<String, CompletableFuture<CacheEntry>> fastSearchInflight =
+      new ConcurrentHashMap<String, CompletableFuture<CacheEntry>>();
   private final Map<String, Long> bossSearchCooldownUntil = new ConcurrentHashMap<String, Long>();
   private final RuntimeToolClient runtimeToolClient;
   private final JobBuddyProperties properties;
@@ -155,20 +159,107 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     final String cacheKey = fastSearchCacheKey(slots, candidateBatchSize);
     assertBossSearchNotCoolingDown();
 
-    CacheEntry cached = fastSearchCache.get(cacheKey);
-    if (cached != null && cached.expired(fastSearchCacheTtlMillis())) {
-      fastSearchCache.remove(cacheKey, cached);
-      cached = null;
+    CacheEntry cached = validFastSearchEntry(cacheKey);
+    if (needsPoolLoad(cached, needed)) {
+      cached = loadCandidatePoolSingleFlight(intent, slots, needed, cacheKey);
     }
-    // 首次搜索按候选池倍率预取；换一批从显式消费游标之后继续，只有缓存不足且上游仍有结果时才追抓。
-    cached =
-        cached == null
-            ? buildInitialPool(intent, slots, needed, cacheKey)
-            : ensurePoolCoversOffset(intent, slots, needed, cacheKey, cached);
 
     List<Map<String, Object>> slice = pageSlice(cached.jobs, candidateOffset, candidateBatchSize);
     if (consumer != null && !slice.isEmpty()) consumer.accept(slice, slice, "candidate_pool", page);
     return slice;
+  }
+
+  /**
+   * 获取未过期的候选池。
+   *
+   * @param cacheKey 缓存键
+   * @return 有效候选池；不存在或过期时返回空
+   */
+  private CacheEntry validFastSearchEntry(String cacheKey) {
+    CacheEntry cached = fastSearchCache.get(cacheKey);
+    if (cached != null && cached.expired(fastSearchCacheTtlMillis())) {
+      fastSearchCache.remove(cacheKey, cached);
+      return null;
+    }
+    return cached;
+  }
+
+  /**
+   * 判断候选池是否需要首次加载或继续追抓。
+   *
+   * @param cached 当前候选池
+   * @param needed 所需候选数量
+   * @return 是否需要访问 Boss
+   */
+  private boolean needsPoolLoad(CacheEntry cached, int needed) {
+    if (cached == null) return true;
+    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
+    return cached.jobs.size() < needed && !cached.exhausted && cached.nextPage <= maxDepth;
+  }
+
+  /**
+   * 合并同一用户、同一条件下的并发缓存未命中，避免重复请求 Boss 与重复过滤。
+   *
+   * @param intent 意图
+   * @param slots 候选槽位
+   * @param needed 所需候选数量
+   * @param cacheKey 缓存键
+   * @return 已加载的候选池
+   */
+  private CacheEntry loadCandidatePoolSingleFlight(
+      IntentResult intent, Map<String, Object> slots, int needed, String cacheKey) {
+    while (true) {
+      CompletableFuture<CacheEntry> created = new CompletableFuture<CacheEntry>();
+      CompletableFuture<CacheEntry> existing = fastSearchInflight.putIfAbsent(cacheKey, created);
+      if (existing != null) {
+        CacheEntry shared = awaitCandidatePool(existing);
+        if (!needsPoolLoad(shared, needed)) return shared;
+        // 同 key 的首屏与换一批可能需要不同候选规模；完成态 Future 不足时移除并竞争下一轮补页。
+        fastSearchInflight.remove(cacheKey, existing);
+        continue;
+      }
+      try {
+        CacheEntry cached = validFastSearchEntry(cacheKey);
+        if (!needsPoolLoad(cached, needed)) {
+          created.complete(cached);
+          return cached;
+        }
+        // 等待前一个 Future 期间可能命中风控并启动冷却；访问上游前必须再次校验。
+        assertBossSearchNotCoolingDown();
+        // 首次搜索按候选池倍率预取；换一批从显式消费游标之后继续，只有缓存不足且上游仍有结果时才追抓。
+        CacheEntry loaded =
+            cached == null
+                ? buildInitialPool(intent, slots, needed, cacheKey)
+                : ensurePoolCoversOffset(intent, slots, needed, cacheKey, cached);
+        created.complete(loaded);
+        return loaded;
+      } catch (RuntimeException | Error error) {
+        created.completeExceptionally(error);
+        throw error;
+      } finally {
+        fastSearchInflight.remove(cacheKey, created);
+      }
+    }
+  }
+
+  /**
+   * 等待同一检索条件正在加载的候选池。
+   *
+   * @param future 进行中的候选池加载
+   * @return 候选池
+   */
+  private CacheEntry awaitCandidatePool(CompletableFuture<CacheEntry> future) {
+    try {
+      return future.get();
+    } catch (InterruptedException error) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("等待 Boss 候选池加载被中断", error);
+    } catch (ExecutionException error) {
+      Throwable cause = error.getCause() == null ? error : error.getCause();
+      if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+      if (cause instanceof Error) throw (Error) cause;
+      throw new RuntimeException("Boss 候选池加载失败", cause);
+    }
   }
 
   /**

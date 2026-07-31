@@ -71,7 +71,10 @@ class OpenAICompatibleClient:
             )
         )
         self._cache: OrderedDict[str, Dict[str, Any]] = OrderedDict()
-        self.cache_metrics: Dict[str, int] = {"hits": 0, "misses": 0, "stores": 0}
+        self._cache_lock = asyncio.Lock()
+        self._inflight: Dict[str, asyncio.Task[Dict[str, Any]]] = {}
+        self._model_lock = asyncio.Lock()
+        self.cache_metrics: Dict[str, int] = {"hits": 0, "misses": 0, "stores": 0, "coalesced": 0}
         # 进程内复用同一 AsyncClient：default_llm_client 在 Executor 构造期固定，跨请求
         # 复用该实例即复用到模型服务的 keep-alive 连接，省掉每次调用重做 TLS/TCP 握手
         # 带来的首字延迟（理解 + 合成两次调用各省一次握手）。
@@ -88,6 +91,13 @@ class OpenAICompatibleClient:
         return self._http
 
     async def aclose(self) -> None:
+        async with self._cache_lock:
+            inflight = list(self._inflight.values())
+            self._inflight.clear()
+        for task in inflight:
+            task.cancel()
+        if inflight:
+            await asyncio.gather(*inflight, return_exceptions=True)
         if self._http is not None:
             await self._http.aclose()
             self._http = None
@@ -129,18 +139,56 @@ class OpenAICompatibleClient:
         payload = self._build_payload(
             messages, tools, temperature, max_tokens, stream=False, disable_thinking=disable_thinking
         )
-        cache_key = self._cache_key({"provider": self.provider, "url": self.chat_completions_url, **payload})
-        if self.request_cache_enabled and cache_key in self._cache:
-            self.cache_metrics["hits"] += 1
-            cached = self._cache.pop(cache_key)
-            self._cache[cache_key] = cached
-            message = copy.deepcopy(cached)
-            message.setdefault("usage", {})
-            message["cache"] = {"hit": True, "key": cache_key[:12]}
-            logger.debug(f"模型缓存命中：provider={self.provider}, model={self.model}, key={cache_key[:12]}")
-            return message
-        self.cache_metrics["misses"] += 1
+        cache_key = self._cache_key(
+            {
+                "scope": self._cache_scope(),
+                "provider": self.provider,
+                "url": self.chat_completions_url,
+                **payload,
+            }
+        )
+        if not self.request_cache_enabled:
+            self.cache_metrics["misses"] += 1
+            return await self._request_chat(payload, cache_key)
 
+        coalesced = False
+        async with self._cache_lock:
+            cached = self._cache.pop(cache_key, None)
+            if cached is not None:
+                self._cache[cache_key] = cached
+                self.cache_metrics["hits"] += 1
+                return self._cache_hit_message(cached, cache_key)
+            inflight = self._inflight.get(cache_key)
+            if inflight is None:
+                inflight = asyncio.create_task(self._request_and_cache(payload, cache_key))
+                inflight.add_done_callback(self._consume_task_exception)
+                self._inflight[cache_key] = inflight
+                self.cache_metrics["misses"] += 1
+            else:
+                coalesced = True
+                self.cache_metrics["hits"] += 1
+                self.cache_metrics["coalesced"] += 1
+
+        # 共享任务脱离任一 HTTP 调用方的取消生命周期：某个客户端断连只取消自己的等待，
+        # 不会中止仍被其他请求复用的模型调用。
+        message = await asyncio.shield(inflight)
+        if coalesced:
+            return self._cache_hit_message(message, cache_key, coalesced=True)
+        return copy.deepcopy(message)
+
+    async def _request_and_cache(self, payload: Dict[str, Any], cache_key: str) -> Dict[str, Any]:
+        current = asyncio.current_task()
+        try:
+            message = await self._request_chat(payload, cache_key)
+            async with self._cache_lock:
+                self._store_cache(cache_key, message)
+            return message
+        finally:
+            async with self._cache_lock:
+                if self._inflight.get(cache_key) is current:
+                    self._inflight.pop(cache_key, None)
+
+    async def _request_chat(self, payload: Dict[str, Any], cache_key: str) -> Dict[str, Any]:
         last_error: Optional[Exception] = None
         for attempt in range(self.max_retries + 1):
             try:
@@ -151,7 +199,6 @@ class OpenAICompatibleClient:
                 message["cache"] = {"hit": False, "key": cache_key[:12]}
                 # 请求缓存命中不计入 run 级 token 用量：命中时未真实消耗 token。
                 record_usage(message.get("usage") or {})
-                self._store_cache(cache_key, message)
                 logger.debug(
                     f"模型响应完成：provider={self.provider}, model={self.model}, prompt_cache={self.prompt_cache_enabled}/{self.prompt_cache_strategy}, usage: {message.get('usage') or {}}"
                 )
@@ -169,6 +216,13 @@ class OpenAICompatibleClient:
                 last_error = e
                 break
         raise LLMServiceError(f"模型服务调用失败：{last_error}")
+
+    @staticmethod
+    def _consume_task_exception(task: asyncio.Task[Dict[str, Any]]) -> None:
+        try:
+            task.exception()
+        except asyncio.CancelledError:
+            pass
 
     async def stream_chat(
         self, messages: List[ChatMessage], temperature: Optional[float] = None, max_tokens: Optional[int] = None
@@ -342,7 +396,10 @@ class OpenAICompatibleClient:
     async def _ensure_model(self):
         if self.model:
             return
-        self.model = await self._fetch_latest_model() or self._fallback_model()
+        async with self._model_lock:
+            if self.model:
+                return
+            self.model = await self._fetch_latest_model() or self._fallback_model()
 
     async def _fetch_latest_model(self) -> Optional[str]:
         try:
@@ -386,6 +443,21 @@ class OpenAICompatibleClient:
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
+    def _cache_scope(self) -> str:
+        """把请求缓存限制在当前租户和用户作用域，阻止私人 Prompt 跨属主复用。"""
+
+        try:
+            from app.core.observability.trace import current_trace_context
+
+            context = current_trace_context()
+        except Exception:
+            context = {}
+        tenant_id = str(context.get("tenant_id") or "").strip()
+        user_id = str(context.get("user_id") or "").strip()
+        if not tenant_id and not user_id:
+            return "unscoped"
+        return f"{tenant_id or '-'}:{user_id or '-'}"
+
     def _store_cache(self, key: str, value: Dict[str, Any]):
         if not self.request_cache_enabled:
             return
@@ -396,6 +468,17 @@ class OpenAICompatibleClient:
 
     def get_cache_metrics(self) -> Dict[str, int]:
         return dict(self.cache_metrics)
+
+    def _cache_hit_message(self, cached: Dict[str, Any], cache_key: str, *, coalesced: bool = False) -> Dict[str, Any]:
+        message = copy.deepcopy(cached)
+        message.setdefault("usage", {})
+        message["cache"] = {"hit": True, "key": cache_key[:12]}
+        if coalesced:
+            message["cache"]["coalesced"] = True
+        logger.debug(
+            f"模型缓存命中：provider={self.provider}, model={self.model}, key={cache_key[:12]}, coalesced={coalesced}"
+        )
+        return message
 
     def _build_chat_completions_url(self, base_url: str) -> str:
         if self._is_anthropic():

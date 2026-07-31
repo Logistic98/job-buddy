@@ -1,5 +1,6 @@
 package com.jobbuddy.backend.modules.prompt.service.impl;
 
+import com.jobbuddy.backend.common.security.AuthenticationScope;
 import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
@@ -12,10 +13,18 @@ import com.jobbuddy.backend.modules.prompt.service.ProfileContextService;
 import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
+import jakarta.annotation.PreDestroy;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
 
 /**
@@ -25,11 +34,15 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class PersonalContextBuilderImpl implements PersonalContextBuilder {
+  private static final int CONTEXT_PARALLELISM = 6;
+  private static final AtomicInteger CONTEXT_THREAD_SEQUENCE = new AtomicInteger();
+
   private final ProfileContextService profileContextService;
   private final ResumeStorageService resumeStorageService;
   private final JobFavoriteService favoriteService;
   private final JobJourneyService journeyService;
   private final SystemSettingsService settingsService;
+  private final ExecutorService contextExecutor;
   private final JsonCodec jsonCodec = new JsonCodec();
 
   /**
@@ -52,6 +65,21 @@ public class PersonalContextBuilderImpl implements PersonalContextBuilder {
     this.favoriteService = favoriteService;
     this.journeyService = journeyService;
     this.settingsService = settingsService;
+    this.contextExecutor =
+        new ThreadPoolExecutor(
+            CONTEXT_PARALLELISM,
+            CONTEXT_PARALLELISM,
+            30L,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<Runnable>(64),
+            runnable -> {
+              Thread thread =
+                  new Thread(
+                      runnable, "personal-context-" + CONTEXT_THREAD_SEQUENCE.incrementAndGet());
+              thread.setDaemon(true);
+              return thread;
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy());
   }
 
   /**
@@ -76,34 +104,48 @@ public class PersonalContextBuilderImpl implements PersonalContextBuilder {
     String effectiveUser = userId.trim();
     String taskType = intent == null ? "general" : intent.getIntent();
     boolean contextHelpful = needsPersonalContext(message, intent);
-    UserProfileContext profileContext =
+    String resumeId = state == null ? null : state.resumeId;
+    CompletableFuture<UserProfileContext> profileFuture =
         contextHelpful
-            ? safeProfile(effectiveUser, state == null ? null : state.resumeId)
-            : new UserProfileContext(Collections.<String, Object>emptyMap(), "");
-    Map<String, Object> resume =
-        compactResume(effectiveUser, state == null ? null : state.resumeId, contextHelpful);
+            ? loadAsync(effectiveTenant, effectiveUser, () -> safeProfile(effectiveUser, resumeId))
+            : CompletableFuture.completedFuture(
+                new UserProfileContext(Collections.<String, Object>emptyMap(), ""));
+    CompletableFuture<Map<String, Object>> resumeFuture =
+        contextHelpful && resumeId != null && !resumeId.trim().isEmpty()
+            ? loadAsync(
+                effectiveTenant, effectiveUser, () -> compactResume(effectiveUser, resumeId, true))
+            : CompletableFuture.completedFuture(Collections.<String, Object>emptyMap());
+    CompletableFuture<List<Map<String, Object>>> favoritesFuture =
+        shouldLoadFavorites(intent)
+            ? loadAsync(effectiveTenant, effectiveUser, () -> safeFavorites(effectiveUser))
+            : CompletableFuture.completedFuture(Collections.<Map<String, Object>>emptyList());
+    CompletableFuture<List<Map<String, Object>>> journeyFuture =
+        shouldLoadJourney(intent)
+            ? loadAsync(effectiveTenant, effectiveUser, () -> safeJourney(effectiveUser))
+            : CompletableFuture.completedFuture(Collections.<Map<String, Object>>emptyList());
+    CompletableFuture<List<Map<String, Object>>> blacklistFuture =
+        shouldLoadBlacklist(intent)
+            ? loadAsync(effectiveTenant, effectiveUser, () -> limit(safeBlacklist(), 12))
+            : CompletableFuture.completedFuture(Collections.<Map<String, Object>>emptyList());
+    CompletableFuture<List<Map<String, Object>>> memoryFuture =
+        contextHelpful
+            ? loadAsync(
+                effectiveTenant,
+                effectiveUser,
+                () -> safeLongTermMemory(effectiveTenant, effectiveUser, message))
+            : CompletableFuture.completedFuture(Collections.<Map<String, Object>>emptyList());
     List<Map<String, Object>> currentJobs =
         limit(
             state == null || state.jobs == null
                 ? Collections.<Map<String, Object>>emptyList()
                 : state.jobs,
             8);
-    List<Map<String, Object>> favorites =
-        shouldLoadFavorites(intent)
-            ? safeFavorites(effectiveUser)
-            : Collections.<Map<String, Object>>emptyList();
-    List<Map<String, Object>> journey =
-        shouldLoadJourney(intent)
-            ? safeJourney(effectiveUser)
-            : Collections.<Map<String, Object>>emptyList();
-    List<Map<String, Object>> blacklist =
-        shouldLoadBlacklist(intent)
-            ? limit(safeBlacklist(), 12)
-            : Collections.<Map<String, Object>>emptyList();
-    List<Map<String, Object>> longTermMemory =
-        contextHelpful
-            ? safeLongTermMemory(effectiveTenant, effectiveUser, message)
-            : Collections.<Map<String, Object>>emptyList();
+    UserProfileContext profileContext = profileFuture.join();
+    Map<String, Object> resume = resumeFuture.join();
+    List<Map<String, Object>> favorites = favoritesFuture.join();
+    List<Map<String, Object>> journey = journeyFuture.join();
+    List<Map<String, Object>> blacklist = blacklistFuture.join();
+    List<Map<String, Object>> longTermMemory = memoryFuture.join();
     String summary =
         summarize(
             taskType,
@@ -124,6 +166,53 @@ public class PersonalContextBuilderImpl implements PersonalContextBuilder {
         blacklist,
         longTermMemory,
         summary);
+  }
+
+  /**
+   * 关闭个人上下文读取线程池。
+   */
+  @PreDestroy
+  public void shutdown() {
+    contextExecutor.shutdownNow();
+  }
+
+  /**
+   * 在有界线程池中加载独立上下文数据源，并把请求身份传播到工作线程。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param loader 数据加载函数
+   * @param <T> 结果类型
+   * @return 异步结果
+   */
+  private <T> CompletableFuture<T> loadAsync(String tenantId, String userId, Supplier<T> loader) {
+    return CompletableFuture.supplyAsync(
+        () -> withAuthentication(tenantId, userId, loader), contextExecutor);
+  }
+
+  /**
+   * 临时绑定调用者身份，并在任务结束后恢复工作线程原有状态。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param loader 数据加载函数
+   * @param <T> 结果类型
+   * @return 加载结果
+   */
+  private <T> T withAuthentication(String tenantId, String userId, Supplier<T> loader) {
+    boolean hadPrevious = AuthenticationScope.isBound();
+    String previousTenant = hadPrevious ? AuthenticationScope.tenantId() : null;
+    String previousUser = hadPrevious ? AuthenticationScope.userId() : null;
+    AuthenticationScope.set(tenantId, userId);
+    try {
+      return loader.get();
+    } finally {
+      if (hadPrevious) {
+        AuthenticationScope.set(previousTenant, previousUser);
+      } else {
+        AuthenticationScope.clear();
+      }
+    }
   }
 
   /**
