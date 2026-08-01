@@ -16,15 +16,21 @@ import com.jobbuddy.backend.modules.chat.util.ChatValueSupport;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
+import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.stereotype.Service;
 
 /**
@@ -37,6 +43,9 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   // 小批次可提高结构化结果完整率，避免先等待大批次再执行拆分重试。
   private static final int RESUME_MATCH_BATCH_SIZE = 4;
   private static final int RESUME_MATCH_RETRY_BATCH_SIZE = 4;
+  private static final int RESUME_MATCH_PARALLELISM = 4;
+  private static final int RESUME_MATCH_PARALLEL_THRESHOLD = RESUME_MATCH_BATCH_SIZE * 2;
+  private static final AtomicInteger RESUME_MATCH_THREAD_SEQUENCE = new AtomicInteger();
   private static final int MIN_JOB_DESCRIPTION_CHARS = 30;
   private static final String RECOMMENDATION_LIST_MODE = "recommendation_list";
   private static final String FULL_JD_ANALYSIS_MODE = "full_jd_analysis";
@@ -55,6 +64,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   private final BossCliService bossCliService;
   private final SystemSettingsService settingsService;
   private final JobCandidateFilter candidateFilter;
+  private final ExecutorService resumeMatchExecutor;
 
   /**
    * 创建岗位运行时服务实例。
@@ -80,6 +90,29 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     this.bossCliService = bossCliService;
     this.settingsService = settingsService;
     this.candidateFilter = new JobCandidateFilter(settingsService);
+    this.resumeMatchExecutor =
+        new ThreadPoolExecutor(
+            RESUME_MATCH_PARALLELISM,
+            RESUME_MATCH_PARALLELISM,
+            30L,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<Runnable>(32),
+            runnable -> {
+              Thread thread =
+                  new Thread(
+                      runnable, "resume-match-" + RESUME_MATCH_THREAD_SEQUENCE.incrementAndGet());
+              thread.setDaemon(true);
+              return thread;
+            },
+            new ThreadPoolExecutor.CallerRunsPolicy());
+  }
+
+  /**
+   * 关闭岗位预筛线程池，避免应用停止后遗留工作线程。
+   */
+  @PreDestroy
+  public void closeResumeMatchExecutor() {
+    resumeMatchExecutor.shutdownNow();
   }
 
   /**
@@ -1059,73 +1092,167 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     desired = Math.max(1, desired);
     int scoringLimit = Math.min(candidateCount, Math.max(1, properties.getMaxJobsPerScoring()));
     int evaluated = 0;
-    // 按剩余展示槽位分批评分，避免消费尚无需评估的候选岗位。
-    for (int from = 0; from < scoringLimit && qualified.size() < desired; ) {
-      int remainingDisplaySlots = desired - qualified.size();
-      int batchSize = Math.min(RESUME_MATCH_BATCH_SIZE, remainingDisplaySlots);
-      int to = Math.min(scoringLimit, from + batchSize);
-      List<Map<String, Object>> batch = new ArrayList<Map<String, Object>>(jobs.subList(from, to));
-      Map<String, Object> normalized =
-          scoreCompleteRecommendationBatch(resume, batch, sessionId, sections);
-      Map<String, Map<String, Object>> matchesById =
-          new LinkedHashMap<String, Map<String, Object>>();
-      Object matches = normalized.get("matches");
-      if (matches instanceof List) {
-        for (Object item : (List) matches) {
-          if (!(item instanceof Map)) continue;
-          Map<String, Object> row = new LinkedHashMap<String, Object>((Map<String, Object>) item);
-          matchesById.put(stringValue(row.get("id")), row);
-        }
+    if (scoringLimit >= RESUME_MATCH_PARALLEL_THRESHOLD) {
+      // 候选池达到两个批次后，对互不依赖的 Runtime LLM 评分并发执行；结果仍按候选原始顺序归并，
+      // Boss 搜索、分页和详情读取不进入该线程池，继续遵守串行风控边界。
+      List<ScoredRecommendationBatch> scoredBatches =
+          scoreRecommendationBatchesInParallel(
+              resume, jobs.subList(0, scoringLimit), sessionId, sections);
+      for (ScoredRecommendationBatch scoredBatch : scoredBatches) {
+        applyRecommendationBatch(scoredBatch.normalized, scoredBatch.jobs, qualified, rejected);
+        evaluated += scoredBatch.jobs.size();
       }
-      // 模型返回必须与输入岗位一一对应，再按分数、置信度和建议依次筛选。
-      for (int i = 0; i < batch.size(); i++) {
-        Map<String, Object> job = batch.get(i);
-        if (job == null) continue;
-        String id = jobId(job, i);
-        Map<String, Object> match = matchesById.get(id);
-        if (match == null) {
-          throw new IllegalStateException("岗位匹配结果完整性校验失效，缺少岗位 ID：" + id);
-        }
-        int score = toScore(match.get("score"));
-        if (match.get("score") == null || score < properties.getMinimumRecommendedMatchScore()) {
-          increment(rejected, "未达到最低匹配分");
-          continue;
-        }
-        String confidence = stringValue(firstPresent(match, "score_confidence", "confidence"));
-        String recommendation = stringValue(match.get("recommendation"));
-        if ("low".equalsIgnoreCase(confidence)) {
-          increment(rejected, "匹配置信度低");
-          continue;
-        }
-        if (isRejectedRecommendation(recommendation)) {
-          increment(rejected, recommendation.isEmpty() ? "投递建议不明确" : "投递建议为" + recommendation);
-          continue;
-        }
-        Map<String, Object> accepted = new LinkedHashMap<String, Object>(job);
-        accepted.put("matchScore", score);
-        accepted.put("matchConfidence", confidence);
-        accepted.put("matchRecommendation", recommendation);
-        accepted.put(
-            "recommendationReasons", firstTexts(match.get("hits"), match.get("evidence"), 2));
-        accepted.put(
-            "recommendationWarnings", firstTexts(match.get("gaps"), match.get("limitations"), 2));
-        accepted.put(
-            "recommendationEvidenceLevel", hasJobDescription(job) ? "full_jd" : "list_metadata");
-        qualified.add(accepted);
+    } else {
+      // 小候选集继续按剩余展示槽位自适应评分，避免为一批少量岗位制造并发开销。
+      for (int from = 0; from < scoringLimit && qualified.size() < desired; ) {
+        int remainingDisplaySlots = desired - qualified.size();
+        int batchSize = Math.min(RESUME_MATCH_BATCH_SIZE, remainingDisplaySlots);
+        int to = Math.min(scoringLimit, from + batchSize);
+        List<Map<String, Object>> batch =
+            new ArrayList<Map<String, Object>>(jobs.subList(from, to));
+        Map<String, Object> normalized =
+            scoreCompleteRecommendationBatch(resume, batch, sessionId, sections);
+        applyRecommendationBatch(normalized, batch, qualified, rejected);
+        evaluated += batch.size();
+        from = to;
       }
-      evaluated += batch.size();
-      from = to;
     }
     // 合格岗位按匹配分稳定收口，并保留拒绝漏斗供前端与评估审计。
     qualified.sort(
         (left, right) ->
             Integer.compare(toScore(right.get("matchScore")), toScore(left.get("matchScore"))));
     if (qualified.size() > desired) {
+      increment(rejected, "超出本轮展示上限", qualified.size() - desired);
       qualified = new ArrayList<Map<String, Object>>(qualified.subList(0, desired));
     }
     List<String> warnings = new ArrayList<String>();
     if (qualified.isEmpty()) warnings.add(NO_QUALIFIED_BATCH_WARNING);
     return new JobRecommendationResult(qualified, evaluated, rejected, warnings);
+  }
+
+  /**
+   * 并行评分互不依赖的简历匹配批次，并按候选输入顺序返回结果。
+   */
+  private List<ScoredRecommendationBatch> scoreRecommendationBatchesInParallel(
+      ResumeRecord resume,
+      List<Map<String, Object>> jobs,
+      String sessionId,
+      List<String> sections) {
+    final boolean hasAuthentication = AuthenticationScope.isBound();
+    final String tenantId = hasAuthentication ? AuthenticationScope.tenantId() : null;
+    final String userId = hasAuthentication ? AuthenticationScope.userId() : null;
+    List<CompletableFuture<ScoredRecommendationBatch>> futures =
+        new ArrayList<CompletableFuture<ScoredRecommendationBatch>>();
+    for (int from = 0; from < jobs.size(); from += RESUME_MATCH_BATCH_SIZE) {
+      int to = Math.min(jobs.size(), from + RESUME_MATCH_BATCH_SIZE);
+      List<Map<String, Object>> batch = new ArrayList<Map<String, Object>>(jobs.subList(from, to));
+      futures.add(
+          CompletableFuture.supplyAsync(
+              () -> {
+                boolean previousAuthentication = AuthenticationScope.isBound();
+                String previousTenantId =
+                    previousAuthentication ? AuthenticationScope.tenantId() : null;
+                String previousUserId =
+                    previousAuthentication ? AuthenticationScope.userId() : null;
+                if (hasAuthentication) AuthenticationScope.set(tenantId, userId);
+                try {
+                  Map<String, Object> normalized =
+                      scoreCompleteRecommendationBatch(resume, batch, sessionId, sections);
+                  return new ScoredRecommendationBatch(batch, normalized);
+                } finally {
+                  if (previousAuthentication) {
+                    AuthenticationScope.set(previousTenantId, previousUserId);
+                  } else {
+                    AuthenticationScope.clear();
+                  }
+                }
+              },
+              resumeMatchExecutor));
+    }
+    List<ScoredRecommendationBatch> results =
+        new ArrayList<ScoredRecommendationBatch>(futures.size());
+    for (CompletableFuture<ScoredRecommendationBatch> future : futures) {
+      try {
+        results.add(future.get());
+      } catch (InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException("岗位匹配并行评分被中断", exception);
+      } catch (ExecutionException exception) {
+        Throwable cause = exception.getCause() == null ? exception : exception.getCause();
+        if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+        throw new RuntimeException("岗位匹配并行评分失败", cause);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * 将一个已完成批次按完整性、匹配分、置信度和投递建议依次纳入质量漏斗。
+   */
+  @SuppressWarnings("unchecked")
+  private void applyRecommendationBatch(
+      Map<String, Object> normalized,
+      List<Map<String, Object>> batch,
+      List<Map<String, Object>> qualified,
+      Map<String, Integer> rejected) {
+    Map<String, Map<String, Object>> matchesById = new LinkedHashMap<String, Map<String, Object>>();
+    Object matches = normalized.get("matches");
+    if (matches instanceof List) {
+      for (Object item : (List) matches) {
+        if (!(item instanceof Map)) continue;
+        Map<String, Object> row = new LinkedHashMap<String, Object>((Map<String, Object>) item);
+        matchesById.put(stringValue(row.get("id")), row);
+      }
+    }
+    for (int i = 0; i < batch.size(); i++) {
+      Map<String, Object> job = batch.get(i);
+      if (job == null) continue;
+      String id = jobId(job, i);
+      Map<String, Object> match = matchesById.get(id);
+      if (match == null) {
+        throw new IllegalStateException("岗位匹配结果完整性校验失效，缺少岗位 ID：" + id);
+      }
+      int score = toScore(match.get("score"));
+      if (match.get("score") == null || score < properties.getMinimumRecommendedMatchScore()) {
+        increment(rejected, "未达到最低匹配分");
+        continue;
+      }
+      String confidence = stringValue(firstPresent(match, "score_confidence", "confidence"));
+      String recommendation = stringValue(match.get("recommendation"));
+      if ("low".equalsIgnoreCase(confidence)) {
+        increment(rejected, "匹配置信度低");
+        continue;
+      }
+      if (isRejectedRecommendation(recommendation)) {
+        increment(rejected, recommendation.isEmpty() ? "投递建议不明确" : "投递建议为" + recommendation);
+        continue;
+      }
+      Map<String, Object> accepted = new LinkedHashMap<String, Object>(job);
+      accepted.put("matchScore", score);
+      accepted.put("matchConfidence", confidence);
+      accepted.put("matchRecommendation", recommendation);
+      accepted.put(
+          "recommendationReasons", firstTexts(match.get("hits"), match.get("evidence"), 2));
+      accepted.put(
+          "recommendationWarnings", firstTexts(match.get("gaps"), match.get("limitations"), 2));
+      accepted.put(
+          "recommendationEvidenceLevel", hasJobDescription(job) ? "full_jd" : "list_metadata");
+      qualified.add(accepted);
+    }
+  }
+
+  /**
+   * 候选批次及其 Runtime 评分结果。
+   */
+  private static final class ScoredRecommendationBatch {
+    private final List<Map<String, Object>> jobs;
+    private final Map<String, Object> normalized;
+
+    private ScoredRecommendationBatch(
+        List<Map<String, Object>> jobs, Map<String, Object> normalized) {
+      this.jobs = jobs;
+      this.normalized = normalized;
+    }
   }
 
   /**
@@ -1568,6 +1695,18 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
    */
   private void increment(Map<String, Integer> counters, String key) {
     counters.put(key, Integer.valueOf(counters.getOrDefault(key, Integer.valueOf(0)) + 1));
+  }
+
+  /**
+   * 按指定数量累计岗位推荐漏斗。
+   *
+   * @param counters 计数器映射
+   * @param key 业务键
+   * @param amount 增量
+   */
+  private void increment(Map<String, Integer> counters, String key, int amount) {
+    if (amount <= 0) return;
+    counters.put(key, Integer.valueOf(counters.getOrDefault(key, Integer.valueOf(0)) + amount));
   }
 
   /**

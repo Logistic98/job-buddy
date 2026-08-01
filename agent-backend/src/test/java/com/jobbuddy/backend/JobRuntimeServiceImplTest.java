@@ -1040,7 +1040,7 @@ class JobRuntimeServiceImplTest {
     JobBuddyProperties properties = new JobBuddyProperties();
     properties.setMaxJobsPerRecommend(30);
     properties.setMaxJobsPerScoring(23);
-    List<Integer> scoredBatchSizes = new ArrayList<Integer>();
+    List<Integer> scoredBatchSizes = Collections.synchronizedList(new ArrayList<Integer>());
     when(runtimeToolClient.invoke(
             any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
         .thenAnswer(
@@ -1079,7 +1079,9 @@ class JobRuntimeServiceImplTest {
     com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
         service.prequalifyRecommendations(parsedResume(), candidates, "s1");
 
-    assertEquals(java.util.Arrays.asList(4, 4, 4, 4, 4, 3), scoredBatchSizes);
+    List<Integer> sortedBatchSizes = new ArrayList<Integer>(scoredBatchSizes);
+    Collections.sort(sortedBatchSizes);
+    assertEquals(java.util.Arrays.asList(3, 4, 4, 4, 4, 4), sortedBatchSizes);
     assertEquals(23, result.getCandidateCount());
     assertEquals(2, result.getQualifiedCount());
     assertEquals(21, result.getRejectedCount());
@@ -1092,6 +1094,70 @@ class JobRuntimeServiceImplTest {
     assertEquals(
         result.getCandidateCount(), result.getQualifiedCount() + result.getRejectedCount());
     verify(runtimeToolClient, times(6))
+        .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
+  }
+
+  /**
+   * 验证岗位候选达到两个批次时，互不依赖的 Runtime 简历匹配请求会有界并发执行。
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  void prequalifyRecommendationsShouldScoreIndependentBatchesInParallel() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(5);
+    properties.setMaxJobsPerScoring(8);
+    CountDownLatch concurrentStarts = new CountDownLatch(2);
+    AtomicInteger active = new AtomicInteger();
+    AtomicInteger maxActive = new AtomicInteger();
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
+        .thenAnswer(
+            invocation -> {
+              assertEquals("tenant-a", AuthenticationScope.tenantId());
+              assertEquals("user-a", AuthenticationScope.userId());
+              int current = active.incrementAndGet();
+              maxActive.accumulateAndGet(current, Math::max);
+              concurrentStarts.countDown();
+              try {
+                concurrentStarts.await(1, TimeUnit.SECONDS);
+                RuntimeToolArguments toolArguments = invocation.getArgument(1);
+                List<Map<String, Object>> jobs =
+                    (List<Map<String, Object>>) toolArguments.toMap(JSON).get("jobs");
+                List<Map<String, Object>> matches = new ArrayList<Map<String, Object>>();
+                for (Map<String, Object> job : jobs) {
+                  String id = String.valueOf(job.get("securityId"));
+                  matches.add(recommendationMatch(id, 82, "high", "推荐"));
+                }
+                return runtimeMatch(matches.toArray(new Map[0]));
+              } finally {
+                active.decrementAndGet();
+              }
+            });
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    List<Map<String, Object>> candidates = new ArrayList<Map<String, Object>>();
+    for (int i = 0; i < 8; i++) candidates.add(realJob("parallel-" + i));
+
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendations(parsedResume(), candidates, "s1");
+
+    assertEquals(5, result.getQualifiedCount());
+    assertEquals(3, result.getRejectedCount());
+    assertEquals(3, result.getRejectionReasons().get("超出本轮展示上限"));
+    assertTrue(maxActive.get() >= 2);
+    assertEquals("tenant-a", AuthenticationScope.tenantId());
+    assertEquals("user-a", AuthenticationScope.userId());
+    verify(runtimeToolClient, times(2))
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
