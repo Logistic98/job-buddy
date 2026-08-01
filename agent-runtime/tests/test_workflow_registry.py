@@ -99,7 +99,7 @@ steps:
 async def test_workflow_metadata_reaches_task_directive_and_trace_without_external_execution():
     executor = AgentExecutor(use_llm=False)
     request = AgentRunRequest(
-        messages=[ChatMessage(role="user", content="帮我找上海 Java 后端岗位")],
+        messages=[ChatMessage(role="user", content="帮我找杭州 Go 后端岗位")],
         metadata={"profile": "job-buddy", "entrypoint": "chat.ask"},
     )
 
@@ -118,7 +118,7 @@ async def test_workflow_metadata_reaches_task_directive_and_trace_without_extern
 async def test_stream_returns_external_workflow_metadata_without_running_required_tool():
     executor = AgentExecutor(use_llm=False)
     request = AgentRunRequest(
-        messages=[ChatMessage(role="user", content="帮我找上海 Java 后端岗位")],
+        messages=[ChatMessage(role="user", content="帮我找杭州 Go 后端岗位")],
         metadata={"profile": "job-buddy", "entrypoint": "chat.ask"},
     )
 

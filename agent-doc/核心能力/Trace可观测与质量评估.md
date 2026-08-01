@@ -8,6 +8,7 @@
 - JSONL 是本地回放与规则评估的数据源，内存窗口支持实时查询。
 - 事件只追加扩展，payload 写入前限制深度和长度；
 - 上下文只记录 section 与计数，不保存正文、密钥、完整凭据或非必要个人信息。
+- 代码执行的候选源码、stdout 和 stderr 只作为鉴权聊天会话中的有界执行详情展示，不写入 Runtime Trace；Trace 仅记录工具名称、状态、时延、退出证据摘要和错误分类。
 - JSONL 目录与文件仅属主可访问。
 
 - FastAPI 中间件生成或透传 `X-Request-Id`，并通过上下文变量把 request、run、session 和 trace 标识注入 Loguru，再跨服务传播。

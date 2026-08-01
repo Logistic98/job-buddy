@@ -40,8 +40,8 @@ llm_service:
   request_cache_enabled: "${JOB_BUDDY_LLM_REQUEST_CACHE_ENABLED:true}"
   request_cache_max_entries: "${JOB_BUDDY_LLM_REQUEST_CACHE_MAX_ENTRIES:256}"
 
-  # 任务理解等结构化路由调用是否关闭模型思考链。推理模型（如 deepseek-v4-pro）默认先输出
-  # 隐藏思考再输出 JSON，会把首字延迟拉长数秒；路由分类不需要深度思考，默认关闭。
+  # 任务理解、工具证据合成等确定性调用是否关闭模型思考链。推理模型（如 deepseek-v4-pro）
+  # 默认先输出隐藏思考，会额外增加数秒延迟；这些阶段已有结构化输入，默认关闭。
   understanding_thinking_disabled: "${JOB_BUDDY_LLM_UNDERSTANDING_THINKING_DISABLED:true}"
 
 runtime:
@@ -91,13 +91,60 @@ tool_search:
   fallback_limit: "${JOB_BUDDY_TOOL_SEARCH_FALLBACK_LIMIT:5}"
 
 web_search:
-  # 联网搜索默认走 Bocha Search API。真实 Key 只能通过环境变量注入，禁止写入仓库配置。
+  # 联网搜索只走 Bocha Search API。真实 Key 只能通过环境变量注入，禁止写入仓库配置。
   provider: "${JOB_BUDDY_WEB_SEARCH_PROVIDER:bocha}"
   bocha_api_key: "${BOCHA_API_KEY:}"
   bocha_web_endpoint: "${BOCHA_WEB_SEARCH_ENDPOINT:https://api.bochaai.com/v1/web-search}"
   bocha_ai_endpoint: "${BOCHA_AI_SEARCH_ENDPOINT:https://api.bochaai.com/v1/ai-search?utm_source=job-buddy-runtime}"
   freshness: "${BOCHA_SEARCH_FRESHNESS:noLimit}"
-  fallback_to_duckduckgo: "${JOB_BUDDY_WEB_SEARCH_FALLBACK_TO_DUCKDUCKGO:true}"
+  official_fetch_max_attempts: "${JOB_BUDDY_WEB_SEARCH_OFFICIAL_FETCH_MAX_ATTEMPTS:2}"
+  official_fetch_retry_backoff_seconds: "${JOB_BUDDY_WEB_SEARCH_OFFICIAL_FETCH_RETRY_BACKOFF_SECONDS:0.2}"
+  # 对匹配主题的固定官方入口做 SSRF 受控直验；latest 结论必须满足对应 evidence strategy。
+  official_sources:
+    - domain: "openai.com"
+      title: "Models | OpenAI API"
+      fetch_url: "https://developers.openai.com/api/docs/models.md"
+      public_url: "https://developers.openai.com/api/docs/models"
+      site_name: "OpenAI"
+      trusted_hosts: ["openai.com", "developers.openai.com", "platform.openai.com", "help.openai.com", "cookbook.openai.com"]
+      aliases: ["openai", "chatgpt", "gpt"]
+      match_terms: ["模型", "model", "models"]
+      topic_terms: ["模型", "model", "models", "gpt", "chatgpt"]
+      content_markers: ["# Models"]
+      max_snippet_chars: 4000
+      strategy: "official_canonical_snapshot"
+    - domain: "anthropic.com"
+      title: "Engineering | Anthropic"
+      fetch_url: "https://www.anthropic.com/engineering"
+      public_url: "https://www.anthropic.com/engineering"
+      site_name: "Anthropic"
+      trusted_hosts: ["anthropic.com", "www.anthropic.com"]
+      aliases: ["anthropic", "authropic", "claude"]
+      match_terms: ["工程博客", "工程博文", "engineering blog", "engineering article"]
+      topic_terms: ["工程博客", "工程博文", "工程文章", "engineering blog", "engineering article", "engineering post"]
+      content_markers: ["Engineering at Anthropic"]
+      strategy: "official_catalog_published_at"
+      content_scope: "engineering_blog"
+      allowed_path_prefixes: ["/engineering/"]
+      max_candidates: 100
+      max_detail_fetches: 4
+      max_snippet_chars: 4000
+    - domain: "anthropic.com"
+      title: "Research | Anthropic"
+      fetch_url: "https://www.anthropic.com/research"
+      public_url: "https://www.anthropic.com/research"
+      site_name: "Anthropic"
+      trusted_hosts: ["anthropic.com", "www.anthropic.com"]
+      aliases: ["anthropic", "authropic", "claude"]
+      match_terms: ["工程博客", "工程博文", "工程文章", "engineering blog", "engineering article"]
+      topic_terms: ["工程博客", "工程博文", "工程文章", "engineering blog", "engineering article", "engineering post"]
+      content_markers: ["Research"]
+      strategy: "official_catalog_published_at"
+      content_scope: "engineering_blog"
+      allowed_path_prefixes: ["/research/"]
+      max_candidates: 100
+      max_detail_fetches: 4
+      max_snippet_chars: 4000
 
 web_fetch:
   # Web Fetch 在完整物化与工具结果序列化前执行的传输、解码和压缩扩张预算。
@@ -243,7 +290,7 @@ memory:
   base_url: "${JOB_BUDDY_MEMORY_BASE_URL:http://localhost:8030}"
 
   # 单次记忆检索超时时间，单位秒。超时即放弃本次记忆注入。
-  timeout_seconds: "${JOB_BUDDY_MEMORY_TIMEOUT_SECONDS:3.0}"
+  timeout_seconds: "${JOB_BUDDY_MEMORY_TIMEOUT_SECONDS:15.0}"
 
   # 注入上下文的最大记忆条数。
   top_k: "${JOB_BUDDY_MEMORY_TOP_K:5}"

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+from hashlib import sha256
 from typing import Any, Dict
 
 import httpx
@@ -14,7 +16,13 @@ from app.core.tool.base import BaseTool, ToolExecutionContext, ToolExecutionFail
 _MAX_CODE_CHARS = 200_000
 _MAX_ARGS = 32
 _MAX_ARG_CHARS = 512
+_MAX_DEPENDENCIES = 8
+_MAX_DEPENDENCY_CHARS = 128
 _OUTPUT_CHARS = 12_000
+_CODE_DETAIL_CHARS = 40_000
+_CODE_TIMEOUT_SECONDS = 25.0
+_DEPENDENCY_TIMEOUT_SECONDS = 90.0
+_DEPENDENCY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?:==[A-Za-z0-9][A-Za-z0-9.!+_-]{0,63})?$")
 _LANGUAGE_RUNTIME = {
     "python": (".py", ["python3"]),
     "javascript": (".js", ["node"]),
@@ -24,18 +32,19 @@ _LANGUAGE_RUNTIME = {
 
 
 class SandboxCodeExecuteTool(BaseTool):
-    """在无网络、一次性工作目录中执行模型生成的候选代码。"""
+    """在一次性工作目录中执行模型生成的候选代码。"""
 
     name = "sandbox_code_execute"
     aliases = ["code_execute", "run_code", "python_execute"]
     search_hint = "在隔离沙箱执行 Python JavaScript Java Shell 代码并验证输出"
     description = (
         "在 agent-sandbox 的一次性临时目录中执行候选代码并返回退出码、stdout 和 stderr。"
-        "仅支持固定语言枚举，不允许指定解释器、cwd、网络或文件系统策略。"
+        "Python 可声明至多 8 个 PyPI 依赖，由 Sandbox 在一次性目录中安装 wheel；"
+        "代码执行阶段仍关闭网络。仅支持固定语言枚举，不允许指定解释器、cwd、网络或文件系统策略。"
     )
     kind = ToolKind.CODE
     risk_level = ToolRiskLevel.MEDIUM
-    timeout_seconds = 25
+    timeout_seconds = 125
     max_retries = 0
     input_schema = {
         "type": "object",
@@ -57,6 +66,17 @@ class SandboxCodeExecuteTool(BaseTool):
                 "maxItems": _MAX_ARGS,
                 "default": [],
             },
+            "dependencies": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "maxLength": _MAX_DEPENDENCY_CHARS,
+                    "pattern": _DEPENDENCY_PATTERN.pattern,
+                },
+                "maxItems": _MAX_DEPENDENCIES,
+                "default": [],
+                "description": "仅 Python 可用；PyPI 包名或 package==version，不接受 URL、VCS、路径或安装参数",
+            },
         },
         "required": ["language", "code"],
         "additionalProperties": False,
@@ -69,6 +89,7 @@ class SandboxCodeExecuteTool(BaseTool):
             "stdout": {"type": "string"},
             "stderr": {"type": "string"},
             "sandboxed": {"type": "boolean", "const": True},
+            "dependencies": {"type": "array", "items": {"type": "string"}},
         },
         "required": ["language", "exit_code", "stdout", "stderr", "sandboxed"],
     }
@@ -76,6 +97,19 @@ class SandboxCodeExecuteTool(BaseTool):
     read_only = True
     destructive = False
     concurrency_safe = True
+
+    def _normalize_output(self, tool_call, output: Any) -> tuple[Any, Dict[str, Any]]:
+        """在 ToolResult 专用元数据中附带有界源码，供鉴权会话展示而不污染工具观察。"""
+
+        normalized_output, base_metadata = super()._normalize_output(tool_call, output)
+        code = str(tool_call.arguments.get("code") or "")
+        execution_detail = {
+            "code": code[:_CODE_DETAIL_CHARS],
+            "code_chars": len(code),
+            "code_sha256": sha256(code.encode("utf-8", errors="replace")).hexdigest(),
+            "code_truncated": len(code) > _CODE_DETAIL_CHARS,
+        }
+        return normalized_output, {**base_metadata, "execution_detail": execution_detail}
 
     async def validate_input(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> ValidationResult:
         base = await super().validate_input(arguments, context)
@@ -108,7 +142,32 @@ class SandboxCodeExecuteTool(BaseTool):
                 message=f"args 每项必须是长度不超过 {_MAX_ARG_CHARS} 的字符串",
                 error_code=400,
             )
-        unexpected = set(arguments) - {"language", "code", "args"}
+        dependencies = arguments.get("dependencies", [])
+        if not isinstance(dependencies, list) or len(dependencies) > _MAX_DEPENDENCIES:
+            return ValidationResult(
+                result=False,
+                message=f"dependencies 最多允许 {_MAX_DEPENDENCIES} 项",
+                error_code=400,
+            )
+        if dependencies and language != "python":
+            return ValidationResult(result=False, message="dependencies 仅 Python 代码执行可用", error_code=400)
+        seen_dependencies: set[str] = set()
+        for dependency in dependencies:
+            if (
+                not isinstance(dependency, str)
+                or len(dependency) > _MAX_DEPENDENCY_CHARS
+                or not _DEPENDENCY_PATTERN.fullmatch(dependency.strip())
+            ):
+                return ValidationResult(
+                    result=False,
+                    message="Python 依赖格式仅支持 PyPI 包名或 package==version",
+                    error_code=400,
+                )
+            identity = dependency.split("==", 1)[0].lower().replace("_", "-").replace(".", "-")
+            if identity in seen_dependencies:
+                return ValidationResult(result=False, message=f"Python 依赖重复: {dependency}", error_code=400)
+            seen_dependencies.add(identity)
+        unexpected = set(arguments) - {"language", "code", "args", "dependencies"}
         if unexpected:
             return ValidationResult(
                 result=False,
@@ -122,12 +181,15 @@ class SandboxCodeExecuteTool(BaseTool):
         suffix, interpreter = _LANGUAGE_RUNTIME[language]
         config = settings.config.tool_runtime
         base_url = config.shell_sandbox_base_url.rstrip("/")
-        timeout = float(config.shell_sandbox_timeout_seconds)
+        dependencies = [str(item).strip() for item in arguments.get("dependencies") or []]
+        operation_timeout = _CODE_TIMEOUT_SECONDS
+        timeout = operation_timeout + (_DEPENDENCY_TIMEOUT_SECONDS if dependencies else 0.0) + 5.0
         payload = {
             "code": arguments["code"],
             "suffix": suffix,
             "interpreter": interpreter,
             "args": list(arguments.get("args") or []),
+            "dependencies": dependencies,
             "policy": {
                 "network": {
                     "allowedDomains": [],
@@ -144,10 +206,12 @@ class SandboxCodeExecuteTool(BaseTool):
                 },
             },
             "options": {
-                "timeout": float(self.timeout_seconds),
+                "timeout": operation_timeout,
                 "check": False,
             },
         }
+        if dependencies:
+            payload["dependency_timeout"] = _DEPENDENCY_TIMEOUT_SECONDS
         headers = {}
         token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
         if token:
@@ -185,6 +249,8 @@ class SandboxCodeExecuteTool(BaseTool):
             "stderr": stderr,
             "sandboxed": True,
         }
+        if dependencies:
+            evidence["dependencies"] = dependencies
         if return_code != 0:
             raise ToolExecutionFailure(
                 f"候选代码在 agent-sandbox 中执行失败，退出码 {return_code}",

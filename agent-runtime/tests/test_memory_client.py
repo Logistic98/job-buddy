@@ -39,10 +39,10 @@ def test_memory_client_returns_normalized_refs(monkeypatch, memory_enabled):
             {
                 "id": "mem_1",
                 "scope": "session",
-                "content": "偏好上海 Java 大模型应用开发岗位",
+                "content": "偏好杭州 Go 云原生平台开发岗位",
                 "created_at": "2026-06-01",
             },
-            {"id": "mem_2", "scope": "session", "content": "期望薪资 40-50k", "created_at": "2026-06-02"},
+            {"id": "mem_2", "scope": "session", "content": "期望薪资 25-35k", "created_at": "2026-06-02"},
         ],
     }
     captured = {}

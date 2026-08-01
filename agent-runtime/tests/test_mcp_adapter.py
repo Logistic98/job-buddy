@@ -184,7 +184,7 @@ async def test_adapter_run_returns_structured_payload():
         call_results={
             "get_recommend_jobs_tool": {
                 "is_error": False,
-                "structured": {"jobs": [{"jobName": "Java 大模型应用开发", "salaryDesc": "40-50K"}]},
+                "structured": {"jobs": [{"jobName": "Java 云原生后端开发", "salaryDesc": "20-30K"}]},
                 "text": None,
             }
         },
@@ -201,7 +201,7 @@ async def test_adapter_run_returns_structured_payload():
     result = await adapter.safe_run(call, _tool_context())
 
     assert result.success is True
-    assert result.output == {"jobs": [{"jobName": "Java 大模型应用开发", "salaryDesc": "40-50K"}]}
+    assert result.output == {"jobs": [{"jobName": "Java 云原生后端开发", "salaryDesc": "20-30K"}]}
     assert stub.calls == [("get_recommend_jobs_tool", {"page": 1})]
 
 

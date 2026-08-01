@@ -110,6 +110,12 @@ async def test_task_understanding_trace_uses_measured_duration_at_top_level(tmp_
         "strategy": "llm",
         "model_called": True,
     }
+    task.metadata["web_search_decision"] = {
+        "mode": "required",
+        "trigger": "autonomous",
+        "reason": "问题依赖可能变化的时效性事实",
+        "signals": ["temporal_freshness", "volatile_fact"],
+    }
 
     class _TaskService:
         async def understand(self, *args, **kwargs):
@@ -144,6 +150,13 @@ async def test_task_understanding_trace_uses_measured_duration_at_top_level(tmp_
         if item.event == TraceEventName.TASK_UNDERSTANDING.value
     )
     assert event.duration_ms == 137
+    assert event.payload["web_search_decision"]["mode"] == "required"
+    route_event = next(
+        item
+        for item in builder.trace_recorder.list_by_run("run_understanding_duration")
+        if item.event == TraceEventName.CAPABILITY_ROUTE.value
+    )
+    assert route_event.payload["web_search_decision"]["trigger"] == "autonomous"
 
 
 @pytest.mark.asyncio

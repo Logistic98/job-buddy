@@ -46,4 +46,7 @@ class AgentGraphState(TypedDict, total=False):
     context_payload: Dict[str, Any]
     metrics: Dict[str, Any]
     _resume_skip_until: Optional[str]
+    _resume_mode: Optional[str]
     _resumed_from_run_id: Optional[str]
+    _resumed_from_stage: Optional[str]
+    _invalid_plan_replan_attempts: int

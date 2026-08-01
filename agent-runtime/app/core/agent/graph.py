@@ -154,24 +154,30 @@ class AgentGraphBuilder:
         duration_ms = understanding_metrics.get("duration_ms")
         if not isinstance(duration_ms, int) or isinstance(duration_ms, bool):
             duration_ms = None
+        task_payload = {
+            "profile": result.profile,
+            "router": result.router,
+            "domain": result.intent.domain,
+            "intent": result.intent.intent,
+            "confidence": result.intent.confidence,
+            "next_action": result.next_action,
+            "needs_clarification": result.clarification.needed,
+        }
+        web_search_decision = result.metadata.get("web_search_decision")
+        if isinstance(web_search_decision, dict):
+            task_payload["web_search_decision"] = dict(web_search_decision)
         await self.trace_recorder.record(
             state["trace_id"],
             TraceEventName.TASK_UNDERSTANDING.value,
-            {
-                "profile": result.profile,
-                "router": result.router,
-                "domain": result.intent.domain,
-                "intent": result.intent.intent,
-                "confidence": result.intent.confidence,
-                "next_action": result.next_action,
-                "needs_clarification": result.clarification.needed,
-            },
+            task_payload,
             run_id=state["run_id"],
             node_id="task_understanding_node",
             status="success",
             duration_ms=duration_ms,
         )
         route_payload = result.routing.model_dump()
+        if isinstance(web_search_decision, dict):
+            route_payload["web_search_decision"] = dict(web_search_decision)
         workflow = result.metadata.get("workflow") if isinstance(result.metadata, dict) else None
         if isinstance(workflow, dict):
             route_payload["workflow"] = dict(workflow)
@@ -495,10 +501,7 @@ class AgentGraphBuilder:
             item for item in results if not item.metadata.get("synthetic") and item.tool_call_id not in consumed
         ]
         for result in fresh_results:
-            if result.success:
-                state.setdefault("observations", []).append(f"工具 {result.tool_name} 执行成功：{result.output}")
-            else:
-                state.setdefault("observations", []).append(f"工具 {result.tool_name} 执行失败：{result.error}")
+            state.setdefault("observations", []).append(self._tool_observation(result))
             consumed.add(result.tool_call_id)
         state["observed_tool_call_ids"] = list(consumed)
 
@@ -536,6 +539,53 @@ class AgentGraphBuilder:
         await self.checkpoint_store.save(state["session_id"], state["run_id"], "observe", state)
         return state
 
+    def _tool_observation(self, result: ToolResult) -> str:
+        """压缩工具观察；官方来源优先，缺失时保留第三方结果供答案合成。"""
+
+        if not result.success:
+            return f"工具 {result.tool_name} 执行失败：{result.error}"
+        output = result.output
+        if result.tool_name != "web_search" or not isinstance(output, dict):
+            return f"工具 {result.tool_name} 执行成功：{output}"
+        preferred_domains = output.get("preferred_source_domains") or []
+        if not preferred_domains:
+            return f"工具 {result.tool_name} 执行成功：{output}"
+        official_rows = [
+            row
+            for row in (output.get("results") or [])
+            if isinstance(row, dict) and row.get("source_tier") == "official"
+        ]
+        result_rows = [row for row in (output.get("results") or []) if isinstance(row, dict)]
+        selected_rows = official_rows or result_rows
+        using_official_rows = bool(official_rows)
+        safe_output = {
+            **output,
+            "results": selected_rows,
+            "third_party_results_omitted": sum(
+                isinstance(row, dict) and row.get("source_tier") == "third_party"
+                for row in (output.get("results") or [])
+            )
+            if using_official_rows
+            else 0,
+            "out_of_scope_official_results_omitted": sum(
+                isinstance(row, dict) and row.get("source_tier") == "official_out_of_scope"
+                for row in (output.get("results") or [])
+            )
+            if using_official_rows
+            else 0,
+        }
+        if not using_official_rows:
+            for field in (
+                "preferred_source_domains",
+                "preferred_source_trusted_hosts",
+                "preferred_source_found",
+                "official_source_count",
+                "official_verification",
+                "warnings",
+            ):
+                safe_output.pop(field, None)
+        return f"工具 {result.tool_name} 执行成功：{safe_output}"
+
     async def _reflect(self, state: AgentGraphState) -> AgentGraphState:
         if self._should_skip_resume_stage(state, "reflect"):
             return state
@@ -570,10 +620,15 @@ class AgentGraphBuilder:
                     }
                 )
 
-        # 决策优先级固定为人工确认、终止、重规划和重试。
+        plan_complete = bool(plan and plan.steps) and all(
+            step.status in {StepStatus.SUCCESS, StepStatus.SKIPPED} for step in plan.steps
+        )
+        # 决策优先级固定为人工确认、终止、已完成计划收口、重规划和重试。
         if state.get("status") == RuntimeStatus.NEED_CONFIRM.value:
             decision = "need_confirm"
         elif state.get("should_stop"):
+            decision = "finalize"
+        elif current_results and all(item.success for item in current_results) and plan_complete:
             decision = "finalize"
         elif current_results and all(item.success for item in current_results):
             decision = "replan"

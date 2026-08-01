@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.core.common.constants import StopReason
 from app.core.common.settings import settings
+from app.core.common.temporal import requests_latest_selection
 from app.core.prompt.loader import PromptTemplateLoader
 from app.core.utils.time_utils import TimeUtils
 from app.models.schemas import AgentPlan, AgentPlanStep, ChatMessage, TaskUnderstandingResult, ToolCall, ToolDefinition
@@ -86,7 +87,12 @@ class RuntimePlanner:
             response = await self.llm_client.chat(planner_messages)
             content = response.get("content") or "{}"
             data = self._parse_json(content)
-            plan, calls = self._build_plan_and_calls(objective, data, tools)
+            plan, calls = self._build_plan_and_calls(
+                objective,
+                data,
+                tools,
+                task_understanding=task_understanding,
+            )
             return plan, calls[0] if calls else None
         except Exception as e:
             logger.warning(f"Planner 模型调用失败，使用降级计划：error={e}")
@@ -99,6 +105,7 @@ class RuntimePlanner:
         objective: str,
         data: dict,
         tools: List[ToolDefinition],
+        task_understanding: Optional[TaskUnderstandingResult] = None,
     ) -> tuple[AgentPlan, List[ToolCall]]:
         available_tool_names = {tool.name for tool in tools}
         raw_steps = [item for item in (data.get("plan_steps", []) or []) if isinstance(item, dict)]
@@ -116,7 +123,12 @@ class RuntimePlanner:
             step_arguments = item.get("tool_arguments")
             if not isinstance(step_arguments, dict):
                 step_arguments = {}
-            step_arguments = self._normalize_tool_arguments(tool_name, step_arguments, objective)
+            step_arguments = self._normalize_tool_arguments(
+                tool_name,
+                step_arguments,
+                objective,
+                task_understanding,
+            )
             # LLM 常用数字索引表达依赖。缺省步骤 ID 采用稳定的 step_N，数字依赖按 0-based
             # 索引解析；字符串若已命中显式步骤 ID，则优先按 ID 处理。越界索引保留字符串，
             # 交由 Graph 依赖校验产生明确失败，而不是随机 ID 导致不可复现的误判。
@@ -125,7 +137,18 @@ class RuntimePlanner:
                 raw_dependencies = []
             elif not isinstance(raw_dependencies, (list, tuple, set)):
                 raw_dependencies = [raw_dependencies]
-            depends_on = [self._normalize_step_reference(dep, step_ids) for dep in raw_dependencies if dep is not None]
+            numeric_base = self._dependency_numeric_base(raw_dependencies)
+            depends_on = [
+                self._normalize_step_reference(
+                    dep,
+                    step_ids,
+                    raw_steps=raw_steps,
+                    before_index=index,
+                    numeric_base=numeric_base,
+                )
+                for dep in raw_dependencies
+                if dep is not None
+            ]
             steps.append(
                 AgentPlanStep(
                     id=step_id,
@@ -158,7 +181,12 @@ class RuntimePlanner:
                 call_arguments = item.get("arguments")
                 if not isinstance(call_arguments, dict):
                     call_arguments = {}
-                call_arguments = self._normalize_tool_arguments(name, call_arguments, objective)
+                call_arguments = self._normalize_tool_arguments(
+                    name,
+                    call_arguments,
+                    objective,
+                    task_understanding,
+                )
                 calls.append(
                     ToolCall(
                         id=f"toolu_{TimeUtils.gen_step_id()}",
@@ -189,10 +217,21 @@ class RuntimePlanner:
             plan.stop_reason = StopReason.NEED_CLARIFICATION.value
         return plan, [] if plan.is_complete or plan.need_clarification else calls
 
-    def _normalize_tool_arguments(self, tool_name: str | None, arguments: dict, objective: str) -> dict:
-        """补齐可由用户目标确定性推导的代码语言，不猜测代码正文或执行策略。"""
+    def _normalize_tool_arguments(
+        self,
+        tool_name: str | None,
+        arguments: dict,
+        objective: str,
+        task_understanding: Optional[TaskUnderstandingResult] = None,
+    ) -> dict:
+        """把任务理解中的确定性约束覆盖到不可信的 Planner 工具参数。"""
 
         normalized = dict(arguments)
+        if tool_name == "web_search":
+            return {
+                **normalized,
+                **self._web_search_selection_arguments(objective, task_understanding),
+            }
         if tool_name != "sandbox_code_execute" or normalized.get("language"):
             return normalized
         objective_text = (objective or "").lower()
@@ -206,6 +245,39 @@ class RuntimePlanner:
         elif "python" in objective_text:
             language = "python"
         return {**normalized, "language": language} if language else normalized
+
+    def _web_search_selection_arguments(
+        self,
+        objective: str,
+        task_understanding: Optional[TaskUnderstandingResult],
+    ) -> dict:
+        rewrite = task_understanding.rewritten_query if task_understanding else None
+        combined = " ".join(
+            str(item or "")
+            for item in (
+                objective,
+                rewrite.resolved_query if rewrite else "",
+                rewrite.retrieval_query if rewrite else "",
+                rewrite.planner_query if rewrite else "",
+            )
+        )
+        latest = bool((rewrite and rewrite.selection_mode == "latest") or requests_latest_selection(combined))
+        if not latest:
+            return {}
+        content_scope = rewrite.content_scope if rewrite else ""
+        if not content_scope and re.search(
+            r"工程(?:博客|博文|文章)|engineering\s+(?:blog|article|post)",
+            combined,
+            re.IGNORECASE,
+        ):
+            content_scope = "engineering_blog"
+        return {
+            "selection_mode": "latest",
+            "as_of_date": (rewrite.as_of_date if rewrite and rewrite.as_of_date else TimeUtils.get_current_date()),
+            "source_preference": "official_first",
+            **({"time_range_start": rewrite.time_range_start} if rewrite and rewrite.time_range_start else {}),
+            **({"content_scope": content_scope} if content_scope else {}),
+        }
 
     def _fallback_plan(
         self,
@@ -294,20 +366,88 @@ class RuntimePlanner:
             return False
         if any("执行失败" in str(item) for item in observations):
             return False
+        contract = (
+            task_understanding.metadata.get("capability_contract")
+            if task_understanding and isinstance(task_understanding.metadata, dict)
+            else None
+        )
+        required = {str(item) for item in ((contract or {}).get("required_tools") or [])}
+        if required:
+            succeeded = set()
+            for observation in observations:
+                match = re.match(r"^工具\s+([^\s：:]+)\s+执行成功[：:]", str(observation).strip())
+                if match:
+                    succeeded.add(match.group(1))
+            if not required.issubset(succeeded):
+                return False
         if task_understanding and task_understanding.planner_constraints.planner_needed and len(observations) < 1:
             return False
         return True
 
-    def _normalize_step_reference(self, value, step_ids: List[str]) -> str:
+    def _normalize_step_reference(
+        self,
+        value,
+        step_ids: List[str],
+        *,
+        raw_steps: Optional[List[dict]] = None,
+        before_index: Optional[int] = None,
+        numeric_base: int = 1,
+    ) -> str:
         if isinstance(value, int) and not isinstance(value, bool):
-            return step_ids[value] if 0 <= value < len(step_ids) else str(value)
+            index = value - numeric_base
+            return step_ids[index] if 0 <= index < len(step_ids) else str(value)
         normalized = str(value).strip()
         if normalized in step_ids:
             return normalized
-        if normalized.isdigit():
-            index = int(normalized)
+        human_step = re.fullmatch(r"(?:步骤|step)\s*(\d+)", normalized, flags=re.IGNORECASE)
+        if human_step:
+            index = int(human_step.group(1)) - 1
             return step_ids[index] if 0 <= index < len(step_ids) else normalized
+        if normalized.isdigit():
+            index = int(normalized) - numeric_base
+            return step_ids[index] if 0 <= index < len(step_ids) else normalized
+        matched_tool_step = self._match_prior_tool_dependency(
+            normalized,
+            step_ids=step_ids,
+            raw_steps=raw_steps,
+            before_index=before_index,
+        )
+        if matched_tool_step:
+            return matched_tool_step
         return normalized
+
+    @staticmethod
+    def _dependency_numeric_base(values) -> int:
+        """含 0 的旧式列表按 0-based 解释，其余数字按人类常用的 1-based 解释。"""
+
+        for value in values:
+            if isinstance(value, int) and not isinstance(value, bool) and value == 0:
+                return 0
+            if isinstance(value, str) and value.strip() == "0":
+                return 0
+        return 1
+
+    @staticmethod
+    def _match_prior_tool_dependency(
+        value: str,
+        *,
+        step_ids: List[str],
+        raw_steps: Optional[List[dict]],
+        before_index: Optional[int],
+    ) -> Optional[str]:
+        """只把“唯一前序工具 + 成功状态”归一为步骤 ID，不对模糊文本猜测。"""
+
+        if raw_steps is None or before_index is None or before_index <= 0:
+            return None
+        matches: List[str] = []
+        for index, item in enumerate(raw_steps[:before_index]):
+            tool_name = str(item.get("tool_name") or "").strip()
+            if not tool_name:
+                continue
+            pattern = rf"^{re.escape(tool_name)}\s*(?:成功|完成|通过|success|succeeded|completed)$"
+            if re.fullmatch(pattern, value, flags=re.IGNORECASE):
+                matches.append(step_ids[index])
+        return matches[0] if len(matches) == 1 else None
 
     def _is_deterministic_tool_request(self, objective: str, tools: List[ToolDefinition]) -> bool:
         return any(
@@ -408,6 +548,10 @@ class RuntimePlanner:
             search_query = rewrite.retrieval_query or rewrite.resolved_query
             if search_query and search_query.strip():
                 args["query"] = search_query.strip()
+            args = {
+                **args,
+                **self._web_search_selection_arguments(objective, task_understanding),
+            }
         return args
 
     def _can_build_default_arguments(self, tool: ToolDefinition) -> bool:

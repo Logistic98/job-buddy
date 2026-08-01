@@ -113,6 +113,46 @@ async def test_fallback_completes_when_observations_present(tool_defs):
     assert "abc" in (plan.final_answer or "")
 
 
+def test_unrelated_success_observation_does_not_satisfy_required_tool_contract():
+    capability = CapabilityCard(
+        id="runtime.code_generation_task",
+        name="代码生成",
+        domain="runtime",
+        intent="code_generation_task",
+        next_action="run_runtime_planner",
+        planner_needed=True,
+        required_tools=["sandbox_code_execute"],
+        allowed_tools=["sandbox_code_execute", "grep"],
+    )
+    profile = ProfileDefinition(id="job-buddy", name="JobBuddy", capabilities=[capability])
+    task = TaskResultBuilder(CapabilityRegistry()).build(
+        profile=profile,
+        message="生成代码并执行验证",
+        trace_id="trace-required-tool",
+        capability=capability,
+        candidates=[],
+        confidence=1.0,
+        slots={},
+        router="llm",
+        reason="test",
+    )
+
+    assert (
+        RuntimePlanner()._observations_are_sufficient(
+            task,
+            ["工具 grep 执行成功：{'matches': [], 'count': 0}"],
+        )
+        is False
+    )
+    assert (
+        RuntimePlanner()._observations_are_sufficient(
+            task,
+            ["工具 sandbox_code_execute 执行成功：{'sandboxed': True, 'exit_code': 0}"],
+        )
+        is True
+    )
+
+
 @pytest.mark.asyncio
 async def test_web_search_fallback_uses_retrieval_query_instead_of_planner_objective(tool_defs):
     capability = CapabilityCard(
@@ -213,6 +253,86 @@ def test_build_plan_assigns_deterministic_ids_and_normalizes_numeric_dependencie
     assert [step.id for step in plan.steps] == ["step_1", "step_2"]
     assert plan.steps[1].depends_on == ["step_1"]
     assert [call.plan_step_id for call in calls] == ["step_1", "step_2"]
+
+
+@pytest.mark.parametrize("dependency", [1, "1", "步骤 1"])
+def test_build_plan_normalizes_human_step_number_to_first_step(tool_defs, dependency):
+    planner = RuntimePlanner(llm_client=None)
+    plan, _ = planner._build_plan_and_calls(
+        "目标",
+        {
+            "plan_steps": [
+                {"id": "first", "goal": "第一步"},
+                {"id": "second", "goal": "第二步", "depends_on": [dependency]},
+            ]
+        },
+        tool_defs,
+    )
+
+    assert plan.steps[1].depends_on == ["first"]
+
+
+def test_build_plan_normalizes_success_dependency_to_unique_prior_tool_step(tool_defs):
+    planner = RuntimePlanner(llm_client=None)
+    plan, calls = planner._build_plan_and_calls(
+        "运行包含 numpy 的 Python 示例并给出结果",
+        {
+            "plan_steps": [
+                {
+                    "id": "execute_code",
+                    "goal": "隔离执行候选代码",
+                    "tool_name": "sandbox_code_execute",
+                    "tool_arguments": {
+                        "language": "python",
+                        "code": "import numpy as np; print(np.arange(3))",
+                        "dependencies": ["numpy"],
+                    },
+                },
+                {
+                    "id": "build_answer",
+                    "goal": "根据执行结果整理答案",
+                    "depends_on": ["sandbox_code_execute 成功"],
+                    "defer": True,
+                },
+            ]
+        },
+        tool_defs,
+    )
+
+    assert plan.steps[1].depends_on == ["execute_code"]
+    assert calls[0].plan_step_id == "execute_code"
+
+
+def test_build_plan_does_not_guess_ambiguous_tool_dependency(tool_defs):
+    planner = RuntimePlanner(llm_client=None)
+    plan, _ = planner._build_plan_and_calls(
+        "运行两个 Python 示例并整理结果",
+        {
+            "plan_steps": [
+                {
+                    "id": "execute_first",
+                    "goal": "执行第一个示例",
+                    "tool_name": "sandbox_code_execute",
+                    "tool_arguments": {"language": "python", "code": "print(1)"},
+                },
+                {
+                    "id": "execute_second",
+                    "goal": "执行第二个示例",
+                    "tool_name": "sandbox_code_execute",
+                    "tool_arguments": {"language": "python", "code": "print(2)"},
+                },
+                {
+                    "id": "build_answer",
+                    "goal": "整理结果",
+                    "depends_on": ["sandbox_code_execute 成功"],
+                    "defer": True,
+                },
+            ]
+        },
+        tool_defs,
+    )
+
+    assert plan.steps[2].depends_on == ["sandbox_code_execute 成功"]
 
 
 def test_build_plan_keeps_out_of_range_numeric_dependency_for_graph_validation(tool_defs):
@@ -338,3 +458,107 @@ async def test_profile_specific_planner_prompt_reaches_runtime_planner(tmp_path)
     assert llm.messages[0].content == "custom planner instructions"
     assert plan.final_answer == "custom prompt applied"
     assert call is None
+
+
+def _latest_engineering_search_task():
+    capability = CapabilityCard(
+        id="open_domain.technical_qa",
+        name="开放域技术问答",
+        domain="open_domain",
+        intent="technical_qa",
+        next_action="run_runtime_planner",
+        planner_needed=True,
+        required_tools=["web_search"],
+        allowed_tools=["web_search"],
+    )
+    profile = ProfileDefinition(id="job-buddy", name="JobBuddy", capabilities=[capability])
+    task = TaskResultBuilder(CapabilityRegistry()).build(
+        profile=profile,
+        message="Anthropic 最新工程博客",
+        trace_id="trace-latest-engineering",
+        capability=capability,
+        candidates=[],
+        confidence=1.0,
+        slots={},
+        router="llm",
+        reason="test",
+    )
+    task.rewritten_query.resolved_query = "查找 Anthropic 最新发布的工程博客"
+    task.rewritten_query.retrieval_query = "Anthropic 最新工程博客"
+    task.rewritten_query.planner_query = "联网搜索 Anthropic 官方来源并查找最新工程博客"
+    return task
+
+
+@pytest.mark.parametrize(
+    "objective",
+    ["Anthropic 最近发布的一篇工程博客", "Anthropic 最近发布的工程博客", "Anthropic 最晚发布的工程博客"],
+)
+def test_planner_recognizes_latest_release_synonyms(monkeypatch, objective):
+    monkeypatch.setattr(
+        "app.core.planner.planner.TimeUtils.get_current_date",
+        lambda: "2026-08-01",
+    )
+
+    arguments = RuntimePlanner(llm_client=None)._web_search_selection_arguments(objective, None)
+
+    assert arguments["selection_mode"] == "latest"
+    assert arguments["as_of_date"] == "2026-08-01"
+    assert arguments["source_preference"] == "official_first"
+
+
+@pytest.mark.asyncio
+async def test_latest_engineering_search_fallback_injects_structured_selection_policy(tool_defs, monkeypatch):
+    monkeypatch.setattr(
+        "app.core.planner.planner.TimeUtils.get_current_date",
+        lambda: "2026-08-01",
+    )
+    task = _latest_engineering_search_task()
+
+    _, call = await RuntimePlanner(llm_client=None).create_or_update_plan(
+        objective=task.rewritten_query.planner_query,
+        messages=[],
+        observations=[],
+        tools=[tool for tool in tool_defs if tool.name == "web_search"],
+        task_understanding=task,
+    )
+
+    assert call is not None
+    assert call.name == "web_search"
+    assert call.arguments["query"] == "Anthropic 最新工程博客"
+    assert call.arguments["selection_mode"] == "latest"
+    assert call.arguments["as_of_date"] == "2026-08-01"
+    assert call.arguments["source_preference"] == "official_first"
+    assert call.arguments["content_scope"] == "engineering_blog"
+
+
+def test_llm_plan_normalization_overrides_untrusted_latest_selection_arguments(tool_defs, monkeypatch):
+    monkeypatch.setattr(
+        "app.core.planner.planner.TimeUtils.get_current_date",
+        lambda: "2026-08-01",
+    )
+    task = _latest_engineering_search_task()
+    planner = RuntimePlanner(llm_client=None)
+
+    _, calls = planner._build_plan_and_calls(
+        task.rewritten_query.planner_query,
+        {
+            "tool_call": {
+                "name": "web_search",
+                "arguments": {
+                    "query": "Anthropic 最新工程博客",
+                    "selection_mode": "relevance",
+                    "as_of_date": "2025-01-01",
+                    "source_preference": "balanced",
+                    "content_scope": "news",
+                },
+            }
+        },
+        [tool for tool in tool_defs if tool.name == "web_search"],
+        task_understanding=task,
+    )
+
+    assert calls[0].arguments["query"] == "Anthropic 最新工程博客"
+    assert calls[0].arguments["selection_mode"] == "latest"
+    assert calls[0].arguments["as_of_date"] == "2026-08-01"
+    assert calls[0].arguments["source_preference"] == "official_first"
+    assert calls[0].arguments["content_scope"] == "engineering_blog"

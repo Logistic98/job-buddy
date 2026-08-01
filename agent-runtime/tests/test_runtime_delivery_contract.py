@@ -23,7 +23,7 @@ class _StreamingLlm:
         self.max_tokens = None
         self.messages = None
 
-    async def stream_chat(self, messages, max_tokens=None):
+    async def stream_chat(self, messages, max_tokens=None, disable_thinking=False):
         self.max_tokens = max_tokens
         self.messages = messages
         yield {"type": "text", "text": "ok"}
@@ -158,7 +158,7 @@ async def test_failed_run_has_failed_top_level_trace_status():
     run_end = [event for event in response.trace_events if event.event == "run_end"][-1]
     assert response.status.value == "fail"
     assert run_end.status == "failed"
-    assert run_end.error == "contract failure"
+    assert run_end.error == "RuntimeError: contract failure"
 
 
 @pytest.mark.asyncio

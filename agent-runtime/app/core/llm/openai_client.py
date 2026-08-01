@@ -225,7 +225,11 @@ class OpenAICompatibleClient:
             pass
 
     async def stream_chat(
-        self, messages: List[ChatMessage], temperature: Optional[float] = None, max_tokens: Optional[int] = None
+        self,
+        messages: List[ChatMessage],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        disable_thinking: bool = False,
     ) -> AsyncIterator[Dict[str, str]]:
         """流式问答，逐段 yield {"type": "reasoning"|"answer", "text": ...}。
 
@@ -233,7 +237,14 @@ class OpenAICompatibleClient:
         两者都逐字下发：reasoning 作为可见的推理过程，answer 作为最终答案，避免思考阶段长时间空白。
         """
         await self._ensure_model()
-        payload = self._build_payload(messages, None, temperature, max_tokens, stream=True)
+        payload = self._build_payload(
+            messages,
+            None,
+            temperature,
+            max_tokens,
+            stream=True,
+            disable_thinking=disable_thinking,
+        )
         try:
             async with self._client().stream(
                 "POST", self.chat_completions_url, headers=self._headers(), json=payload

@@ -13,6 +13,8 @@ async def test_boss_browser_tool_is_registered_as_deferred_builtin(fresh_registr
     assert definition.should_defer is True
     assert definition.always_load is False
     assert definition.read_only is False
+    assert definition.max_retries == 0
+    assert definition.concurrency_safe is False
     assert "agent-tool" in definition.description
 
 

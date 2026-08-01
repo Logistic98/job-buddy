@@ -146,11 +146,12 @@ class _FakeSandboxResponse:
 
 class _FakeSandboxClient:
     last_payload = None
+    last_timeout = None
     fail_with = None
     response_body = None
 
     def __init__(self, *args, **kwargs):
-        pass
+        _FakeSandboxClient.last_timeout = kwargs.get("timeout")
 
     async def __aenter__(self):
         return self
@@ -186,6 +187,12 @@ async def test_sandbox_code_execute_uses_fixed_interpreter_and_isolated_policy(
     assert result.output["exit_code"] == 0
     assert result.output["sandboxed"] is True
     assert result.output["language"] == "python"
+    assert result.metadata["execution_detail"] == {
+        "code": "print('JobBuddy'.count('d'))",
+        "code_chars": 28,
+        "code_sha256": "29b73d12849ffbe3ced9eeec821e0eb299cf570d4f9b2ca10615fcf1e8eb500e",
+        "code_truncated": False,
+    }
     payload = _FakeSandboxClient.last_payload
     assert payload["url"].endswith("/v1/code-file")
     assert payload["json"]["code"] == "print('JobBuddy'.count('d'))"
@@ -194,6 +201,89 @@ async def test_sandbox_code_execute_uses_fixed_interpreter_and_isolated_policy(
     assert "cwd" not in payload["json"]["options"]
     assert payload["json"]["policy"]["network"]["allowedDomains"] == []
     assert payload["json"]["policy"]["filesystem"]["allowWrite"] == []
+
+
+@pytest.mark.asyncio
+async def test_sandbox_code_execute_forwards_isolated_python_dependencies(fresh_registry, tool_context, monkeypatch):
+    _FakeSandboxClient.fail_with = None
+    _FakeSandboxClient.last_payload = None
+    _FakeSandboxClient.last_timeout = None
+    _FakeSandboxClient.response_body = None
+    monkeypatch.setattr(sandbox_code_tool_module.httpx, "AsyncClient", _FakeSandboxClient)
+
+    result = await ToolRuntime(fresh_registry).execute(
+        ToolCall(
+            id="code_dependencies",
+            name="sandbox_code_execute",
+            arguments={
+                "language": "python",
+                "code": "import numpy as np; print(np.arange(3))",
+                "dependencies": ["numpy==2.2.6"],
+            },
+        ),
+        PermissionMode.DEFAULT,
+        tool_context,
+    )
+
+    assert result.success
+    definition = fresh_registry.get("sandbox_code_execute").definition()
+    assert definition.input_schema["properties"]["dependencies"]["maxItems"] == 8
+    assert _FakeSandboxClient.last_payload["json"]["dependencies"] == ["numpy==2.2.6"]
+    assert _FakeSandboxClient.last_payload["json"]["dependency_timeout"] == 90
+    assert _FakeSandboxClient.last_payload["json"]["options"]["timeout"] == 25
+    assert _FakeSandboxClient.last_timeout == 120
+    assert _FakeSandboxClient.last_payload["json"]["policy"]["network"]["allowedDomains"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("language", "dependency", "error_fragment"),
+    [
+        ("python", "numpy @ https://example.com/numpy.whl", "依赖格式"),
+        ("python", "-r requirements.txt", "依赖格式"),
+        ("javascript", "numpy", "仅 Python"),
+    ],
+)
+async def test_sandbox_code_execute_rejects_unsafe_or_non_python_dependencies(
+    fresh_registry, tool_context, language, dependency, error_fragment
+):
+    result = await ToolRuntime(fresh_registry).execute(
+        ToolCall(
+            id="code_invalid_dependency",
+            name="sandbox_code_execute",
+            arguments={"language": language, "code": "print('never')", "dependencies": [dependency]},
+        ),
+        PermissionMode.DEFAULT,
+        tool_context,
+    )
+
+    assert not result.success
+    assert error_fragment in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_sandbox_code_execute_bounds_source_detail_without_changing_executed_code(
+    fresh_registry, tool_context, monkeypatch
+):
+    _FakeSandboxClient.fail_with = None
+    _FakeSandboxClient.last_payload = None
+    _FakeSandboxClient.response_body = None
+    monkeypatch.setattr(sandbox_code_tool_module.httpx, "AsyncClient", _FakeSandboxClient)
+    code = "x" * 40_001
+
+    result = await ToolRuntime(fresh_registry).execute(
+        ToolCall(id="code_bounded", name="sandbox_code_execute", arguments={"language": "python", "code": code}),
+        PermissionMode.DEFAULT,
+        tool_context,
+    )
+
+    detail = result.metadata["execution_detail"]
+    assert result.success
+    assert _FakeSandboxClient.last_payload["json"]["code"] == code
+    assert len(detail["code"]) == 40_000
+    assert detail["code_chars"] == 40_001
+    assert detail["code_truncated"] is True
+    assert len(detail["code_sha256"]) == 64
 
 
 @pytest.mark.asyncio
@@ -230,6 +320,8 @@ async def test_sandbox_code_execute_nonzero_exit_preserves_structured_evidence(
         "sandboxed": True,
     }
     assert result.data == result.output
+    assert result.metadata["execution_detail"]["code"] == "raise SystemExit(7)"
+    assert result.metadata["execution_detail"]["code_truncated"] is False
     assert "must-not-propagate" not in str(result.model_dump())
     assert "candidate failed" not in (result.error or "")
 

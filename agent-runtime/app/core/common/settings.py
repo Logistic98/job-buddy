@@ -28,8 +28,8 @@ class LLMServiceConfig(BaseModel):
     prompt_cache_strategy: str = "stable-prefix"
     request_cache_enabled: bool = True
     request_cache_max_entries: int = 256
-    # 任务理解等结构化路由调用是否关闭模型思考链：推理模型的隐藏思考会显著拉长首字延迟，
-    # 而路由 JSON 不需要深度思考。仅对支持 thinking 开关的提供方（DeepSeek）生效。
+    # 任务理解、工具证据合成等确定性调用是否允许关闭模型思考链：推理模型的隐藏思考会
+    # 显著拉长首字延迟，而这些步骤已有结构化输入。仅对支持 thinking 开关的提供方生效。
     understanding_thinking_disabled: bool = True
 
 
@@ -41,6 +41,27 @@ class ToolSearchConfig(BaseModel):
     fallback_limit: int = 5
 
 
+class OfficialSourceConfig(BaseModel):
+    """可按主题直验的公开官方稳定入口。"""
+
+    domain: str
+    title: str
+    fetch_url: str
+    public_url: str
+    site_name: str = ""
+    trusted_hosts: List[str] = Field(default_factory=list)
+    aliases: List[str] = Field(default_factory=list)
+    match_terms: List[str] = Field(default_factory=list)
+    topic_terms: List[str] = Field(default_factory=list)
+    content_markers: List[str] = Field(default_factory=list)
+    max_snippet_chars: int = 4000
+    strategy: str = "official_canonical_snapshot"
+    content_scope: str = ""
+    allowed_path_prefixes: List[str] = Field(default_factory=list)
+    max_candidates: int = 12
+    max_detail_fetches: int = 4
+
+
 class WebSearchConfig(BaseModel):
     """联网搜索配置。"""
 
@@ -49,7 +70,9 @@ class WebSearchConfig(BaseModel):
     bocha_web_endpoint: str = "https://api.bochaai.com/v1/web-search"
     bocha_ai_endpoint: str = "https://api.bochaai.com/v1/ai-search?utm_source=job-buddy-runtime"
     freshness: str = "noLimit"
-    fallback_to_duckduckgo: bool = True
+    official_sources: List[OfficialSourceConfig] = Field(default_factory=list)
+    official_fetch_max_attempts: int = 2
+    official_fetch_retry_backoff_seconds: float = 0.2
 
 
 class WebFetchConfig(BaseModel):
@@ -157,7 +180,7 @@ class MemoryConfig(BaseModel):
 
     enabled: bool = False
     base_url: str = "http://localhost:8030"
-    timeout_seconds: float = 3.0
+    timeout_seconds: float = 15.0
     top_k: int = 5
     default_scope: str = "long_term"
 

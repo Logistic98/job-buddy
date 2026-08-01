@@ -29,6 +29,7 @@ class CheckpointStore:
             self._database_url = os.getenv("AGENT_RUNTIME_DATABASE_URL", "").strip()
         self._pool: asyncpg.Pool | None = None
         self._memory: list[Dict[str, Any]] = []
+        self._memory_resume_claims: set[tuple[str, str, str, str]] = set()
         self._warn_memory_fallback_once()
 
     def _warn_memory_fallback_once(self) -> None:
@@ -66,6 +67,7 @@ class CheckpointStore:
             "state": redact_sensitive(persisted_state),
         }
         sequence = time.time_ns()
+        tenant_id, user_id = self._state_owner(state)
         pool = await self._get_pool()
         if pool is None:
             self._memory.append({**payload, "sequence": sequence})
@@ -73,31 +75,52 @@ class CheckpointStore:
             return
         encoded = json.dumps(payload, ensure_ascii=False)
         async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO agent_run_checkpoint(session_id, run_id, stage, sequence, payload_json, created_at)
-                VALUES ($1, $2, $3, $4, $5::jsonb, CURRENT_TIMESTAMP)
-                """,
-                session_id,
-                run_id,
-                stage,
-                sequence,
-                encoded,
-            )
             max_count = settings.config.checkpoint.max_per_session
             if max_count > 0:
                 await conn.execute(
                     """
-                    DELETE FROM agent_run_checkpoint
-                    WHERE id IN (
-                      SELECT id FROM agent_run_checkpoint
-                      WHERE session_id = $1
-                      ORDER BY sequence DESC
-                      OFFSET $2
+                    WITH inserted AS (
+                      INSERT INTO agent_run_checkpoint(
+                        session_id, run_id, stage, sequence, payload_json, tenant_id, user_id, created_at
+                      )
+                      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, CURRENT_TIMESTAMP)
+                      RETURNING id
+                    ), deleted AS (
+                      DELETE FROM agent_run_checkpoint
+                      WHERE id IN (
+                        SELECT id FROM agent_run_checkpoint
+                        WHERE session_id = $1
+                        ORDER BY sequence DESC
+                        OFFSET $8
+                      )
+                      RETURNING id
                     )
+                    SELECT id FROM inserted
                     """,
                     session_id,
-                    max_count,
+                    run_id,
+                    stage,
+                    sequence,
+                    encoded,
+                    tenant_id or None,
+                    user_id or None,
+                    max_count - 1,
+                )
+            else:
+                await conn.execute(
+                    """
+                    INSERT INTO agent_run_checkpoint(
+                      session_id, run_id, stage, sequence, payload_json, tenant_id, user_id, created_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, CURRENT_TIMESTAMP)
+                    """,
+                    session_id,
+                    run_id,
+                    stage,
+                    sequence,
+                    encoded,
+                    tenant_id or None,
+                    user_id or None,
                 )
 
     async def load_latest(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -112,35 +135,123 @@ class CheckpointStore:
             )
         return json.loads(value) if value else None
 
-    async def load_latest_by_run(self, session_id: str, run_id: str) -> Optional[Dict[str, Any]]:
+    async def load_latest_by_run(
+        self,
+        session_id: str,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """按来源归属读取用户可恢复的指定运行。"""
+
+        return await self._load_latest_by_run(session_id, run_id, tenant_id, user_id)
+
+    async def load_latest_by_run_internal(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """读取执行器当前生成的内部运行；不得用于外部请求或恢复来源查询。"""
+
+        return await self._load_latest_by_run(session_id, run_id, None, None)
+
+    async def _load_latest_by_run(
+        self,
+        session_id: str,
+        run_id: str,
+        tenant_id: str | None,
+        user_id: str | None,
+    ) -> Optional[Dict[str, Any]]:
         pool = await self._get_pool()
         if pool is None:
             rows = [row for row in self._memory_rows(session_id) if row.get("run_id") == run_id]
+            if tenant_id is not None or user_id is not None:
+                rows = [row for row in rows if self._row_owned_by(row, tenant_id or "", user_id or "")]
             return self._public_payload(rows[0]) if rows else None
         async with pool.acquire() as conn:
-            value = await conn.fetchval(
-                """
-                SELECT payload_json::text FROM agent_run_checkpoint
-                WHERE session_id=$1 AND run_id=$2
-                ORDER BY sequence DESC LIMIT 1
-                """,
-                session_id,
-                run_id,
-            )
+            if tenant_id is None and user_id is None:
+                value = await conn.fetchval(
+                    """
+                    SELECT payload_json::text FROM agent_run_checkpoint
+                    WHERE session_id=$1 AND run_id=$2
+                    ORDER BY sequence DESC LIMIT 1
+                    """,
+                    session_id,
+                    run_id,
+                )
+            else:
+                value = await conn.fetchval(
+                    """
+                    SELECT payload_json::text FROM agent_run_checkpoint
+                    WHERE session_id=$1 AND run_id=$2 AND tenant_id=$3 AND user_id=$4
+                    ORDER BY sequence DESC LIMIT 1
+                    """,
+                    session_id,
+                    run_id,
+                    tenant_id or "",
+                    user_id or "",
+                )
         return json.loads(value) if value else None
 
-    async def list_snapshots(self, session_id: str) -> list[Dict[str, Any]]:
+    async def claim_resume(
+        self,
+        session_id: str,
+        source_run_id: str,
+        resumed_run_id: str,
+        tenant_id: str = "",
+        user_id: str = "",
+    ) -> bool:
+        """原子领取来源运行的唯一续跑权，防止重复点击并发执行。"""
+
         pool = await self._get_pool()
         if pool is None:
-            payloads = [self._public_payload(row) for row in self._memory_rows(session_id)]
+            key = (session_id, source_run_id, tenant_id or "", user_id or "")
+            if key in self._memory_resume_claims:
+                return False
+            self._memory_resume_claims.add(key)
+            return True
+        async with pool.acquire() as conn:
+            claimed = await conn.fetchval(
+                """
+                INSERT INTO agent_run_resume_claim(
+                  session_id, source_run_id, resumed_run_id, tenant_id, user_id, claimed_at
+                )
+                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+                ON CONFLICT (session_id, source_run_id) DO NOTHING
+                RETURNING id
+                """,
+                session_id,
+                source_run_id,
+                resumed_run_id,
+                tenant_id or "",
+                user_id or "",
+            )
+        return claimed is not None
+
+    async def list_snapshots(
+        self,
+        session_id: str,
+        tenant_id: str,
+        user_id: str,
+    ) -> list[Dict[str, Any]]:
+        pool = await self._get_pool()
+        if pool is None:
+            payloads = [
+                self._public_payload(row)
+                for row in self._memory_rows(session_id)
+                if self._row_owned_by(row, tenant_id, user_id)
+            ]
         else:
             async with pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
                     SELECT payload_json::text AS payload FROM agent_run_checkpoint
-                    WHERE session_id=$1 ORDER BY sequence DESC
+                    WHERE session_id=$1 AND tenant_id=$2 AND user_id=$3
+                    ORDER BY sequence DESC
                     """,
                     session_id,
+                    tenant_id,
+                    user_id,
                 )
             payloads = [json.loads(row["payload"]) for row in rows]
         return [
@@ -176,6 +287,16 @@ class CheckpointStore:
     def _public_payload(self, row: Dict[str, Any]) -> Dict[str, Any]:
         return {key: value for key, value in row.items() if key != "sequence"}
 
+    def _state_owner(self, state: Dict[str, Any]) -> tuple[str, str]:
+        metadata = state.get("metadata") if isinstance(state.get("metadata"), dict) else {}
+        tenant_id = str(metadata.get("tenant_id") or "").strip()
+        user_id = str(metadata.get("user_id") or metadata.get("operator_id") or "").strip()
+        return tenant_id, user_id
+
+    def _row_owned_by(self, row: Dict[str, Any], tenant_id: str, user_id: str) -> bool:
+        state = row.get("state") if isinstance(row.get("state"), dict) else {}
+        return self._state_owner(state) == (tenant_id, user_id)
+
     def _json_safe(self, obj: Any):
         if hasattr(obj, "model_dump"):
             return obj.model_dump()
@@ -195,7 +316,34 @@ class CheckpointStore:
         snapshot = dict(state)
         metadata = dict(snapshot.get("metadata") or {})
         metadata.pop("personal_context", None)
+        attachments = metadata.get("attachments")
+        if isinstance(attachments, list):
+            metadata["attachments"] = [
+                self._attachment_reference(item) for item in attachments if isinstance(item, dict)
+            ]
         snapshot["metadata"] = metadata
+        messages = snapshot.get("messages")
+        if isinstance(messages, list):
+            for message in reversed(messages):
+                role = (
+                    message.role
+                    if hasattr(message, "role")
+                    else message.get("role")
+                    if isinstance(message, dict)
+                    else None
+                )
+                content = (
+                    message.content
+                    if hasattr(message, "content")
+                    else message.get("content")
+                    if isinstance(message, dict)
+                    else None
+                )
+                if role == "user":
+                    snapshot["_resume_message_sha256"] = sha256(
+                        str(content or "").encode("utf-8", errors="replace")
+                    ).hexdigest()
+                    break
         snapshot.pop("messages", None)
         snapshot.pop("context_payload", None)
         context_summary = snapshot.get("context_summary")
@@ -217,6 +365,18 @@ class CheckpointStore:
                 else:
                     snapshot.pop("context_summary", None)
         return snapshot
+
+    @staticmethod
+    def _attachment_reference(item: Dict[str, Any]) -> Dict[str, Any]:
+        blocked = {
+            "content",
+            "extractedText",
+            "extracted_text",
+            "untrusted",
+            "injectionHits",
+            "injection_hits",
+        }
+        return {key: value for key, value in item.items() if str(key) not in blocked}
 
     def _summarize_execution_payloads(self, value: Any, parent_key: str = "") -> Any:
         """检查点只保存可审计摘要，不保存可执行源码、命令、argv 或原始进程输出。"""

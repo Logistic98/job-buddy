@@ -152,15 +152,39 @@ async def list_trace_events(run_id: str = None):
 
 
 @router.get("/checkpoints")
-async def list_checkpoints(session_id: str, run_id: Optional[str] = None):
-    """查询会话检查点：默认返回快照元信息列表，带 run_id 时返回该 run 最近一次完整检查点。"""
+async def list_checkpoints(
+    session_id: str,
+    run_id: Optional[str] = None,
+    x_tenant_id: Optional[str] = Header(default=None),
+    x_operator_id: Optional[str] = Header(default=None),
+):
+    """查询检查点元信息；不通过管理接口返回可恢复状态正文。"""
 
     executor = get_executor()
     store = executor.checkpoint_store
+    tenant_id = str(x_tenant_id or "").strip()
+    operator_id = str(x_operator_id or "").strip()
+    if not tenant_id or not operator_id:
+        raise HTTPException(status_code=400, detail="查询 checkpoint 必须提供租户和用户归属")
     if run_id:
-        data = await store.load_latest_by_run(session_id, run_id)
+        checkpoint = await store.load_latest_by_run(
+            session_id,
+            run_id,
+            tenant_id=tenant_id,
+            user_id=operator_id,
+        )
+        data = (
+            {
+                "session_id": checkpoint.get("session_id"),
+                "run_id": checkpoint.get("run_id"),
+                "stage": checkpoint.get("stage"),
+                "saved_at": checkpoint.get("saved_at"),
+            }
+            if checkpoint
+            else None
+        )
     else:
-        data = await store.list_snapshots(session_id)
+        data = await store.list_snapshots(session_id, tenant_id, operator_id)
     return success(data)
 
 

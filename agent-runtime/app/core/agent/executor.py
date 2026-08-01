@@ -2,7 +2,9 @@
 
 import asyncio
 import os
+from hashlib import sha256
 from typing import AsyncIterator, Dict, List
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from loguru import logger
@@ -10,7 +12,7 @@ from loguru import logger
 from app.core.agent.graph import AgentGraphBuilder
 from app.core.capability.registry import CapabilityRegistry
 from app.core.checkpoint.store import CheckpointStore
-from app.core.common.constants import PermissionMode, RuntimeStatus, TraceEventName
+from app.core.common.constants import PermissionMode, RuntimeStatus, StopReason, TraceEventName
 from app.core.common.settings import settings
 from app.core.context.assembler import ContextAssembler
 from app.core.intent.task_understanding import TaskUnderstandingService
@@ -45,6 +47,8 @@ class AgentExecutor:
     Executor 只负责组装 Runtime Core 组件，不承载业务规则：Profile/Capability/Prompt 由配置加载，
     Graph 负责 Agent Loop，Planner 负责下一步动作，ToolRuntime 负责权限和执行。
     """
+
+    _INVALID_PLAN_REPLAN_LIMIT = 2
 
     def __init__(self, registry: ToolRegistry = None, llm_client: OpenAICompatibleClient = None, use_llm: bool = None):
         self.registry = registry or ToolRegistry()
@@ -131,10 +135,41 @@ class AgentExecutor:
         graph = self.graph if not owns_llm_client else self._build_graph(llm_client)
         start_usage_tracking()
 
-        state = await self._initial_state(request, session_id, run_id, trace_id)
-
+        state: Dict = {
+            "run_id": run_id,
+            "trace_id": trace_id,
+            "session_id": session_id,
+            "metadata": request.metadata or {},
+        }
         try:
-            final_state = await graph.ainvoke(state)
+            state = await self._initial_state(request, session_id, run_id, trace_id)
+            if state.get("_resume_mode") == "synthesis_only":
+                final_state = await self._complete_synthesis_only_resume(request, state, llm_client)
+            else:
+                final_state = await graph.ainvoke(state)
+            final_state = self._normalize_required_tool_terminal(final_state)
+            final_task = final_state.get("task_understanding")
+            if (
+                final_state.get("_resume_mode") != "synthesis_only"
+                and llm_client is not None
+                and self._is_true_graph_success(final_state, final_task)
+                and self._has_real_tool_results(final_state)
+            ):
+                messages = await asyncio.to_thread(
+                    self._build_synthesis_messages,
+                    request,
+                    final_task,
+                    list(final_state.get("observations") or []),
+                )
+                synthesis = await llm_client.chat(
+                    messages,
+                    max_tokens=self._remaining_stream_tokens(request),
+                    disable_thinking=True,
+                )
+                answer = str(synthesis.get("content") or "").strip()
+                if not answer:
+                    raise ValueError("工具结果答案合成未产出可展示内容")
+                final_state["answer"] = answer
             # 正常终态先落 Trace，再从最终状态组装稳定响应。
             timer.end()
             await self._record_llm_usage(trace_id, run_id, llm_client)
@@ -165,37 +200,46 @@ class AgentExecutor:
                 trace_events=self.trace_recorder.list_by_run(run_id),
                 metrics=self._collect_metrics(final_state, llm_client),
                 stop_reason=final_state.get("stop_reason"),
+                resumed_from_run_id=final_state.get("_resumed_from_run_id"),
+                resumed_from_stage=final_state.get("_resumed_from_stage"),
             )
         except Exception as e:
             # 异常时优先恢复最近检查点，保留可续跑现场后再记录失败终态。
             timer.end()
             # 失败恢复只能读取本轮已落盘状态。按 session 取最新可能命中上一轮，
             # 让旧 directive/task_understanding 污染本轮失败响应。
-            latest_checkpoint = await self.checkpoint_store.load_latest_by_run(session_id, run_id)
+            latest_checkpoint = await self.checkpoint_store.load_latest_by_run_internal(session_id, run_id)
             if latest_checkpoint and latest_checkpoint.get("state"):
                 latest_state = self._hydrate_state(latest_checkpoint.get("state") or {})
+                completed_stage = str(latest_checkpoint.get("stage") or "")
+                resume_stage = (
+                    latest_state.get("_resume_skip_until")
+                    if completed_stage in {"runtime_error", "interrupted", "resume_start"}
+                    else completed_stage
+                )
                 latest_state.update(
                     {
                         "run_id": run_id,
                         "trace_id": trace_id,
                         "session_id": session_id,
                         "metadata": request.metadata,
-                        "_resume_skip_until": latest_checkpoint.get("stage"),
+                        "_resume_skip_until": resume_stage,
                     }
                 )
                 state = latest_state
             state["status"] = RuntimeStatus.FAIL.value
             state["stop_reason"] = "runtime_error"
-            state["error"] = str(e)
+            error_summary = self._exception_summary(e)
+            state["error"] = error_summary
             await self.checkpoint_store.save(session_id, run_id, "runtime_error", state)
             await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(
                 trace_id,
                 TraceEventName.RUN_END.value,
-                {"error": str(e)},
+                {"error": error_summary},
                 run_id=run_id,
                 status="failed",
-                error=str(e),
+                error=error_summary,
             )
             logger.exception("Agent 执行失败")
             return AgentRunResponse(
@@ -213,7 +257,9 @@ class AgentExecutor:
                 trace_events=self.trace_recorder.list_by_run(run_id),
                 metrics=self._collect_metrics(state, llm_client),
                 stop_reason="runtime_error",
-                error=str(e),
+                error=error_summary,
+                resumed_from_run_id=state.get("_resumed_from_run_id"),
+                resumed_from_stage=state.get("_resumed_from_stage"),
             )
         finally:
             if owns_llm_client and hasattr(llm_client, "aclose"):
@@ -284,7 +330,16 @@ class AgentExecutor:
         metadata = request.metadata or {}
         try:
             # 首包优先：连接建立即下发处理中事件，模型思考阶段前先给到前端可见反馈，避免长时间空白。
-            yield {"event": "processing", "data": {"message": "正在理解你的问题并准备作答。"}}
+            yield {
+                "event": "processing",
+                "data": {
+                    "message": "正在从断点恢复执行。" if request.resume_from_run_id else "正在理解你的问题并准备作答。",
+                    "run_id": run_id,
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "resumed_from_run_id": request.resume_from_run_id,
+                },
+            }
             short_answer = None
             messages: List[ChatMessage] = []
             graph_state: Dict = {}
@@ -299,9 +354,69 @@ class AgentExecutor:
                 else {}
             )
             upstream_required_tools = upstream_contract.get("required_tools") or []
-            # runtime_execute 走直达合成快路径，但快路径不跑工具。若上游 directive 声明了 required_tools，
-            # 直达合成会丢掉这些工具产出、给出空心答案，因此此时退回完整理解+工具收集路径，宁可牺牲首字延迟也要保证产出完整。
-            if metadata.get("runtime_execute") and not upstream_required_tools:
+            upstream_task = (
+                self._validated_reusable_upstream_task(request, upstream_directive, task_understanding)
+                if metadata.get("runtime_execute") and upstream_required_tools
+                else None
+            )
+            if request.resume_from_run_id:
+                graph_state = await self._initial_state(request, session_id, run_id, trace_id)
+                synthesis_only = graph_state.get("_resume_mode") == "synthesis_only"
+                if not synthesis_only:
+                    resume_graph = self.graph if not owns_llm_client else self._build_graph(llm_client)
+                    graph_state = await resume_graph.ainvoke(graph_state)
+                task = graph_state.get("task_understanding")
+                directive = graph_state.get("directive")
+                if synthesis_only:
+                    status = RuntimeStatus.SUCCESS.value
+                    stop_reason = "task_complete"
+                    graph_state["status"] = status
+                    graph_state["stop_reason"] = stop_reason
+                else:
+                    status = str(graph_state.get("status") or RuntimeStatus.FAIL.value)
+                    stop_reason = str(graph_state.get("stop_reason") or "runtime_error")
+                if (synthesis_only or self._is_true_graph_success(graph_state, task)) and llm_client is not None:
+                    messages = await asyncio.to_thread(
+                        self._build_synthesis_messages,
+                        request,
+                        task,
+                        list(graph_state.get("observations") or []),
+                    )
+                elif synthesis_only:
+                    short_answer = str(graph_state.get("_resume_fallback_answer") or "")
+                else:
+                    short_answer = str(graph_state.get("answer") or self._terminal_answer(status, stop_reason))
+            elif upstream_task is not None:
+                # 只复用第一阶段完整且契约一致的任务对象；工具任务仍走完整 Graph，不能降级为直达合成。
+                await self.trace_recorder.record(
+                    trace_id, TraceEventName.UNDERSTAND_GOAL.value, {"reused_upstream": True}, run_id=run_id
+                )
+                await self.trace_recorder.record(
+                    trace_id,
+                    TraceEventName.TASK_UNDERSTANDING.value,
+                    self._upstream_task_trace_payload(upstream_directive),
+                    run_id=run_id,
+                    duration_ms=self._upstream_understanding_duration_ms(upstream_directive),
+                )
+                await self.trace_recorder.record(
+                    trace_id,
+                    TraceEventName.CAPABILITY_ROUTE.value,
+                    self._upstream_route_trace_payload(upstream_directive),
+                    run_id=run_id,
+                )
+                task = upstream_task
+                directive = upstream_directive
+                prepared = await self._prepare_task_stream(
+                    request, task, directive, session_id, run_id, trace_id, llm_client
+                )
+                short_answer = prepared["short_answer"]
+                messages = prepared["messages"]
+                graph_state = prepared["graph_state"]
+                task = prepared["task"]
+                directive = prepared["directive"]
+                status = prepared["status"]
+                stop_reason = prepared["stop_reason"]
+            elif metadata.get("runtime_execute") and not upstream_required_tools:
                 # Java 后端已完成任务理解与能力路由，这里跳过重复理解直达流式合成，缩短首字时间。
                 await self.trace_recorder.record(
                     trace_id, TraceEventName.UNDERSTAND_GOAL.value, {"reused_upstream": True}, run_id=run_id
@@ -356,22 +471,28 @@ class AgentExecutor:
                             task.metadata["capability_contract"][key] = upstream_contract[key]
                 profile = task_understanding.get_profile(task.profile)
                 directive = task_understanding.build_directive(profile, task)
+                task_payload = {
+                    "profile": task.profile,
+                    "router": task.router,
+                    "domain": task.intent.domain,
+                    "intent": task.intent.intent,
+                    "confidence": task.intent.confidence,
+                    "next_action": task.next_action,
+                    "needs_clarification": task.clarification.needed,
+                }
+                web_search_decision = task.metadata.get("web_search_decision")
+                if isinstance(web_search_decision, dict):
+                    task_payload["web_search_decision"] = dict(web_search_decision)
                 await self.trace_recorder.record(
                     trace_id,
                     TraceEventName.TASK_UNDERSTANDING.value,
-                    {
-                        "profile": task.profile,
-                        "router": task.router,
-                        "domain": task.intent.domain,
-                        "intent": task.intent.intent,
-                        "confidence": task.intent.confidence,
-                        "next_action": task.next_action,
-                        "needs_clarification": task.clarification.needed,
-                    },
+                    task_payload,
                     run_id=run_id,
                     duration_ms=self._understanding_duration_ms(task),
                 )
                 route_payload = task.routing.model_dump()
+                if isinstance(web_search_decision, dict):
+                    route_payload["web_search_decision"] = dict(web_search_decision)
                 workflow = task.metadata.get("workflow") if isinstance(task.metadata, dict) else None
                 if isinstance(workflow, dict):
                     route_payload["workflow"] = dict(workflow)
@@ -379,51 +500,16 @@ class AgentExecutor:
                     trace_id, TraceEventName.CAPABILITY_ROUTE.value, route_payload, run_id=run_id
                 )
 
-                # 澄清 / 安全拦截 / directive 既有答案：成段下发，不进入合成。
-                if task.clarification.needed:
-                    short_answer = task.clarification.question or "需要进一步澄清。"
-                    status = RuntimeStatus.PAUSED.value
-                    stop_reason = "need_clarification"
-                elif task.risk_flags.safety_blocked:
-                    short_answer = task.answer or "请求被安全策略拦截。"
-                    status = RuntimeStatus.PAUSED.value
-                    stop_reason = "safety_blocked"
-                elif directive and directive.get("answer"):
-                    short_answer = str(directive.get("answer"))
-                elif self._workflow_has_external_action(task):
-                    # external_action 属于 Backend 或外部执行器职责。Runtime 仅返回 workflow/directive 元数据，
-                    # 不把配置中的动作名解释为工具或函数调用。
-                    short_answer = ""
-                    graph_state = {
-                        "task_understanding": task,
-                        "directive": directive,
-                        "tool_results": [],
-                        "permission_records": [],
-                    }
-                else:
-                    graph_state = await self._execute_required_tools(
-                        request, task, session_id, run_id, trace_id, llm_client
-                    )
-                    if graph_state:
-                        status = str(graph_state.get("status") or RuntimeStatus.FAIL.value)
-                        stop_reason = str(graph_state.get("stop_reason") or "runtime_error")
-                        task = graph_state.get("task_understanding") or task
-                        directive = graph_state.get("directive") or directive
-                        if self._is_true_graph_success(graph_state, task):
-                            observations = list(graph_state.get("observations") or [])
-                            if llm_client is None:
-                                short_answer = str(graph_state.get("answer") or "")
-                            else:
-                                messages = await asyncio.to_thread(
-                                    self._build_synthesis_messages, request, task, observations
-                                )
-                        else:
-                            if status == RuntimeStatus.SUCCESS.value:
-                                status = RuntimeStatus.FAIL.value
-                                stop_reason = "tool_execution_failed"
-                            short_answer = str(graph_state.get("answer") or self._terminal_answer(status, stop_reason))
-                    else:
-                        messages = await asyncio.to_thread(self._build_synthesis_messages, request, task, [])
+                prepared = await self._prepare_task_stream(
+                    request, task, directive, session_id, run_id, trace_id, llm_client
+                )
+                short_answer = prepared["short_answer"]
+                messages = prepared["messages"]
+                graph_state = prepared["graph_state"]
+                task = prepared["task"]
+                directive = prepared["directive"]
+                status = prepared["status"]
+                stop_reason = prepared["stop_reason"]
 
             if short_answer is not None:
                 accumulated.append(short_answer)
@@ -446,6 +532,7 @@ class AgentExecutor:
                 async for piece in llm_client.stream_chat(
                     messages,
                     max_tokens=self._remaining_stream_tokens(request),
+                    disable_thinking=True,
                 ):
                     text = piece.get("text") if isinstance(piece, dict) else piece
                     if not text:
@@ -457,14 +544,35 @@ class AgentExecutor:
                         accumulated.append(text)
                         yield {"event": "token", "data": {"text": text}}
 
-            if not accumulated and graph_state.get("answer"):
-                verified_answer = str(graph_state["answer"])
+            if not accumulated and self._has_real_tool_results(graph_state) and llm_client is not None:
+                synthesis = await llm_client.chat(
+                    messages,
+                    max_tokens=self._remaining_stream_tokens(request),
+                    disable_thinking=True,
+                )
+                recovered_answer = str(synthesis.get("content") or "").strip()
+                if recovered_answer:
+                    accumulated.append(recovered_answer)
+                    yield {"event": "token", "data": {"text": recovered_answer}}
+
+            fallback_answer = graph_state.get("answer")
+            if graph_state.get("_resume_mode") == "synthesis_only":
+                fallback_answer = fallback_answer or graph_state.get("_resume_fallback_answer")
+            if not accumulated and self._has_real_tool_results(graph_state):
+                raise ValueError("工具结果答案合成未产出可展示内容")
+            if not accumulated and fallback_answer:
+                verified_answer = str(fallback_answer)
                 accumulated.append(verified_answer)
                 yield {"event": "token", "data": {"text": verified_answer}}
 
             timer.end()
             answer = "".join(accumulated)
             reasoning = "".join(reasoning_acc)
+            if graph_state.get("_resume_mode") == "synthesis_only":
+                graph_state["answer"] = answer
+                graph_state["status"] = RuntimeStatus.SUCCESS.value
+                graph_state["stop_reason"] = "task_complete"
+                await self.checkpoint_store.save(session_id, run_id, "finalize", graph_state)
             await self.trace_recorder.record(trace_id, TraceEventName.FINALIZE.value, {"status": status}, run_id=run_id)
             await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(
@@ -475,6 +583,7 @@ class AgentExecutor:
                 status=self._trace_status(status),
             )
             logger.info(f"Agent 流式执行完成：chars={len(answer)}")
+            structured_resume_stage = self._structured_failure_resume_stage(graph_state)
             yield {
                 "event": "done",
                 "data": {
@@ -494,28 +603,272 @@ class AgentExecutor:
                     "permission_records": [
                         self._dump_model(item) for item in graph_state.get("permission_records", [])
                     ],
+                    "resumed_from_run_id": graph_state.get("_resumed_from_run_id"),
+                    "resumed_from_stage": graph_state.get("_resumed_from_stage"),
+                    "resumable": structured_resume_stage is not None,
+                    "resume_reason": graph_state.get("stop_reason") if structured_resume_stage else None,
                     "trace_events": [event.model_dump() for event in self.trace_recorder.list_by_run(run_id)],
                 },
             }
+        except asyncio.CancelledError:
+            timer.end()
+            await self._save_stream_failure_checkpoint(
+                request,
+                session_id,
+                run_id,
+                trace_id,
+                "interrupted",
+                "流式连接已中断",
+            )
+            await self.trace_recorder.record(
+                trace_id,
+                TraceEventName.RUN_END.value,
+                {"error": "stream_interrupted", "stream": True},
+                run_id=run_id,
+                status="failed",
+                error="stream_interrupted",
+            )
+            raise
         except Exception as e:
             timer.end()
             logger.exception("Agent 流式执行失败")
+            error_summary = self._exception_summary(e)
+            try:
+                resumable = await self._save_stream_failure_checkpoint(
+                    request,
+                    session_id,
+                    run_id,
+                    trace_id,
+                    "runtime_error",
+                    error_summary,
+                )
+            except Exception as checkpoint_error:
+                resumable = False
+                logger.warning(
+                    "流式失败现场保存失败：{}",
+                    self._exception_summary(checkpoint_error),
+                )
             await self._record_llm_usage(trace_id, run_id, llm_client)
             await self.trace_recorder.record(
                 trace_id,
                 TraceEventName.RUN_END.value,
-                {"error": str(e), "stream": True},
+                {"error": error_summary, "stream": True},
                 run_id=run_id,
                 status="failed",
-                error=str(e),
+                error=error_summary,
             )
             yield {
                 "event": "error",
-                "data": {"message": str(e), "trace_id": trace_id, "session_id": session_id, "run_id": run_id},
+                "data": {
+                    "message": error_summary,
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "resumable": resumable,
+                    "resumed_from_run_id": request.resume_from_run_id,
+                },
             }
         finally:
             if owns_llm_client and hasattr(llm_client, "aclose"):
                 await llm_client.aclose()
+
+    async def _save_stream_failure_checkpoint(
+        self,
+        request: AgentRunRequest,
+        session_id: str,
+        run_id: str,
+        trace_id: str,
+        failure_stage: str,
+        error: str,
+    ) -> bool:
+        """把流式异常包裹在最近已完成节点外，并返回该现场是否允许续跑。"""
+
+        latest = await self.checkpoint_store.load_latest_by_run_internal(session_id, run_id)
+        latest_state = latest.get("state") if latest and isinstance(latest.get("state"), dict) else {}
+        state = self._hydrate_state(latest_state) if latest_state else {}
+        completed_stage = str(latest.get("stage") or "") if latest else ""
+        resume_stage = (
+            state.get("_resume_skip_until")
+            if completed_stage in {"runtime_error", "interrupted", "resume_start"}
+            else completed_stage
+        )
+        state.update(
+            {
+                "run_id": run_id,
+                "trace_id": trace_id,
+                "session_id": session_id,
+                "messages": request.messages,
+                "metadata": request.metadata or {},
+                "status": RuntimeStatus.FAIL.value,
+                "stop_reason": "stream_interrupted" if failure_stage == "interrupted" else "runtime_error",
+                "error": error,
+            }
+        )
+        if resume_stage:
+            state["_resume_skip_until"] = resume_stage
+        if completed_stage == "finalize" and latest_state.get("status") == RuntimeStatus.SUCCESS.value:
+            state["_resume_mode"] = "synthesis_only"
+            state["_resume_skip_until"] = "finalize"
+            resume_stage = "finalize"
+        await self.checkpoint_store.save(session_id, run_id, failure_stage, state)
+        try:
+            self._validate_resume_stage(str(resume_stage or ""), state)
+        except ValueError:
+            return False
+        return True
+
+    def _validated_reusable_upstream_task(
+        self,
+        request: AgentRunRequest,
+        directive: Dict,
+        task_understanding: TaskUnderstandingService,
+    ) -> TaskUnderstandingResult | None:
+        """校验并恢复第一阶段任务对象；任何不一致都回退到正常任务理解。"""
+        raw_task = directive.get("task")
+        top_contract = directive.get("capability_contract")
+        if not isinstance(raw_task, dict) or not isinstance(top_contract, dict):
+            return None
+        try:
+            task = TaskUnderstandingResult.model_validate(raw_task)
+        except Exception:
+            return None
+        current_query = next(
+            (
+                str(message.content or "").strip()
+                for message in reversed(request.messages or [])
+                if message.role == "user"
+            ),
+            "",
+        )
+        if not current_query or current_query != task.original_query.strip() or not task.trace_id.strip():
+            return None
+
+        registry = getattr(task_understanding, "capability_registry", self.capability_registry)
+        profile_id = str(task.profile or "").strip()
+        try:
+            profile = registry.get_profile(profile_id)
+        except Exception:
+            return None
+        selected = task.routing.selected_capability
+        capability = profile.capability_by_id(selected.capability_id) if selected else None
+        if not profile_id or profile.id != profile_id or capability is None:
+            return None
+        embedded_contract = task.metadata.get("capability_contract")
+        raw_routing = raw_task.get("routing") if isinstance(raw_task.get("routing"), dict) else {}
+        routing_contract = raw_routing.get("capability_contract")
+        if (
+            not isinstance(embedded_contract, dict)
+            or not isinstance(routing_contract, dict)
+            or not self._tool_contracts_match(top_contract, embedded_contract)
+            or not self._tool_contracts_match(top_contract, routing_contract)
+        ):
+            return None
+        if (
+            directive.get("domain") != task.intent.domain
+            or directive.get("intent") != task.intent.intent
+            or directive.get("next_action") != task.next_action
+            or task.intent.domain != capability.domain
+            or task.intent.intent != capability.intent
+            or selected.domain != capability.domain
+            or selected.intent != capability.intent
+        ):
+            return None
+
+        configured_required = {str(item) for item in capability.required_tools}
+        configured_allowed = {str(item) for item in capability.allowed_tools}
+        required = {str(item) for item in (embedded_contract.get("required_tools") or [])}
+        allowed = {str(item) for item in (embedded_contract.get("allowed_tools") or [])}
+        if (
+            embedded_contract.get("tool_scope") != capability.tool_scope
+            or not configured_required.issubset(required)
+            or not required.issubset(configured_required | configured_allowed)
+            or allowed != configured_allowed
+            or embedded_contract.get("evidence_requirements", []) != capability.evidence_requirements
+            or embedded_contract.get("eval_rubric", {}) != capability.eval_rubric
+        ):
+            return None
+        return task
+
+    @staticmethod
+    def _tool_contracts_match(left: Dict, right: Dict) -> bool:
+        keys = ("tool_scope", "required_tools", "allowed_tools", "evidence_requirements", "eval_rubric")
+        return all(left.get(key) == right.get(key) for key in keys)
+
+    async def _prepare_task_stream(
+        self,
+        request,
+        task,
+        directive,
+        session_id,
+        run_id,
+        trace_id,
+        llm_client=None,
+    ) -> Dict:
+        """为已理解任务准备流式终态或合成消息，复用路径与常规路径共享同一治理逻辑。"""
+        short_answer = None
+        messages: List[ChatMessage] = []
+        graph_state: Dict = {}
+        status = RuntimeStatus.SUCCESS.value
+        stop_reason = "task_complete"
+        capability_contract = task.metadata.get("capability_contract") if isinstance(task.metadata, dict) else None
+        required_tools = capability_contract.get("required_tools") if isinstance(capability_contract, dict) else None
+        has_required_tools = isinstance(required_tools, list) and bool(required_tools)
+        if task.clarification.needed:
+            short_answer = task.clarification.question or "需要进一步澄清。"
+            status = RuntimeStatus.PAUSED.value
+            stop_reason = "need_clarification"
+        elif task.risk_flags.safety_blocked:
+            short_answer = task.answer or "请求被安全策略拦截。"
+            status = RuntimeStatus.PAUSED.value
+            stop_reason = "safety_blocked"
+        elif not has_required_tools and directive and directive.get("answer"):
+            short_answer = str(directive.get("answer"))
+        elif not has_required_tools and self._workflow_has_external_action(task):
+            # external_action 属于 Backend 或外部执行器职责。Runtime 仅返回 workflow/directive 元数据，
+            # 不把配置中的动作名解释为工具或函数调用。
+            short_answer = ""
+            graph_state = {
+                "task_understanding": task,
+                "directive": directive,
+                "tool_results": [],
+                "permission_records": [],
+            }
+        else:
+            graph_state = await self._execute_required_tools(request, task, session_id, run_id, trace_id, llm_client)
+            if graph_state:
+                status = str(graph_state.get("status") or RuntimeStatus.FAIL.value)
+                stop_reason = str(graph_state.get("stop_reason") or "runtime_error")
+                task = graph_state.get("task_understanding") or task
+                directive = graph_state.get("directive") or directive
+                if self._is_true_graph_success(graph_state, task):
+                    observations = list(graph_state.get("observations") or [])
+                    if llm_client is None:
+                        short_answer = str(graph_state.get("answer") or "")
+                    else:
+                        messages = await asyncio.to_thread(
+                            self._build_synthesis_messages,
+                            request,
+                            task,
+                            observations,
+                        )
+                else:
+                    if status == RuntimeStatus.SUCCESS.value:
+                        status = RuntimeStatus.FAIL.value
+                        stop_reason = "tool_execution_failed"
+                        short_answer = self._terminal_answer(status, stop_reason)
+                    else:
+                        short_answer = str(graph_state.get("answer") or self._terminal_answer(status, stop_reason))
+            else:
+                messages = await asyncio.to_thread(self._build_synthesis_messages, request, task, [])
+        return {
+            "short_answer": short_answer,
+            "messages": messages,
+            "graph_state": graph_state,
+            "task": task,
+            "directive": directive,
+            "status": status,
+            "stop_reason": stop_reason,
+        }
 
     async def _execute_required_tools(self, request, task, session_id, run_id, trace_id, llm_client=None) -> Dict:
         """能力声明 required_tools 时执行完整 Graph，并保留其真实终态。"""
@@ -550,20 +903,76 @@ class AgentExecutor:
         }
         return required.issubset(succeeded)
 
+    def _normalize_required_tool_terminal(self, state: Dict) -> Dict:
+        """把缺少必需工具证据的伪成功统一收敛为失败终态。"""
+
+        task = state.get("task_understanding")
+        contract = task.metadata.get("capability_contract") if task and isinstance(task.metadata, dict) else None
+        required = (contract or {}).get("required_tools") or []
+        claims_success = (
+            state.get("status") == RuntimeStatus.SUCCESS.value and state.get("stop_reason") == "task_complete"
+        )
+        if (
+            not required
+            or self._workflow_has_external_action(task)
+            or not claims_success
+            or self._is_true_graph_success(state, task)
+        ):
+            return state
+        normalized = dict(state)
+        normalized["status"] = RuntimeStatus.FAIL.value
+        normalized["stop_reason"] = StopReason.TOOL_EXECUTION_FAILED.value
+        normalized["answer"] = self._terminal_answer(
+            RuntimeStatus.FAIL.value,
+            StopReason.TOOL_EXECUTION_FAILED.value,
+        )
+        return normalized
+
     def _required_tool_evidence_valid(self, tool_name: str, output) -> bool:
         if tool_name == "web_search":
             if not isinstance(output, dict):
                 return False
             results = output.get("results")
-            return isinstance(results, list) and any(
+            has_source_result = isinstance(results, list) and any(
                 isinstance(item, dict)
                 and bool(str(item.get("title") or "").strip())
                 and str(item.get("url") or "").strip().lower().startswith(("http://", "https://"))
                 for item in results
             )
+            return has_source_result
         if tool_name != "sandbox_code_execute":
             return True
         return isinstance(output, dict) and output.get("sandboxed") is True and output.get("exit_code") == 0
+
+    def _has_official_web_search_evidence(self, output: Dict, domains: List[str]) -> bool:
+        if output.get("preferred_source_found") is not True:
+            return False
+        for row in output.get("results") or []:
+            if not isinstance(row, dict):
+                continue
+            if row.get("source_tier") != "official":
+                continue
+            host = (urlparse(str(row.get("url") or "")).hostname or "").lower().removeprefix("www.")
+            if self._trusted_official_host(host, domains):
+                return True
+        return False
+
+    def _trusted_official_host(self, host: str, domains: List[str]) -> bool:
+        normalized_host = str(host or "").lower().removeprefix("www.")
+        for domain in domains:
+            normalized_domain = str(domain or "").lower().removeprefix("www.")
+            policies = [
+                source
+                for source in settings.config.web_search.official_sources
+                if source.domain.lower().removeprefix("www.") == normalized_domain
+            ]
+            if policies and policies[0].trusted_hosts:
+                trusted_hosts = {
+                    trusted.lower().removeprefix("www.") for trusted in policies[0].trusted_hosts if trusted
+                }
+                if normalized_host in trusted_hosts:
+                    return True
+        return False
 
     def _workflow_has_external_action(self, task: TaskUnderstandingResult | None) -> bool:
         workflow = task.metadata.get("workflow") if task and isinstance(task.metadata, dict) else None
@@ -614,7 +1023,7 @@ class AgentExecutor:
         """把可信上游任务理解投影为 Runtime 审计事件，不重复调用模型。"""
         task = directive.get("task") if isinstance(directive.get("task"), dict) else {}
         intent = task.get("intent") if isinstance(task.get("intent"), dict) else {}
-        return {
+        payload = {
             "profile": task.get("profile") or "job-buddy",
             "router": directive.get("router") or task.get("router"),
             "domain": directive.get("domain") or intent.get("domain"),
@@ -627,6 +1036,11 @@ class AgentExecutor:
             ),
             "reused_upstream": True,
         }
+        metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        web_search_decision = metadata.get("web_search_decision")
+        if isinstance(web_search_decision, dict):
+            payload["web_search_decision"] = dict(web_search_decision)
+        return payload
 
     def _upstream_route_trace_payload(self, directive: Dict) -> Dict:
         """保留上游能力路由契约，供 Trace、评测和回放审计。"""
@@ -636,6 +1050,10 @@ class AgentExecutor:
         routing.setdefault("intent", directive.get("intent"))
         routing.setdefault("next_action", directive.get("next_action"))
         routing.setdefault("capability_contract", directive.get("capability_contract") or {})
+        metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+        web_search_decision = metadata.get("web_search_decision")
+        if isinstance(web_search_decision, dict):
+            routing["web_search_decision"] = dict(web_search_decision)
         routing["reused_upstream"] = True
         return routing
 
@@ -692,6 +1110,17 @@ class AgentExecutor:
                 return True
         return False
 
+    @staticmethod
+    def _exception_summary(error: Exception) -> str:
+        """为跨服务错误事件生成非空文本，避免 TimeoutError 等异常丢失失败语义。"""
+
+        message = str(error).strip()
+        return f"{type(error).__name__}: {message}" if message else type(error).__name__
+
+    @staticmethod
+    def _has_real_tool_results(state: Dict) -> bool:
+        return any(not item.metadata.get("synthetic") for item in state.get("tool_results", []))
+
     def _build_synthesis_messages(self, request, task, observations) -> List[ChatMessage]:
         """构造答案合成消息：稳定的系统前缀 + 单条携带上下文与观察的用户消息。"""
         system_prompt = self.prompt_loader.load(
@@ -717,39 +1146,132 @@ class AgentExecutor:
             ChatMessage(role="user", content=user_content),
         ]
 
+    async def _complete_synthesis_only_resume(
+        self,
+        request: AgentRunRequest,
+        state: Dict,
+        llm_client,
+    ) -> Dict:
+        """只重新合成最终答案，不重新进入 Graph 或执行已经完成的工具。"""
+
+        task = state.get("task_understanding")
+        if task is None:
+            raise ValueError("答案合成断点缺少 task_understanding")
+        if llm_client is None:
+            answer = str(state.get("_resume_fallback_answer") or "")
+        else:
+            messages = await asyncio.to_thread(
+                self._build_synthesis_messages,
+                request,
+                task,
+                list(state.get("observations") or []),
+            )
+            response = await llm_client.chat(
+                messages,
+                max_tokens=self._remaining_stream_tokens(request),
+                disable_thinking=True,
+            )
+            answer = str(response.get("content") or "")
+        if not answer.strip():
+            raise ValueError("答案合成断点未能生成可展示回答")
+        state["answer"] = answer
+        state["status"] = RuntimeStatus.SUCCESS.value
+        state["stop_reason"] = "task_complete"
+        state["should_stop"] = True
+        await self.checkpoint_store.save(state["session_id"], state["run_id"], "finalize", state)
+        return state
+
     async def _initial_state(self, request: AgentRunRequest, session_id: str, run_id: str, trace_id: str):
         metadata = request.metadata or {}
+        source_run_id = str(request.resume_from_run_id or "").strip()
         # 恢复执行只继承业务状态，运行标识、权限、预算和本轮消息必须使用当前请求。
-        if metadata.get("resume_from_checkpoint") and session_id:
-            checkpoint = await self.checkpoint_store.load_latest(session_id)
-            if checkpoint and checkpoint.get("state"):
-                state = self._hydrate_state(checkpoint.get("state") or {})
-                previous_run_id = state.get("run_id")
-                state["run_id"] = run_id
-                state["trace_id"] = trace_id
-                state["session_id"] = session_id
-                state["messages"] = request.messages or state.get("messages", [])
-                state["objective"] = (
-                    str(request.messages[-1].content) if request.messages else state.get("objective", "")
-                )
-                state["permission_mode"] = self._request_permission_mode(request).value
-                state["budget"] = self._effective_budget(request)
-                state["metadata"] = metadata
-                state["profile"] = str(metadata.get("profile") or state.get("profile") or "default")
-                state["status"] = RuntimeStatus.RUNNING.value
-                state["should_stop"] = False
-                checkpoint_stage = checkpoint.get("stage")
-                state["_resume_skip_until"] = (
-                    state.get("_resume_skip_until") if checkpoint_stage == "runtime_error" else checkpoint_stage
-                )
-                state["_resumed_from_run_id"] = previous_run_id
-                state.pop("answer", None)
-                state.pop("error", None)
-                self._attach_token_usage(state)
-                logger.info(
-                    f"从 checkpoint 恢复：session_id={session_id}, stage={checkpoint.get('stage')}, previous_run_id={previous_run_id}"
-                )
-                return state
+        if source_run_id:
+            request_owner = self._checkpoint_owner({"metadata": metadata})
+            if not all(request_owner):
+                raise ValueError("checkpoint 续跑必须提供完整租户和用户归属")
+            checkpoint = await self.checkpoint_store.load_latest_by_run(
+                session_id,
+                source_run_id,
+                tenant_id=request_owner[0],
+                user_id=request_owner[1],
+            )
+            if not checkpoint or not checkpoint.get("state"):
+                raise ValueError("目标 checkpoint 不存在或归属不匹配")
+            source_state = checkpoint.get("state") or {}
+            self._validate_resume_request_context(request, source_state)
+
+            checkpoint_stage = str(checkpoint.get("stage") or "")
+            structured_resume_stage = self._structured_failure_resume_stage(source_state)
+            if (checkpoint_stage == "finalize" and not structured_resume_stage) or (
+                source_state.get("status") == RuntimeStatus.SUCCESS.value
+                and source_state.get("stop_reason") == "task_complete"
+            ):
+                raise ValueError("目标 checkpoint 已是成功终态，不能继续执行")
+            if source_state.get("status") in {
+                RuntimeStatus.PAUSED.value,
+                RuntimeStatus.NEED_CONFIRM.value,
+            }:
+                raise ValueError("暂停或待确认终态不能通过 checkpoint 续跑")
+
+            resume_stage = structured_resume_stage or (
+                source_state.get("_resume_skip_until")
+                if checkpoint_stage in {"runtime_error", "interrupted", "resume_start"}
+                else checkpoint_stage
+            )
+            self._validate_resume_stage(str(resume_stage or ""), source_state)
+            claimed = await self.checkpoint_store.claim_resume(
+                session_id,
+                source_run_id,
+                run_id,
+                *self._checkpoint_owner(source_state),
+            )
+            if not claimed:
+                raise ValueError("目标 checkpoint 已被恢复，不能重复执行")
+
+            state = self._hydrate_state(source_state)
+            state.update(
+                {
+                    "run_id": run_id,
+                    "trace_id": trace_id,
+                    "session_id": session_id,
+                    "messages": request.messages or state.get("messages", []),
+                    "objective": (
+                        state.get("objective", "")
+                        if structured_resume_stage
+                        else str(request.messages[-1].content)
+                        if request.messages
+                        else state.get("objective", "")
+                    ),
+                    "permission_mode": self._request_permission_mode(request).value,
+                    "budget": self._effective_budget(request),
+                    "metadata": metadata,
+                    "profile": str(metadata.get("profile") or state.get("profile") or "default"),
+                    "status": RuntimeStatus.RUNNING.value,
+                    "should_stop": False,
+                    "_resume_skip_until": resume_stage,
+                    "_resumed_from_run_id": source_run_id,
+                    "_resumed_from_stage": resume_stage,
+                }
+            )
+            if state.get("_resume_mode") == "synthesis_only":
+                state["_resume_fallback_answer"] = state.get("answer") or ""
+            if structured_resume_stage:
+                self._prepare_structured_failure_resume(state)
+            state.pop("answer", None)
+            state.pop("error", None)
+            state.pop("stop_reason", None)
+            self._attach_token_usage(state)
+            await self.checkpoint_store.save(session_id, run_id, "resume_start", state)
+            await self.trace_recorder.record(
+                trace_id,
+                "run_resumed",
+                {"source_run_id": source_run_id, "source_stage": resume_stage},
+                run_id=run_id,
+            )
+            logger.info(
+                f"从 checkpoint 恢复：session_id={session_id}, stage={resume_stage}, previous_run_id={source_run_id}"
+            )
+            return state
 
         # 新任务显式初始化所有计数器和集合，保证检查点结构稳定可回放。
         state = {
@@ -777,6 +1299,54 @@ class AgentExecutor:
         }
         self._attach_token_usage(state)
         return state
+
+    def _structured_failure_resume_stage(self, state: Dict) -> str | None:
+        """把可修复的结构化失败映射到最后一个安全完成节点。"""
+
+        raw_attempts = state.get("_invalid_plan_replan_attempts") or 0
+        try:
+            replan_attempts = int(raw_attempts)
+        except (TypeError, ValueError):
+            return None
+        for raw_result in state.get("tool_results") or []:
+            try:
+                result = self._model(ToolResult, raw_result)
+            except (TypeError, ValueError):
+                return None
+            if not result.success:
+                continue
+            tool = self.registry.get(result.tool_name)
+            if tool is None or not tool.read_only or tool.destructive:
+                # 重规划无法证明写工具 exactly-once；保留失败终态，要求人工重新发起。
+                return None
+        if (
+            state.get("status") == RuntimeStatus.FAIL.value
+            and state.get("stop_reason") == StopReason.INVALID_PLAN_DEPENDENCY.value
+            and replan_attempts < self._INVALID_PLAN_REPLAN_LIMIT
+        ):
+            # Graph 的 cursor 语义是“包含该节点在内都跳过”；tool_search 后的下一节点正是 plan。
+            return "tool_search"
+        return None
+
+    def _prepare_structured_failure_resume(self, state: Dict) -> None:
+        """保留已完成事实，清除非法 Planner 产物，并提供一次有界重规划反馈。"""
+
+        feedback = str(state.get("answer") or "计划依赖校验失败").strip()
+        observations = list(state.get("observations") or [])
+        planner_feedback = f"上一轮计划依赖校验失败：{feedback} 请重新生成依赖合法的计划。"
+        if planner_feedback not in observations:
+            observations.append(planner_feedback)
+        state.update(
+            {
+                "plan": None,
+                "selected_tool_call": None,
+                "selected_tool_calls": [],
+                "reflection": {},
+                "observations": observations,
+                "_resume_mode": "replan",
+                "_invalid_plan_replan_attempts": int(state.get("_invalid_plan_replan_attempts") or 0) + 1,
+            }
+        )
 
     def _request_permission_mode(self, request: AgentRunRequest) -> PermissionMode:
         mode = request.permission_mode
@@ -833,6 +1403,9 @@ class AgentExecutor:
         ]
         if hydrated.get("selected_tool_call") is not None:
             hydrated["selected_tool_call"] = self._model(ToolCall, hydrated.get("selected_tool_call"))
+        hydrated["selected_tool_calls"] = [
+            self._model(ToolCall, item) for item in hydrated.get("selected_tool_calls", [])
+        ]
         hydrated["tool_results"] = [self._model(ToolResult, item) for item in hydrated.get("tool_results", [])]
         hydrated["permission_records"] = [
             self._model(PermissionRecord, item) for item in hydrated.get("permission_records", [])
@@ -844,6 +1417,100 @@ class AgentExecutor:
         hydrated.setdefault("profile", "default")
         hydrated.setdefault("metrics", {})
         return hydrated
+
+    @staticmethod
+    def _checkpoint_owner(state: Dict) -> tuple[str, str]:
+        metadata = state.get("metadata") if isinstance(state.get("metadata"), dict) else {}
+        return (
+            str(metadata.get("tenant_id") or "").strip(),
+            str(metadata.get("user_id") or metadata.get("operator_id") or "").strip(),
+        )
+
+    def _validate_resume_stage(self, stage: str, state: Dict) -> None:
+        resumable_stages = {
+            "understand_goal",
+            "task_understanding",
+            "collect_context",
+            "tool_search",
+            "plan",
+            "budget_check",
+            "execute_tool",
+            "observe",
+            "reflect",
+        }
+        if stage == "finalize" and state.get("_resume_mode") == "synthesis_only":
+            return
+        if stage not in resumable_stages:
+            raise ValueError(f"checkpoint 阶段不可恢复: {stage or 'unknown'}")
+
+        order = [
+            "understand_goal",
+            "task_understanding",
+            "collect_context",
+            "tool_search",
+            "plan",
+            "budget_check",
+            "execute_tool",
+            "observe",
+            "reflect",
+        ]
+        if order.index(stage) >= order.index("execute_tool"):
+            return
+        calls = state.get("selected_tool_calls") or []
+        if not calls and state.get("selected_tool_call") is not None:
+            calls = [state.get("selected_tool_call")]
+        for raw_call in calls:
+            call = self._model(ToolCall, raw_call)
+            tool = self.registry.get(call.name)
+            if tool is None or not tool.is_read_only(call.arguments) or tool.is_destructive(call.arguments):
+                raise ValueError(f"checkpoint 将重放非只读工具，拒绝恢复: {call.name}")
+            if self._contains_redacted_execution_input(call.arguments):
+                raise ValueError(f"checkpoint 缺少工具完整输入，拒绝恢复: {call.name}")
+
+    @staticmethod
+    def _contains_redacted_execution_input(value) -> bool:
+        if isinstance(value, dict):
+            if value.get("redacted") is True and "sha256" in value:
+                return True
+            return any(AgentExecutor._contains_redacted_execution_input(item) for item in value.values())
+        if isinstance(value, list):
+            return any(AgentExecutor._contains_redacted_execution_input(item) for item in value)
+        return value == "[REDACTED]"
+
+    def _validate_resume_request_context(self, request: AgentRunRequest, source_state: Dict) -> None:
+        current_message = ""
+        for message in reversed(request.messages or []):
+            if message.role == "user":
+                current_message = str(message.content or "")
+                break
+        expected_hash = str(source_state.get("_resume_message_sha256") or "")
+        if expected_hash:
+            actual_hash = sha256(current_message.encode("utf-8", errors="replace")).hexdigest()
+            if actual_hash != expected_hash:
+                raise ValueError("checkpoint 原始用户消息与当前恢复请求不匹配")
+
+        source_metadata = source_state.get("metadata") if isinstance(source_state.get("metadata"), dict) else {}
+        current_metadata = request.metadata or {}
+        source_turn_id = str(source_metadata.get("turn_id") or "").strip()
+        current_turn_id = str(current_metadata.get("turn_id") or "").strip()
+        if not source_turn_id or source_turn_id != current_turn_id:
+            raise ValueError("checkpoint 原始 turnId 与当前恢复请求不匹配")
+        source_attachments = self._attachment_ids(source_metadata.get("attachments"))
+        current_attachments = self._attachment_ids(current_metadata.get("attachments"))
+        if source_attachments != current_attachments:
+            raise ValueError("checkpoint 原始附件与当前恢复请求不匹配")
+
+    @staticmethod
+    def _attachment_ids(value) -> tuple[str, ...]:
+        if not isinstance(value, list):
+            return ()
+        return tuple(
+            sorted(
+                str(item.get("attachmentId") or item.get("attachment_id") or "").strip()
+                for item in value
+                if isinstance(item, dict) and (item.get("attachmentId") or item.get("attachment_id"))
+            )
+        )
 
     def _resolve_request_llm(self, request: AgentRunRequest):
         """按请求解析使用的 LLM 客户端，纯函数无副作用。

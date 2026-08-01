@@ -134,6 +134,11 @@ class QueryRewrite(BaseModel):
     resolved_query: str = ""
     retrieval_query: str = ""
     planner_query: str = ""
+    selection_mode: str = "relevance"
+    time_range_start: str = ""
+    as_of_date: str = ""
+    source_preference: str = "balanced"
+    content_scope: str = ""
 
 
 class ResolvedReference(BaseModel):
@@ -248,6 +253,7 @@ class AgentRunRequest(BaseModel):
     messages: List[ChatMessage]
     trace_id: Optional[str] = None
     session_id: Optional[str] = None
+    resume_from_run_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
     permission_mode: PermissionMode = PermissionMode.DEFAULT
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     stream: bool = False
@@ -308,3 +314,5 @@ class AgentRunResponse(BaseModel):
     metrics: Dict[str, Any] = Field(default_factory=dict)
     stop_reason: Optional[str] = None
     error: Optional[str] = None
+    resumed_from_run_id: Optional[str] = None
+    resumed_from_stage: Optional[str] = None
