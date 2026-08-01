@@ -17,6 +17,7 @@ from app.tools_builtin.resume_tools import (
     ResumeMatchTool,
     ResumeParseTool,
     _extract_json,
+    _extract_supplemental_evidence,
     _normalize_resume_score_breakdown,
 )
 
@@ -107,6 +108,27 @@ async def test_resume_parse_pdf(monkeypatch, workspace):
     assert "Kafka" in result.output["resume"]["skills"]
     assert result.output["resume"]["expected_titles"] == []
     assert result.output["raw_text_chars"] > 0
+
+
+def test_extract_supplemental_evidence_keeps_public_work_and_ai_tools():
+    evidence = _extract_supplemental_evidence(
+        "\n".join(
+            [
+                "联系方式：13800000000 / candidate@example.com",
+                "技术博客：https://example.dev / https://notes.example.dev",
+                "项目仓库：https://github.com/example",
+                "AI 原生研发：熟练使用 Claude Code、Codex 等 AI 辅助编程工具。",
+                "智能求职平台 - 个人开源项目 - AI 原生独立开发者",
+                "普通经历：负责业务接口研发。",
+            ]
+        )
+    )
+
+    assert len(evidence) == 4
+    assert any("Claude Code" in item and "Codex" in item for item in evidence)
+    assert any("技术博客" in item for item in evidence)
+    assert any("个人开源项目" in item for item in evidence)
+    assert all("13800000000" not in item for item in evidence)
 
 
 @pytest.mark.asyncio
@@ -282,10 +304,10 @@ def test_resume_score_requires_every_dimension():
 
 
 def test_job_profile_summary_cleaning_preserves_meaningful_leading_number():
-    assert JobProfileSummaryTool._clean_summary("6年研发经验，近3年聚焦大模型应用开发。") == (
-        "6年研发经验，近3年聚焦大模型应用开发。"
+    assert JobProfileSummaryTool._clean_summary("5年研发经验，近2年聚焦云原生后端开发。") == (
+        "5年研发经验，近2年聚焦云原生后端开发。"
     )
-    assert JobProfileSummaryTool._clean_summary("1. 具备6年研发经验。") == "具备6年研发经验。"
+    assert JobProfileSummaryTool._clean_summary("1. 具备5年研发经验。") == "具备5年研发经验。"
 
 
 def test_resume_match_schema_declares_evaluation_modes():
@@ -296,18 +318,69 @@ def test_resume_match_schema_declares_evaluation_modes():
 
 
 @pytest.mark.asyncio
+async def test_resume_match_uses_short_model_ids_and_restores_source_ids(workspace):
+    first_security_id = "security-" + ("a" * 180) + "PwTp"
+    second_security_id = "security-" + ("a" * 180) + "wPp"
+    stub = _StubLLM(
+        content=json.dumps(
+            {
+                "matches": [
+                    {
+                        "id": "job_0",
+                        "score": 82,
+                        "score_confidence": "medium",
+                        "recommendation": "推荐",
+                    },
+                    {
+                        "id": "job_1",
+                        "score": 76,
+                        "score_confidence": "medium",
+                        "recommendation": "可尝试",
+                    },
+                ]
+            },
+            ensure_ascii=False,
+        )
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="short-model-job-ids",
+            name="resume_match",
+            arguments={
+                "evaluation_mode": "recommendation_list",
+                "resume": {"skills": ["Java", "Python"]},
+                "jobs": [
+                    {"securityId": first_security_id, "jobName": "Java 工程师", "skills": ["Java"]},
+                    {"securityId": second_security_id, "jobName": "Python 工程师", "skills": ["Python"]},
+                ],
+            },
+        ),
+        _context(workspace),
+    )
+
+    assert result.success is True
+    user_payload = json.loads(stub.calls[0]["messages"][1].content)
+    assert [job["id"] for job in user_payload["jobs"]] == ["job_0", "job_1"]
+    assert first_security_id not in stub.calls[0]["messages"][1].content
+    assert second_security_id not in stub.calls[0]["messages"][1].content
+    assert [match["id"] for match in result.output["matches"]] == [first_security_id, second_security_id]
+
+
+@pytest.mark.asyncio
 async def test_job_profile_summary_preserves_complete_content_beyond_220_characters(workspace):
     long_summary = (
-        "具备五年平台研发经验，当前聚焦大模型应用与智能体平台研发，能够承担需求分析、架构设计、核心研发和生产交付。"
-        "熟悉Java、Python、Spring Boot、FastAPI、RAG、LangGraph、MCP与Agent Runtime等技术体系。"
-        "主导多个智能问答平台和智能体应用从零到一落地，具备跨团队协作、复杂问题排查和工程质量治理经验。"
-        "目标岗位为Agent研发工程师或AI应用研发工程师，期望在上海从事大模型平台与智能体方向研发。"
+        "具备五年研发经验，当前聚焦云原生后端与数据平台研发，能够承担需求分析、架构设计、核心研发和生产交付。"
+        "熟悉Java、Python、Spring Boot、FastAPI、PostgreSQL、Redis、Kafka与Kubernetes等技术体系。"
+        "主导多个企业服务平台和数据处理应用从零到一落地，具备跨团队协作、复杂问题排查和工程质量治理经验。"
+        "目标岗位为云原生后端工程师或数据平台研发工程师，期望在杭州从事平台工程方向研发。"
         "能够结合业务目标完成技术选型、方案拆解、研发推进、上线验证和持续迭代，并重视可观测性与稳定性建设。"
-        "硬性排除项为外包、劳务派遣和驻场。"
+        "示例排除项为长期夜班和频繁出差。"
     )
     payload = {
         "summary": long_summary,
-        "highlights": ["五年平台研发经验", "智能体平台"],
+        "highlights": ["五年研发经验", "云原生后端"],
         "missing_fields": ["期望薪资"],
     }
     stub = _StubLLM(content=json.dumps(payload, ensure_ascii=False))
@@ -319,7 +392,7 @@ async def test_job_profile_summary_preserves_complete_content_beyond_220_charact
     assert len(long_summary) > 220
     assert result.success is True
     assert result.output["summary"] == long_summary
-    assert result.output["summary"].endswith("硬性排除项为外包、劳务派遣和驻场。")
+    assert result.output["summary"].endswith("示例排除项为长期夜班和频繁出差。")
     assert stub.calls[0]["max_tokens"] == resume_tools.MAX_PROFILE_SUMMARY_TOKENS
     system_prompt = stub.calls[0]["messages"][0].content
     assert "使用完整主谓结构和自然衔接" in system_prompt
@@ -329,26 +402,26 @@ async def test_job_profile_summary_preserves_complete_content_beyond_220_charact
 @pytest.mark.asyncio
 async def test_resume_match_sorts_and_clamps_scores_with_evidence(workspace):
     resume = {
-        "summary": "上海 Java 大模型应用开发 5 年",
+        "summary": "杭州 Go 云原生平台开发 5 年",
         "years_experience": 5,
-        "skills": ["Java", "Spring Boot", "Spring AI"],
+        "skills": ["Go", "Kubernetes", "PostgreSQL"],
     }
     jobs = [
-        {"securityId": "j1", "jobName": "Java 大模型应用开发", "skills": ["Java", "Spring AI"], "salaryDesc": "40-50K"},
-        {"securityId": "j2", "jobName": "Java 大数据平台开发", "skills": ["Java", "Flink"], "salaryDesc": "40-50K"},
+        {"securityId": "j1", "jobName": "Go 云原生平台开发", "skills": ["Go", "Kubernetes"], "salaryDesc": "25-35K"},
+        {"securityId": "j2", "jobName": "Python 数据平台开发", "skills": ["Python", "Flink"], "salaryDesc": "25-35K"},
     ]
 
     llm_response = {
         "evaluation_schema": "evidence_based_resume_job_match_v4",
         "matches": [
             {
-                "id": "j1",
+                "id": "job_0",
                 "score": 88,
                 "score_confidence": "high",
                 "evidence": [
                     {
-                        "resume_evidence": "上海 Java 大模型应用开发 5 年",
-                        "job_requirement": "Java、Spring AI",
+                        "resume_evidence": "杭州 Go 云原生平台开发 5 年",
+                        "job_requirement": "Go、Kubernetes",
                         "assessment": "技术栈匹配",
                     }
                 ],
@@ -358,11 +431,11 @@ async def test_resume_match_sorts_and_clamps_scores_with_evidence(workspace):
                 "recommendation": "推荐",
             },
             {
-                "id": "j2",
+                "id": "job_1",
                 "score": 150,
                 "score_confidence": "medium",
                 "evidence": [
-                    {"resume_evidence": "缺少大数据平台经历", "job_requirement": "Flink", "assessment": "不匹配"}
+                    {"resume_evidence": "缺少数据平台经历", "job_requirement": "Flink", "assessment": "不匹配"}
                 ],
                 "hits": [],
                 "gaps": ["技术栈不符"],
@@ -415,7 +488,7 @@ async def test_resume_match_uses_structured_list_metadata_as_prefilter_evidence(
             {
                 "matches": [
                     {
-                        "id": "j1",
+                        "id": "job_0",
                         "score": 65,
                         "score_confidence": "low",
                         "recommendation": "证据不足",
@@ -442,20 +515,20 @@ async def test_resume_match_uses_structured_list_metadata_as_prefilter_evidence(
             arguments={
                 "evaluation_mode": "recommendation_list",
                 "resume": {
-                    "summary": "6 年 Python、LangGraph 与大模型应用开发经验",
-                    "years_experience": 6,
-                    "skills": ["Python", "LangGraph"],
+                    "summary": "5 年 Go、Kubernetes 与云原生平台开发经验",
+                    "years_experience": 5,
+                    "skills": ["Go", "Kubernetes"],
                 },
                 "jobs": [
                     {
                         "securityId": "j1",
-                        "jobName": "大模型应用开发工程师",
-                        "skills": ["Python", "LangGraph"],
-                        "jobLabels": ["大模型", "Agent"],
+                        "jobName": "云原生平台开发工程师",
+                        "skills": ["Go", "Kubernetes"],
+                        "jobLabels": ["云原生", "平台工程"],
                         "jobExperience": "5-10年",
                         "jobDegree": "本科",
-                        "cityName": "上海",
-                        "salaryDesc": "40-50K",
+                        "cityName": "杭州",
+                        "salaryDesc": "25-35K",
                     }
                 ],
             },
@@ -493,7 +566,7 @@ async def test_resume_match_compacts_recommendation_list_output(workspace):
             {
                 "matches": [
                     {
-                        "id": "j1",
+                        "id": "job_0",
                         "score": 72,
                         "score_confidence": "medium",
                         "recommendation": "可尝试",
@@ -558,7 +631,7 @@ async def test_resume_match_caps_recommendation_list_confidence_at_medium(worksp
             {
                 "matches": [
                     {
-                        "id": "j1",
+                        "id": "job_0",
                         "score": 84,
                         "score_confidence": "high",
                         "recommendation": "推荐",
@@ -608,7 +681,7 @@ async def test_resume_match_keeps_title_only_job_fail_closed(workspace):
             {
                 "matches": [
                     {
-                        "id": "j1",
+                        "id": "job_0",
                         "score": 75,
                         "score_confidence": "high",
                         "recommendation": "推荐",
@@ -660,7 +733,7 @@ async def test_resume_match_recalibrates_confidence_from_grounded_evidence(works
             {
                 "matches": [
                     {
-                        "id": "j1",
+                        "id": "job_0",
                         "score": 78,
                         "score_confidence": "low",
                         "recommendation": "可尝试",
@@ -702,7 +775,7 @@ async def test_resume_match_upgrades_low_confidence_to_medium_with_partial_groun
             {
                 "matches": [
                     {
-                        "id": "j1",
+                        "id": "job_0",
                         "score": 65,
                         "score_confidence": "low",
                         "recommendation": "谨慎",
@@ -746,7 +819,7 @@ async def test_resume_match_accepts_single_match_object(workspace):
             {
                 "evaluation_schema": "evidence_based_resume_job_match_v4",
                 "matches": {
-                    "id": "j1",
+                    "id": "job_0",
                     "score": 82,
                     "score_confidence": "low",
                     "recommendation": "推荐",
@@ -817,7 +890,7 @@ async def test_resume_match_returns_only_requested_partial_fields(workspace):
             {
                 "matches": [
                     {
-                        "id": "j1",
+                        "id": "job_0",
                         "dimensions": {"technical_skill": {"score": 80}},
                         "risks": ["量化证据不足"],
                         "score": 90,
@@ -862,6 +935,11 @@ def test_resume_match_compacts_detailed_work_and_project_evidence():
     compacted = ResumeMatchTool._compact_resume(
         {
             "personal_advantage": "具备 Agent 平台交付经验",
+            "labels": ["Claude Code", "Codex"],
+            "supplemental_evidence": [
+                "技术博客：https://example.dev",
+                "智能求职平台 - 个人开源项目 - AI 原生独立开发者",
+            ],
             "work_experiences": [
                 {
                     "companyName": "示例科技",
@@ -891,6 +969,11 @@ def test_resume_match_compacts_detailed_work_and_project_evidence():
     )
 
     assert compacted["summary"] == "具备 Agent 平台交付经验"
+    assert compacted["labels"] == ["Claude Code", "Codex"]
+    assert compacted["supplemental_evidence"] == [
+        "技术博客：https://example.dev",
+        "智能求职平台 - 个人开源项目 - AI 原生独立开发者",
+    ]
     assert compacted["work_experiences"][0]["title"] == "高级研发工程师"
     assert compacted["work_experiences"][0]["description"] == "负责 RAG 与 Agent 平台架构设计"
     assert compacted["project_experiences"][0]["skills"] == ["Python", "LangGraph", "Milvus"]
@@ -927,7 +1010,7 @@ async def test_resume_match_rejects_partial_model_results_with_missing_ids(works
                 {
                     "matches": [
                         {
-                            "id": "j1",
+                            "id": "job_0",
                             "score": 80,
                             "score_confidence": "medium",
                             "recommendation": "可尝试",
@@ -955,7 +1038,7 @@ async def test_resume_match_rejects_partial_model_results_with_missing_ids(works
 
     assert result.success is False
     assert "岗位匹配结果不完整" in result.error
-    assert "missing_ids=['j2']" in result.error
+    assert "missing_ids=['job_1']" in result.error
     assert "expected_count=2" in result.error
     assert "returned_count=1" in result.error
 

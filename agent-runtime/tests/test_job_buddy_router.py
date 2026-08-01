@@ -9,7 +9,7 @@ from app.models.schemas import AgentRunRequest, ChatMessage
 async def test_job_buddy_profile_routes_job_recommendation_in_runtime():
     executor = AgentExecutor(use_llm=False)
     request = AgentRunRequest(
-        messages=[ChatMessage(role="user", content="帮我筛选上海大模型应用开发 40-50K 岗位")],
+        messages=[ChatMessage(role="user", content="帮我筛选北京大模型应用开发 25-35K 岗位")],
         metadata={"profile": "job-buddy", "job_buddy": True},
     )
 
@@ -21,7 +21,7 @@ async def test_job_buddy_profile_routes_job_recommendation_in_runtime():
     assert directive["domain"] == "job"
     assert directive["intent"] == "job.recommend"
     assert directive["slots"]["role"] == "大模型应用开发"
-    assert directive["slots"]["city"] == "上海"
+    assert directive["slots"]["city"] == "北京"
     assert directive["next_action"] == "call_get_recommend_jobs"
     assert directive["router"] == "semantic_config"
     assert response.task_understanding.routing.selected_capability.capability_id == "job.recommend"
@@ -35,7 +35,7 @@ async def test_job_buddy_profile_routes_more_jobs_with_previous_slots():
         metadata={
             "profile": "job-buddy",
             "job_buddy": True,
-            "previous_slots": {"role": "大模型应用开发", "city": "上海", "boss_page": 1},
+            "previous_slots": {"role": "云原生后端开发", "city": "杭州", "boss_page": 1},
         },
     )
 

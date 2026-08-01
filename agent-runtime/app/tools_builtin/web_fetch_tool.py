@@ -21,6 +21,10 @@ _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 _SUPPORTED_ENCODINGS = {"", "identity", "gzip", "deflate"}
 
 
+class BlockedNetworkAddressError(ValueError):
+    """DNS or URL resolution reached a non-public network address."""
+
+
 @dataclass(frozen=True)
 class ResolvedHttpTarget:
     url: str
@@ -91,7 +95,7 @@ def _validate_public_addresses(hostname: str, addresses: set[str]) -> frozenset[
         except ValueError as exc:
             raise ValueError(f"URL 主机返回无效地址: {address}") from exc
         if not ip.is_global:
-            raise ValueError("禁止访问本机、私有、链路本地或保留网络地址")
+            raise BlockedNetworkAddressError("禁止访问本机、私有、链路本地或保留网络地址")
         normalized.add(str(ip))
     return frozenset(normalized)
 
@@ -104,7 +108,7 @@ async def resolve_public_http_target(raw_url: str) -> ResolvedHttpTarget:
         raise ValueError("URL 不允许包含用户凭据")
     hostname = parsed.hostname.rstrip(".").lower()
     if hostname == "localhost" or hostname.endswith(".localhost"):
-        raise ValueError("禁止访问本机或私有网络地址")
+        raise BlockedNetworkAddressError("禁止访问本机或私有网络地址")
     port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
     try:
         addresses = {str(ipaddress.ip_address(hostname))}

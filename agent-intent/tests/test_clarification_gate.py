@@ -60,6 +60,6 @@ def test_classify_intent_exit_applies_gate():
 
 
 def test_classify_intent_normal_path_unchanged():
-    result = classify_intent("帮我推荐一下上海的 Java 后端岗位")
+    result = classify_intent("帮我推荐一下杭州的 Go 后端岗位")
     assert result.domain == "job"
     assert result.needs_clarification is False or result.slots.get("clarification_question")

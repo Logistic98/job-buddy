@@ -7,28 +7,28 @@ from app.service import classify_intent
 
 
 def test_job_recommend_with_full_slots():
-    result = classify_intent("帮我找上海3年Java后端大模型应用开发 40-50k 不要外包")
+    result = classify_intent("帮我找杭州3年Java后端云原生开发 20-30k 不要外企")
     assert result.domain == "job"
     assert result.intent == "job.recommend"
-    assert result.slots["city"] == "上海"
+    assert result.slots["city"] == "杭州"
     assert result.slots["role"] == "Java 后端"
     assert result.slots["experience_years"] == 3
     assert result.slots["boss_experience"] == "三到五年"
-    assert result.slots["salary_min_k"] == 40
-    assert result.slots["salary_max_k"] == 50
+    assert result.slots["salary_min_k"] == 20
+    assert result.slots["salary_max_k"] == 30
     assert result.slots["boss_salary"] == "20-50k"
-    assert "外包" in result.slots["exclude_keywords"]
+    assert "外企" in result.slots["exclude_keywords"]
 
 
 def test_job_recommend_chinese_years_and_range():
-    result = classify_intent("帮我看看上海五年 Java 大模型应用开发工程师 40-50k 的岗位")
+    result = classify_intent("帮我看看杭州四年 Java 云原生后端开发工程师 25-35k 的岗位")
     assert result.domain == "job"
     assert result.intent == "job.recommend"
-    assert result.slots["experience_years"] == 5
-    assert result.slots["boss_experience"] == "五到十年"
-    assert result.slots["salary_min_k"] == 40
-    assert result.slots["salary_max_k"] == 50
-    assert result.slots["city"] == "上海"
+    assert result.slots["experience_years"] == 4
+    assert result.slots["boss_experience"] == "三到五年"
+    assert result.slots["salary_min_k"] == 25
+    assert result.slots["salary_max_k"] == 35
+    assert result.slots["city"] == "杭州"
     assert result.slots["role"] == "Java 后端"
 
 
@@ -74,7 +74,7 @@ def test_out_of_scope_auto_outreach():
 
 
 def test_chitchat_falls_through():
-    result = classify_intent("今天上海天气怎么样")
+    result = classify_intent("今天成都天气怎么样")
     assert result.domain == "open_domain"
 
 
@@ -92,20 +92,20 @@ def test_short_job_search_needs_clarification():
 
 
 def test_city_role_phrase_is_job_search():
-    result = classify_intent("上海 Java")
+    result = classify_intent("杭州 Go后端")
     assert result.domain == "job"
     assert result.intent == "job.recommend"
     assert result.needs_clarification is False
-    assert result.slots["city"] == "上海"
-    assert result.slots["role"] == "Java 后端"
+    assert result.slots["city"] == "杭州"
+    assert result.slots["role"] == "Go 后端"
 
 
 def test_agent_platform_role_is_job_search():
-    result = classify_intent("帮我找上海 3 年 Agent 平台开发岗位")
+    result = classify_intent("帮我找深圳 3 年 Agent 平台开发岗位")
     assert result.domain == "job"
     assert result.intent == "job.recommend"
     assert result.needs_clarification is False
-    assert result.slots["city"] == "上海"
+    assert result.slots["city"] == "深圳"
     assert result.slots["role"] == "大模型应用开发"
 
 

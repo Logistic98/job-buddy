@@ -19,7 +19,7 @@ def test_high_risk_intent_needs_clarification():
 
 
 def test_job_domain_result_tagged_as_rule():
-    result = classify_intent("帮我找上海的 Java 岗位")
+    result = classify_intent("帮我找杭州的 Go 岗位")
     assert result.domain == "job"
     assert result.router == "rule"
 

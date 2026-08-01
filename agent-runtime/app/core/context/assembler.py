@@ -80,7 +80,13 @@ class ContextAssembler:
         attachments = self._attachments(metadata)
         if attachments:
             payload["attachments"] = attachments
-        memory_refs = self._memory_refs(current_step["objective"], metadata)
+        # Backend 已按同一租户和操作者召回长期记忆时，直接复用 personal_context 中的结果，
+        # 避免完整 Graph 对同一轮再发一次同步 Memory HTTP 请求。空结果仍允许 Runtime 兜底检索。
+        memory_refs = (
+            []
+            if self._has_injected_long_term_memory(personal_context)
+            else self._memory_refs(current_step["objective"], metadata)
+        )
         if memory_refs:
             payload["memory_refs"] = memory_refs
         summary = self._to_budgeted_summary(payload)
@@ -157,6 +163,12 @@ class ContextAssembler:
             tenant_id=str(tenant_id) if tenant_id else None,
             operator_id=str(operator_id) if operator_id else None,
         )
+
+    def _has_injected_long_term_memory(self, personal_context: Any) -> bool:
+        if not isinstance(personal_context, dict):
+            return False
+        values = personal_context.get("long_term_memory")
+        return isinstance(values, list) and any(isinstance(item, dict) and bool(item) for item in values)
 
     def _last_user_message(self, messages: List[ChatMessage]) -> str:
         for message in reversed(messages or []):

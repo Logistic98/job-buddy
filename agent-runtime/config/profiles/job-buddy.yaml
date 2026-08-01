@@ -339,6 +339,24 @@ capabilities:
     secondary: ["plan", "code_generation", "technical"]
     capability_tags: ["runtime", "code", "planner"]
 
+  - id: open_domain.content_formatting
+    name: 现有内容格式化
+    domain: open_domain
+    intent: content_formatting
+    execution_intent: generate_artifact
+    execution_mode: OPEN_DOMAIN_QA
+    description: 将用户已提供的文本或代码原样呈现为指定格式，不生成或执行新代码。
+    examples: ["把以下代码原样放进 Markdown 围栏", "只输出带 javascript 标记的代码块"]
+    negative_examples: ["帮我写一个 Python 脚本"]
+    keywords: ["Markdown", "代码围栏", "代码块", "原样输出", "指定格式", "不要解释"]
+    risk: low
+    next_action: run_runtime_planner
+    planner_needed: true
+    required_tools: []
+    allowed_tools: []
+    secondary: ["formatting", "artifact"]
+    capability_tags: ["open_domain", "content_rendering", "formatting"]
+
   - id: runtime.complex_engineering_qa
     name: 复杂工程问答与架构设计
     domain: runtime

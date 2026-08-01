@@ -2,6 +2,17 @@ from app.core.context.assembler import ContextAssembler
 from app.models.schemas import ChatMessage, TaskUnderstandingResult, ToolResult
 
 
+class _MemoryClient:
+    enabled = True
+
+    def __init__(self):
+        self.calls = 0
+
+    def search(self, *args, **kwargs):
+        self.calls += 1
+        return [{"id": "runtime-memory", "content": "runtime result"}]
+
+
 def test_context_assembler_outputs_budgeted_summary_and_metrics():
     assembler = ContextAssembler(max_chars=300)
     task = TaskUnderstandingResult(original_query="hello", profile="default")
@@ -29,7 +40,7 @@ def test_long_term_refs_use_config_driven_business_keys():
         task=task,
         observations=[],
         tool_results=[],
-        metadata={"resume_id": "r1", "previous_slots": {"city": "上海"}},
+        metadata={"resume_id": "r1", "previous_slots": {"city": "杭州"}},
     )
     keys = {ref["key"] for ref in result["payload"]["long_term_refs"] if ref.get("source") == "request_metadata"}
     # 通用运行时键始终透出；业务键仅在部署配置声明后透出，核心代码不硬编码。
@@ -87,3 +98,39 @@ def test_context_assembler_blocks_attachment_content_with_injection_pattern():
     assert attachment["content"] == ""
     assert attachment["injection_hits"]
     assert attachment["untrusted"] is True
+
+
+def test_context_assembler_skips_duplicate_memory_search_when_backend_already_injected_results():
+    memory_client = _MemoryClient()
+    assembler = ContextAssembler(max_chars=4000, memory_client=memory_client)
+    result = assembler.assemble(
+        messages=[ChatMessage(role="user", content="根据我的偏好推荐")],
+        task=TaskUnderstandingResult(original_query="根据我的偏好推荐"),
+        observations=[],
+        tool_results=[],
+        metadata={
+            "tenant_id": "tenant-1",
+            "operator_id": "user-1",
+            "personal_context": {"long_term_memory": [{"id": "backend-memory", "content": "偏好 Java 岗位"}]},
+        },
+    )
+
+    assert memory_client.calls == 0
+    assert "memory_refs" not in result["payload"]
+    assert result["payload"]["personal_context"]["long_term_memory"][0]["id"] == "backend-memory"
+    assert result["metrics"]["memory_ref_count"] == 0
+
+
+def test_context_assembler_searches_memory_when_backend_results_are_empty():
+    memory_client = _MemoryClient()
+    assembler = ContextAssembler(max_chars=4000, memory_client=memory_client)
+    result = assembler.assemble(
+        messages=[ChatMessage(role="user", content="根据我的偏好推荐")],
+        task=TaskUnderstandingResult(original_query="根据我的偏好推荐"),
+        observations=[],
+        tool_results=[],
+        metadata={"personal_context": {"long_term_memory": []}},
+    )
+
+    assert memory_client.calls == 1
+    assert result["payload"]["memory_refs"][0]["id"] == "runtime-memory"

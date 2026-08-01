@@ -22,8 +22,8 @@ def _request(messages=None, tool_calls=None) -> TranscriptReviewRequest:
 def test_benign_transcript_is_approved():
     result = review_transcript(
         _request(
-            messages=[{"role": "user", "content": "帮我看看上海的 Java 岗位"}],
-            tool_calls=[{"name": "job_search", "arguments": {"city": "上海"}}],
+            messages=[{"role": "user", "content": "帮我看看杭州的 Go 岗位"}],
+            tool_calls=[{"name": "job_search", "arguments": {"city": "杭州"}}],
         )
     )
     assert result.decision == DECISION_APPROVE

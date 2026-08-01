@@ -31,6 +31,9 @@ MAX_RESUME_ANALYSIS_TOKENS = 4096
 MAX_RESUME_MATCH_TOKENS = 8192
 MAX_RECOMMENDATION_LIST_MATCH_TOKENS = 6144
 MAX_PROFILE_SUMMARY_TOKENS = 1024
+MAX_SUPPLEMENTAL_EVIDENCE_ITEMS = 24
+MAX_SUPPLEMENTAL_EVIDENCE_ITEM_CHARS = 500
+MAX_SUPPLEMENTAL_EVIDENCE_TOTAL_CHARS = 5000
 # 单次模型调用需要为每个岗位输出结构化证据，过大的批次会使响应稳定超过工具超时并被取消。
 MAX_JOBS_PER_MATCH = 15
 RECOMMENDATION_LIST_MATCH_FIELDS = (
@@ -56,6 +59,35 @@ RESUME_SCORE_DIMENSIONS = {
     "ownership": {"label": "个人贡献", "weight": 15},
     "consistency": {"label": "一致性与可信度", "weight": 10},
 }
+
+SUPPLEMENTAL_EVIDENCE_PATTERN = re.compile(
+    r"https?://|github|gitlab|gitee|开源|作品集|技术博客|博客|blog|公众号|文章|技术写作|"
+    r"AI\s*(?:原生|辅助|编程)|Claude\s*Code|Codex|Cursor|Copilot|项目仓库|代码仓库|portfolio",
+    re.IGNORECASE,
+)
+
+
+def _extract_supplemental_evidence(text: str) -> List[str]:
+    """提取结构化解析容易遗漏的公开作品、技术写作和 AI 原生研发证据。"""
+
+    snippets: List[str] = []
+    seen = set()
+    total_chars = 0
+    for raw_line in str(text or "").splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip()
+        if not line or not SUPPLEMENTAL_EVIDENCE_PATTERN.search(line):
+            continue
+        line = line[:MAX_SUPPLEMENTAL_EVIDENCE_ITEM_CHARS]
+        if line in seen:
+            continue
+        if total_chars + len(line) > MAX_SUPPLEMENTAL_EVIDENCE_TOTAL_CHARS:
+            break
+        snippets.append(line)
+        seen.add(line)
+        total_chars += len(line)
+        if len(snippets) >= MAX_SUPPLEMENTAL_EVIDENCE_ITEMS:
+            break
+    return snippets
 
 
 def _resolve_workspace_path(file_path: str, workspace_dir: str) -> Path:
@@ -274,6 +306,9 @@ class ResumeParseTool(BaseTool):
         data.setdefault("education", [])
         data.setdefault("experiences", [])
         data.setdefault("projects", [])
+        # 结构化抽取 Schema 不应成为证据丢失边界。公开作品、AI 工具、技术写作和开源事实由本地规则从
+        # PDF 原文补充，避免模型抽取时遗漏后被岗位匹配错误判断为“简历未提及”。
+        data["supplemental_evidence"] = _extract_supplemental_evidence(raw_text)
 
         return {
             "resume": data,
@@ -538,6 +573,7 @@ class ResumeMatchTool(BaseTool):
     description = (
         "给定已解析的简历对象和一组岗位,调用大模型对每个岗位输出 0-100 的匹配度评分、命中点、缺口和改进建议。"
         "岗位输入字段对齐 Boss 直聘 get_recommend_jobs_tool 返回:jobName, salaryDesc, jobLabels, skills, jobExperience, cityName, brandName, industry, securityId。"
+        "模型只接收短任务别名，工具会在校验后恢复调用方的真实岗位标识。"
     )
     input_schema = {
         "type": "object",
@@ -545,7 +581,7 @@ class ResumeMatchTool(BaseTool):
             "resume": {"type": "object", "description": "已解析的结构化简历,通常由 resume_parse 工具产出"},
             "jobs": {
                 "type": "array",
-                "description": "候选岗位列表,每项至少包含 jobName/skills,推荐附带 securityId 作为 id",
+                "description": "候选岗位列表,每项至少包含 jobName/skills；securityId 只用于工具内部结果还原",
                 "items": {"type": "object"},
             },
             "top_k": {"type": "integer", "description": "只对前 N 个岗位评分,默认 10", "default": MAX_JOBS_PER_MATCH},
@@ -616,6 +652,10 @@ class ResumeMatchTool(BaseTool):
 
         # 列表预筛与完整 JD 分析使用不同证据和置信度规则。
         resume_brief = self._compact_resume(resume)
+        source_job_ids = [self._source_job_id(idx, job) for idx, job in enumerate(scoped_jobs)]
+        if len(set(source_job_ids)) != len(source_job_ids):
+            duplicate_source_ids = sorted({job_id for job_id in source_job_ids if source_job_ids.count(job_id) > 1})
+            raise ValueError(f"岗位匹配输入 ID 重复: {', '.join(duplicate_source_ids)}")
         jobs_brief = [self._compact_job(idx, job) for idx, job in enumerate(scoped_jobs)]
         if evaluation_mode == "recommendation_list":
             system_prompt = (
@@ -664,6 +704,9 @@ class ResumeMatchTool(BaseTool):
                 "interview_focus 必须结合当前岗位证据与简历经历给出具体追问方向或准备问题。"
                 "score_confidence 衡量输入信息和证据链是否足以支撑结论，与匹配分高低、推荐结果和差距数量无关。"
                 "不得仅因存在技能差距、风险项或不建议投递就输出 low。"
+                "生成 gaps、risks 或 limitations 前，必须逐项核对 summary、skills、work_experiences、"
+                "project_experiences、labels 和 supplemental_evidence；其中已经明确出现的工具、公开链接、"
+                "开源项目或技术写作不得再表述为‘未提及’、‘缺少’或‘没有公开证据’。"
                 "评分规则: 只有岗位要求和简历证据都明确时才给高分；证据不足不得给 80 以上。"
                 f"{evaluation_policy}"
                 f"本次每个 match 只生成 id 和这些字段: {', '.join(sections)}。除指定字段外不要输出其他 match 字段。只返回 JSON。"
@@ -910,6 +953,18 @@ class ResumeMatchTool(BaseTool):
             "current_title": resume.get("current_title") or "",
             "expected_titles": resume.get("expected_titles") or [],
             "skills": skills[:30] if isinstance(skills, list) else str(skills)[:800],
+            "labels": (
+                (resume.get("labels") or resume.get("manageTags") or [])[:30]
+                if isinstance(resume.get("labels") or resume.get("manageTags") or [], list)
+                else str(resume.get("labels") or resume.get("manageTags") or "")[:800]
+            ),
+            "supplemental_evidence": (
+                (resume.get("supplemental_evidence") or [])[:MAX_SUPPLEMENTAL_EVIDENCE_ITEMS]
+                if isinstance(resume.get("supplemental_evidence"), list)
+                else [str(resume.get("supplemental_evidence"))[:MAX_SUPPLEMENTAL_EVIDENCE_TOTAL_CHARS]]
+                if resume.get("supplemental_evidence")
+                else []
+            ),
             "education": education_details,
             "work_experiences": work_details,
             "project_experiences": project_details,
@@ -917,9 +972,9 @@ class ResumeMatchTool(BaseTool):
 
     @staticmethod
     def _compact_job(idx: int, job: Dict[str, Any]) -> Dict[str, Any]:
-        job_id = job.get("securityId") or job.get("id") or job.get("jobId") or job.get("encryptJobId") or f"job_{idx}"
         return {
-            "id": str(job_id),
+            # 模型只需回填短别名，避免抄写超长或高度相似的外部岗位标识。
+            "id": f"job_{idx}",
             "jobName": job.get("jobName", ""),
             "salaryDesc": job.get("salaryDesc", ""),
             "cityName": job.get("cityName", ""),
@@ -934,6 +989,12 @@ class ResumeMatchTool(BaseTool):
             )[:1800],
             "source": job.get("source", ""),
         }
+
+    @staticmethod
+    def _source_job_id(idx: int, job: Dict[str, Any]) -> str:
+        return str(
+            job.get("securityId") or job.get("id") or job.get("jobId") or job.get("encryptJobId") or f"job_{idx}"
+        )
 
     @staticmethod
     def _normalize_dimensions(value: Any) -> Dict[str, Dict[str, Any]]:
@@ -978,9 +1039,7 @@ class ResumeMatchTool(BaseTool):
         item = item if isinstance(item, dict) else {}
         job = jobs[idx] if idx < len(jobs) and isinstance(jobs[idx], dict) else {}
         # 标识、分数和证据结构均以当前输入岗位为可信边界。
-        fallback_id = (
-            job.get("securityId") or job.get("id") or job.get("jobId") or job.get("encryptJobId") or f"job_{idx}"
-        )
+        fallback_id = ResumeMatchTool._source_job_id(idx, job)
         score_raw = item.get("score")
         score: Optional[int]
         try:
@@ -1053,7 +1112,7 @@ class ResumeMatchTool(BaseTool):
         elif not recommendation and confidence == "low":
             recommendation = "证据不足"
         return {
-            "id": str(item.get("id") or fallback_id),
+            "id": fallback_id,
             "score": score,
             "score_confidence": confidence,
             "recommendation": recommendation,
