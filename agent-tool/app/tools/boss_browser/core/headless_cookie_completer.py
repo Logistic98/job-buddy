@@ -8,9 +8,9 @@ from typing import Any
 
 from app.tools.boss_browser.core.settings import Settings
 
-_LEAN_VISIT_TIMEOUT_MS = 4000
-_LEAN_SETTLE_MS = 600
 _BROWSER_ATTEMPTS = 2
+_COOKIE_POLL_INTERVAL_SECONDS = 0.2
+_COOKIE_POLL_ATTEMPTS = 16
 _TARGET_CLOSED_MARKERS = (
     "target page, context or browser has been closed",
     "target closed",
@@ -38,31 +38,29 @@ class HeadlessCookieCompleter:
         headers = dict(getattr(self._constants, "HEADERS", {}) or {})
         combined = dict(cookies)
         timeout_ms = int(self._settings.boss_cli.headless_cookie_timeout_ms)
-        if lean:
-            timeout_ms = min(timeout_ms, _LEAN_VISIT_TIMEOUT_MS)
 
-        with (
-            tempfile.TemporaryDirectory(prefix="job-buddy-boss-browser-") as user_data_dir,
-            sync_playwright() as playwright,
-        ):
+        with sync_playwright() as playwright:
             last_closed_error: Exception | None = None
             for attempt in range(_BROWSER_ATTEMPTS):
-                try:
-                    return self._complete_once(
-                        playwright,
-                        user_data_dir,
-                        base_url,
-                        headers,
-                        combined,
-                        timeout_ms=timeout_ms,
-                        lean=lean,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    if not self._is_target_closed(exc):
-                        raise
-                    last_closed_error = exc
-                    if attempt + 1 >= _BROWSER_ATTEMPTS:
-                        break
+                # 浏览器或页面提前关闭后，旧 Profile 可能残留 SingletonLock。每次尝试
+                # 使用独立临时 Profile，确保第二次启动是真正的新浏览器上下文。
+                with tempfile.TemporaryDirectory(prefix="job-buddy-boss-browser-") as user_data_dir:
+                    try:
+                        return self._complete_once(
+                            playwright,
+                            user_data_dir,
+                            base_url,
+                            headers,
+                            combined,
+                            timeout_ms=timeout_ms,
+                            lean=lean,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        if not self._is_target_closed(exc):
+                            raise
+                        last_closed_error = exc
+                        if attempt + 1 >= _BROWSER_ATTEMPTS:
+                            break
             raise RuntimeError("Boss 临时浏览器会话提前关闭，未能刷新安全令牌，请稍后重试。") from last_closed_error
         return combined
 
@@ -120,7 +118,16 @@ class HeadlessCookieCompleter:
                     if name and value:
                         combined[name] = value
 
-            settle_ms = _LEAN_SETTLE_MS if lean else 1000
+            def collect_until_stoken() -> None:
+                # __zp_stoken__ 由页面安全脚本异步生成，DOMContentLoaded 并不表示
+                # Cookie 已经写入。容器冷启动或网络较慢时 600ms 容易提前判失败；
+                # 这里最多等待约 3 秒，并在令牌出现后立即返回，避免固定长等待。
+                for check in range(_COOKIE_POLL_ATTEMPTS):
+                    collect()
+                    if "__zp_stoken__" in combined:
+                        return
+                    if check + 1 < _COOKIE_POLL_ATTEMPTS:
+                        time.sleep(_COOKIE_POLL_INTERVAL_SECONDS)
 
             def visit(url: str, wait_until: str = "domcontentloaded") -> None:
                 try:
@@ -130,15 +137,14 @@ class HeadlessCookieCompleter:
                         raise
                 # Playwright 的 page.wait_for_timeout 依赖页面仍存活。Boss 页面在导航期间
                 # 主动关闭或替换页面时，这个等待会把可恢复的临时页面事件误报成登录失效。
-                # 使用进程内短暂停顿后从 context 回收 Cookie，不再依赖旧 page 的生命周期。
-                time.sleep(settle_ms / 1000)
-                collect()
+                # 使用进程内有界轮询从 context 回收 Cookie，不依赖旧 page 的生命周期。
+                collect_until_stoken()
 
             visit(f"{base_url}/")
             if "__zp_stoken__" not in combined:
                 # 首页并不保证执行岗位页的安全脚本。持久身份 Cookie 仍有效时，
-                # 再访问一次已登录岗位页即可静默重生临时令牌；lean 模式继续
-                # 使用收紧的超时与 domcontentloaded，避免交互链路长时间阻塞。
+                # 再访问一次已登录岗位页即可静默重生临时令牌；lean 模式不等
+                # networkidle，但仍使用配置的导航超时与有界 Cookie 轮询。
                 wait_until = "domcontentloaded" if lean else "networkidle"
                 visit(f"{base_url}/web/geek/job-recommend", wait_until)
             if lean:

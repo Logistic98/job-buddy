@@ -486,7 +486,7 @@ def test_refresh_reuses_persisted_login_to_regenerate_stoken(tmp_path, monkeypat
     assert engine._memory_credential.cookies.get("__zp_stoken__") == "fresh-token"  # noqa: SLF001
     # 失效令牌应被剔除后再交给 headless 重生，避免带着废令牌空跑。
     assert "__zp_stoken__" not in completion_seed
-    # 交互翻页热路径必须走轻量单次访问，避免冷启动后多页等待拖慢"换一批"。
+    # 交互翻页热路径不访问登录页兜底，但仍保留完整的令牌等待窗口。
     assert completion_seed.get("lean") is True
 
 

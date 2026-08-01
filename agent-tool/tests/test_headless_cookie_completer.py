@@ -25,11 +25,13 @@ class _FakePage:
 
 
 class _FakeContext:
-    def __init__(self, stoken_visit: int, close_on_visit: int = 0) -> None:
+    def __init__(self, stoken_visit: int, close_on_visit: int = 0, stoken_cookie_read: int = 0) -> None:
         self.cookie_jar: dict[str, str] = {}
         self.visits: list[tuple[str, str, int]] = []
         self.pages = [_FakePage(self, stoken_visit, close_on_visit)]
         self.closed = False
+        self.cookie_reads = 0
+        self.stoken_cookie_read = stoken_cookie_read
 
     def add_init_script(self, script: str) -> None:
         assert "navigator" in script
@@ -43,6 +45,9 @@ class _FakeContext:
 
     def cookies(self, url: str) -> list[dict[str, str]]:
         assert url == "https://www.zhipin.com"
+        self.cookie_reads += 1
+        if self.stoken_cookie_read and self.cookie_reads == self.stoken_cookie_read:
+            self.cookie_jar["__zp_stoken__"] = "delayed-token"
         return [{"name": name, "value": value} for name, value in self.cookie_jar.items()]
 
     def new_page(self) -> _FakePage:
@@ -55,7 +60,13 @@ class _FakeContext:
 class _FakePlaywrightManager:
     def __init__(self, contexts: list[_FakeContext]) -> None:
         self._contexts = iter(contexts)
-        chromium = SimpleNamespace(launch_persistent_context=lambda *_args, **_kwargs: next(self._contexts))
+        self.user_data_dirs: list[str] = []
+
+        def launch_persistent_context(user_data_dir: str, **_kwargs):
+            self.user_data_dirs.append(user_data_dir)
+            return next(self._contexts)
+
+        chromium = SimpleNamespace(launch_persistent_context=launch_persistent_context)
         self._playwright = SimpleNamespace(chromium=chromium)
 
     def __enter__(self) -> SimpleNamespace:
@@ -95,7 +106,7 @@ def test_lean_refresh_visits_authenticated_job_page_when_homepage_does_not_issue
         "https://www.zhipin.com/web/geek/job-recommend",
     ]
     assert all(visit[1] == "domcontentloaded" for visit in context.visits)
-    assert all(visit[2] == 4000 for visit in context.visits)
+    assert all(visit[2] == 8000 for visit in context.visits)
     assert context.closed is True
 
 
@@ -112,10 +123,11 @@ def test_lean_refresh_stops_after_homepage_issues_stoken(monkeypatch):
 def test_lean_refresh_retries_with_fresh_browser_when_first_context_closes(monkeypatch):
     first = _FakeContext(stoken_visit=99, close_on_visit=1)
     second = _FakeContext(stoken_visit=1)
+    manager = _FakePlaywrightManager([first, second])
     monkeypatch.setattr(
         playwright.sync_api,
         "sync_playwright",
-        lambda: _FakePlaywrightManager([first, second]),
+        lambda: manager,
     )
     monkeypatch.setattr("app.tools.boss_browser.core.headless_cookie_completer.time.sleep", lambda _seconds: None)
 
@@ -124,3 +136,20 @@ def test_lean_refresh_retries_with_fresh_browser_when_first_context_closes(monke
     assert result["__zp_stoken__"] == "fresh-token"
     assert first.closed is True
     assert second.closed is True
+    assert len(manager.user_data_dirs) == 2
+    assert manager.user_data_dirs[0] != manager.user_data_dirs[1]
+
+
+def test_lean_refresh_waits_for_delayed_stoken_generation(monkeypatch):
+    context = _FakeContext(stoken_visit=99, stoken_cookie_read=4)
+    manager = _FakePlaywrightManager([context])
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright", lambda: manager)
+    sleeps: list[float] = []
+    monkeypatch.setattr("app.tools.boss_browser.core.headless_cookie_completer.time.sleep", sleeps.append)
+
+    result = _completer().complete({"wt2": "identity", "zp_at": "account"}, lean=True)
+
+    assert result["__zp_stoken__"] == "delayed-token"
+    assert context.cookie_reads == 4
+    assert sleeps == [0.2, 0.2, 0.2]
+    assert [visit[0] for visit in context.visits] == ["https://www.zhipin.com/"]

@@ -35,8 +35,8 @@ REQUIRED_COOKIE_NAMES = {PRIMARY_COOKIE, STOKEN_COOKIE, "wbg", "zp_at"}
 # Cookie 仍在，就说明用户仍处于登录态，可在不重新扫码的前提下静默重生令牌。
 LOGIN_IDENTITY_COOKIES = {PRIMARY_COOKIE, "zp_at"}
 
-# 交互翻页热路径上令牌重生的收紧参数：单页超时与加载后静置时间都比扫码补齐更短，
-# 避免冷启动后再多页等待把"换一批"拖到几十秒。
+# 交互热路径只访问首页与已登录岗位页，不再访问登录页兜底；
+# 导航超时和 Cookie 等待仍保留完整配置，避免慢网络下提前误判刷新失败。
 
 # Boss 风控/安全相关上游码。boss-cli 会把部分码包装成 BossApiError，这里继续做
 # 本地归类，确保不会被当成普通空结果。
@@ -991,8 +991,8 @@ class BossCliEngine:
         """用 headless Chromium 让前端 JS 下发 __zp_stoken__ 后回收 Cookie。
 
         lean=True 用于交互翻页热路径上的令牌静默重生：先访问首页，令牌仍缺失时再访问
-        已登录岗位页；两次访问均使用 domcontentloaded 和收紧的超时，避免冷启动把
-        “换一批”拖到几十秒。lean=False 用于扫码登录后的一次性补齐，可继续登录页兜底。
+        已登录岗位页；两次访问不等 networkidle，但仍使用完整的配置超时与令牌等待窗口。
+        lean=False 用于扫码登录后的一次性补齐，可继续登录页兜底。
         """
         return self._cookie_completer.complete(cookies, lean=lean)
 
