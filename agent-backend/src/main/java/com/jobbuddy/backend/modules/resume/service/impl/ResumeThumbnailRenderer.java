@@ -4,6 +4,7 @@ import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -25,33 +26,53 @@ class ResumeThumbnailRenderer {
    * @throws IOException 文件或网络读写失败时抛出
    */
   byte[] renderPdfFirstPage(Path pdfFile) throws IOException {
-    PDDocument document = PDDocument.load(pdfFile.toFile());
-    try {
-      PDFRenderer renderer = new PDFRenderer(document);
-      BufferedImage rendered = renderer.renderImageWithDPI(0, 92, ImageType.RGB);
-      int targetWidth = 260;
-      int targetHeight =
-          Math.max(1, rendered.getHeight() * targetWidth / Math.max(1, rendered.getWidth()));
-      BufferedImage scaled =
-          new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
-      Graphics2D graphics = scaled.createGraphics();
-      try {
-        graphics.setRenderingHint(
-            RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-        graphics.setRenderingHint(
-            RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-        graphics.setRenderingHint(
-            RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        graphics.drawImage(rendered, 0, 0, targetWidth, targetHeight, null);
-      } finally {
-        graphics.dispose();
-      }
-      ByteArrayOutputStream output = new ByteArrayOutputStream();
-      ImageIO.write(scaled, "png", output);
-      return output.toByteArray();
-    } finally {
-      document.close();
+    try (PDDocument document = PDDocument.load(pdfFile.toFile())) {
+      return renderPdfFirstPage(document);
     }
+  }
+
+  /**
+   * 直接从上传内容渲染 PDF 首页，避免上传后再次从对象存储下载整份文件。
+   *
+   * @param pdfContent PDF 文件内容
+   * @return PDF 首页图像
+   * @throws IOException PDF 无法读取或渲染时抛出
+   */
+  byte[] renderPdfFirstPage(byte[] pdfContent) throws IOException {
+    try (ByteArrayInputStream input = new ByteArrayInputStream(pdfContent);
+        PDDocument document = PDDocument.load(input)) {
+      return renderPdfFirstPage(document);
+    }
+  }
+
+  /**
+   * 渲染已打开 PDF 的首页。
+   *
+   * @param document PDF 文档
+   * @return PDF 首页图像
+   * @throws IOException PDF 无法渲染时抛出
+   */
+  private byte[] renderPdfFirstPage(PDDocument document) throws IOException {
+    if (document.getNumberOfPages() < 1) throw new IOException("PDF 不包含可渲染页面");
+    PDFRenderer renderer = new PDFRenderer(document);
+    BufferedImage rendered = renderer.renderImageWithDPI(0, 92, ImageType.RGB);
+    int targetWidth = 260;
+    int targetHeight =
+        Math.max(1, rendered.getHeight() * targetWidth / Math.max(1, rendered.getWidth()));
+    BufferedImage scaled = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
+    Graphics2D graphics = scaled.createGraphics();
+    try {
+      graphics.setRenderingHint(
+          RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+      graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+      graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+      graphics.drawImage(rendered, 0, 0, targetWidth, targetHeight, null);
+    } finally {
+      graphics.dispose();
+    }
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    ImageIO.write(scaled, "png", output);
+    return output.toByteArray();
   }
 
   /**

@@ -209,6 +209,46 @@ describe('ResumeManager versions', () => {
   })
 })
 
+describe('ResumeManager thumbnails', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getWorkspaceState.mockResolvedValue({})
+    saveWorkspaceState.mockResolvedValue({})
+    setActivePinia(createPinia())
+  })
+
+  it('shows a visible generation state and allows failed thumbnails to retry', async () => {
+    const resume = useResumeStore()
+    resume.loaded = true
+    resume.items = [
+      {
+        resumeId: 'resume-thumbnail',
+        originalName: '大模型应用开发简历.pdf',
+        suffix: 'pdf',
+        uploadedAt: '2026-08-02T03:13:00+08:00',
+        parsed: {},
+      },
+    ]
+
+    const wrapper = mountResumeManager()
+    await flushPromises()
+
+    expect(wrapper.find('.resume-thumb-status').text()).toContain('正在生成预览')
+    expect(wrapper.find('.resume-thumb-image').attributes('loading')).toBe('eager')
+
+    await wrapper.find('.resume-thumb-image').trigger('error')
+    expect(wrapper.find('.resume-thumb-retry').text()).toBe('重新加载预览')
+
+    await wrapper.find('.resume-thumb-retry').trigger('click')
+    expect(wrapper.find('.resume-thumb-status').exists()).toBe(true)
+    expect(wrapper.find('.resume-thumb-image').attributes('src')).toContain('retry=')
+
+    await wrapper.find('.resume-thumb-image').trigger('load')
+    expect(wrapper.find('.resume-thumb-status').exists()).toBe(false)
+    expect(wrapper.find('.resume-thumb-retry').exists()).toBe(false)
+  })
+})
+
 describe('ResumeManager folder maintenance', () => {
   beforeEach(() => {
     vi.clearAllMocks()

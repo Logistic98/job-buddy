@@ -30,8 +30,7 @@ public class MinioConfig {
             .endpoint(minio.getEndpoint())
             .credentials(minio.getAccessKey(), minio.getSecretKey())
             .region(StringUtils.hasText(minio.getRegion()) ? minio.getRegion() : null);
-    if ("v2".equalsIgnoreCase(minio.getSignatureVersion())
-        || "s3v2".equalsIgnoreCase(minio.getSignatureVersion())) {
+    if (usesV2Signature(minio.getSignatureVersion())) {
       OkHttpClient httpClient =
           new OkHttpClient.Builder()
               .addNetworkInterceptor(
@@ -40,6 +39,18 @@ public class MinioConfig {
       builder.httpClient(httpClient);
     }
     return builder.build();
+  }
+
+  /**
+   * 判断是否启用代理兼容签名。auto 用于已知会改写 V4 请求的对象存储代理，标准直连环境显式使用 v4。
+   *
+   * @param signatureVersion 签名版本配置
+   * @return 是否启用 S3 V2 签名
+   */
+  static boolean usesV2Signature(String signatureVersion) {
+    return "v2".equalsIgnoreCase(signatureVersion)
+        || "s3v2".equalsIgnoreCase(signatureVersion)
+        || "auto".equalsIgnoreCase(signatureVersion);
   }
 
   /**

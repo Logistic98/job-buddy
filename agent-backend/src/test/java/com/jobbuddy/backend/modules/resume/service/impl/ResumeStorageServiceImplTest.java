@@ -18,10 +18,16 @@ import com.jobbuddy.backend.modules.resume.dto.response.ResumeProfileSummaryResp
 import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import com.jobbuddy.backend.modules.resume.repository.ResumeRecordRepository;
 import com.jobbuddy.backend.modules.resume.storage.ResumeObjectStorage;
+import java.io.ByteArrayOutputStream;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.mock.web.MockMultipartFile;
 
 /**
@@ -142,6 +148,53 @@ class ResumeStorageServiceImplTest {
     ResumeRecord record = service.upload(file, "C:\\fakepath\\中文简历.pdf", "tenant-a", "user-a");
 
     assertEquals("中文简历.pdf", record.getOriginalName());
+  }
+
+  /**
+   * 验证上传完成时直接从请求体生成缩略图缓存，不等待列表首次读取再下载原文件。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void uploadPrewarmsThumbnailCacheFromRequestBody() throws Exception {
+    StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+    @SuppressWarnings("unchecked")
+    ValueOperations<String, String> values = mock(ValueOperations.class);
+    when(redisTemplate.opsForValue()).thenReturn(values);
+    ResumeStorageServiceImpl thumbnailService =
+        new ResumeStorageServiceImpl(
+            new JobBuddyProperties(),
+            toolClient,
+            mock(ResumeRecordRepository.class),
+            mock(ResumeObjectStorage.class),
+            mock(BossCliService.class),
+            jsonCodec,
+            redisTemplate);
+    MockMultipartFile file =
+        new MockMultipartFile("file", "resume.pdf", "application/pdf", onePagePdf());
+
+    ResumeRecord record = thumbnailService.upload(file, "tenant-a", "user-a");
+
+    org.mockito.Mockito.verify(values)
+        .set(
+            eq("job-buddy:resume-thumbnail:" + record.getResumeId()),
+            anyString(),
+            eq(Duration.ofHours(24)));
+  }
+
+  /**
+   * 生成最小单页 PDF 测试内容。
+   *
+   * @return PDF 字节
+   * @throws Exception 生成失败时抛出
+   */
+  private byte[] onePagePdf() throws Exception {
+    try (PDDocument document = new PDDocument();
+        ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+      document.addPage(new PDPage());
+      document.save(output);
+      return output.toByteArray();
+    }
   }
 
   /**

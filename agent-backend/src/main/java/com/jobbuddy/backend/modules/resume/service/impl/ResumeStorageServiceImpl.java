@@ -188,6 +188,7 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     record.setParseStatus("pending");
     record.setParsed(new LinkedHashMap<String, Object>());
     resumeRecordRepository.save(record);
+    prewarmUploadedThumbnail(file, record);
     LOG.info(
         "简历上传成功 - resumeId: {}, tenant: {}, user: {}, bucket: {}, object: {}, size: {}",
         resumeId,
@@ -524,7 +525,7 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     String suffix =
         record.getSuffix() == null ? "" : record.getSuffix().toLowerCase(java.util.Locale.ROOT);
     if (!"pdf".equals(suffix)) return thumbnailRenderer.placeholderThumbnail(record);
-    String cacheKey = "job-buddy:resume-thumbnail:" + record.getResumeId();
+    String cacheKey = thumbnailCacheKey(record.getResumeId());
     Path tempFile = null;
     try {
       byte[] cached = readThumbnailCache(cacheKey);
@@ -539,6 +540,39 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
     } finally {
       deleteQuietly(tempFile);
     }
+  }
+
+  /**
+   * 在上传响应返回前从请求体预生成首页缩略图，避免列表首个缩略图请求重新下载整份 PDF。
+   *
+   * <p>缩略图是可重建派生资源，预热失败不回滚已经成功保存的简历原文件与记录。
+   *
+   * @param file 已校验的 PDF 文件
+   * @param record 已保存的简历记录
+   */
+  private void prewarmUploadedThumbnail(MultipartFile file, ResumeRecord record) {
+    if (redisTemplate == null || file == null || record == null) return;
+    long startedAt = System.nanoTime();
+    try {
+      byte[] thumbnail = thumbnailRenderer.renderPdfFirstPage(file.getBytes());
+      writeThumbnailCache(thumbnailCacheKey(record.getResumeId()), thumbnail);
+      LOG.info(
+          "简历缩略图预生成成功 - resumeId: {}, elapsedMs: {}",
+          record.getResumeId(),
+          java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+    } catch (Exception e) {
+      LOG.warn("简历缩略图预生成失败，后续按需重试 - resumeId: {}, error: {}", record.getResumeId(), e.getMessage());
+    }
+  }
+
+  /**
+   * 构造缩略图缓存键。
+   *
+   * @param resumeId 简历标识
+   * @return Redis 缓存键
+   */
+  private String thumbnailCacheKey(String resumeId) {
+    return "job-buddy:resume-thumbnail:" + resumeId;
   }
 
   /**

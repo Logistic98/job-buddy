@@ -70,6 +70,7 @@
   border-radius: 13px !important;
   background: #f4f6fa !important;
   overflow: hidden !important;
+  position: relative !important;
 }
 .resume-manager-page .resume-thumb img,
 .resume-manager-page .resume-thumb-image {
@@ -77,6 +78,47 @@
   height: 100% !important;
   object-fit: contain !important;
   background: #fff !important;
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+.resume-manager-page .resume-thumb.is-loading .resume-thumb-image,
+.resume-manager-page .resume-thumb.is-error .resume-thumb-image {
+  opacity: 0;
+}
+.resume-manager-page .resume-thumb-status,
+.resume-manager-page .resume-thumb-retry {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 16px;
+  border: 0;
+  color: #667085;
+  background: linear-gradient(145deg, #f7f9fc, #edf1f8);
+  font-size: 12px;
+  text-align: center;
+}
+.resume-manager-page .resume-thumb-status i {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #d8dfec;
+  border-top-color: #3157ff;
+  border-radius: 50%;
+  animation: resume-thumb-spin 0.75s linear infinite;
+}
+.resume-manager-page .resume-thumb-retry {
+  width: 100%;
+  cursor: pointer;
+  color: #3157ff;
+}
+@keyframes resume-thumb-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .resume-manager-page .resume-card-info {
   min-width: 0 !important;

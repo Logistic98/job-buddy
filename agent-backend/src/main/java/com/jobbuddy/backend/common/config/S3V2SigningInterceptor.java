@@ -2,6 +2,8 @@ package com.jobbuddy.backend.common.config;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -24,6 +26,9 @@ import okhttp3.Response;
  * <p>启用后桶与对象操作必须统一签名版本，否则可能上传成功但读取时报 SignatureDoesNotMatch。
  */
 final class S3V2SigningInterceptor implements Interceptor {
+  private static final DateTimeFormatter HTTP_DATE_FORMATTER =
+      DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US)
+          .withZone(ZoneOffset.UTC);
   private static final Set<String> SIGNED_SUBRESOURCES =
       new HashSet<String>(
           Arrays.asList(
@@ -55,6 +60,7 @@ final class S3V2SigningInterceptor implements Interceptor {
 
   private final String accessKey;
   private final String secretKey;
+  private final Clock clock;
 
   /**
    * 创建 S3V2 签名拦截器实例。
@@ -63,8 +69,20 @@ final class S3V2SigningInterceptor implements Interceptor {
    * @param secretKey 密钥键
    */
   S3V2SigningInterceptor(String accessKey, String secretKey) {
+    this(accessKey, secretKey, Clock.systemUTC());
+  }
+
+  /**
+   * 创建使用指定时钟的 S3 V2 签名器，供边界日期测试复用。
+   *
+   * @param accessKey 访问键
+   * @param secretKey 密钥键
+   * @param clock 签名时钟
+   */
+  S3V2SigningInterceptor(String accessKey, String secretKey, Clock clock) {
     this.accessKey = accessKey;
     this.secretKey = secretKey;
+    this.clock = clock;
   }
 
   /**
@@ -87,8 +105,9 @@ final class S3V2SigningInterceptor implements Interceptor {
    * @throws IOException 文件读写失败时抛出
    */
   Request signRequest(Request request) throws IOException {
-    String date =
-        DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.now(java.time.ZoneOffset.UTC));
+    // MinIO 对 HTTP Date 的兼容实现要求日期始终为两位数；JDK RFC_1123_DATE_TIME
+    // 在每月 1-9 日会输出单个数字，导致签名请求被判定为 MalformedDate。
+    String date = HTTP_DATE_FORMATTER.format(ZonedDateTime.now(clock));
     String contentMd5 = request.header("Content-MD5");
     if (contentMd5 == null) contentMd5 = "";
     String contentType = request.header("Content-Type");

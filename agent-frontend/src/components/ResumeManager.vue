@@ -40,18 +40,33 @@
 
     <div v-else-if="filteredResumes.length" class="resume-card-grid">
       <article
-        v-for="item in filteredResumes"
+        v-for="(item, index) in filteredResumes"
         :key="item.resumeId"
         :class="['resume-manage-card', { active: resume.current?.resumeId === item.resumeId }]"
         @click="setCurrent(item)"
       >
-        <div class="resume-thumb" @click.stop="openPreview(item)">
+        <div :class="['resume-thumb', `is-${thumbnailState(item)}`]" @click.stop="openPreview(item)">
+          <span v-if="thumbnailState(item) === 'loading'" class="resume-thumb-status" role="status">
+            <i aria-hidden="true"></i>
+            正在生成预览
+          </span>
+          <button
+            v-else-if="thumbnailState(item) === 'error'"
+            type="button"
+            class="resume-thumb-retry"
+            @click.stop="retryThumbnail(item)"
+          >
+            重新加载预览
+          </button>
           <img
+            :key="thumbnailRetryVersion(item)"
             class="resume-thumb-image"
             :src="thumbnailUrl(item)"
             :alt="item.originalName"
-            loading="lazy"
+            :loading="index < 4 ? 'eager' : 'lazy'"
             decoding="async"
+            @load="markThumbnailLoaded(item)"
+            @error="markThumbnailFailed(item)"
           />
         </div>
         <div class="resume-card-info">
@@ -377,7 +392,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { resumeDownloadUrl, resumePreviewUrl, resumeThumbnailUrl } from '../api/resume'
 import { getWorkspaceState, saveWorkspaceState } from '../api/workspace'
 import { useChatStore } from '../stores/chat'
@@ -409,6 +424,8 @@ const MAX_TAGS = 6
 const MAX_TAG_LENGTH = 12
 const folders = ref([])
 const activeFolder = ref('')
+const thumbnailStates = reactive({})
+const thumbnailRetryVersions = reactive({})
 const managedResumes = computed(() => resume.items.filter((item) => String(item.suffix || '').toLowerCase() === 'pdf'))
 const filteredResumes = computed(() =>
   activeFolder.value
@@ -461,7 +478,27 @@ function previewUrl(item) {
   return item?.resumeId ? resumePreviewUrl(item.resumeId) : '#'
 }
 function thumbnailUrl(item) {
-  return item?.resumeId ? resumeThumbnailUrl(item.resumeId) : '#'
+  if (!item?.resumeId) return '#'
+  const url = resumeThumbnailUrl(item.resumeId)
+  const retryVersion = thumbnailRetryVersion(item)
+  return retryVersion ? `${url}${url.includes('?') ? '&' : '?'}retry=${retryVersion}` : url
+}
+function thumbnailState(item) {
+  return thumbnailStates[item?.resumeId] || 'loading'
+}
+function thumbnailRetryVersion(item) {
+  return thumbnailRetryVersions[item?.resumeId] || 0
+}
+function markThumbnailLoaded(item) {
+  if (item?.resumeId) thumbnailStates[item.resumeId] = 'loaded'
+}
+function markThumbnailFailed(item) {
+  if (item?.resumeId) thumbnailStates[item.resumeId] = 'error'
+}
+function retryThumbnail(item) {
+  if (!item?.resumeId) return
+  thumbnailStates[item.resumeId] = 'loading'
+  thumbnailRetryVersions[item.resumeId] = Date.now()
 }
 function downloadUrl(item) {
   return item?.resumeId ? resumeDownloadUrl(item.resumeId) : '#'
