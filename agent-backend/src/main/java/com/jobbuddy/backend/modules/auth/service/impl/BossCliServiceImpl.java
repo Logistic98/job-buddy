@@ -37,10 +37,11 @@ import org.springframework.stereotype.Service;
 @Service
 public class BossCliServiceImpl implements BossCliService {
   // 单次批量搜索允许向 Boss 工具发起的搜索请求总量上限。工具默认每小时搜索配额较低，
-  // 这里刻意压到远低于该值，给详情懒加载与同一小时内的二次搜索留出余量，
+  // 这里刻意压到远低于该值，给最终展示岗位的详情补全与同一小时内的二次搜索留出余量，
   // 避免一次请求把整小时配额打满后触发限速甚至误判硬停。
   // boss-cli 已内置请求抖动与退避，这里继续从业务层压低翻页数量。
   private static final int MAX_SEARCH_REQUESTS_PER_BATCH = 3;
+  private static final int MIN_JOB_DESCRIPTION_CHARS = 30;
   private static final long FAVORITE_PAGE_CACHE_TTL_MILLIS = 2 * 60 * 1000L;
 
   private final BossBrowserClient browserClient;
@@ -629,37 +630,114 @@ public class BossCliServiceImpl implements BossCliService {
    * 补充岗位详情。
    *
    * @param jobs 岗位列表
-   * @param maxDetails 最大详情数量
+   * @param maxDetails 最大补全岗位数量
    * @return 补全岗位详情列表
    */
   public List<Map<String, Object>> enrichJobDetails(
       List<Map<String, Object>> jobs, int maxDetails) {
-    if (jobs == null || jobs.isEmpty() || maxDetails <= 0)
-      return jobs == null ? new ArrayList<Map<String, Object>>() : jobs;
-    int count = 0;
+    List<Map<String, Object>> enriched = new ArrayList<Map<String, Object>>();
+    if (jobs == null || jobs.isEmpty()) return enriched;
     for (Map<String, Object> job : jobs) {
-      if (count >= maxDetails) break;
-      String securityId = valueString(firstPresent(job, "securityId", "encryptJobId"));
-      if (securityId.isEmpty()) continue;
-      try {
-        Map<String, Object> detail = jsonCodec.toMap(jobDetail(securityId));
-        if (!detail.isEmpty()) mergeJobDetail(job, detail);
-        count++;
-      } catch (BossAuthRequiredException authLoss) {
-        // 详情补全过程中登录态失效：立即停手，不要继续逐个访问 Boss，
-        // 否则会在风控敏感期持续高频请求。JD 可由懒加载详情接口按需补全。
-        break;
-      } catch (Exception detailFailure) {
-        // 单个详情失败（含风控/超时等）同样停止补全，避免连续失败累积触发风控；
-        // 搜索结果已可展示，JD 留待懒加载补全。
-        break;
-      }
+      enriched.add(
+          job == null
+              ? new LinkedHashMap<String, Object>()
+              : new LinkedHashMap<String, Object>(job));
     }
-    return enrichJobs(jobs);
+    if (maxDetails <= 0) return enriched;
+    int detailJobs = 0;
+    boolean transientRetryUsed = false;
+    for (Map<String, Object> job : enriched) {
+      if (hasSufficientJobDescription(job)) continue;
+      if (detailJobs >= maxDetails) break;
+      String explicitSecurityId = valueString(firstPresent(job, "securityId", "security_id"));
+      String securityId =
+          valueString(
+              firstPresent(
+                  job,
+                  "securityId",
+                  "security_id",
+                  "encryptJobId",
+                  "encrypt_job_id",
+                  "jobId",
+                  "job_id"));
+      String detailUrl =
+          valueString(
+              firstPresent(
+                  job,
+                  "originalUrl",
+                  "jobUrl",
+                  "url",
+                  "href",
+                  "link",
+                  "detailUrl",
+                  "jobDetailUrl"));
+      if (securityId.isEmpty() && detailUrl.isEmpty()) continue;
+      detailJobs++;
+      boolean detailLoaded = false;
+      for (int attempt = 0; attempt < 2; attempt++) {
+        try {
+          Map<String, Object> detail = jsonCodec.toMap(jobDetail(securityId, detailUrl));
+          if (!detail.isEmpty()) mergeJobDetail(job, detail);
+          detailLoaded = true;
+          break;
+        } catch (BossAuthRequiredException authLoss) {
+          // 详情补全过程中登录态失效：立即停手，不要继续逐个访问 Boss，
+          // 否则会在风控敏感期持续高频请求。保留已补全结果并让推荐链路直接展示。
+          return enrichJobs(enriched);
+        } catch (BossJobDetailFailure detailFailure) {
+          boolean canRetry =
+              attempt == 0
+                  && !transientRetryUsed
+                  && isRetryableJobDetailFailure(explicitSecurityId, detailFailure);
+          if (!canRetry) return enrichJobs(enriched);
+          transientRetryUsed = true;
+        } catch (RuntimeException unexpectedDetailFailure) {
+          // 未携带稳定 Boss 业务码的异常不做猜测性重试，避免把永久错误放大为连续访问。
+          return enrichJobs(enriched);
+        }
+      }
+      if (!detailLoaded) return enrichJobs(enriched);
+    }
+    return enrichJobs(enriched);
   }
 
   /**
-   * 按 securityId 拉取单个岗位详情（含 JD）。失败时抛出异常，便于懒加载接口分流处理。
+   * 判断岗位详情失败是否属于允许即时补偿一次的稳定瞬时故障。
+   *
+   * @param securityId Boss 岗位安全标识
+   * @param failure 岗位详情业务失败
+   * @return 是否允许补偿一次
+   */
+  private boolean isRetryableJobDetailFailure(String securityId, BossJobDetailFailure failure) {
+    if (securityId == null || securityId.trim().isEmpty() || failure.code != 5001) return false;
+    return failure.bossMessage.contains("未拿到岗位详情数据，请稍后重试")
+        || failure.bossMessage.contains("临时安全令牌刷新失败，请稍后重试");
+  }
+
+  /**
+   * 判断岗位是否已经携带足量职位描述。
+   *
+   * @param job 岗位
+   * @return 是否已有足量职位描述
+   */
+  private boolean hasSufficientJobDescription(Map<String, Object> job) {
+    String description =
+        valueString(
+            firstPresent(
+                job,
+                "jobDescription",
+                "description",
+                "postDescription",
+                "jobDesc",
+                "jobSecText",
+                "detailText",
+                "jobRequire",
+                "jobContent"));
+    return description.length() >= MIN_JOB_DESCRIPTION_CHARS;
+  }
+
+  /**
+   * 按 securityId 拉取单个岗位详情（含 JD）。失败时抛出异常，便于检索阶段补全与显式详情接口分流处理。
    *
    * @param securityId Boss 岗位安全标识
    * @return 岗位详情
@@ -693,7 +771,7 @@ public class BossCliServiceImpl implements BossCliService {
           "Boss 直聘未登录或登录态不完整，请先完成二维码登录。", authRequiredInstructions());
     }
     if (!success(code)) {
-      throw new RuntimeException("岗位详情获取失败：" + message(envelope));
+      throw new BossJobDetailFailure(code, message(envelope));
     }
     return jsonCodec.toTree(dataOf(envelope));
   }
@@ -1067,5 +1145,19 @@ public class BossCliServiceImpl implements BossCliService {
     fallback.put("code", envelope.get("code"));
     fallback.put("message", message(envelope));
     return fallback;
+  }
+
+  /**
+   * 保留 Boss 岗位详情业务码与原始消息，供受限补偿策略精确分类。
+   */
+  private static final class BossJobDetailFailure extends RuntimeException {
+    private final int code;
+    private final String bossMessage;
+
+    private BossJobDetailFailure(int code, String bossMessage) {
+      super("岗位详情获取失败：" + bossMessage);
+      this.code = code;
+      this.bossMessage = bossMessage == null ? "" : bossMessage;
+    }
   }
 }

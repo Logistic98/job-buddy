@@ -11,7 +11,7 @@ import yaml
 from PIL import Image
 
 from app.tools.boss_browser.core.boss_cli_engine import PRIMARY_COOKIE, BossCliEngine
-from app.tools.boss_browser.core.settings import Settings
+from app.tools.boss_browser.core.settings import Settings, get_settings
 
 
 class _FakeCredential:
@@ -89,6 +89,23 @@ class _FakeQrStartClient(_FakeQrClient):
 def _engine(tmp_path) -> BossCliEngine:
     settings = Settings()
     return BossCliEngine(settings)
+
+
+def test_default_search_page_guard_allows_configurable_backend_depth():
+    config_path = Path(__file__).resolve().parents[1] / "app/tools/boss_browser/config/config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    assert Settings().boss_cli.max_search_page == 30
+    assert config["boss_cli"]["max_search_page"] == 30
+
+
+def test_search_page_guard_clamps_environment_override(monkeypatch):
+    monkeypatch.setenv("BOSS_CLI_MAX_SEARCH_PAGE", "99")
+    get_settings.cache_clear()
+
+    assert get_settings().boss_cli.max_search_page == 30
+
+    get_settings.cache_clear()
 
 
 def test_engine_keeps_credentials_in_memory_without_creating_files(tmp_path):
@@ -473,7 +490,7 @@ def test_refresh_reuses_persisted_login_to_regenerate_stoken(tmp_path, monkeypat
     assert completion_seed.get("lean") is True
 
 
-def test_detail_preserves_login_when_temporary_refresh_is_throttled(tmp_path):
+def test_detail_preserves_login_when_failed_refresh_is_throttled(tmp_path):
     engine = _engine(tmp_path)
     persisted = _FakeCredential({PRIMARY_COOKIE: "identity", "__zp_stoken__": "fresh", "wbg": "w", "zp_at": "account"})
 
@@ -487,8 +504,9 @@ def test_detail_preserves_login_when_temporary_refresh_is_throttled(tmp_path):
     engine._client_cls = _ExpiredDetailClient  # noqa: SLF001
     engine._SessionExpiredError = _SessionExpired  # noqa: SLF001
     engine._memory_credential = persisted  # noqa: SLF001
-    # 模拟收藏导入的前一个详情刚完成令牌重生，后一个详情在节流窗口内再次要求恢复。
+    # 模拟前一次临时浏览器恢复刚刚失败，后一个详情在节流窗口内再次要求恢复。
     engine._last_browser_refresh_at = float("inf")  # noqa: SLF001
+    engine._transient_refresh_failure = True  # noqa: SLF001
 
     result = engine._detail_sync("sec-1", "")  # noqa: SLF001
 
@@ -497,6 +515,36 @@ def test_detail_preserves_login_when_temporary_refresh_is_throttled(tmp_path):
     assert result["temporary_auth_refresh_failed"] is True
     assert engine._memory_credential is persisted  # noqa: SLF001
     assert engine._status_sync()["status"] == "logged_in"  # noqa: SLF001
+
+
+def test_successful_refresh_does_not_throttle_next_confirmed_token_expiry(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+    persisted = _FakeCredential(
+        {PRIMARY_COOKIE: "identity", "__zp_stoken__": "expired", "wbg": "w", "zp_at": "account"}
+    )
+    engine._memory_credential = persisted  # noqa: SLF001
+    completion_calls = 0
+
+    class _Auth:
+        @staticmethod
+        def Credential(cookies):
+            return _FakeCredential(cookies)
+
+    engine._auth = _Auth  # noqa: SLF001
+
+    def _complete(cookies, *, lean=False):
+        nonlocal completion_calls
+        completion_calls += 1
+        assert lean is True
+        return {**cookies, "__zp_stoken__": f"fresh-token-{completion_calls}"}
+
+    monkeypatch.setattr(engine, "_run_headless_cookie_completion", _complete)
+
+    assert engine._refresh_after_auth_failure() is True  # noqa: SLF001
+    # 第二个真实请求已再次证明令牌失效；即使仍在 60 秒内，也应允许它恢复一次。
+    assert engine._refresh_after_auth_failure() is True  # noqa: SLF001
+    assert completion_calls == 2
+    assert engine._memory_credential.cookies.get("__zp_stoken__") == "fresh-token-2"  # noqa: SLF001
 
 
 def test_refresh_does_not_fall_back_to_browser_by_default(tmp_path, monkeypatch):
@@ -601,7 +649,7 @@ def test_search_page_limit_blocks_without_network(tmp_path):
     engine = _engine(tmp_path)
     engine._settings.boss_cli.max_search_page = 1  # noqa: SLF001
 
-    result = engine._search_sync("Java", "上海", 2, {})  # noqa: SLF001
+    result = engine._search_sync("Go", "杭州", 2, {})  # noqa: SLF001
 
     assert result["payload"] is None
     assert result["local_rejected"] is True
@@ -617,11 +665,11 @@ def test_search_uses_boss_cli_client_and_filter_mapping(tmp_path, monkeypatch):
         lambda: _FakeCredential({PRIMARY_COOKIE: "x", "__zp_stoken__": "s", "wbg": "w", "zp_at": "z"}),
     )
 
-    result = engine._search_sync("Java 大模型应用开发", "上海市", 1, {"salary": "30-50K", "experience": "3-5年"})  # noqa: SLF001
+    result = engine._search_sync("Go 云原生平台开发", "杭州市", 1, {"salary": "30-50K", "experience": "3-5年"})  # noqa: SLF001
 
     assert result["payload"]["jobList"][0]["securityId"] == "sec-1"
-    assert _FakeClient.captured["query"] == "Java 大模型应用开发"
-    assert _FakeClient.captured["city"] == "101020100"
+    assert _FakeClient.captured["query"] == "Go 云原生平台开发"
+    assert _FakeClient.captured["city"] == "101210100"
     assert _FakeClient.captured["salary"] == "407"
     assert _FakeClient.captured["experience"] == "103"
     assert _FakeClient.captured_config["timeout"] == 20.0
@@ -650,7 +698,7 @@ def test_search_reuses_shared_login_after_temporary_token_expires(tmp_path, monk
     monkeypatch.setattr(engine, "_credential_or_none", lambda: next(credentials))
     monkeypatch.setattr(engine, "_refresh_after_auth_failure", lambda: True)
 
-    result = engine._search_sync("Java", "上海", 1, {})  # noqa: SLF001
+    result = engine._search_sync("Go", "杭州", 1, {})  # noqa: SLF001
 
     assert attempts["count"] == 2
     assert result["login_redirect"] is False
@@ -681,7 +729,7 @@ def test_search_preserves_login_when_temporary_browser_refresh_closes(tmp_path, 
         ),
     )
 
-    result = engine._search_sync("Java", "上海", 1, {})  # noqa: SLF001
+    result = engine._search_sync("Go", "杭州", 1, {})  # noqa: SLF001
 
     assert result["payload"] is None
     assert result["login_redirect"] is False
@@ -787,5 +835,5 @@ def test_city_resolver_supports_suffix(tmp_path):
     settings = Settings(**yaml.safe_load(config_path.read_text(encoding="utf-8")))
     engine = BossCliEngine(settings)
 
-    assert engine._resolve_city_code("上海市") == "101020100"  # noqa: SLF001
+    assert engine._resolve_city_code("杭州市") == "101210100"  # noqa: SLF001
     assert engine._resolve_city_code("阿克苏地区") == "101131000"  # noqa: SLF001

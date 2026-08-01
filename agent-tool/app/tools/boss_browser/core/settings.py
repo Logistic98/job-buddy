@@ -19,12 +19,12 @@ class BossConfig(BaseModel):
 
 
 class RateLimitConfig(BaseModel):
-    search_per_hour: int = 15
+    search_per_hour: int = 60
     search_per_day: int = 120
     # 0 表示不设置本地硬配额；仍保留串行抖动和上游风控信号停手。
     favorite_list_per_hour: int = 0
     favorite_list_per_day: int = 0
-    detail_per_hour: int = 12
+    detail_per_hour: int = 60
     detail_per_day: int = 60
     action_delay_min_ms: int = 800
     action_delay_max_ms: int = 2000
@@ -53,7 +53,7 @@ class BossCliConfig(BaseModel):
     auto_import_browser_cookies: bool = False
     status_verify: bool = False
     # 默认允许搜索前若干页，支撑"换一批"候选池跨页抓取；按页数本地拦截的机制保留。
-    max_search_page: int = 5
+    max_search_page: int = 30
     # Boss“感兴趣/收藏”列表使用 interaction/geekGetJob。tag 属于易漂移协议，
     # 通过环境变量可覆盖；0 表示不设置本地页数上限，仍只允许用户手动翻页。
     favorite_list_tag: int = 4
@@ -164,7 +164,10 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     settings.boss_cli.headless_cookie_timeout_ms = _env_int(
         "BOSS_CLI_HEADLESS_COOKIE_TIMEOUT_MS", settings.boss_cli.headless_cookie_timeout_ms
     )
-    settings.boss_cli.max_search_page = _env_int("BOSS_CLI_MAX_SEARCH_PAGE", settings.boss_cli.max_search_page)
+    settings.boss_cli.max_search_page = max(
+        1,
+        min(30, _env_int("BOSS_CLI_MAX_SEARCH_PAGE", settings.boss_cli.max_search_page)),
+    )
     settings.boss_cli.favorite_list_tag = _env_int("BOSS_CLI_FAVORITE_LIST_TAG", settings.boss_cli.favorite_list_tag)
     settings.boss_cli.max_favorite_list_page = _env_int(
         "BOSS_CLI_MAX_FAVORITE_LIST_PAGE", settings.boss_cli.max_favorite_list_page

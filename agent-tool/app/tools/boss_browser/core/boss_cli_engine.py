@@ -325,12 +325,12 @@ class BossCliEngine:
 
     def _refresh_after_auth_failure(self) -> bool:
         now = time.time()
-        # 避免一次失效请求触发多轮刷新，既慢又可能反复弹系统授权。
-        if now - self._last_browser_refresh_at < 60:
-            # 收藏导入会串行读取多个详情：前一个详情刚重生令牌后，后一个详情仍可能
-            # 因岗位级临时校验失败再次进入恢复分支。此时只是刷新被本地节流，并不能
-            # 证明 wt2/zp_at 持久身份已经失效；保留身份并让上层返回可重试错误，禁止
-            # 把“暂未再次刷新”误报成 auth_required，导致用户重复扫码。
+        # 只节流连续失败的恢复尝试。上一次成功刷新后，若新的真实请求再次明确
+        # 返回令牌失效，必须允许本请求执行一次有界恢复；否则成功时间戳会在 60 秒内
+        # 直接拦截“换一批”，把可恢复的临时令牌过期误报为用户可见异常。
+        if self._transient_refresh_failure and now - self._last_browser_refresh_at < 60:
+            # 补齐链路刚刚失败时保留持久身份并返回可重试错误，避免短时内
+            # 反复启动临时浏览器，也禁止误切换为 auth_required 导致用户重复扫码。
             if self._has_persisted_login_identity():
                 self._transient_refresh_failure = True
             return False

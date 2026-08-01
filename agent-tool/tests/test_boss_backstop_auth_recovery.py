@@ -45,7 +45,7 @@ def test_auth_required_not_counted_as_backstop_failure(tmp_path):
 
     for _ in range(8):
         with pytest.raises(AuthRequiredError):
-            asyncio.run(service.search("Java", "上海"))
+            asyncio.run(service.search("Go", "杭州"))
 
     # 需要登录不应累计硬停计数，否则会把扫码入口锁死。
     assert service.rate_snapshot()["consecutive_failures"] == 0
@@ -60,7 +60,7 @@ def test_backstop_unauthenticated_routes_to_login(tmp_path):
 
     # 已硬停且未登录：应转为引导扫码（可恢复），而不是死锁报硬停。
     with pytest.raises(AuthRequiredError):
-        asyncio.run(service.search("Java", "上海"))
+        asyncio.run(service.search("Go", "杭州"))
 
 
 def test_status_authenticated_resets_backstop(tmp_path):
@@ -78,7 +78,7 @@ def test_status_authenticated_resets_backstop(tmp_path):
 
 def test_search_success_after_login(tmp_path):
     service = _service(tmp_path, authenticated=True)
-    jobs = asyncio.run(service.search("Java", "上海"))
+    jobs = asyncio.run(service.search("Go", "杭州"))
     assert jobs and jobs[0].get("jobName") == "Java"
     assert service.rate_snapshot()["consecutive_failures"] == 0
 
@@ -98,6 +98,6 @@ def test_temporary_token_refresh_failure_does_not_request_qr_login(tmp_path):
     service._session.search = _temporary_failure  # noqa: SLF001
 
     with pytest.raises(RuntimeError, match="临时安全令牌刷新失败"):
-        asyncio.run(service.search("Java", "上海"))
+        asyncio.run(service.search("Go", "杭州"))
 
     assert service.rate_snapshot()["consecutive_failures"] == 1

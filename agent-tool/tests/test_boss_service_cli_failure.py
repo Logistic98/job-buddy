@@ -34,7 +34,7 @@ def test_search_cli_unavailable_not_counted_as_failure(tmp_path):
     service = _service(tmp_path)
 
     with pytest.raises(BossCliUnavailable):
-        asyncio.run(service.search("Java", "上海"))
+        asyncio.run(service.search("Go", "杭州"))
 
     snap = service.rate_snapshot()
     assert snap["consecutive_failures"] == 0

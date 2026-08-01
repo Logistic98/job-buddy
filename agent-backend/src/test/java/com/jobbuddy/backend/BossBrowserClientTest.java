@@ -53,8 +53,8 @@ class BossBrowserClientTest {
         .thenReturn(response);
 
     Map<String, Object> request = new LinkedHashMap<String, Object>();
-    request.put("query", "Java");
-    request.put("city", "上海");
+    request.put("query", "Go");
+    request.put("city", "杭州");
     Map<String, Object> result = client.post("/search", request);
 
     assertEquals(200, result.get("code"));
