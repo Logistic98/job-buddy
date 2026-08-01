@@ -49,6 +49,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=${AGENT_SANDBOX_CONTAINER_TMPFS_SIZE:-268435456}
+      - /run/job-buddy-sandbox-deps:rw,exec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=${AGENT_SANDBOX_CONTAINER_DEPENDENCY_TMPFS_SIZE:-268435456}
+      - /var/cache/job-buddy-sandbox-uv:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=${AGENT_SANDBOX_CONTAINER_DEPENDENCY_CACHE_TMPFS_SIZE:-134217728}
     pids_limit: ${AGENT_SANDBOX_CONTAINER_PIDS_LIMIT:-256}
     mem_limit: ${AGENT_SANDBOX_CONTAINER_MEMORY_LIMIT:-1g}
     cpus: ${AGENT_SANDBOX_CONTAINER_CPU_LIMIT:-1}
@@ -74,6 +76,8 @@ services:
       AGENT_MEMORY_DATABASE_URL: ${AGENT_MEMORY_DATABASE_URL:?Set AGENT_MEMORY_DATABASE_URL in the environment file}
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:?Set SPRING_DATASOURCE_URL in the environment file}
       AGENT_MEMORY_DB_SSL_MODE: ${AGENT_MEMORY_DB_SSL_MODE:-require}
+      AGENT_MEMORY_EMBEDDING_API_KEY: ${AGENT_MEMORY_EMBEDDING_API_KEY:-}
+      AGENT_MEMORY_RERANK_API_KEY: ${AGENT_MEMORY_RERANK_API_KEY:-}
     depends_on:
       agent-backend:
         condition: service_healthy

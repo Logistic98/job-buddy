@@ -10,7 +10,20 @@ INFRASTRUCTURE_COMPOSE = REPO_ROOT / "docker-compose-infra.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 START_ALL = REPO_ROOT / "scripts" / "start-all.sh"
 BACKEND_DOCKERFILE = REPO_ROOT / "agent-backend" / "Dockerfile"
+FRONTEND_DOCKERFILE = REPO_ROOT / "agent-frontend" / "Dockerfile"
 SANDBOX_DOCKERFILE = REPO_ROOT / "agent-sandbox" / "Dockerfile"
+TOOL_DOCKERFILE = REPO_ROOT / "agent-tool" / "Dockerfile"
+PYTHON_DOCKERFILES = tuple(
+    REPO_ROOT / module / "Dockerfile"
+    for module in (
+        "agent-runtime",
+        "agent-intent",
+        "agent-tool",
+        "agent-sandbox",
+        "agent-eval",
+        "agent-memory",
+    )
+)
 
 
 class InfrastructureInitializationTest(unittest.TestCase):
@@ -72,6 +85,32 @@ class InfrastructureInitializationTest(unittest.TestCase):
 
         self.assertIn("--start-period=300s", dockerfile)
 
+    def test_application_dockerfiles_reuse_dependency_download_caches(self):
+        backend_dockerfile = BACKEND_DOCKERFILE.read_text(encoding="utf-8")
+        frontend_dockerfile = FRONTEND_DOCKERFILE.read_text(encoding="utf-8")
+
+        self.assertIn("target=/root/.m2", backend_dockerfile)
+        self.assertIn("target=/root/.npm", frontend_dockerfile)
+        for dockerfile_path in PYTHON_DOCKERFILES:
+            with self.subTest(dockerfile=dockerfile_path.parent.name):
+                dockerfile = dockerfile_path.read_text(encoding="utf-8")
+                self.assertTrue(dockerfile.startswith("# syntax=docker/dockerfile:1.7\n"))
+                self.assertIn("target=/root/.cache/pip", dockerfile)
+                self.assertIn("target=/root/.cache/uv", dockerfile)
+                self.assertIn("UV_LINK_MODE=copy", dockerfile)
+
+    def test_frontend_dockerfile_includes_public_build_assets(self):
+        dockerfile = FRONTEND_DOCKERFILE.read_text(encoding="utf-8")
+
+        self.assertIn("COPY public ./public", dockerfile)
+
+    def test_tool_browser_layer_is_independent_from_application_sources(self):
+        dockerfile = TOOL_DOCKERFILE.read_text(encoding="utf-8")
+
+        browser_install_position = dockerfile.index("python -m playwright install")
+        self.assertLess(browser_install_position, dockerfile.index("COPY app ./app"))
+        self.assertLess(browser_install_position, dockerfile.index("COPY server.py ./"))
+
     def test_sandbox_compose_is_portable_and_uses_bounded_readiness(self):
         compose = APPLICATION_COMPOSE.read_text(encoding="utf-8")
         dockerfile = SANDBOX_DOCKERFILE.read_text(encoding="utf-8")
@@ -101,6 +140,24 @@ class InfrastructureInitializationTest(unittest.TestCase):
         self.assertFalse(
             (REPO_ROOT / "agent-memory" / "app" / "tencentdb_adapter.py").exists()
         )
+
+    def test_retrieval_model_secrets_are_scoped_to_memory_service(self):
+        compose = APPLICATION_COMPOSE.read_text(encoding="utf-8")
+        memory_block = compose.split("  agent-memory:", 1)[1].split(
+            "\n  agent-tool:", 1
+        )[0]
+
+        self.assertIn(
+            "AGENT_MEMORY_EMBEDDING_API_KEY: ${AGENT_MEMORY_EMBEDDING_API_KEY:-}",
+            memory_block,
+        )
+        self.assertIn(
+            "AGENT_MEMORY_RERANK_API_KEY: ${AGENT_MEMORY_RERANK_API_KEY:-}",
+            memory_block,
+        )
+        non_memory_blocks = compose.replace(memory_block, "")
+        self.assertNotIn("AGENT_MEMORY_EMBEDDING_API_KEY", non_memory_blocks)
+        self.assertNotIn("AGENT_MEMORY_RERANK_API_KEY", non_memory_blocks)
 
 
 if __name__ == "__main__":

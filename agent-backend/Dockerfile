@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 ARG DOCKER_REGISTRY=docker.io
 FROM ${DOCKER_REGISTRY}/library/maven:3.9-eclipse-temurin-17 AS build
 ARG MAVEN_REPO_URL=https://repo.maven.apache.org/maven2
@@ -5,7 +7,8 @@ ENV MAVEN_REPO_URL=${MAVEN_REPO_URL}
 WORKDIR /app
 COPY pom.xml settings.docker.xml ./
 COPY src ./src
-RUN mvn -s settings.docker.xml -DskipTests package
+RUN --mount=type=cache,id=job-buddy-maven,target=/root/.m2,sharing=locked \
+    mvn -s settings.docker.xml -B -ntp -DskipTests package
 
 FROM ${DOCKER_REGISTRY}/library/eclipse-temurin:17-jre-ubi9-minimal
 WORKDIR /app

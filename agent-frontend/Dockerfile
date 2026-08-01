@@ -1,10 +1,15 @@
+# syntax=docker/dockerfile:1.7
+
 ARG DOCKER_REGISTRY=docker.io
 FROM ${DOCKER_REGISTRY}/library/node:22-alpine AS build
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
-COPY . .
+RUN --mount=type=cache,id=job-buddy-npm,target=/root/.npm \
+    npm ci --prefer-offline --no-audit --no-fund
+COPY index.html vite.config.js ./
+COPY public ./public
+COPY src ./src
 RUN npm run build
 
 FROM ${DOCKER_REGISTRY}/library/nginx:1.27-alpine
