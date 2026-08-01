@@ -220,3 +220,47 @@ async def test_postgres_readiness_skips_schema_initialization_when_ready():
     await store.ensure_ready()
 
     store.init_schema.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("pool_size", "expected_limits"),
+    [
+        ("20", (10, 10)),
+        ("1", (1, 0)),
+    ],
+)
+async def test_postgres_search_combines_lexical_and_recent_candidates(monkeypatch, pool_size, expected_limits):
+    monkeypatch.setenv("AGENT_MEMORY_SEARCH_POOL", pool_size)
+    monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_ENABLED", "false")
+    monkeypatch.setenv("AGENT_MEMORY_RERANK_ENABLED", "false")
+    connection = MagicMock()
+    connection.fetch = AsyncMock(return_value=[])
+
+    class Acquire:
+        async def __aenter__(self):
+            return connection
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    pool = MagicMock()
+    pool.acquire.side_effect = lambda: Acquire()
+    store = PostgresMemoryStore("postgresql://job_buddy@db.example:5433/job_buddy")
+    store.pool = pool
+
+    assert await store.search("远程办公", "long_term", tenant_id="tenant-a", operator_id="user-a") == []
+
+    query = connection.fetch.await_args.args[0]
+    assert "lexical_candidates" in query
+    assert "recent_candidates" in query
+    assert "UNION ALL" in query
+    assert "DISTINCT ON (id)" in query
+    assert "enabled = TRUE" in query
+    assert "expires_at IS NULL OR expires_at > NOW()" in query
+    assert connection.fetch.await_args.args[1:] == (
+        "tenant-a",
+        "user-a",
+        "long_term",
+        ["%远程%", "%程办%", "%办公%"],
+        *expected_limits,
+    )

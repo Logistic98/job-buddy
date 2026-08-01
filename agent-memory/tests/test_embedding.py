@@ -7,6 +7,7 @@ from app.store import MemoryStore
 def _enable(monkeypatch, base_url="http://localhost:9100/v1/embeddings"):
     monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_ENABLED", "true")
     monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_BASE_URL", base_url)
+    monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_API_KEY", "test-key")
     monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_MODEL", "bge-m3")
 
 
@@ -41,6 +42,15 @@ async def test_enabled_requires_base_url(monkeypatch):
     assert EmbeddingClient().enabled is False
 
 
+async def test_enabled_rejects_missing_model_or_placeholder_key(monkeypatch):
+    monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_ENABLED", "true")
+    monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_BASE_URL", "http://localhost:9100/v1/embeddings")
+    monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_API_KEY", "sk-xxx")
+    monkeypatch.delenv("AGENT_MEMORY_EMBEDDING_MODEL", raising=False)
+
+    assert EmbeddingClient().enabled is False
+
+
 async def test_embed_sends_openai_payload_and_parses_by_index(monkeypatch):
     _enable(monkeypatch)
     client = EmbeddingClient()
@@ -50,6 +60,7 @@ async def test_embed_sends_openai_payload_and_parses_by_index(monkeypatch):
     assert vectors == [[1.0, 0.0], [0.0, 1.0]]
     kwargs = http_client.post.call_args.kwargs
     assert kwargs["json"] == {"model": "bge-m3", "input": ["查询", "文档"]}
+    assert kwargs["headers"] == {"Authorization": "Bearer test-key"}
 
 
 async def test_embed_failure_returns_none(monkeypatch):
@@ -57,6 +68,16 @@ async def test_embed_failure_returns_none(monkeypatch):
     client = EmbeddingClient()
     with patch("app.embedding.httpx.AsyncClient", side_effect=RuntimeError("service down")):
         assert await client.embed(["查询"]) is None
+
+
+async def test_embed_invalid_timeout_degrades_without_network(monkeypatch):
+    _enable(monkeypatch)
+    monkeypatch.setenv("AGENT_MEMORY_EMBEDDING_TIMEOUT_SECONDS", "invalid")
+    client = EmbeddingClient()
+
+    with patch("app.embedding.httpx.AsyncClient") as http:
+        assert await client.embed(["查询"]) is None
+        http.assert_not_called()
 
 
 async def test_embed_count_mismatch_returns_none(monkeypatch):

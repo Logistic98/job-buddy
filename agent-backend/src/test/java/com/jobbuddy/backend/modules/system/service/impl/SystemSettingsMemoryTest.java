@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -95,6 +96,21 @@ class SystemSettingsMemoryTest {
   }
 
   /**
+   * 验证自动写入入口自身拒绝一次性格式与工具指令，避免调用方旁路污染长期记忆。
+   */
+  @Test
+  void autoMemoryShouldRejectTransientInstructions() {
+    AgentMemoryClient client = statefulClient();
+    SystemSettingsServiceImpl service = newService(statefulMapper(memoryEnabledState()), client);
+
+    service.writeLocalMemory("tenant-a", "user-a", "请直接输出 Markdown，不要执行任何工具。", "chat");
+    service.writeLocalMemory("tenant-a", "user-a", "分析当前简历与目标岗位的匹配度", "chat");
+    service.writeLocalMemory("tenant-a", "user-a", "我希望你只输出 Mermaid 流程图", "chat");
+
+    assertTrue(service.listMemories("tenant-a", "user-a").isEmpty());
+  }
+
+  /**
    * 验证 SystemSettingsMemory 中用户的权限与租户隔离边界。
    */
   @Test
@@ -134,6 +150,30 @@ class SystemSettingsMemoryTest {
         org.mockito.ArgumentCaptor.forClass(SystemMemoryRequest.class);
     verify(client).update(eq("tenant-a"), eq("user-a"), eq("mem_1"), captor.capture());
     assertEquals("优先杭州岗位", captor.getValue().getContent());
+  }
+
+  /**
+   * 验证手动记忆经 Backend 完成新增、修改和删除的完整生命周期。
+   */
+  @Test
+  void manualMemoryLifecycleShouldPersistCreateUpdateAndDelete() {
+    AgentMemoryClient client = statefulClient();
+    SystemSettingsServiceImpl service = newService(statefulMapper(memoryEnabledState()), client);
+    SystemMemoryRequest createRequest = new SystemMemoryRequest();
+    createRequest.setContent("示例偏好：优先成都岗位");
+
+    SystemMemoryResponse created = service.addMemory("tenant-a", "user-a", createRequest);
+    SystemMemoryRequest updateRequest = new SystemMemoryRequest();
+    updateRequest.setContent("  优先杭州岗位  ");
+    SystemMemoryResponse updated =
+        service.updateMemory("tenant-a", "user-a", created.getId(), updateRequest);
+
+    assertEquals("优先杭州岗位", updated.getContent());
+    assertEquals("优先杭州岗位", service.listMemories("tenant-a", "user-a").get(0).getContent());
+
+    service.deleteMemory("tenant-a", "user-a", created.getId());
+
+    assertTrue(service.listMemories("tenant-a", "user-a").isEmpty());
   }
 
   /**
@@ -277,6 +317,44 @@ class SystemSettingsMemoryTest {
                   .add(0, response);
               return response;
             });
+    when(client.update(anyString(), anyString(), anyString(), any(SystemMemoryRequest.class)))
+        .thenAnswer(
+            invocation -> {
+              String owner = owner(invocation.getArgument(0), invocation.getArgument(1));
+              String memoryId = invocation.getArgument(2);
+              SystemMemoryRequest request = invocation.getArgument(3);
+              List<SystemMemoryResponse> next = new ArrayList<SystemMemoryResponse>();
+              SystemMemoryResponse updated = null;
+              for (SystemMemoryResponse item :
+                  stored.getOrDefault(owner, Collections.<SystemMemoryResponse>emptyList())) {
+                if (memoryId.equals(item.getId())) {
+                  updated = new SystemMemoryResponse();
+                  updated.setId(item.getId());
+                  updated.setContent(request.getContent());
+                  updated.setSource(item.getSource());
+                  updated.setEnabled(item.getEnabled());
+                  next.add(updated);
+                } else {
+                  next.add(item);
+                }
+              }
+              stored.put(owner, next);
+              return updated;
+            });
+    doAnswer(
+            invocation -> {
+              String owner = owner(invocation.getArgument(0), invocation.getArgument(1));
+              String memoryId = invocation.getArgument(2);
+              List<SystemMemoryResponse> next = new ArrayList<SystemMemoryResponse>();
+              for (SystemMemoryResponse item :
+                  stored.getOrDefault(owner, Collections.<SystemMemoryResponse>emptyList())) {
+                if (!memoryId.equals(item.getId())) next.add(item);
+              }
+              stored.put(owner, next);
+              return null;
+            })
+        .when(client)
+        .delete(anyString(), anyString(), anyString());
     when(client.search(anyString(), anyString(), anyString(), anyInt()))
         .thenAnswer(
             invocation ->

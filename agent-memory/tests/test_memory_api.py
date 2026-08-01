@@ -82,7 +82,7 @@ def test_list_and_clear_long_term_memories(monkeypatch):
 
 def test_update_memory_changes_content(monkeypatch):
     client = make_client(monkeypatch)
-    memory_id = client.post("/v1/memories", json={"content": "目标城市上海"}).json()["data"]["id"]
+    memory_id = client.post("/v1/memories", json={"content": "示例目标城市杭州"}).json()["data"]["id"]
 
     updated = client.put(f"/v1/memories/{memory_id}", json={"content": "目标城市杭州"}).json()
     assert updated["code"] == 200
@@ -112,12 +112,12 @@ def test_delete_memory(monkeypatch):
 
 def test_rollback_restores_previous_content(monkeypatch):
     client = make_client(monkeypatch)
-    memory_id = client.post("/v1/memories", json={"content": "目标城市上海"}).json()["data"]["id"]
+    memory_id = client.post("/v1/memories", json={"content": "示例目标城市杭州"}).json()["data"]["id"]
     client.put(f"/v1/memories/{memory_id}", json={"content": "目标城市杭州"})
 
     rolled = client.post(f"/v1/memories/{memory_id}/rollback").json()
     assert rolled["code"] == 200
-    assert rolled["data"]["content"] == "目标城市上海"
+    assert rolled["data"]["content"] == "示例目标城市杭州"
 
     # 已无更早版本可回滚。
     assert client.post(f"/v1/memories/{memory_id}/rollback").json()["code"] == 1

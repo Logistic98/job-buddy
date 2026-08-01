@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 from collections import OrderedDict
 
@@ -15,10 +16,16 @@ import httpx
 from loguru import logger
 
 _CACHE_MAX_ENTRIES = 2048
+_PLACEHOLDER_API_KEYS = {"sk-xxx", "sk-example"}
 
 
 def _env_flag(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _configured_api_key(name: str) -> bool:
+    value = os.getenv(name, "").strip()
+    return bool(value) and value.lower() not in _PLACEHOLDER_API_KEYS
 
 
 def vector_min_similarity() -> float:
@@ -31,8 +38,11 @@ class EmbeddingClient:
 
     @property
     def enabled(self) -> bool:
-        return _env_flag("AGENT_MEMORY_EMBEDDING_ENABLED") and bool(
-            os.getenv("AGENT_MEMORY_EMBEDDING_BASE_URL", "").strip()
+        return (
+            _env_flag("AGENT_MEMORY_EMBEDDING_ENABLED")
+            and bool(os.getenv("AGENT_MEMORY_EMBEDDING_BASE_URL", "").strip())
+            and bool(os.getenv("AGENT_MEMORY_EMBEDDING_MODEL", "").strip())
+            and _configured_api_key("AGENT_MEMORY_EMBEDDING_API_KEY")
         )
 
     async def embed(self, texts: list[str]) -> list[list[float]] | None:
@@ -55,9 +65,11 @@ class EmbeddingClient:
         base_url = os.getenv("AGENT_MEMORY_EMBEDDING_BASE_URL", "").strip()
         api_key = os.getenv("AGENT_MEMORY_EMBEDDING_API_KEY", "").strip()
         model = os.getenv("AGENT_MEMORY_EMBEDDING_MODEL", "").strip()
-        timeout = float(os.getenv("AGENT_MEMORY_EMBEDDING_TIMEOUT_SECONDS", "5"))
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         try:
+            timeout = float(os.getenv("AGENT_MEMORY_EMBEDDING_TIMEOUT_SECONDS", "5"))
+            if not math.isfinite(timeout) or timeout <= 0:
+                raise ValueError("AGENT_MEMORY_EMBEDDING_TIMEOUT_SECONDS 必须是正数")
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(base_url, json={"model": model, "input": texts}, headers=headers)
                 response.raise_for_status()

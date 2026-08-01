@@ -13,6 +13,7 @@ import com.jobbuddy.backend.modules.system.dto.response.ServiceStatusesResponse;
 import com.jobbuddy.backend.modules.system.dto.response.SystemMemoryResponse;
 import com.jobbuddy.backend.modules.system.dto.response.SystemSettingsResponse;
 import com.jobbuddy.backend.modules.system.mapper.SystemSettingsMapper;
+import com.jobbuddy.backend.modules.system.memory.LongTermMemoryValuePolicy;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
@@ -49,7 +50,7 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
   private static final int MIN_BOSS_SEARCH_MAX_PAGES = 1;
   private static final int MAX_BOSS_SEARCH_MAX_PAGES = 5;
   private static final int MIN_BOSS_SEARCH_MAX_PAGE_DEPTH = 1;
-  private static final int MAX_BOSS_SEARCH_MAX_PAGE_DEPTH = 10;
+  private static final int MAX_BOSS_SEARCH_MAX_PAGE_DEPTH = 30;
   private static final int MIN_BOSS_SEARCH_MINUTES = 1;
   private static final int MAX_BOSS_SEARCH_MINUTES = 24 * 60;
   private static final int MIN_RUNTIME_MAX_TURNS = 1;
@@ -842,8 +843,8 @@ public class SystemSettingsServiceImpl implements SystemSettingsService {
    */
   private boolean shouldAutoWriteMemory(String content) {
     String text = content == null ? "" : content.trim();
-    // 文本是否为稳定信号由 ChatSseSupport.shouldCaptureLongTermMemory 统一判断；此处只保留最终写入边界。
-    return normalizeMemoryText(text).length() >= 4;
+    return normalizeMemoryText(text).length() >= 4
+        && LongTermMemoryValuePolicy.shouldAutoCapture(text);
   }
 
   /**

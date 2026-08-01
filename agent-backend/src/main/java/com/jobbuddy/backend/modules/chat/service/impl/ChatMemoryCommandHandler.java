@@ -17,12 +17,16 @@ import java.util.regex.Pattern;
  */
 class ChatMemoryCommandHandler {
   private static final Pattern NAME_DELETE_PATTERN =
-      Pattern.compile("^(?:请)?(?:忘记|删除|清除|移除)(?:掉)?(?:关于)?我的(?:名字|姓名|称呼)(?:这条)?(?:记忆)?[。！!]*$");
+      Pattern.compile(
+          "^(?:请)?(?:(?:忘记|删除|清除|移除)(?:掉)?(?:关于)?我的(?:名字|姓名|称呼)"
+              + "|忘记(?:掉)?我是谁)(?:这条)?(?:记忆)?[。！!]*$");
   private static final Pattern NAME_UPDATE_PATTERN =
       Pattern.compile(
           "^(?:请)?(?:(?:把|将)?我的(?:名字|姓名|称呼)(?:从.+?)?"
               + "(?:改成|改为|更新为|换成|设为|设置为)"
-              + "|更新我的(?:名字|姓名|称呼)(?:为|成))\\s*(.+?)[。！!]*$");
+              + "|更新我的(?:名字|姓名|称呼)(?:为|成)"
+              + "|(?:我(?:其实|实际(?:上)?|真正)|(?:其实|实际(?:上)?|真正)我)"
+              + "(?:的(?:名字|姓名))?(?:是|叫))\\s*(.+?)[。！!]*$");
   private static final Pattern NAME_UPSERT_PATTERN =
       Pattern.compile(
           "^(?:请)?(?:(?:记住[\\s，,：:]*)?我叫"
@@ -168,6 +172,7 @@ class ChatMemoryCommandHandler {
     String normalized = clean(value);
     return !normalized.isEmpty()
         && normalized.length() <= 40
+        && !normalized.matches(".*[，,。.!！？?；;：:、\\r\\n].*")
         && !normalized.matches(".*(?:什么|怎么|啥|谁|哪位|吗|呢|[?？]).*");
   }
 

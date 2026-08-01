@@ -14,6 +14,7 @@ from loguru import logger
 
 from .embedding import EmbeddingClient, vector_min_similarity
 from .relevance import cosine_similarity, rank, significant_terms
+from .rerank import RerankClient
 
 # 记忆信息分层取值：步骤态 / 任务态 / 跨任务长期 / 跨会话语义。
 # Runtime Core 不感知具体业务语义，仅用该枚举区分记忆生命周期与召回策略。
@@ -49,6 +50,19 @@ def _search_half_life_days() -> float:
     return float(os.getenv("AGENT_MEMORY_SEARCH_HALF_LIFE_DAYS", "30"))
 
 
+def _rerank_candidates() -> int:
+    raw = os.getenv("AGENT_MEMORY_RERANK_CANDIDATES", "30").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("AGENT_MEMORY_RERANK_CANDIDATES 非法，回退默认值 30")
+        return 30
+    if value < 1 or value > 1000:
+        logger.warning("AGENT_MEMORY_RERANK_CANDIDATES 超出 1..1000，回退默认值 30")
+        return 30
+    return value
+
+
 def _bounded_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
     raw = os.getenv(name, str(default)).strip()
     try:
@@ -72,12 +86,14 @@ def _bounded_float_env(name: str, default: float, minimum: float, maximum: float
 
 
 _embedding_client = EmbeddingClient()
+_rerank_client = RerankClient()
 
 
 async def hybrid_rank(query: str, candidates: list["MemoryItem"]) -> list["MemoryItem"]:
-    """候选池内的混合重排：词法 + 时间恒定参与，向量一路在 Embedding 开启且调用成功时并入。
+    """候选池内先做混合召回，再按需使用外部 Rerank 精排。
 
-    Embedding 关闭、无候选或调用失败时退化为两路融合，行为与向量接入前完全一致。
+    Embedding 关闭或失败时退化为词法 + 时间两路融合；Rerank 关闭或失败时保留
+    本地 RRF 顺序。两项外部能力都不会改变权限、TTL 和候选池边界。
     """
     vector_scores: list[float] | None = None
     if candidates and _embedding_client.enabled:
@@ -85,16 +101,29 @@ async def hybrid_rank(query: str, candidates: list["MemoryItem"]) -> list["Memor
         if embedded is not None:
             query_vector, doc_vectors = embedded[0], embedded[1:]
             vector_scores = [cosine_similarity(query_vector, doc_vector) for doc_vector in doc_vectors]
-    return rank(
+    top_k = _search_top_k()
+    retrieval_limit = max(top_k, _rerank_candidates()) if _rerank_client.enabled else top_k
+    retrieved = rank(
         query,
         candidates,
         _item_content,
         _item_created,
-        _search_top_k(),
+        retrieval_limit,
         half_life_days=_search_half_life_days(),
         vector_scores=vector_scores,
         vector_min_score=vector_min_similarity(),
     )
+    if not retrieved or not _rerank_client.enabled:
+        return retrieved if top_k <= 0 else retrieved[:top_k]
+    rerank_top_n = len(retrieved) if top_k <= 0 else min(top_k, len(retrieved))
+    indices = await _rerank_client.rerank(
+        query,
+        [item.content for item in retrieved],
+        top_n=rerank_top_n,
+    )
+    if indices is None:
+        return retrieved if top_k <= 0 else retrieved[:top_k]
+    return [retrieved[index] for index in indices]
 
 
 def _item_content(item: "MemoryItem") -> str:
@@ -586,24 +615,56 @@ class PostgresMemoryStore:
         # 有显著词时先缩小候选池；空查询仅按时间获取最近候选。
         async with self.pool.acquire() as conn:
             if patterns:
+                lexical_limit = max(1, (pool_size + 1) // 2)
+                recent_limit = max(0, pool_size - lexical_limit)
                 rows = await conn.fetch(
                     """
+                    WITH lexical_candidates AS (
+                        SELECT id, tenant_id, scope, content, kind, source, enabled,
+                               operator_id, version, created_at, updated_at, expires_at
+                        FROM agent_memory_items
+                        WHERE tenant_id = $1 AND operator_id = $2
+                          AND ($3::text IS NULL OR scope = $3)
+                          AND enabled = TRUE
+                          AND LOWER(content) ILIKE ANY($4::text[])
+                          AND (expires_at IS NULL OR expires_at > NOW())
+                        ORDER BY created_at DESC
+                        LIMIT $5
+                    ), recent_candidates AS (
+                        SELECT id, tenant_id, scope, content, kind, source, enabled,
+                               operator_id, version, created_at, updated_at, expires_at
+                        FROM agent_memory_items
+                        WHERE tenant_id = $1 AND operator_id = $2
+                          AND ($3::text IS NULL OR scope = $3)
+                          AND enabled = TRUE
+                          AND (expires_at IS NULL OR expires_at > NOW())
+                        ORDER BY created_at DESC
+                        LIMIT $6
+                    ), deduplicated_candidates AS (
+                        SELECT DISTINCT ON (id)
+                               id, tenant_id, scope, content, kind, source, enabled,
+                               operator_id, version, created_at, updated_at, expires_at,
+                               candidate_priority
+                        FROM (
+                            SELECT lexical_candidates.*, 1 AS candidate_priority
+                            FROM lexical_candidates
+                            UNION ALL
+                            SELECT recent_candidates.*, 0 AS candidate_priority
+                            FROM recent_candidates
+                        ) combined_candidates
+                        ORDER BY id, candidate_priority DESC
+                    )
                     SELECT id, tenant_id, scope, content, kind, source, enabled,
                            operator_id, version, created_at, updated_at, expires_at
-                    FROM agent_memory_items
-                    WHERE tenant_id = $1 AND operator_id = $2
-                      AND ($3::text IS NULL OR scope = $3)
-                      AND enabled = TRUE
-                      AND LOWER(content) ILIKE ANY($4::text[])
-                      AND (expires_at IS NULL OR expires_at > NOW())
-                    ORDER BY created_at DESC
-                    LIMIT $5
+                    FROM deduplicated_candidates
+                    ORDER BY candidate_priority DESC, created_at DESC
                     """,
                     tenant_id,
                     operator_id,
                     scope,
                     patterns,
-                    pool_size,
+                    lexical_limit,
+                    recent_limit,
                 )
             else:
                 rows = await conn.fetch(

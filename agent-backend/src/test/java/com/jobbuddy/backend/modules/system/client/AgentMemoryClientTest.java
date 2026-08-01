@@ -115,6 +115,30 @@ class AgentMemoryClientTest {
   }
 
   /**
+   * 验证删除记忆时使用受属主约束的 DELETE 接口。
+   */
+  @Test
+  void deleteRemovesOnlyTheOwnedMemory() {
+    RestTemplate restTemplate = new RestTemplate();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(restTemplate).build();
+    AgentMemoryClient client = client(restTemplate);
+    server
+        .expect(requestTo("http://127.0.0.1:8030/v1/memories/mem_2"))
+        .andExpect(method(HttpMethod.DELETE))
+        .andExpect(header("X-Tenant-Id", "tenant-a"))
+        .andExpect(header("X-Operator-Id", "user-a"))
+        .andRespond(
+            withSuccess(
+                "{\"code\":200,\"message\":\"success\",\"data\":{"
+                    + "\"id\":\"mem_2\",\"deleted\":true}}",
+                MediaType.APPLICATION_JSON));
+
+    client.delete("tenant-a", "user-a", "mem_2");
+
+    server.verify();
+  }
+
+  /**
    * 验证 AgentMemoryClient 的失败恢复、超时与降级边界。
    */
   @Test

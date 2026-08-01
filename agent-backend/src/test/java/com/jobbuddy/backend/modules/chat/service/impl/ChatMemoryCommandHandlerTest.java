@@ -46,6 +46,23 @@ class ChatMemoryCommandHandlerTest {
   }
 
   @Test
+  void explicitSaveShouldRemainUserAuthorizedForNonCareerContent() {
+    SystemSettingsService settings = mock(SystemSettingsService.class);
+    when(settings.addMemory(any(), any(), any(SystemMemoryRequest.class)))
+        .thenReturn(memory("mem_markdown", "回答代码时默认使用 Markdown"));
+    ChatMemoryCommandHandler handler = new ChatMemoryCommandHandler(settings);
+
+    ChatMemoryMutationResult result =
+        handler.handle("tenant-a", "user-a", "请记住：回答代码时默认使用 Markdown").orElseThrow();
+
+    assertTrue(result.success());
+    ArgumentCaptor<SystemMemoryRequest> request =
+        ArgumentCaptor.forClass(SystemMemoryRequest.class);
+    verify(settings).addMemory(any(), any(), request.capture());
+    assertEquals("回答代码时默认使用 Markdown", request.getValue().getContent());
+  }
+
+  @Test
   void forgetMyNameShouldDeleteOnlyTheSingleIdentityMemory() {
     SystemSettingsService settings = mock(SystemSettingsService.class);
     when(settings.listMemories("tenant-a", "user-a"))
@@ -74,6 +91,20 @@ class ChatMemoryCommandHandlerTest {
   }
 
   @Test
+  void forgetWhoIAmShouldDeleteTheSingleIdentityMemory() {
+    SystemSettingsService settings = mock(SystemSettingsService.class);
+    when(settings.listMemories("tenant-a", "user-a"))
+        .thenReturn(Collections.singletonList(memory("mem_name", "我的名字是李四")));
+    ChatMemoryCommandHandler handler = new ChatMemoryCommandHandler(settings);
+
+    ChatMemoryMutationResult result = handler.handle("tenant-a", "user-a", "忘记我是谁").orElseThrow();
+
+    assertEquals("delete", result.action());
+    assertTrue(result.success());
+    verify(settings).deleteMemory("tenant-a", "user-a", "mem_name");
+  }
+
+  @Test
   void updateMyNameShouldUpdateExistingIdentityMemory() {
     SystemSettingsService settings = mock(SystemSettingsService.class);
     when(settings.listMemories("tenant-a", "user-a"))
@@ -96,6 +127,42 @@ class ChatMemoryCommandHandlerTest {
             org.mockito.ArgumentMatchers.eq("mem_name"),
             request.capture());
     assertEquals("我的名字是小明", request.getValue().getContent());
+  }
+
+  @Test
+  void naturalNameCorrectionShouldUpdateExistingIdentityMemory() {
+    SystemSettingsService settings = mock(SystemSettingsService.class);
+    when(settings.listMemories("tenant-a", "user-a"))
+        .thenReturn(Collections.singletonList(memory("mem_name", "我的名字是张三")));
+    when(settings.updateMemory(any(), any(), any(), any(SystemMemoryRequest.class)))
+        .thenReturn(memory("mem_name", "我的名字是李四"));
+    ChatMemoryCommandHandler handler = new ChatMemoryCommandHandler(settings);
+
+    ChatMemoryMutationResult result = handler.handle("tenant-a", "user-a", "我其实叫李四").orElseThrow();
+
+    assertEquals("update", result.action());
+    assertTrue(result.success());
+    ArgumentCaptor<SystemMemoryRequest> request =
+        ArgumentCaptor.forClass(SystemMemoryRequest.class);
+    verify(settings)
+        .updateMemory(
+            org.mockito.ArgumentMatchers.eq("tenant-a"),
+            org.mockito.ArgumentMatchers.eq("user-a"),
+            org.mockito.ArgumentMatchers.eq("mem_name"),
+            request.capture());
+    assertEquals("我的名字是李四", request.getValue().getContent());
+  }
+
+  @Test
+  void compoundNameCorrectionShouldNotMutateMemory() {
+    SystemSettingsService settings = mock(SystemSettingsService.class);
+    ChatMemoryCommandHandler handler = new ChatMemoryCommandHandler(settings);
+
+    assertTrue(handler.handle("tenant-a", "user-a", "我其实叫李四，帮我推荐后端岗位").isEmpty());
+    assertTrue(handler.handle("tenant-a", "user-a", "我其实叫李四，不是张三").isEmpty());
+    verify(settings, never()).listMemories(any(), any());
+    verify(settings, never()).addMemory(any(), any(), any());
+    verify(settings, never()).updateMemory(any(), any(), any(), any());
   }
 
   @Test
@@ -135,13 +202,13 @@ class ChatMemoryCommandHandlerTest {
   void quotedUpdateShouldReplaceTheNamedMemory() {
     SystemSettingsService settings = mock(SystemSettingsService.class);
     when(settings.listMemories("tenant-a", "user-a"))
-        .thenReturn(Collections.singletonList(memory("mem_city", "优先上海岗位")));
+        .thenReturn(Collections.singletonList(memory("mem_city", "示例偏好：优先成都岗位")));
     when(settings.updateMemory(any(), any(), any(), any(SystemMemoryRequest.class)))
-        .thenReturn(memory("mem_city", "优先杭州岗位"));
+        .thenReturn(memory("mem_city", "示例偏好：优先杭州岗位"));
     ChatMemoryCommandHandler handler = new ChatMemoryCommandHandler(settings);
 
     ChatMemoryMutationResult result =
-        handler.handle("tenant-a", "user-a", "把记忆“优先上海岗位”改为“优先杭州岗位”").orElseThrow();
+        handler.handle("tenant-a", "user-a", "把记忆“示例偏好：优先成都岗位”改为“示例偏好：优先杭州岗位”").orElseThrow();
 
     assertTrue(result.success());
     ArgumentCaptor<SystemMemoryRequest> request =
@@ -152,7 +219,7 @@ class ChatMemoryCommandHandlerTest {
             org.mockito.ArgumentMatchers.eq("user-a"),
             org.mockito.ArgumentMatchers.eq("mem_city"),
             request.capture());
-    assertEquals("优先杭州岗位", request.getValue().getContent());
+    assertEquals("示例偏好：优先杭州岗位", request.getValue().getContent());
   }
 
   @Test
@@ -180,6 +247,7 @@ class ChatMemoryCommandHandlerTest {
     assertTrue(handler.handle("tenant-a", "user-a", "请叫我怎么处理这个问题").isEmpty());
     assertTrue(handler.handle("tenant-a", "user-a", "把我的名字改成什么？").isEmpty());
     assertTrue(handler.handle("tenant-a", "user-a", "更新我的名字为什么？").isEmpty());
+    assertTrue(handler.handle("tenant-a", "user-a", "我其实叫什么？").isEmpty());
     verify(settings, never()).listMemories(any(), any());
   }
 

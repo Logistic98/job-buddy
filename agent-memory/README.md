@@ -18,6 +18,8 @@
 
 写入与召回采用 BM25、时间衰减和可选向量信号的 RRF 融合排序（详见 `app/relevance.py`），不包含图数据库召回。每条记忆带 `kind`（step / task / long_term / semantic）、`source`、`enabled`、`operator_id` 与 `version` 字段，不再按内容类型分类；禁用条目不会进入搜索结果，`PUT` 更新会在覆盖前留存历史版本，`POST .../rollback` 回滚到上一版本内容。列表和批量清理同样按请求头中的租户、操作者及 scope 隔离。
 
+PostgreSQL 检索会在权限与 TTL 条件内合并显著词候选和近期兜底候选。开启 Embedding 后，向量相似度作为 RRF 的第三路召回信号；开启 Rerank 后，对有界的 RRF 候选做最终精排。任一外部模型未配置、超时或返回非法结构时，检索保留可用的本地排序结果，不会切换存储后端或绕过隔离条件。
+
 `GET /health` 的状态以启动时选定的存储后端为准。PostgreSQL 不可用时返回 HTTP 503 和 `DOWN`；未配置 PostgreSQL 的本地验证模式则报告进程内存后端状态。
 
 所有写类与召回接口只从受信的 `X-Tenant-Id`、`X-Operator-Id` 请求头解析所有权；请求模型中的 `operator_id` 兼容字段不参与身份判定，缺少操作者请求头时进入匿名隔离分区。服务通过 Loguru `audit="memory"` 绑定字段输出审计日志，覆盖创建、检索、更新、回滚、删除与过期清理，便于按操作者还原记忆变更链路。跨模块边界与排序策略见[记忆管理与混合检索](../agent-doc/核心能力/记忆管理与混合检索.md)。
@@ -52,3 +54,22 @@ AGENT_MEMORY_DB_CONNECT_BACKOFF_SECONDS=0.5
 `AGENT_MEMORY_DB_SSL_MODE` 支持 `disable`、`prefer`、`allow`、`require`、`verify-ca` 和 `verify-full`。未配置且连接串不含 `sslmode` 时默认使用 `disable`，避免本地无 TLS PostgreSQL 在 SSL 升级阶段断开；连接串中的 `sslmode` 可直接生效，独立环境变量的优先级更高。生产环境应使用 `require` 或 `verify-full`，并通过 Secret 或部署平台注入连接串，不要提交真实账号密码。
 
 服务启动时会对建池和幂等 Schema 初始化期间出现的瞬时断连、连接超时或数据库临时不可用执行有界重试。默认最多尝试 4 次，单次建连超时 8 秒，按 0.5、1、2 秒指数退避；可分别通过 `AGENT_MEMORY_DB_CONNECT_ATTEMPTS`、`AGENT_MEMORY_DB_CONNECT_TIMEOUT_SECONDS` 和 `AGENT_MEMORY_DB_CONNECT_BACKOFF_SECONDS` 调整。密码、库名、权限、SSL 校验及非法配置等确定性错误不会重试，重试耗尽后服务仍会启动失败，避免静默退化造成持久化记忆丢失。
+
+## Embedding 与 Rerank 配置
+
+```bash
+AGENT_MEMORY_EMBEDDING_ENABLED=true
+AGENT_MEMORY_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1/embeddings
+AGENT_MEMORY_EMBEDDING_API_KEY=sk-xxx
+AGENT_MEMORY_EMBEDDING_MODEL=BAAI/bge-m3
+AGENT_MEMORY_EMBEDDING_TIMEOUT_SECONDS=5
+AGENT_MEMORY_VECTOR_MIN_SIMILARITY=0.3
+AGENT_MEMORY_RERANK_ENABLED=true
+AGENT_MEMORY_RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
+AGENT_MEMORY_RERANK_API_KEY=sk-xxx
+AGENT_MEMORY_RERANK_MODEL=BAAI/bge-reranker-v2-m3
+AGENT_MEMORY_RERANK_CANDIDATES=30
+AGENT_MEMORY_RERANK_TIMEOUT_SECONDS=5
+```
+
+API Key 只能通过根目录 `.env`、Compose `env_file` 或部署平台 Secret 注入，`.env.example` 必须保持脱敏。只有开关、地址、模型和非模板 API Key 全部有效时才会访问远端服务。启用后，查询文本与有界候选记忆正文会发送到对应服务；生产环境需确认数据合规边界。Embedding 失败时回退到词法与时间融合，Rerank 失败时保留 RRF 顺序。

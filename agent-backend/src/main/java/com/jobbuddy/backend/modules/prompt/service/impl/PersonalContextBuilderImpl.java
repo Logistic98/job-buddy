@@ -128,7 +128,7 @@ public class PersonalContextBuilderImpl implements PersonalContextBuilder {
             ? loadAsync(effectiveTenant, effectiveUser, () -> limit(safeBlacklist(), 12))
             : CompletableFuture.completedFuture(Collections.<Map<String, Object>>emptyList());
     CompletableFuture<List<Map<String, Object>>> memoryFuture =
-        contextHelpful
+        contextHelpful && shouldLoadLongTermMemory(intent)
             ? loadAsync(
                 effectiveTenant,
                 effectiveUser,
@@ -270,6 +270,19 @@ public class PersonalContextBuilderImpl implements PersonalContextBuilder {
     return "job.recommend".equals(name)
         || "job.compare".equals(name)
         || "job.favorite.plan".equals(name);
+  }
+
+  /**
+   * 判断是否加载长期记忆。
+   *
+   * <p>确定性岗位推荐只使用本轮条件、求职画像、当前简历和黑名单补全筛选槽位。长期记忆不会参与该计算，跳过远端检索可避免旁路服务超时阻塞 Boss 首屏搜索。
+   *
+   * @param intent 意图
+   * @return 是否加载长期记忆
+   */
+  private boolean shouldLoadLongTermMemory(IntentResult intent) {
+    String name = intent == null ? "" : intent.getIntent();
+    return !"job.recommend".equals(name);
   }
 
   /**

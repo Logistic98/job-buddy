@@ -38,6 +38,17 @@ class SystemSettingsServiceSecurityTest {
   @TempDir Path tempDir;
 
   /**
+   * 验证 Boss 检索部署默认值兼顾候选覆盖与有界分页。
+   */
+  @Test
+  void bossSearchDefaultsUseModerateBatchAndBoundedDepth() {
+    JobBuddyProperties properties = new JobBuddyProperties();
+
+    assertEquals(3, properties.getBossSearchMaxPages());
+    assertEquals(15, properties.getBossSearchMaxPageDepth());
+  }
+
+  /**
    * 清理测试创建的资源与上下文。
    */
   @AfterEach
@@ -81,7 +92,7 @@ class SystemSettingsServiceSecurityTest {
         (Map<String, Object>) cleanedAtStartup.getOrDefault("services", Collections.emptyMap());
     assertFalse(cleanedServices.containsKey("runtimeUrl"));
 
-    Map<String, Object> submitted = settingsWithRuntimeUrl("http://192.3.98.57:8010");
+    Map<String, Object> submitted = settingsWithRuntimeUrl("http://192.0.2.57:8010");
     assertDoesNotThrow(
         () -> service.saveSettings(JSON.convert(submitted, SystemSettingsRequest.class)));
 
@@ -99,7 +110,7 @@ class SystemSettingsServiceSecurityTest {
     SystemSettingsServiceImpl service =
         newService(Arrays.asList(blacklistItem("company", "示例科技", true)));
 
-    assertTrue(service.isBlacklistedJob(job("Java 开发", "示例科技（上海）有限公司", "负责平台研发")));
+    assertTrue(service.isBlacklistedJob(job("Go 开发", "示例科技（杭州）有限公司", "负责平台研发")));
     assertFalse(service.isBlacklistedJob(job("Java 开发", "其他公司", "服务示例科技客户")));
   }
 
@@ -293,7 +304,7 @@ class SystemSettingsServiceSecurityTest {
     assertFalse(normalized.containsKey("maxJobsPerScoring"));
     assertEquals(100, normalized.get("minimumRecommendedMatchScore"));
     assertEquals(1, normalized.get("bossSearchMaxPages"));
-    assertEquals(10, normalized.get("bossSearchMaxPageDepth"));
+    assertEquals(30, normalized.get("bossSearchMaxPageDepth"));
     assertEquals(1, normalized.get("bossSearchCacheTtlMinutes"));
     assertEquals(1440, normalized.get("bossSearchCooldownMinutesOnRisk"));
     assertEquals(1, normalized.get("runtimeMaxTurns"));
@@ -307,10 +318,10 @@ class SystemSettingsServiceSecurityTest {
 
     assertEquals(30, properties.getMaxJobsPerRecommend());
     assertEquals(1, properties.getRecommendOverfetchFactor());
-    assertEquals(80, properties.getMaxJobsPerScoring());
+    assertEquals(30, properties.getMaxJobsPerScoring());
     assertEquals(100, properties.getMinimumRecommendedMatchScore());
     assertEquals(1, properties.getBossSearchMaxPages());
-    assertEquals(10, properties.getBossSearchMaxPageDepth());
+    assertEquals(30, properties.getBossSearchMaxPageDepth());
     assertEquals(1, properties.getBossSearchCacheTtlMinutes());
     assertEquals(1440, properties.getBossSearchCooldownMinutesOnRisk());
     assertEquals(1, properties.getRuntimeMaxTurns());
