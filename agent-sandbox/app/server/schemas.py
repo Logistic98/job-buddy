@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from ..core.dependencies import MAX_PYTHON_DEPENDENCIES, normalize_python_dependencies
 
 
 class NetworkPolicySchema(BaseModel):
@@ -70,8 +72,21 @@ class CodeFileRequest(BaseModel):
     suffix: str = Field(default=".py", max_length=32, pattern=r"^\.[A-Za-z0-9]+$")
     interpreter: str | list[str] | None = None
     args: list[str] = Field(default_factory=list, max_length=256)
+    dependencies: list[str] = Field(default_factory=list, max_length=MAX_PYTHON_DEPENDENCIES)
+    dependency_timeout: float = Field(default=90.0, gt=0, le=120.0)
     policy: SandboxPolicySchema | None = None
     options: ExecutionOptionsSchema = Field(default_factory=ExecutionOptionsSchema)
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_dependencies(cls, value):
+        if not isinstance(value, dict):
+            return value
+        dependencies = normalize_python_dependencies(value.get("dependencies"))
+        suffix = str(value.get("suffix") or ".py")
+        if dependencies and suffix.lower() != ".py":
+            raise ValueError("dependencies 仅支持 Python 代码执行")
+        return {**value, "dependencies": dependencies}
 
 
 class SandboxResponse(BaseModel):

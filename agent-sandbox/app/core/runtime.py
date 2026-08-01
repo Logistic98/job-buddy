@@ -16,8 +16,16 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from .config import SandboxRuntimeConfig, default_config
-from .exceptions import SandboxCommandNotFoundError, SandboxProcessError
+from .dependencies import normalize_python_dependencies
+from .exceptions import SandboxCommandNotFoundError, SandboxProcessError, SandboxRuntimeError
 from .models import SandboxResult
+
+_PYPI_INDEX_URL = "https://pypi.org/simple"
+_PYPI_ALLOWED_DOMAINS = ["pypi.org", "files.pythonhosted.org"]
+_SRT_PRIVATE_TMP = "/tmp/claude"
+_DEFAULT_DEPENDENCY_CACHE_DIR = Path(tempfile.gettempdir()) / "job-buddy-sandbox-uv-cache"
+_DEPENDENCY_CACHE_ENV = "AGENT_SANDBOX_DEPENDENCY_CACHE_DIR"
+_DEPENDENCY_ROOT_ENV = "AGENT_SANDBOX_DEPENDENCY_ROOT"
 
 
 class SandboxRuntime:
@@ -39,6 +47,12 @@ class SandboxRuntime:
             if isinstance(config, SandboxRuntimeConfig)
             else SandboxRuntimeConfig.from_dict(dict(config or default_config().to_dict()))
         )
+        dependency_root = self._configured_dependency_root()
+        if dependency_root is not None:
+            dependency_root_path = str(dependency_root)
+            self.config.filesystem.denyRead = list(
+                dict.fromkeys([*self.config.filesystem.denyRead, dependency_root_path])
+            )
         self.srt_bin = srt_bin
         self.cwd = Path(cwd).resolve() if cwd else None
         self.env = dict(env or {})
@@ -238,13 +252,17 @@ class SandboxRuntime:
         suffix: str = ".py",
         interpreter: str | Sequence[str] | None = None,
         args: Sequence[str] | None = None,
+        dependencies: Sequence[str] | None = None,
+        dependency_timeout: float | None = None,
         **kwargs,
     ) -> SandboxResult:
-        """写入临时代码文件并在沙箱中执行。"""
+        """写入临时代码文件，可选安装一次性 Python 依赖后在沙箱中执行。"""
 
         parent_cwd = kwargs.pop("cwd", None)
+        caller_env = dict(kwargs.pop("env", None) or {})
         temp_parent = str(Path(parent_cwd).resolve()) if parent_cwd else None
         with tempfile.TemporaryDirectory(prefix="job-buddy-sandbox-code-", dir=temp_parent) as temp_dir:
+            dependency_workspace: tempfile.TemporaryDirectory[str] | None = None
             code_path = Path(temp_dir) / f"main{suffix}"
             code_path.write_text(code, encoding="utf-8")
             if interpreter is None:
@@ -255,7 +273,208 @@ class SandboxRuntime:
                 command = [*(str(item) for item in interpreter), str(code_path)]
             if args:
                 command.extend(str(item) for item in args)
-            return self.run(command, cwd=temp_dir, **kwargs)
+
+            normalized_dependencies = normalize_python_dependencies(dependencies)
+            code_env = {**caller_env, "PYTHONDONTWRITEBYTECODE": "1"}
+            if normalized_dependencies:
+                if suffix.lower() != ".py" or not self._is_python_interpreter(command[0]):
+                    raise ValueError("dependencies 仅支持 Python 代码执行")
+                python_bin = self._trusted_system_python()
+                command[0] = python_bin
+                dependency_dir = Path(temp_dir) / "site-packages"
+                dependency_root = self._configured_dependency_root()
+                if dependency_root is not None:
+                    dependency_workspace = tempfile.TemporaryDirectory(
+                        prefix="job-buddy-sandbox-deps-",
+                        dir=dependency_root,
+                    )
+                    dependency_dir = Path(dependency_workspace.name) / "site-packages"
+                try:
+                    install_result = self._install_python_dependencies(
+                        normalized_dependencies,
+                        dependency_dir=dependency_dir,
+                        python_bin=python_bin,
+                        timeout=dependency_timeout if dependency_timeout is not None else kwargs.get("timeout"),
+                    )
+                    if not install_result.ok:
+                        if kwargs.get("check", True):
+                            raise SandboxProcessError(
+                                f"Python 依赖安装失败，退出码：{install_result.returncode}",
+                                returncode=install_result.returncode,
+                                stdout=install_result.stdout,
+                                stderr=install_result.stderr,
+                            )
+                        return install_result
+                    code_env["PYTHONPATH"] = str(dependency_dir)
+                    code_runtime = self._code_execution_runtime(dependency_dir)
+                    return code_runtime.run(command, cwd=temp_dir, env=code_env, **kwargs)
+                finally:
+                    if dependency_workspace is not None:
+                        dependency_workspace.cleanup()
+            return self.run(command, cwd=temp_dir, env=code_env, **kwargs)
+
+    def _install_python_dependencies(
+        self,
+        dependencies: Sequence[str],
+        *,
+        dependency_dir: Path,
+        python_bin: str,
+        timeout: float | None,
+    ) -> SandboxResult:
+        """在独立 srt 策略中安装 wheel，目录随本次代码执行销毁。"""
+
+        uv_bin = shutil.which("uv")
+        if not uv_bin:
+            raise SandboxCommandNotFoundError("未找到 uv，无法创建一次性 Python 依赖环境")
+        cache_dir = self._dependency_cache_dir()
+        self._ensure_dependency_runtime_directories(cache_dir)
+        dependency_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir = dependency_dir.parent
+        install_runtime = SandboxRuntime(
+            self._dependency_install_config(temp_dir, uv_bin=uv_bin, cache_dir=cache_dir),
+            srt_bin=self.srt_bin,
+            cwd=temp_dir,
+            env=self.env,
+            keep_settings_file=self.keep_settings_file,
+            max_output_bytes=self.max_output_bytes,
+            max_process_output_bytes=self.max_process_output_bytes,
+        )
+        uv_command = [
+            uv_bin,
+            "pip",
+            "install",
+            "--target",
+            str(dependency_dir),
+            "--python",
+            python_bin,
+            "--default-index",
+            _PYPI_INDEX_URL,
+            "--only-binary",
+            ":all:",
+            "--cache-dir",
+            str(cache_dir),
+            "--no-config",
+            "--no-python-downloads",
+            "--no-progress",
+            *dependencies,
+        ]
+        bootstrap = (
+            "import os,sys; "
+            f"os.makedirs({_SRT_PRIVATE_TMP!r}, mode=0o700, exist_ok=True); "
+            "os.execv(sys.argv[1], sys.argv[1:])"
+        )
+        command = [python_bin, "-c", bootstrap, *uv_command]
+        install_env = {
+            "HOME": str(temp_dir),
+            "TMPDIR": str(temp_dir),
+            "UV_CACHE_DIR": str(cache_dir),
+            "UV_NO_CONFIG": "1",
+            "UV_PYTHON_DOWNLOADS": "never",
+        }
+        return install_runtime.run(
+            command,
+            cwd=temp_dir,
+            env=install_env,
+            timeout=timeout,
+            check=False,
+        )
+
+    @staticmethod
+    def _ensure_dependency_runtime_directories(cache_dir: Path) -> None:
+        """在收窄策略生效前创建固定的 srt 临时目录与下载缓存。"""
+
+        for path, label in (
+            (Path(_SRT_PRIVATE_TMP), "srt 私有临时目录"),
+            (cache_dir, "uv 下载缓存目录"),
+        ):
+            if path.is_symlink():
+                raise SandboxRuntimeError(f"{label}不能是符号链接: {path}")
+            path.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if not path.is_dir():
+                raise SandboxRuntimeError(f"{label}不是目录: {path}")
+            path.chmod(0o700)
+
+    @staticmethod
+    def _dependency_cache_dir() -> Path:
+        configured = os.getenv(_DEPENDENCY_CACHE_ENV, "").strip()
+        if not configured:
+            return _DEFAULT_DEPENDENCY_CACHE_DIR
+        configured_path = Path(configured).expanduser()
+        if configured_path.is_symlink():
+            raise SandboxRuntimeError(f"uv 下载缓存目录非法: {configured_path}")
+        cache_dir = configured_path.resolve()
+        if cache_dir == Path(cache_dir.anchor):
+            raise SandboxRuntimeError(f"uv 下载缓存目录非法: {cache_dir}")
+        return cache_dir
+
+    def _dependency_install_config(
+        self,
+        workspace: Path,
+        *,
+        uv_bin: str,
+        cache_dir: Path,
+    ) -> SandboxRuntimeConfig:
+        config = SandboxRuntimeConfig.from_dict(self.config.to_dict())
+        config.network.allowedDomains = list(_PYPI_ALLOWED_DOMAINS)
+        config.network.allowUnixSockets = []
+        config.network.allowAllUnixSockets = False
+        config.network.allowLocalBinding = False
+        workspace_path = str(workspace.resolve())
+        cache_path = str(cache_dir.resolve())
+        config.filesystem.allowRead = list(
+            dict.fromkeys([*config.filesystem.allowRead, workspace_path, cache_path, str(Path(uv_bin).resolve())])
+        )
+        # srt 将进程临时目录固定映射到 /tmp/claude；它属于本次 srt 私有挂载，
+        # 仅依赖安装子阶段可写，代码执行仍沿用原始无网络/只读策略。
+        config.filesystem.allowWrite = [workspace_path, cache_path, _SRT_PRIVATE_TMP]
+        return config
+
+    def _code_execution_runtime(self, dependency_dir: Path) -> SandboxRuntime:
+        """仅为代码执行增加一次性依赖目录的只读权限。"""
+
+        config = SandboxRuntimeConfig.from_dict(self.config.to_dict())
+        dependency_path = str(dependency_dir.resolve())
+        config.filesystem.allowRead = list(dict.fromkeys([*config.filesystem.allowRead, dependency_path]))
+        return SandboxRuntime(
+            config,
+            srt_bin=self.srt_bin,
+            cwd=self.cwd,
+            env=self.env,
+            keep_settings_file=self.keep_settings_file,
+            max_output_bytes=self.max_output_bytes,
+            max_process_output_bytes=self.max_process_output_bytes,
+        )
+
+    @staticmethod
+    def _configured_dependency_root() -> Path | None:
+        configured = os.getenv(_DEPENDENCY_ROOT_ENV, "").strip()
+        if not configured:
+            return None
+        configured_path = Path(configured).expanduser()
+        if configured_path.is_symlink():
+            raise SandboxRuntimeError(f"一次性依赖根目录非法: {configured_path}")
+        root = configured_path.resolve()
+        if root == Path(root.anchor):
+            raise SandboxRuntimeError(f"一次性依赖根目录非法: {root}")
+        if not root.is_dir() or not os.access(root, os.W_OK | os.X_OK):
+            raise SandboxRuntimeError(f"一次性依赖根目录不可写: {root}")
+        return root
+
+    @staticmethod
+    def _is_python_interpreter(value: str) -> bool:
+        return Path(value).name.lower() in {"python", "python3"} or Path(value).name.lower().startswith("python3.")
+
+    @staticmethod
+    def _trusted_system_python() -> str:
+        configured = os.getenv("AGENT_SANDBOX_PYTHON_BIN", "").strip()
+        candidates = [configured, "/usr/local/bin/python3", "/opt/homebrew/bin/python3", "/usr/bin/python3"]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            path = Path(candidate).expanduser().resolve()
+            if path.is_file() and os.access(path, os.X_OK):
+                return str(path)
+        raise SandboxCommandNotFoundError("未找到受信任的系统 Python，无法创建一次性依赖环境")
 
     @staticmethod
     def quote_args(args: Sequence[str]) -> str:

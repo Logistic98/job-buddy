@@ -42,6 +42,8 @@ docker run --detach \
   --security-opt apparmor=unconfined \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,nodev,size=268435456 \
+  --tmpfs /run/job-buddy-sandbox-deps:rw,exec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=268435456 \
+  --tmpfs /var/cache/job-buddy-sandbox-uv:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=134217728 \
   --pids-limit 256 \
   --memory 1g \
   --cpus "$CPU_LIMIT" \
@@ -69,14 +71,14 @@ BASE_URL = "http://127.0.0.1:8061"
 TOKEN = os.environ["AGENT_INTERNAL_SERVICE_TOKEN"]
 
 
-def request(path, payload=None):
+def request(path, payload=None, timeout=20):
     data = None if payload is None else json.dumps(payload).encode()
     headers = {} if payload is None else {"Content-Type": "application/json"}
     if payload is not None:
         headers["X-Internal-Service-Token"] = TOKEN
     req = urllib.request.Request(BASE_URL + path, data=data, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=20) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             return response.status, json.load(response)
     except urllib.error.HTTPError as exc:
         return exc.code, json.load(exc)
@@ -116,6 +118,43 @@ status, body = request(
 assert status == 200, body
 lines = set(body["stdout"].splitlines())
 assert {"python=42", "javascript=42", "java=42"} <= lines, body
+
+status, body = request(
+    "/v1/code-file",
+    {
+        "code": "import numpy as np; print(int(np.sum(np.arange(100))))",
+        "suffix": ".py",
+        "interpreter": ["python3"],
+        "dependencies": ["numpy"],
+        "dependency_timeout": 90,
+        "options": {"timeout": 25, "check": True},
+    },
+    timeout=100,
+)
+assert status == 200, body
+assert body["stdout"].strip() == "4950", body
+assert not list(pathlib.Path("/tmp").glob("job-buddy-sandbox-work-*/job-buddy-sandbox-code-*")), body
+assert list(pathlib.Path("/run/job-buddy-sandbox-deps").iterdir()) == [], body
+cache_root = pathlib.Path("/var/cache/job-buddy-sandbox-uv")
+assert any(cache_root.iterdir()), body
+cache_stats = os.statvfs(cache_root)
+assert cache_stats.f_blocks * cache_stats.f_frsize <= 134217728, cache_stats
+
+status, body = request(
+    "/v1/code-file",
+    {
+        "code": "import numpy as np; print(int(np.sum(np.arange(10))))",
+        "suffix": ".py",
+        "interpreter": ["python3"],
+        "dependencies": ["numpy"],
+        "dependency_timeout": 90,
+        "options": {"timeout": 25, "check": True},
+    },
+    timeout=100,
+)
+assert status == 200, body
+assert body["stdout"].strip() == "45", body
+assert list(pathlib.Path("/run/job-buddy-sandbox-deps").iterdir()) == [], body
 
 blocked_commands = [
     "touch /etc/job-buddy-sandbox-escape",

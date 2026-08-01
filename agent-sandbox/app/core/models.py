@@ -46,6 +46,8 @@ class CodeSpec:
     suffix: str = ".py"
     interpreter: str | Sequence[str] | None = None
     args: Sequence[str] = field(default_factory=list)
+    dependencies: Sequence[str] = field(default_factory=list)
+    dependency_timeout: float | None = None
     options: ExecutionOptions = field(default_factory=ExecutionOptions)
 
 

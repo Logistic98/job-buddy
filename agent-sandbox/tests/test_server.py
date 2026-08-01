@@ -87,6 +87,29 @@ def test_python_code_endpoint(fake_srt) -> None:
     assert body["stdout"].strip() == "hello service"
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "code": "print('never')",
+            "suffix": ".py",
+            "interpreter": ["python3"],
+            "dependencies": ["numpy @ https://example.com/numpy.whl"],
+        },
+        {
+            "code": "console.log('never')",
+            "suffix": ".js",
+            "interpreter": ["node"],
+            "dependencies": ["numpy"],
+        },
+    ],
+)
+def test_code_file_endpoint_rejects_unsafe_or_non_python_dependencies(fake_srt, payload) -> None:
+    response = TestClient(create_app()).post("/v1/code-file", json=payload)
+
+    assert response.status_code == 422
+
+
 def test_command_requires_exactly_one_command_shape() -> None:
     client = TestClient(create_app())
     resp = client.post("/v1/commands", json={"argv": ["echo", "a"], "command": "echo b"})

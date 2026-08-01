@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from app import SandboxProcessError, SandboxRuntime, default_config
+import app.core.runtime as runtime_module
+from app import SandboxProcessError, SandboxResult, SandboxRuntime, default_config
 
 
 @pytest.fixture()
@@ -62,6 +63,85 @@ def test_run_code_file_python(runtime: SandboxRuntime) -> None:
     result = runtime.run_code_file("print('code file')")
     assert result.ok
     assert result.stdout.strip() == "code file"
+
+
+def test_dependency_install_and_code_execution_use_independent_timeouts(runtime: SandboxRuntime, monkeypatch) -> None:
+    observed: dict[str, float | None] = {}
+
+    def fake_install(*args, timeout=None, **kwargs):
+        observed["dependency_timeout"] = timeout
+        return SandboxResult(args=[], returncode=0, stdout="", stderr="")
+
+    def fake_run(*args, timeout=None, **kwargs):
+        observed["code_timeout"] = timeout
+        return SandboxResult(args=[], returncode=0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(runtime, "_install_python_dependencies", fake_install)
+    monkeypatch.setattr(SandboxRuntime, "run", fake_run)
+
+    result = runtime.run_code_file(
+        "print('ok')",
+        dependencies=["numpy"],
+        timeout=25,
+        dependency_timeout=90,
+    )
+
+    assert result.stdout == "ok\n"
+    assert observed == {"dependency_timeout": 90, "code_timeout": 25}
+
+
+def test_runtime_directories_are_created_before_dependency_sandbox(
+    runtime: SandboxRuntime, tmp_path: Path, monkeypatch
+) -> None:
+    private_tmp = tmp_path / "srt-private"
+    cache_dir = tmp_path / "uv-cache"
+    monkeypatch.setattr(runtime_module, "_SRT_PRIVATE_TMP", str(private_tmp))
+    monkeypatch.setenv("AGENT_SANDBOX_DEPENDENCY_CACHE_DIR", str(cache_dir))
+
+    resolved_cache_dir = runtime._dependency_cache_dir()
+    runtime._ensure_dependency_runtime_directories(resolved_cache_dir)
+
+    assert private_tmp.is_dir()
+    assert private_tmp.stat().st_mode & 0o777 == 0o700
+    assert resolved_cache_dir == cache_dir
+    assert cache_dir.is_dir()
+    assert cache_dir.stat().st_mode & 0o777 == 0o700
+
+
+def test_dependency_install_policy_does_not_mutate_code_execution_policy(
+    runtime: SandboxRuntime, fake_srt: Path, tmp_path: Path
+) -> None:
+    cache_dir = tmp_path / "dependency-cache"
+
+    install_config = runtime._dependency_install_config(tmp_path, uv_bin=str(fake_srt), cache_dir=cache_dir)
+
+    assert runtime.config.network.allowedDomains == []
+    assert runtime.config.filesystem.allowWrite == [str(tmp_path)]
+    assert install_config.network.allowedDomains == ["pypi.org", "files.pythonhosted.org"]
+    assert install_config.network.allowLocalBinding is False
+    assert str(tmp_path.resolve()) in install_config.filesystem.allowWrite
+    assert str(cache_dir.resolve()) in install_config.filesystem.allowWrite
+    assert "/tmp/claude" in install_config.filesystem.allowWrite
+
+
+def test_code_execution_only_exposes_current_dependency_environment(
+    fake_srt: Path, tmp_path: Path, monkeypatch
+) -> None:
+    dependency_root = tmp_path / "dependency-root"
+    dependency_root.mkdir()
+    monkeypatch.setenv("AGENT_SANDBOX_DEPENDENCY_ROOT", str(dependency_root))
+    runtime = SandboxRuntime(default_config(allow_write=[str(tmp_path)]), cwd=tmp_path)
+    dependency_dir = tmp_path / "dependency-env" / "site-packages"
+
+    code_runtime = runtime._code_execution_runtime(dependency_dir)
+
+    assert runtime.config.network.allowedDomains == []
+    assert code_runtime.config.network.allowedDomains == []
+    assert code_runtime.config.filesystem.allowWrite == runtime.config.filesystem.allowWrite
+    assert str(dependency_root.resolve()) in runtime.config.filesystem.denyRead
+    assert str(dependency_root.resolve()) in code_runtime.config.filesystem.denyRead
+    assert str(dependency_dir.resolve()) in code_runtime.config.filesystem.allowRead
+    assert str(dependency_dir.resolve()) not in runtime.config.filesystem.allowRead
 
 
 def test_cwd_and_env_are_propagated(runtime: SandboxRuntime, tmp_path: Path) -> None:

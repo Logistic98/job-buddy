@@ -61,6 +61,14 @@ result = client.code_file(CodeSpec(
     suffix=".js",
     interpreter="node",
 ))
+
+# 带第三方依赖的 Python 代码；依赖只安装到本次执行目录
+result = client.code_file(CodeSpec(
+    code="import numpy as np; print(np.arange(3).tolist())",
+    suffix=".py",
+    interpreter="python3",
+    dependencies=["numpy==2.2.6"],
+))
 ```
 
 核心封装对象：
@@ -126,6 +134,8 @@ AGENT_SANDBOX_MAX_OUTPUT_CHARS=200000
 - `POST /v1/python/code`
 - `POST /v1/code-file`
 
+`POST /v1/code-file` 的 `dependencies` 仅支持 Python，最多 8 项，每项只能是 PyPI 分发名或 `package==version`。URL、VCS、本地路径、extras、环境 marker 和安装参数会在 HTTP 边界拒绝。Sandbox 使用固定 PyPI 域名和 `uv --only-binary :all:` 安装 wheel；依赖目标目录随单次执行删除，不写系统 Python、项目 `.venv` 或用户 site-packages。只有依赖安装子阶段可联网和写入 srt 私有临时目录，候选代码执行阶段恢复无网络策略。依赖安装与代码执行使用独立超时，Runtime 默认分别限制为 90 秒和 25 秒，避免安装预算扩大用户代码运行窗口。可复用的 `uv` 下载缓存位于独立、容量受限的 `noexec` tmpfs，只保存公共包下载产物，不会挤占普通 `/tmp`；可导入依赖放在另一个 `exec,nosuid,nodev` tmpfs 中，以支持 NumPy 等 wheel 的原生扩展，并在单次执行后删除。两者都不构成全局 Python 安装，并受各自 tmpfs 容量和容器生命周期限制。
+
 ## Docker
 
 构建镜像：
@@ -145,6 +155,8 @@ $ docker run --rm \
   --security-opt apparmor=unconfined \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,nodev,size=268435456 \
+  --tmpfs /run/job-buddy-sandbox-deps:rw,exec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=268435456 \
+  --tmpfs /var/cache/job-buddy-sandbox-uv:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=134217728 \
   --pids-limit 256 \
   --memory 1g \
   --cpus 1 \
@@ -154,7 +166,7 @@ $ docker run --rm \
   job-buddy-sandbox:1.0.0
 ```
 
-生产镜像只包含运行依赖和服务源码，不复制测试目录，也不安装 `pytest`。容器必须启用轻量 init 作为 PID 1，负责回收 `srt` 退出后被重新收养的 `socat`、`bwrap` 等孙进程，避免 zombie 持续占用 `pids_limit`。每次执行还会使用独立进程组，并在正常结束、异常或超时时统一终止残留进程树；SIGTERM 宽限时间由 `AGENT_SANDBOX_PROCESS_TERMINATION_GRACE_SECONDS` 配置，之后升级为 SIGKILL。服务仍以固定非 root 用户运行，镜像内提供 Python、Java 和 JavaScript 判题所需运行时。单元测试应在源码目录使用下文命令执行；容器验证以镜像启动、`GET /ready`、受鉴权的三语言执行接口和无 zombie/活进程泄漏为准。
+生产镜像只包含运行依赖和服务源码，不复制测试目录，也不安装 `pytest`；运行阶段额外携带固定版本 `uv` 二进制，用于一次性 Python 依赖环境。容器必须启用轻量 init 作为 PID 1，负责回收 `srt` 退出后被重新收养的 `socat`、`bwrap` 等孙进程，避免 zombie 持续占用 `pids_limit`。每次执行还会使用独立进程组，并在正常结束、异常或超时时统一终止残留进程树；SIGTERM 宽限时间由 `AGENT_SANDBOX_PROCESS_TERMINATION_GRACE_SECONDS` 配置，之后升级为 SIGKILL。服务仍以固定非 root 用户运行，镜像内提供 Python、Java 和 JavaScript 判题所需运行时。单元测试应在源码目录使用下文命令执行；容器验证以镜像启动、`GET /ready`、受鉴权的三语言执行接口、一次性 Python 依赖和无 zombie/活进程泄漏为准。
 
 macOS 原生启动时，`scripts/start.sh` 会在未显式配置 `JAVA_HOME` 时通过 `/usr/libexec/java_home` 发现本机 JDK。Sandbox 只把经 `bin/java` 验证的 JDK 根目录加入可信只读运行时路径，并向子进程透传非敏感的 `JAVA_HOME`；HTTP policy 不能借此放宽其他文件系统路径。没有安装 JDK 时，Python 与 JavaScript 仍可运行，但 Java 判题会明确失败。
 
@@ -174,4 +186,4 @@ $ uv run python -m pytest -q
 
 测试用例中提供了 fake `srt` fixture，会模拟 `srt --settings <file> <command...>` 的调用方式，因此单元测试不依赖真实的 `@anthropic-ai/sandbox-runtime` 安装。真实沙箱能力仍需安装上游 `srt` 后在集成环境中验证。
 
-测试覆盖 argv、字符串、CLI、Shell、Python 片段与脚本、临时代码文件、cwd/env 透传、非零退出码，以及输出截断和服务并发边界。
+测试覆盖 argv、字符串、CLI、Shell、Python 片段与脚本、临时代码文件、一次性 Python 依赖、cwd/env 透传、非零退出码，以及输出截断和服务并发边界。

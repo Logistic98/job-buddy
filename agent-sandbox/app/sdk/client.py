@@ -106,6 +106,8 @@ class SandboxClient:
             suffix=spec.suffix,
             interpreter=spec.interpreter,
             args=spec.args,
+            dependencies=spec.dependencies,
+            dependency_timeout=spec.dependency_timeout,
             timeout=options.timeout,
             check=options.check,
             cwd=options.cwd,

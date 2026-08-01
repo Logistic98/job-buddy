@@ -167,6 +167,8 @@ def create_app(readiness_probe: Callable[[], None] | None = None) -> FastAPI:
                     suffix=req.suffix,
                     interpreter=req.interpreter,
                     args=req.args,
+                    dependencies=req.dependencies,
+                    dependency_timeout=req.dependency_timeout,
                     options=options,
                 )
             ),
