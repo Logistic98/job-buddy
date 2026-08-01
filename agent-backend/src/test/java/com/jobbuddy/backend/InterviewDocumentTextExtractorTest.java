@@ -69,8 +69,8 @@ class InterviewDocumentTextExtractorTest {
     byte[] content;
     try (XWPFDocument document = new XWPFDocument();
         ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-      document.createParagraph().createRun().setText("上海 Java 大模型应用开发岗");
-      document.createTable(1, 1).getRow(0).getCell(0).setText("月薪40-50k");
+      document.createParagraph().createRun().setText("杭州 Go 云原生平台开发岗");
+      document.createTable(1, 1).getRow(0).getCell(0).setText("月薪25-35k");
       document.write(output);
       content = output.toByteArray();
     }
@@ -83,8 +83,8 @@ class InterviewDocumentTextExtractorTest {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 content));
 
-    assertTrue(response.getText().contains("上海 Java 大模型应用开发岗"));
-    assertTrue(response.getText().contains("月薪40-50k"));
+    assertTrue(response.getText().contains("杭州 Go 云原生平台开发岗"));
+    assertTrue(response.getText().contains("月薪25-35k"));
   }
 
   /**

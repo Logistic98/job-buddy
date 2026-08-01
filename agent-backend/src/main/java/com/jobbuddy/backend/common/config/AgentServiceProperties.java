@@ -19,6 +19,7 @@ public class AgentServiceProperties {
   private String internalServiceToken;
   private Duration connectTimeout = Duration.ofSeconds(2);
   private Duration readTimeout = Duration.ofSeconds(135);
+  private Duration sandboxHealthReadTimeout = Duration.ofSeconds(20);
   private Duration memoryConnectTimeout = Duration.ofSeconds(2);
   private Duration memoryReadTimeout = Duration.ofSeconds(10);
   private Duration streamConnectTimeout = Duration.ofSeconds(10);
@@ -246,6 +247,24 @@ public class AgentServiceProperties {
    */
   public void setReadTimeout(Duration readTimeout) {
     this.readTimeout = readTimeout;
+  }
+
+  /**
+   * 获取 Sandbox readiness 健康探针读取超时。
+   *
+   * @return Sandbox readiness 健康探针读取超时
+   */
+  public Duration getSandboxHealthReadTimeout() {
+    return sandboxHealthReadTimeout;
+  }
+
+  /**
+   * 设置 Sandbox readiness 健康探针读取超时。
+   *
+   * @param sandboxHealthReadTimeout Sandbox readiness 健康探针读取超时
+   */
+  public void setSandboxHealthReadTimeout(Duration sandboxHealthReadTimeout) {
+    this.sandboxHealthReadTimeout = sandboxHealthReadTimeout;
   }
 
   /**

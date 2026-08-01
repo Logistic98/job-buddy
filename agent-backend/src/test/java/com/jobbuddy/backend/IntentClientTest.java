@@ -54,12 +54,12 @@ class IntentClientTest {
                 "{\"code\":0,\"message\":\"success\",\"data\":{\"domain\":\"job\",\"intent\":\"job.recommend\","
                     + "\"confidence\":0.82,\"secondary\":[\"job.consult\"],\"risk\":\"low\","
                     + "\"needs_clarification\":false,\"next_action\":\"call_get_recommend_jobs\","
-                    + "\"router\":\"llm\",\"slots\":{\"city\":\"上海\"}}}",
+                    + "\"router\":\"llm\",\"slots\":{\"city\":\"杭州\"}}}",
                 MediaType.APPLICATION_JSON));
 
     IntentClient client =
         new IntentClient(restTemplate, properties, new ServiceResilience(properties));
-    IntentResult result = client.classify("帮我推荐上海的岗位");
+    IntentResult result = client.classify("帮我推荐杭州的岗位");
 
     assertEquals("job", result.getDomain());
     assertEquals("job.recommend", result.getIntent());
@@ -69,7 +69,7 @@ class IntentClientTest {
     assertEquals("call_get_recommend_jobs", result.getNextAction());
     assertEquals("job.consult", result.getSecondary().get(0));
     assertEquals("llm", result.getRouter());
-    assertEquals("上海", result.getSlots().get("city"));
+    assertEquals("杭州", result.getSlots().get("city"));
     server.verify();
   }
 

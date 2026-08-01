@@ -46,18 +46,18 @@ class ChatTaskContextBuilderTest {
     stored.add(message("user", "分析此岗位与当前简历的匹配度"));
     stored.add(message("assistant", "已完成当前岗位与简历的匹配分析。"));
     // 模拟异步持久化队列已经先一步写入当前用户消息。
-    stored.add(message("user", "现在这个6年的简历呢"));
+    stored.add(message("user", "现在这个5年经验的简历呢"));
     when(store.listMessages("tenant-a", "user-a", "session-a")).thenReturn(stored);
 
     List<Map<String, Object>> messages =
-        new ChatTaskContextBuilder(store).build(state, "现在这个6年的简历呢");
+        new ChatTaskContextBuilder(store).build(state, "现在这个5年经验的简历呢");
 
     assertEquals(3, messages.size());
     assertEquals("分析此岗位与当前简历的匹配度", messages.get(0).get("content"));
     assertEquals("assistant", messages.get(1).get("role"));
-    assertEquals("现在这个6年的简历呢", messages.get(2).get("content"));
+    assertEquals("现在这个5年经验的简历呢", messages.get(2).get("content"));
     assertEquals(
-        1, messages.stream().filter(item -> "现在这个6年的简历呢".equals(item.get("content"))).count());
+        1, messages.stream().filter(item -> "现在这个5年经验的简历呢".equals(item.get("content"))).count());
   }
 
   /**

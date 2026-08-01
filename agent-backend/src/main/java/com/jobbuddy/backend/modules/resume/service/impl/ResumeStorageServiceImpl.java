@@ -468,6 +468,37 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
   }
 
   /**
+   * 为岗位匹配补充原始 PDF 中结构化解析容易遗漏的高信号证据。
+   *
+   * <p>补充字段只作用于当前请求，不修改用户已经保存的解析结果；对象存储或 PDF 提取异常时保留既有结构化简历并降级继续。
+   *
+   * @param record 简历记录
+   * @return 匹配就绪的简历记录
+   */
+  @Override
+  public ResumeRecord prepareForMatch(ResumeRecord record) {
+    if (record == null || record.getParsed() == null) return record;
+    Object existing = record.getParsed().get("supplemental_evidence");
+    if (existing instanceof java.util.Collection
+        && !((java.util.Collection<?>) existing).isEmpty()) {
+      return record;
+    }
+    try {
+      List<String> evidence = ResumeMatchEvidenceExtractor.extract(record, resumeObjectStorage);
+      if (evidence.isEmpty()) return record;
+      Map<String, Object> parsed = new LinkedHashMap<String, Object>(record.getParsed());
+      parsed.put("supplemental_evidence", evidence);
+      record.setParsed(parsed);
+    } catch (RuntimeException exception) {
+      LOG.warn(
+          "补充简历匹配证据失败，保留结构化解析结果: resume_id={}, reason={}",
+          record.getResumeId(),
+          exception.getMessage());
+    }
+    return record;
+  }
+
+  /**
    * 打开原始简历文件。
    *
    * @param resumeId 简历标识

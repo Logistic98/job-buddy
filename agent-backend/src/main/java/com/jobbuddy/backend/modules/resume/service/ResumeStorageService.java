@@ -154,6 +154,18 @@ public interface ResumeStorageService {
   ResumeRecord get(String resumeId, String tenantId, String userId);
 
   /**
+   * 为岗位匹配补充原始简历中的高信号公开证据。
+   *
+   * <p>默认实现保持兼容；正式存储实现会从原始 PDF 提取公开链接、开源、技术写作和 AI 原生研发证据。
+   *
+   * @param record 简历记录
+   * @return 匹配就绪的简历记录
+   */
+  default ResumeRecord prepareForMatch(ResumeRecord record) {
+    return record;
+  }
+
+  /**
    * 打开原始简历文件。
    *
    * @param resumeId 简历标识

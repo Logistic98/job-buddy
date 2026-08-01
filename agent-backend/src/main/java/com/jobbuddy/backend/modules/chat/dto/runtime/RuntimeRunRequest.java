@@ -19,7 +19,14 @@ import java.util.Map;
 public final class RuntimeRunRequest {
   private static final List<String> KNOWN_FIELDS =
       Arrays.asList(
-          "messages", "trace_id", "session_id", "permission_mode", "budget", "stream", "metadata");
+          "messages",
+          "trace_id",
+          "session_id",
+          "permission_mode",
+          "budget",
+          "stream",
+          "metadata",
+          "resume_from_run_id");
 
   private final List<RuntimeMessage> messages;
   private final String traceId;
@@ -28,6 +35,7 @@ public final class RuntimeRunRequest {
   private final RuntimeBudget budget;
   private final Boolean stream;
   private final ObjectNode metadata;
+  private final String resumeFromRunId;
   private final ObjectNode extensions;
 
   /**
@@ -40,6 +48,7 @@ public final class RuntimeRunRequest {
    * @param budget 预算
    * @param stream 流式响应
    * @param metadata 元数据
+   * @param resumeFromRunId 待恢复的来源运行标识
    * @param extensions 扩展名
    */
   private RuntimeRunRequest(
@@ -50,6 +59,7 @@ public final class RuntimeRunRequest {
       RuntimeBudget budget,
       Boolean stream,
       ObjectNode metadata,
+      String resumeFromRunId,
       ObjectNode extensions) {
     this.messages =
         messages == null
@@ -61,6 +71,7 @@ public final class RuntimeRunRequest {
     this.budget = budget;
     this.stream = stream;
     this.metadata = metadata == null ? null : metadata.deepCopy();
+    this.resumeFromRunId = resumeFromRunId;
     this.extensions = extensions == null ? emptyObject() : extensions.deepCopy();
   }
 
@@ -106,6 +117,7 @@ public final class RuntimeRunRequest {
         object.get("metadata") instanceof ObjectNode
             ? ((ObjectNode) object.get("metadata")).deepCopy()
             : null,
+        text(object.get("resume_from_run_id")),
         extensions);
   }
 
@@ -126,7 +138,24 @@ public final class RuntimeRunRequest {
     if (budget != null) result.set("budget", budget.toJson());
     if (stream != null) result.put("stream", stream.booleanValue());
     if (metadata != null) result.set("metadata", metadata.deepCopy());
+    if (resumeFromRunId != null) result.put("resume_from_run_id", resumeFromRunId);
     return result;
+  }
+
+  /**
+   * 创建只增加来源运行标识的新请求，保留原请求不可变。
+   *
+   * @param sourceRunId 待恢复的来源运行标识
+   * @return 带断点恢复字段的新请求
+   */
+  public RuntimeRunRequest withResumeFromRunId(String sourceRunId) {
+    ObjectNode updated = toJson();
+    if (sourceRunId == null || sourceRunId.trim().isEmpty()) {
+      updated.remove("resume_from_run_id");
+    } else {
+      updated.put("resume_from_run_id", sourceRunId.trim());
+    }
+    return fromJson(updated);
   }
 
   /**
@@ -190,6 +219,15 @@ public final class RuntimeRunRequest {
    */
   public ObjectNode metadata() {
     return metadata == null ? null : metadata.deepCopy();
+  }
+
+  /**
+   * 读取待恢复的来源运行标识。
+   *
+   * @return 来源运行标识
+   */
+  public String resumeFromRunId() {
+    return resumeFromRunId;
   }
 
   /**

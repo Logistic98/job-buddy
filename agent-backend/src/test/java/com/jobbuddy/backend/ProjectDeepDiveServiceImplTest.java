@@ -44,7 +44,7 @@ class ProjectDeepDiveServiceImplTest {
     ProjectDeepDiveServiceImpl service =
         new ProjectDeepDiveServiceImpl(repository, materialStorage);
     Map<String, Object> payload = new LinkedHashMap<String, Object>();
-    payload.put("name", "示例平台项目");
+    payload.put("name", "示例模型服务平台");
     payload.put("role", "后端负责人");
     payload.put("techStack", "Java, Python, Slurm");
     payload.put("projectPeriod", "2024.03 - 2025.06");

@@ -8,15 +8,12 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
-import static org.mockito.Mockito.when;
 
-import com.jobbuddy.backend.common.util.JsonCodec;
-import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -35,15 +32,14 @@ class SelectedJobAnalysisHandlerTest {
     ChatSseEventSender sender = mock(ChatSseEventSender.class);
     ResumeFlowHandler resumeFlowHandler = mock(ResumeFlowHandler.class);
     SelectedJobAnalysisHandler handler =
-        new SelectedJobAnalysisHandler(
-            sender, new SelectedJobContextResolver(mock(BossCliService.class)), resumeFlowHandler);
+        new SelectedJobAnalysisHandler(sender, new SelectedJobContextResolver(), resumeFlowHandler);
     ChatSessionState state = new ChatSessionState();
     state.resumeId = "resume-1";
     Map<String, Object> selectedJob = new LinkedHashMap<String, Object>();
     selectedJob.put("securityId", "job-1");
-    selectedJob.put("jobName", "Java 大模型应用开发工程师");
-    selectedJob.put("brandName", "上海示例科技");
-    selectedJob.put("jobDescription", "负责 RAG、Agent、Java 服务工程化落地，以及生产环境评测、可观测和性能优化工作。");
+    selectedJob.put("jobName", "Go 云原生平台开发工程师");
+    selectedJob.put("brandName", "星河云科（虚构）");
+    selectedJob.put("jobDescription", "负责 Go、Kubernetes 服务工程化落地，以及生产环境评测、可观测和性能优化工作。");
     SseEmitter emitter = mock(SseEmitter.class);
 
     handler.handle(emitter, "session-1", state, "分析此岗位", selectedJob);
@@ -52,7 +48,7 @@ class SelectedJobAnalysisHandlerTest {
     Map<String, Object> context =
         (Map<String, Object>) state.lastSlots.get(SELECTED_JOB_CONTEXT_KEY);
     assertEquals("job-1", context.get("securityId"));
-    assertEquals("Java 大模型应用开发工程师", context.get("jobName"));
+    assertEquals("Go 云原生平台开发工程师", context.get("jobName"));
     assertTrue(String.valueOf(context.get("description")).contains("生产环境评测"));
     verify(resumeFlowHandler)
         .handleSelectedJobMatch(
@@ -66,25 +62,22 @@ class SelectedJobAnalysisHandlerTest {
    */
   @Test
   @SuppressWarnings("unchecked")
-  void shouldLoadMissingJobDescriptionBeforeRememberingContext() throws Exception {
-    BossCliService bossCliService = mock(BossCliService.class);
-    Map<String, Object> detail = new LinkedHashMap<String, Object>();
-    detail.put("description", "负责大模型应用平台、Agent 工作流、Java 后端服务和线上稳定性治理，要求具备完整工程落地经验。");
-    when(bossCliService.jobDetail("job-2", "https://www.zhipin.com/job_detail/job-2.html"))
-        .thenReturn(new JsonCodec().toTree(detail));
+  void shouldMergeMissingJobDescriptionFromCurrentRecommendationSnapshot() throws Exception {
     ResumeFlowHandler resumeFlowHandler = mock(ResumeFlowHandler.class);
     SelectedJobAnalysisHandler handler =
         new SelectedJobAnalysisHandler(
-            mock(ChatSseEventSender.class),
-            new SelectedJobContextResolver(bossCliService),
-            resumeFlowHandler);
+            mock(ChatSseEventSender.class), new SelectedJobContextResolver(), resumeFlowHandler);
     ChatSessionState state = new ChatSessionState();
     state.resumeId = "resume-2";
+    Map<String, Object> recommendedJob = new LinkedHashMap<String, Object>();
+    recommendedJob.put("securityId", "job-2");
+    recommendedJob.put("jobName", "大模型应用开发岗");
+    recommendedJob.put("jobDescription", "负责大模型应用平台、Agent 工作流、Java 后端服务和线上稳定性治理，要求具备完整工程落地经验。");
+    state.jobs = java.util.Collections.singletonList(recommendedJob);
     Map<String, Object> selectedJob = new LinkedHashMap<String, Object>();
     selectedJob.put("securityId", "job-2");
     selectedJob.put("jobName", "大模型应用开发岗");
-    selectedJob.put("description", "岗位摘要");
-    selectedJob.put("originalUrl", "https://www.zhipin.com/job_detail/job-2.html");
+    selectedJob.put("jobDescription", "岗位摘要");
 
     handler.handle(mock(SseEmitter.class), "session-2", state, "分析此岗位", selectedJob);
 
@@ -103,12 +96,10 @@ class SelectedJobAnalysisHandlerTest {
    */
   @Test
   void shouldNotLoadJobDetailBeforeResumeIsSelected() throws Exception {
-    BossCliService bossCliService = mock(BossCliService.class);
     ChatSseEventSender sender = mock(ChatSseEventSender.class);
     ResumeFlowHandler resumeFlowHandler = mock(ResumeFlowHandler.class);
     SelectedJobAnalysisHandler handler =
-        new SelectedJobAnalysisHandler(
-            sender, new SelectedJobContextResolver(bossCliService), resumeFlowHandler);
+        new SelectedJobAnalysisHandler(sender, new SelectedJobContextResolver(), resumeFlowHandler);
     Map<String, Object> selectedJob = new LinkedHashMap<String, Object>();
     selectedJob.put("securityId", "job-without-resume");
     selectedJob.put("jobName", "大模型应用开发岗");
@@ -120,7 +111,6 @@ class SelectedJobAnalysisHandlerTest {
         "分析此岗位",
         selectedJob);
 
-    verifyNoInteractions(bossCliService);
     verify(resumeFlowHandler, never()).handleSelectedJobMatch(any(), any(), any(), any(), any());
     verify(sender)
         .sendAssistant(
@@ -141,8 +131,7 @@ class SelectedJobAnalysisHandlerTest {
     ChatSseEventSender sender = mock(ChatSseEventSender.class);
     ResumeFlowHandler resumeFlowHandler = mock(ResumeFlowHandler.class);
     SelectedJobAnalysisHandler handler =
-        new SelectedJobAnalysisHandler(
-            sender, new SelectedJobContextResolver(mock(BossCliService.class)), resumeFlowHandler);
+        new SelectedJobAnalysisHandler(sender, new SelectedJobContextResolver(), resumeFlowHandler);
     Map<String, Object> selectedJob = new LinkedHashMap<String, Object>();
     selectedJob.put("jobName", "只有名称的岗位");
     ChatSessionState state = new ChatSessionState();
@@ -151,12 +140,16 @@ class SelectedJobAnalysisHandlerTest {
     handler.handle(mock(SseEmitter.class), "session-3", state, "分析此岗位", selectedJob);
 
     verify(resumeFlowHandler, never()).handleSelectedJobMatch(any(), any(), any(), any(), any());
+    ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
     verify(sender)
         .sendAssistant(
             any(SseEmitter.class),
             eq("session-3"),
             any(ChatSessionState.class),
-            org.mockito.ArgumentMatchers.contains("不会仅凭岗位名称"),
+            messageCaptor.capture(),
             any(Map.class));
+    assertTrue(messageCaptor.getValue().contains("不会仅凭岗位名称"));
+    assertTrue(messageCaptor.getValue().contains("请重新检索岗位"));
+    assertTrue(!messageCaptor.getValue().contains("重新点击“分析此岗位”"));
   }
 }

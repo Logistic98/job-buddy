@@ -30,23 +30,23 @@ class ProfileContextServiceImplTest {
   void shouldMergeParsedProfileAndSummarizeAliasFields() {
     ResumeStorageService storage = mock(ResumeStorageService.class);
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();
-    parsed.put("name", "张三");
-    parsed.put("currentTitle", "Java 大模型应用开发工程师");
-    parsed.put("skills", Arrays.asList("Java", "Spring AI"));
+    parsed.put("name", "示例候选人");
+    parsed.put("currentTitle", "Go 云原生平台开发工程师");
+    parsed.put("skills", Arrays.asList("Go", "Kubernetes"));
     Map<String, Object> expectation = new LinkedHashMap<String, Object>();
-    expectation.put("city", "上海");
-    expectation.put("salary_range", "40k-50k");
+    expectation.put("city", "杭州");
+    expectation.put("salary_range", "25k-35k");
     parsed.put("job_expectations", expectation);
     when(storage.getJobProfileOrEmpty("u1")).thenReturn(envelope(parsed));
 
     UserProfileContext context = new ProfileContextServiceImpl(storage).current("u1", null);
 
-    assertEquals("张三", context.getProfile().get("name").asText());
+    assertEquals("示例候选人", context.getProfile().get("name").asText());
     String summary = context.getSummary();
-    assertTrue(summary.contains("姓名：张三"));
-    assertTrue(summary.contains("当前方向：Java 大模型应用开发工程师"));
-    assertTrue(summary.contains("城市：上海"));
-    assertTrue(summary.contains("薪资：40k-50k"));
+    assertTrue(summary.contains("姓名：示例候选人"));
+    assertTrue(summary.contains("当前方向：Go 云原生平台开发工程师"));
+    assertTrue(summary.contains("城市：杭州"));
+    assertTrue(summary.contains("薪资：25k-35k"));
   }
 
   /**
@@ -57,13 +57,13 @@ class ProfileContextServiceImplTest {
     ResumeStorageService storage = mock(ResumeStorageService.class);
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();
     Map<String, Object> intention = new LinkedHashMap<String, Object>();
-    intention.put("positionName", "Java 大模型应用开发");
+    intention.put("positionName", "Go 云原生平台开发");
     parsed.put("jobIntentions", Arrays.asList(intention));
     when(storage.getJobProfileOrEmpty("u1")).thenReturn(envelope(parsed));
 
     UserProfileContext context = new ProfileContextServiceImpl(storage).current("u1", null);
 
-    assertTrue(context.getSummary().contains("岗位：Java 大模型应用开发"));
+    assertTrue(context.getSummary().contains("岗位：Go 云原生平台开发"));
   }
 
   /**

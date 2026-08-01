@@ -37,6 +37,7 @@ class CurrentResumeLoader {
           resumeStorageService.parseSync(
               state.resumeId, state.sessionId, state.tenantId, state.userId);
     }
-    return record;
+    ResumeRecord prepared = resumeStorageService.prepareForMatch(record);
+    return prepared == null ? record : prepared;
   }
 }

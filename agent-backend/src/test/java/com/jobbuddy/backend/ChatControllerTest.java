@@ -84,4 +84,27 @@ class ChatControllerTest {
         .andExpect(jsonPath("$.code").value(400))
         .andExpect(jsonPath("$.message").value("message: 消息不能为空"));
   }
+
+  /**
+   * 验证选中岗位只接受有界 JD，避免把 Boss 原始详情对象透传进会话缓存与执行链路。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void streamShouldRejectOversizedSelectedJobDescriptionBeforeStartingSse() throws Exception {
+    String oversizedDescription = "A".repeat(2401);
+
+    mockMvc
+        .perform(
+            post("/api/chat/stream")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .content(
+                    "{\"message\":\"分析此岗位\",\"selectedJob\":{\"securityId\":\"job-1\",\"jobDescription\":\""
+                        + oversizedDescription
+                        + "\"}}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+        .andExpect(jsonPath("$.code").value(400));
+  }
 }

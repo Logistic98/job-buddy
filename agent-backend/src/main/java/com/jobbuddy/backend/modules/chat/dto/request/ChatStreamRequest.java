@@ -1,6 +1,7 @@
 package com.jobbuddy.backend.modules.chat.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.List;
@@ -26,9 +27,24 @@ public class ChatStreamRequest {
   private List<String> attachmentIds;
 
   private Boolean resumeAfterAuth;
+
+  @Size(max = 128, message = "resumeRunId 长度不能超过 128")
+  private String resumeRunId;
+
   // 换一批：声明本次为确定性翻页（复用上一轮检索条件），后端据此短路任务理解直接翻到下一批候选。
   private Boolean flipJobs;
-  private Map<String, Object> selectedJob;
+
+  @Valid private SelectedJobRequest selectedJob;
   @JsonIgnore private String authenticatedTenantId;
   @JsonIgnore private String authenticatedUserId;
+
+  /**
+   * 返回已校验且裁剪后的岗位分析上下文。
+   *
+   * @return 紧凑岗位上下文；未选择岗位时返回 null
+   */
+  @JsonIgnore
+  public Map<String, Object> selectedJobMap() {
+    return selectedJob == null ? null : selectedJob.toMap();
+  }
 }

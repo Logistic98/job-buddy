@@ -11,7 +11,7 @@ import java.util.Map;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * 选中岗位分析入口：先把列表卡片补全为可复用岗位上下文，再委托简历匹配链路执行统一的证据型分析。
+ * 选中岗位分析入口：从当前卡片和推荐快照恢复岗位上下文，再委托简历匹配链路执行统一的证据型分析。
  */
 class SelectedJobAnalysisHandler {
   private final ChatSseEventSender sender;
@@ -70,9 +70,9 @@ class SelectedJobAnalysisHandler {
         sessionId,
         state,
         toolStatus(
-            "selected_job_context", "读取选中岗位上下文", "running", "正在确认当前岗位并按需加载完整职位描述。", startDetail));
+            "selected_job_context", "读取选中岗位上下文", "running", "正在读取检索阶段已获取的岗位与职位描述。", startDetail));
 
-    // 优先从会话候选池恢复完整岗位，必要时由解析器加载详情。
+    // 只合并当前卡片与会话推荐快照，不在分析入口触发 Boss 详情访问。
     SelectedJobContextResolver.Resolution resolution =
         contextResolver.resolve(selectedJob, state == null ? null : state.jobs);
     Map<String, Object> selectedJobContext = resolution.getJob();
@@ -106,7 +106,7 @@ class SelectedJobAnalysisHandler {
               + selectedJobLabel(selectedJobContext)
               + "」，但当前岗位卡片没有完整 JD"
               + warningSuffix(resolution.getWarning())
-              + "。为避免生成看似精确但没有证据的评分，本次不会仅凭岗位名称进行推测。请重新点击“分析此岗位”加载职位描述，或打开 Boss 原岗位确认详情后再试。",
+              + "。为避免生成看似精确但没有证据的评分，本次不会仅凭岗位名称进行推测。请重新检索岗位，获取包含完整职位描述的推荐结果后再试。",
           metadata);
       return;
     }
@@ -119,11 +119,7 @@ class SelectedJobAnalysisHandler {
         sessionId,
         state,
         toolStatus(
-            "selected_job_context",
-            "岗位上下文已确认",
-            "success",
-            resolution.isDetailLoaded() ? "已加载完整 JD，并保存为后续追问上下文。" : "已保存选中岗位与完整 JD。",
-            successDetail));
+            "selected_job_context", "岗位上下文已确认", "success", "已从当前推荐结果保存选中岗位与完整 JD。", successDetail));
     resumeFlowHandler.handleSelectedJobMatch(
         emitter, sessionId, state, rawMessage, selectedJobContext);
   }

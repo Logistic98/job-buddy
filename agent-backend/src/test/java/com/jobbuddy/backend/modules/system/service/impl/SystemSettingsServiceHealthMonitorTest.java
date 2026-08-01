@@ -16,6 +16,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -77,6 +78,15 @@ class SystemSettingsServiceHealthMonitorTest {
                 exchange,
                 503,
                 "{\"code\":503,\"message\":\"unavailable\",\"data\":{\"status\":\"DOWN\"}}"));
+    server.createContext(
+        "/slow-sandbox/ready",
+        exchange ->
+            respondAfter(
+                exchange,
+                1700,
+                200,
+                "{\"code\":200,\"message\":\"success\",\"data\":{\"status\":\"UP\"}}"));
+    server.createContext("/invalid-sandbox/ready", exchange -> respond(exchange, 200, "ok"));
     server.start();
     baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
   }
@@ -143,6 +153,51 @@ class SystemSettingsServiceHealthMonitorTest {
     assertEquals(
         "http://agent-runtime:8010/health",
         ServiceHealthMonitor.healthUrl("runtime", "http://agent-runtime:8010"));
+  }
+
+  /**
+   * 验证仍在真实 srt readiness 预算内的慢响应不会被 1.5 秒通用健康超时误判。
+   */
+  @Test
+  void keepsSlowSandboxReadinessWithinDedicatedBudgetRunning() {
+    AgentServiceProperties properties = emptyServiceProperties();
+    properties.setSandboxUrl(baseUrl + "/slow-sandbox");
+    ServiceHealthMonitor monitor = new ServiceHealthMonitor(properties, new JobBuddyProperties());
+
+    Map<String, Object> sandbox = serviceStatus(monitor, "sandbox");
+
+    assertEquals("running", sandbox.get("status"));
+    assertTrue((Boolean) sandbox.get("success"));
+    assertEquals("运行中", sandbox.get("message"));
+  }
+
+  /**
+   * 验证 Sandbox readiness 必须返回明确业务状态，不能沿用旧式健康正文的宽松兼容语义。
+   */
+  @Test
+  void requiresExplicitBusinessStatusForSandboxReadiness() {
+    AgentServiceProperties properties = emptyServiceProperties();
+    properties.setSandboxUrl(baseUrl + "/invalid-sandbox");
+    ServiceHealthMonitor monitor = new ServiceHealthMonitor(properties, new JobBuddyProperties());
+
+    Map<String, Object> sandbox = serviceStatus(monitor, "sandbox");
+
+    assertEquals("down", sandbox.get("status"));
+    assertFalse((Boolean) sandbox.get("success"));
+    assertEquals("健康检查失败，Sandbox readiness 未返回状态", sandbox.get("message"));
+  }
+
+  /**
+   * 验证 Sandbox readiness 超时配置存在硬上限，避免串行监测因误配置被长期占用。
+   */
+  @Test
+  void capsSandboxReadinessTimeoutToKeepMonitorBounded() {
+    AgentServiceProperties properties = emptyServiceProperties();
+    properties.setSandboxHealthReadTimeout(Duration.ofHours(1));
+    ServiceHealthMonitor monitor = new ServiceHealthMonitor(properties, new JobBuddyProperties());
+
+    assertEquals(35_000, monitor.healthReadTimeoutMillis("sandbox"));
+    assertEquals(1500, monitor.healthReadTimeoutMillis("runtime"));
   }
 
   /**
@@ -221,8 +276,20 @@ class SystemSettingsServiceHealthMonitorTest {
     AgentServiceProperties properties = emptyServiceProperties();
     properties.setMemoryUrl(baseUrl + path);
     ServiceHealthMonitor monitor = new ServiceHealthMonitor(properties, new JobBuddyProperties());
+    return serviceStatus(monitor, "memory");
+  }
+
+  /**
+   * 读取指定服务的单次监测状态。
+   *
+   * @param monitor 服务监视器
+   * @param serviceId 服务标识
+   * @return 单个服务状态
+   */
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> serviceStatus(ServiceHealthMonitor monitor, String serviceId) {
     Map<String, Object> statuses = JSON.toMap(monitor.refresh().statuses());
-    return (Map<String, Object>) statuses.get("memory");
+    return (Map<String, Object>) statuses.get(serviceId);
   }
 
   /**
@@ -264,5 +331,26 @@ class SystemSettingsServiceHealthMonitorTest {
     exchange.sendResponseHeaders(statusCode, bytes.length);
     exchange.getResponseBody().write(bytes);
     exchange.close();
+  }
+
+  /**
+   * 延迟返回健康响应，用于覆盖慢于通用轻量探针但仍在 Sandbox readiness 预算内的情况。
+   *
+   * @param exchange HTTP 交换
+   * @param delayMillis 延迟毫秒数
+   * @param statusCode HTTP 状态码
+   * @param body 响应正文
+   * @throws IOException 写入失败时抛出
+   */
+  private static void respondAfter(
+      HttpExchange exchange, long delayMillis, int statusCode, String body) throws IOException {
+    try {
+      Thread.sleep(delayMillis);
+    } catch (InterruptedException exception) {
+      Thread.currentThread().interrupt();
+      exchange.close();
+      return;
+    }
+    respond(exchange, statusCode, body);
   }
 }

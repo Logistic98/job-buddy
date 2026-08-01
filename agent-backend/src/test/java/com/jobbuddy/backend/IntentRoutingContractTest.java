@@ -31,7 +31,7 @@ class IntentRoutingContractTest {
    */
   @Test
   void javaIntentServiceShouldFallBackToLocalRulesWhenIntentServiceDown() {
-    IntentResult result = intentService.classify("帮我筛选上海大模型应用开发 40-50K 岗位");
+    IntentResult result = intentService.classify("帮我筛选杭州云原生后端开发 20-30K 岗位");
 
     assertEquals("job", result.getDomain());
     assertEquals("job.consult", result.getIntent());

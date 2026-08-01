@@ -120,6 +120,7 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
       return RuntimeRunResult.empty();
     }
     HttpURLConnection conn = null;
+    RuntimeRunResult startedData = RuntimeRunResult.empty();
     try {
       conn = (HttpURLConnection) new URL(url).openConnection(Proxy.NO_PROXY);
       conn.setRequestMethod("POST");
@@ -190,13 +191,15 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
                 onReasoning.accept(text.asText());
             } else if ("done".equals(currentEvent)) {
               doneData = RuntimeRunResult.fromJson(payload);
+            } else if ("processing".equals(currentEvent)) {
+              startedData = RuntimeRunResult.fromJson(payload);
             } else if ("error".equals(currentEvent)) {
-              RuntimeRunResult err =
-                  RuntimeRunResult.fromJson(payload)
-                      .withError(
-                          payload.has("message") && !payload.get("message").isNull()
-                              ? payload.get("message").asText()
-                              : null);
+              String streamError =
+                  payload.has("message") && !payload.get("message").isNull()
+                      ? payload.get("message").asText().trim()
+                      : "";
+              if (streamError.isEmpty()) streamError = "Agent Runtime 流式执行失败";
+              RuntimeRunResult err = RuntimeRunResult.fromJson(payload).withError(streamError);
               resilience.recordSuccess("agent-runtime-stream");
               return err;
             }
@@ -206,11 +209,12 @@ public class AgentIntegrationServiceImpl implements AgentIntegrationService {
         reader.close();
       }
       resilience.recordSuccess("agent-runtime-stream");
-      return doneData;
+      if (!doneData.isEmpty()) return doneData;
+      return startedData.withError("Agent Runtime 流未返回终态");
     } catch (Exception e) {
       log.warn("Agent Runtime 流式调用异常：url={}", url, e);
       resilience.recordFailure("agent-runtime-stream");
-      return RuntimeRunResult.empty();
+      return startedData.withError("Agent Runtime 流式调用异常：" + e.getMessage());
     } finally {
       if (conn != null) conn.disconnect();
     }

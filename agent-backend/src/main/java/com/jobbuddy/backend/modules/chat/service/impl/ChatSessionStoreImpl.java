@@ -240,7 +240,8 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
   public List<ChatMessageResponse> listMessages(String tenantId, String userId, String sessionId) {
     bindOwner(sessionId, tenantId, userId);
     List<Map<String, Object>> rows =
-        chatSessionRepository.listMessages(tenantId, userId, sessionId);
+        new java.util.ArrayList<Map<String, Object>>(
+            chatSessionRepository.listMessages(tenantId, userId, sessionId));
     boolean hasJobCards = false;
     for (Map<String, Object> row : rows) {
       Object cards = row.get("jobCards");
@@ -251,17 +252,29 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
     }
     ChatSessionState state = get(sessionId);
     if (state != null) {
+      List<Map<String, Object>> visibleToolEvents = filterMemoryNoiseEvents(state.toolEvents);
+      boolean hasVisibleToolEvents = visibleToolEvents != null && !visibleToolEvents.isEmpty();
+      boolean hasStateJobs = state.jobs != null && !state.jobs.isEmpty();
+      boolean hasResumeMatch = state.resumeMatch != null && !state.resumeMatch.isEmpty();
+      boolean hasCurrentOutput =
+          hasVisibleToolEvents || hasResumeMatch || (!hasJobCards && hasStateJobs);
       Map<String, Object> target = null;
+      int latestAssistantIndex = -1;
+      int latestUserIndex = -1;
       for (int i = rows.size() - 1; i >= 0; i--) {
         Map<String, Object> row = rows.get(i);
+        if (latestUserIndex < 0 && "user".equals(row.get("role"))) {
+          latestUserIndex = i;
+        }
         if ("assistant".equals(row.get("role"))) {
+          latestAssistantIndex = i;
           target = row;
           break;
         }
       }
-      if (target == null
-          && ((state.jobs != null && !state.jobs.isEmpty())
-              || (state.toolEvents != null && !state.toolEvents.isEmpty()))) {
+      boolean latestUserNeedsSyntheticAssistant =
+          latestUserIndex > latestAssistantIndex && hasCurrentOutput;
+      if ((target == null || latestUserNeedsSyntheticAssistant) && hasCurrentOutput) {
         target = new java.util.LinkedHashMap<String, Object>();
         target.put("role", "assistant");
         target.put("content", "");
@@ -270,9 +283,7 @@ public class ChatSessionStoreImpl implements ChatSessionStore {
       if (target != null) {
         if (!hasJobCards && state.jobs != null && !state.jobs.isEmpty())
           target.put("jobCards", state.jobs);
-        List<Map<String, Object>> visibleToolEvents = filterMemoryNoiseEvents(state.toolEvents);
-        if (visibleToolEvents != null && !visibleToolEvents.isEmpty())
-          target.put("toolEvents", visibleToolEvents);
+        if (hasVisibleToolEvents) target.put("toolEvents", visibleToolEvents);
         if (state.resumeMatch != null && !state.resumeMatch.isEmpty())
           target.put("resumeMatch", state.resumeMatch);
       }

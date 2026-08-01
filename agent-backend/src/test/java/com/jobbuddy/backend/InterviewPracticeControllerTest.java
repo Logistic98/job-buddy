@@ -66,14 +66,14 @@ class InterviewPracticeControllerTest {
             "file",
             "reference.txt",
             "text/plain",
-            "上海 Java 大模型应用开发岗，月薪40-50k".getBytes(StandardCharsets.UTF_8));
+            "杭州 Java 云原生后端开发岗，月薪20-30k".getBytes(StandardCharsets.UTF_8));
 
     mockMvc
         .perform(multipart("/api/interview/documents/extract").file(file))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.code").value(200))
         .andExpect(jsonPath("$.data.fileName").value("reference.txt"))
-        .andExpect(jsonPath("$.data.text").value("上海 Java 大模型应用开发岗，月薪40-50k"))
+        .andExpect(jsonPath("$.data.text").value("杭州 Java 云原生后端开发岗，月薪20-30k"))
         .andExpect(jsonPath("$.data.truncated").value(false));
   }
 

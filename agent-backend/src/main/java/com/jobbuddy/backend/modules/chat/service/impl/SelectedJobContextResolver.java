@@ -3,38 +3,20 @@ package com.jobbuddy.backend.modules.chat.service.impl;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.firstPresent;
 import static com.jobbuddy.backend.modules.chat.util.ChatValueSupport.stringValue;
 
-import com.jobbuddy.backend.common.util.JsonCodec;
-import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
-import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * 选中岗位上下文解析器：把列表卡片、历史槽位和按需岗位详情统一成稳定的紧凑结构。
+ * 选中岗位上下文解析器：把当前卡片与会话推荐快照合并成稳定的紧凑结构。
  *
- * <p>岗位列表默认不批量抓取 JD；只有用户明确点击分析或基于该岗位追问时，才允许按 securityId/原岗位链接加载一次详情。 这样既为后续指代提供完整证据，也保持 Boss
- * 访问的低频边界。
+ * <p>岗位分析与换简历复评只消费检索阶段已经取得的岗位证据，不在交互入口访问 Boss。缺少完整 JD 时由上层明确提示重新检索，避免按钮点击触发隐式外部请求。
  */
 final class SelectedJobContextResolver {
-  private static final Logger log = LoggerFactory.getLogger(SelectedJobContextResolver.class);
-  private static final JsonCodec JSON = new JsonCodec();
   private static final int MIN_JOB_DESCRIPTION_CHARS = 30;
   private static final int MAX_JOB_DESCRIPTION_CHARS = 2400;
-  private final BossCliService bossCliService;
-
-  /**
-   * 创建已选岗位上下文解析器实例。
-   *
-   * @param bossCliService Boss CLI 服务
-   */
-  SelectedJobContextResolver(BossCliService bossCliService) {
-    this.bossCliService = bossCliService;
-  }
 
   /**
    * 解析已选岗位上下文。
@@ -63,40 +45,7 @@ final class SelectedJobContextResolver {
     if (hasSufficientDescription(compact)) {
       return new Resolution(compact, false, "");
     }
-
-    String securityId =
-        stringValue(
-            firstPresent(merged, "securityId", "security_id", "encryptJobId", "encrypt_job_id"));
-    String url =
-        stringValue(
-            firstPresent(
-                merged,
-                "originalUrl",
-                "jobUrl",
-                "url",
-                "href",
-                "link",
-                "detailUrl",
-                "jobDetailUrl"));
-    if (securityId.isEmpty() && url.isEmpty()) {
-      return new Resolution(compact, false, "缺少岗位 securityId 或原岗位链接，无法加载完整 JD。");
-    }
-
-    try {
-      Map<String, Object> detail = JSON.toMap(bossCliService.jobDetail(securityId, url));
-      mergeDetail(merged, detail);
-      compact = compact(merged);
-      if (hasSufficientDescription(compact)) {
-        return new Resolution(compact, true, "");
-      }
-      return new Resolution(compact, true, "岗位详情已加载，但没有返回可用于匹配的完整 JD。");
-    } catch (BossAuthRequiredException exception) {
-      throw exception;
-    } catch (RuntimeException exception) {
-      String message = conciseMessage(exception);
-      log.warn("按需加载选中岗位详情失败: {}", message);
-      return new Resolution(compact, false, "岗位详情加载失败：" + message);
-    }
+    return new Resolution(compact, false, "当前推荐岗位快照缺少完整 JD，请重新检索岗位后再分析。");
   }
 
   /**
@@ -161,19 +110,7 @@ final class SelectedJobContextResolver {
    * @return 岗位描述是否充分是否成立
    */
   boolean hasSufficientDescription(Map<String, Object> job) {
-    String description =
-        stringValue(
-            firstPresent(
-                job,
-                "jobDescription",
-                "description",
-                "postDescription",
-                "jobDesc",
-                "jobSecText",
-                "detailText",
-                "jobRequire",
-                "jobContent"));
-    return description.length() >= MIN_JOB_DESCRIPTION_CHARS;
+    return descriptionText(job).length() >= MIN_JOB_DESCRIPTION_CHARS;
   }
 
   /**
@@ -196,39 +133,36 @@ final class SelectedJobContextResolver {
               && !label(selectedJob).isEmpty();
       if (!sameIdentity && !sameLabel) continue;
       mergeMissing(selectedJob, candidate);
+      preferSufficientDescription(selectedJob, candidate);
       return;
     }
   }
 
   /**
-   * 合并详情。
+   * 当前卡片只有摘要时，优先采用同一推荐快照中的完整职位描述。
    *
-   * @param target 待补全的岗位上下文
-   * @param detail 详情
+   * @param target 当前卡片
+   * @param source 推荐快照
    */
-  @SuppressWarnings("unchecked")
-  private void mergeDetail(Map<String, Object> target, Map<String, Object> detail) {
-    if (detail == null || detail.isEmpty()) return;
-    mergeMissing(target, detail);
-    preferCompleteDescription(target, detail);
-    Object nested = firstPresent(detail, "job", "jobInfo", "jobDetail", "detail");
-    if (nested instanceof Map) {
-      Map<String, Object> nestedJob = (Map<String, Object>) nested;
-      mergeMissing(target, nestedJob);
-      preferCompleteDescription(target, nestedJob);
+  private void preferSufficientDescription(Map<String, Object> target, Map<String, Object> source) {
+    String current = descriptionText(target);
+    if (current.length() >= MIN_JOB_DESCRIPTION_CHARS) return;
+    String candidate = descriptionText(source);
+    if (candidate.length() >= MIN_JOB_DESCRIPTION_CHARS) {
+      target.put("jobDescription", candidate);
     }
   }
 
   /**
-   * 优先选择完整岗位描述。
+   * 读取并规范化职位描述。
    *
-   * @param target 待补全岗位描述的上下文
-   * @param detail 详情
+   * @param job 岗位
+   * @return 职位描述
    */
-  private void preferCompleteDescription(Map<String, Object> target, Map<String, Object> detail) {
-    Object value =
+  private String descriptionText(Map<String, Object> job) {
+    return normalizeText(
         firstPresent(
-            detail,
+            job,
             "jobDescription",
             "description",
             "postDescription",
@@ -236,11 +170,7 @@ final class SelectedJobContextResolver {
             "jobSecText",
             "detailText",
             "jobRequire",
-            "jobContent");
-    String description = normalizeText(value);
-    if (description.length() >= MIN_JOB_DESCRIPTION_CHARS) {
-      target.put("jobDescription", description);
-    }
+            "jobContent"));
   }
 
   /**
@@ -356,25 +286,6 @@ final class SelectedJobContextResolver {
       builder.append(text);
     }
     return builder.toString();
-  }
-
-  /**
-   * 生成精简消息。
-   *
-   * @param error 异常
-   * @return 精简消息
-   */
-  private String conciseMessage(Throwable error) {
-    Throwable cause = error;
-    while (cause != null && cause.getCause() != null && cause.getCause() != cause) {
-      cause = cause.getCause();
-    }
-    String message = cause == null ? "" : stringValue(cause.getMessage()).trim();
-    if (message.isEmpty()) message = cause == null ? "未知错误" : cause.getClass().getSimpleName();
-    while (message.startsWith("岗位详情获取失败：")) {
-      message = message.substring("岗位详情获取失败：".length()).trim();
-    }
-    return message.length() <= 180 ? message : message.substring(0, 180) + "...";
   }
 
   /**

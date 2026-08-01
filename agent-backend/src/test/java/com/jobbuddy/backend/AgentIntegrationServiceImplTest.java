@@ -38,6 +38,7 @@ class AgentIntegrationServiceImplTest {
   private final AtomicReference<String> receivedRunBody = new AtomicReference<String>();
   private final AtomicReference<String> receivedStreamBody = new AtomicReference<String>();
   private final AtomicReference<String> receivedToolBody = new AtomicReference<String>();
+  private final AtomicReference<String> streamResponseMode = new AtomicReference<String>("done");
 
   /**
    * 初始化测试所需依赖与认证上下文。
@@ -53,16 +54,24 @@ class AgentIntegrationServiceImplTest {
           receivedToken.set(exchange.getRequestHeaders().getFirst("X-Internal-Service-Token"));
           receivedStreamBody.set(
               new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-          byte[] body =
-              ("event: done\n"
-                      + "data: {\"run_id\":\"run-sse\",\"status\":\"ok\","
-                      + "\"stop_reason\":\"task_complete\","
-                      + "\"tool_results\":[{\"tool_call_id\":\"call-1\","
-                      + "\"tool_name\":\"resume_match\",\"success\":true,"
-                      + "\"data\":{\"count\":1},\"future_tool_field\":\"kept\"}],"
-                      + "\"future_done_field\":{\"version\":2}}\n\n"
-                      + "data: [DONE]\n\n")
-                  .getBytes(StandardCharsets.UTF_8);
+          String response;
+          if ("truncated".equals(streamResponseMode.get())) {
+            response =
+                "event: processing\ndata: {\"run_id\":\"run-started\",\"trace_id\":\"trace-started\"}\n\n";
+          } else if ("empty_error".equals(streamResponseMode.get())) {
+            response = "event: error\ndata: {\"run_id\":\"run-error\",\"message\":\"\"}\n\n";
+          } else {
+            response =
+                "event: done\n"
+                    + "data: {\"run_id\":\"run-sse\",\"status\":\"ok\","
+                    + "\"stop_reason\":\"task_complete\","
+                    + "\"tool_results\":[{\"tool_call_id\":\"call-1\","
+                    + "\"tool_name\":\"resume_match\",\"success\":true,"
+                    + "\"data\":{\"count\":1},\"future_tool_field\":\"kept\"}],"
+                    + "\"future_done_field\":{\"version\":2}}\n\n"
+                    + "data: [DONE]\n\n";
+          }
+          byte[] body = response.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
           exchange.sendResponseHeaders(200, body.length);
           exchange.getResponseBody().write(body);
@@ -142,6 +151,46 @@ class AgentIntegrationServiceImplTest {
     assertEquals("kept", toolResults.get(0).get("future_tool_field"));
     assertEquals(
         Integer.valueOf(1), ((Map<String, Object>) toolResults.get(0).get("data")).get("count"));
+  }
+
+  /**
+   * 验证流已建立但未收到终态时保留 processing 首包中的 run 标识，供 checkpoint 恢复。
+   */
+  @Test
+  void runtimeStreamShouldReturnStartedRunWhenConnectionEndsBeforeDone() {
+    streamResponseMode.set("truncated");
+    AgentServiceProperties properties = new AgentServiceProperties();
+    properties.setRuntimeUrl(baseUrl);
+    AgentIntegrationServiceImpl service =
+        new AgentIntegrationServiceImpl(
+            new RestTemplate(), properties, jsonCodec, new ServiceResilience(properties));
+
+    RuntimeRunResult result =
+        service.runRuntimeStream(RuntimeRunRequest.empty().withResumeFromRunId("run-source"), null);
+    Map<String, Object> sent = jsonCodec.toMap(receivedStreamBody.get());
+
+    assertEquals("run-source", sent.get("resume_from_run_id"));
+    assertEquals("run-started", result.runId());
+    assertEquals("trace-started", result.traceId());
+    assertTrue(result.error().contains("未返回终态"));
+  }
+
+  /**
+   * 验证 Runtime 返回空 message 时仍保留明确失败语义，防止上层将其当成空成功并重放任务。
+   */
+  @Test
+  void runtimeStreamShouldNormalizeEmptyErrorMessage() {
+    streamResponseMode.set("empty_error");
+    AgentServiceProperties properties = new AgentServiceProperties();
+    properties.setRuntimeUrl(baseUrl);
+    AgentIntegrationServiceImpl service =
+        new AgentIntegrationServiceImpl(
+            new RestTemplate(), properties, jsonCodec, new ServiceResilience(properties));
+
+    RuntimeRunResult result = service.runRuntimeStream(RuntimeRunRequest.empty(), null);
+
+    assertEquals("run-error", result.runId());
+    assertEquals("Agent Runtime 流式执行失败", result.error());
   }
 
   /**

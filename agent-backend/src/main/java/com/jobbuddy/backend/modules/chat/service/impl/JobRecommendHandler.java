@@ -97,7 +97,7 @@ class JobRecommendHandler {
    * @param sessionId 会话标识
    * @param state 状态
    * @param intent 意图
-   * @param replaceLatestJobTurn 是否替换最近岗位轮次
+   * @param retainPreviousBatchOnFailure 失败时是否恢复上一批已验证岗位与槽位
    * @throws IOException 文件或网络读写失败时抛出
    */
   void handle(
@@ -105,9 +105,9 @@ class JobRecommendHandler {
       String sessionId,
       ChatSessionState state,
       IntentResult intent,
-      boolean replaceLatestJobTurn)
+      boolean retainPreviousBatchOnFailure)
       throws IOException {
-    handle(emitter, sessionId, state, intent, replaceLatestJobTurn, "");
+    handle(emitter, sessionId, state, intent, retainPreviousBatchOnFailure, "");
   }
 
   /**
@@ -117,7 +117,7 @@ class JobRecommendHandler {
    * @param sessionId 会话标识
    * @param state 状态
    * @param intent 意图
-   * @param replaceLatestJobTurn 是否替换最近岗位轮次
+   * @param retainPreviousBatchOnFailure 失败时是否恢复上一批已验证岗位与槽位
    * @param rawMessage 原始消息
    * @throws IOException 文件或网络读写失败时抛出
    */
@@ -126,11 +126,64 @@ class JobRecommendHandler {
       String sessionId,
       ChatSessionState state,
       IntentResult intent,
-      boolean replaceLatestJobTurn,
+      boolean retainPreviousBatchOnFailure,
       String rawMessage)
       throws IOException {
-    PersonalContext personalContext =
-        personalContextBuilder.build(state.tenantId, state.userId, rawMessage, intent, state);
+    List<Map<String, Object>> previousJobs = copyJobs(state.jobs);
+    Map<String, Object> previousSlots =
+        state.lastSlots != null
+            ? new LinkedHashMap<String, Object>(state.lastSlots)
+            : Collections.<String, Object>emptyMap();
+    long contextStartedAt = System.nanoTime();
+    Map<String, Object> contextPayload = new LinkedHashMap<String, Object>();
+    contextPayload.put("stage", "load_profile_resume");
+    contextPayload.put(
+        "slots",
+        intent == null || intent.getSlots() == null
+            ? Collections.<String, Object>emptyMap()
+            : intent.getSlots());
+    sender.sendToolStatus(
+        emitter,
+        sessionId,
+        state,
+        toolStatus(
+            "recommendation_context",
+            "读取画像与简历",
+            "running",
+            "正在并行读取求职画像、当前简历和岗位筛选约束。",
+            contextPayload));
+    PersonalContext personalContext;
+    try {
+      personalContext =
+          personalContextBuilder.build(state.tenantId, state.userId, rawMessage, intent, state);
+    } catch (RuntimeException exception) {
+      Map<String, Object> detail = new LinkedHashMap<String, Object>(contextPayload);
+      detail.put("elapsedMs", elapsedMillis(contextStartedAt));
+      sender.sendToolStatus(
+          emitter,
+          sessionId,
+          state,
+          toolStatus(
+              "recommendation_context",
+              "画像与简历读取失败",
+              "error",
+              conciseMessage(exception, "画像与简历上下文读取失败。"),
+              detail));
+      throw exception;
+    }
+    Map<String, Object> contextDetail = new LinkedHashMap<String, Object>();
+    contextDetail.put("contextSources", personalContext.sources());
+    contextDetail.put("elapsedMs", elapsedMillis(contextStartedAt));
+    sender.sendToolStatus(
+        emitter,
+        sessionId,
+        state,
+        toolStatus(
+            "recommendation_context",
+            "画像与简历已就绪",
+            "success",
+            "已完成岗位筛选上下文准备，开始搜索候选岗位。",
+            contextDetail));
     IntentResult effectiveIntent =
         JobRecommendationCriteriaBuilder.enrich(intent, personalContext, rawMessage);
     int candidateOffset = currentCandidateOffset(effectiveIntent.getSlots());
@@ -141,6 +194,7 @@ class JobRecommendHandler {
     searchPayload.put("contextSources", personalContext.sources());
     searchPayload.put("timeoutSeconds", jobRuntimeService.bossCandidatePoolTimeoutSeconds());
     searchPayload.put("liveEnabled", true);
+    long searchStartedAt = System.nanoTime();
     sender.sendToolStatus(
         emitter,
         sessionId,
@@ -159,6 +213,7 @@ class JobRecommendHandler {
       Map<String, Object> detail = new LinkedHashMap<String, Object>();
       detail.put("reason", reason);
       detail.put("authData", authData);
+      detail.put("elapsedMs", elapsedMillis(searchStartedAt));
       sender.sendToolStatus(
           emitter,
           sessionId,
@@ -170,16 +225,55 @@ class JobRecommendHandler {
     } catch (RuntimeException e) {
       String reason =
           e.getMessage() == null || e.getMessage().trim().isEmpty() ? "岗位搜索失败" : e.getMessage();
-      sender.sendToolStatus(
-          emitter,
-          sessionId,
-          state,
-          toolStatus("job_search", "岗位搜索失败", "error", reason, searchPayload));
-      sender.sendAssistant(emitter, sessionId, state, reason);
+      boolean retainedPreviousBatch = !previousJobs.isEmpty();
+      if (retainedPreviousBatch) {
+        state.jobs = copyJobs(previousJobs);
+        state.lastSlots = new LinkedHashMap<String, Object>(previousSlots);
+      } else {
+        state.jobs = new java.util.ArrayList<Map<String, Object>>();
+        state.lastSlots = new LinkedHashMap<String, Object>();
+      }
+      Map<String, Object> detail = new LinkedHashMap<String, Object>(searchPayload);
+      detail.put("elapsedMs", elapsedMillis(searchStartedAt));
+      detail.put("retainedPreviousBatch", retainedPreviousBatch);
+      detail.put("previousJobCount", retainedPreviousBatch ? previousJobs.size() : 0);
+      try {
+        sender.sendToolStatus(
+            emitter, sessionId, state, toolStatus("job_search", "岗位搜索失败", "error", reason, detail));
+        sender.sendAssistant(
+            emitter,
+            sessionId,
+            state,
+            retainedPreviousBatch
+                ? retainedPreviousSearchFailureMessage(retainPreviousBatchOnFailure)
+                : reason);
+      } finally {
+        persistence.saveStateAsync(state);
+      }
       return;
     }
     List<Map<String, Object>> initialCandidates = jobs;
     int candidateCount = initialCandidates.size();
+    Map<String, Object> jobSearchDetail = new LinkedHashMap<String, Object>();
+    jobSearchDetail.put("count", candidateCount);
+    jobSearchDetail.put("candidateCount", candidateCount);
+    jobSearchDetail.put("mode", "initial_candidate_pool");
+    jobSearchDetail.put("elapsedMs", elapsedMillis(searchStartedAt));
+    jobSearchDetail.put(
+        "sample",
+        initialCandidates.isEmpty()
+            ? Collections.emptyList()
+            : initialCandidates.subList(0, Math.min(3, initialCandidates.size())));
+    sender.sendToolStatus(
+        emitter,
+        sessionId,
+        state,
+        toolStatus(
+            "job_search",
+            "岗位搜索完成",
+            "success",
+            "累计检索到 " + candidateCount + " 个候选岗位。",
+            jobSearchDetail));
     Map<String, Object> gateStart = new LinkedHashMap<String, Object>();
     gateStart.put("candidateCount", candidateCount);
     gateStart.put("minimumScore", properties.getMinimumRecommendedMatchScore());
@@ -194,6 +288,7 @@ class JobRecommendHandler {
             "running",
             "正在使用求职画像和当前简历验证候选岗位。",
             gateStart));
+    long qualityStartedAt = System.nanoTime();
     JobRecommendationResult quality;
     try {
       ResumeRecord resume = resumeLoader.loadCurrentResume(state);
@@ -210,11 +305,12 @@ class JobRecommendHandler {
       detail.put(
           "authData",
           e.getAuthData() == null ? Collections.<String, Object>emptyMap() : e.getAuthData());
+      detail.put("elapsedMs", elapsedMillis(qualityStartedAt));
       sender.sendToolStatus(
           emitter,
           sessionId,
           state,
-          toolStatus("job_search", "需要登录 Boss 直聘", "error", reason, detail));
+          toolStatus("recommendation_quality_gate", "继续检索需要登录 Boss 直聘", "error", reason, detail));
       persistence.saveStateAsync(state);
       throw e;
     } catch (RuntimeException e) {
@@ -222,17 +318,32 @@ class JobRecommendHandler {
           e.getMessage() == null || e.getMessage().trim().isEmpty()
               ? "岗位续搜或个性化推荐预筛失败。"
               : e.getMessage();
-      state.jobs = new java.util.ArrayList<Map<String, Object>>();
+      boolean retainedPreviousBatch = retainPreviousBatchOnFailure && !previousJobs.isEmpty();
+      if (retainedPreviousBatch) {
+        state.jobs = copyJobs(previousJobs);
+        state.lastSlots = new LinkedHashMap<String, Object>(previousSlots);
+      } else {
+        state.jobs = new java.util.ArrayList<Map<String, Object>>();
+      }
       try {
+        Map<String, Object> detail = new LinkedHashMap<String, Object>(gateStart);
+        detail.put("elapsedMs", elapsedMillis(qualityStartedAt));
+        detail.put("retainedPreviousBatch", retainedPreviousBatch);
+        detail.put("previousJobCount", retainedPreviousBatch ? previousJobs.size() : 0);
         sender.sendToolStatus(
             emitter,
             sessionId,
             state,
-            toolStatus("recommendation_quality_gate", "推荐质量门未通过", "error", reason, gateStart));
+            toolStatus("recommendation_quality_gate", "推荐质量门未通过", "error", reason, detail));
         sender.sendAssistant(
-            emitter, sessionId, state, "岗位已经召回，但画像与简历匹配预筛未能完成。为避免展示未经验证的岗位，本轮未生成推荐卡片。请稍后重试。");
+            emitter,
+            sessionId,
+            state,
+            retainedPreviousBatch
+                ? "换一批未能完成，上一批通过画像与简历预筛的岗位消息仍保留，请稍后重试。"
+                : "岗位已经召回，但画像与简历匹配预筛未能完成。为避免展示未经验证的岗位，本轮未生成推荐卡片。请稍后重试。");
       } finally {
-        // SSE 已超时或客户端断开时，事件发送会抛 IOException；仍需保存清空后的岗位状态，避免历史恢复出旧卡片。
+        // SSE 已超时或客户端断开时，仍需保存与页面一致的岗位状态，避免历史恢复后出现卡片与失败文案矛盾。
         persistence.saveStateAsync(state);
       }
       return;
@@ -257,6 +368,30 @@ class JobRecommendHandler {
         "funnelAccountedCount", quality.getQualifiedCount() + quality.getRejectedCount());
     gateDetail.put("rejectionReasons", quality.getRejectionReasons());
     gateDetail.put("warnings", quality.getWarnings());
+    gateDetail.put("elapsedMs", elapsedMillis(qualityStartedAt));
+    boolean continuedSearch = quality.getCandidateCount() > candidateCount;
+    if (continuedSearch) {
+      // 质量门可能在首批候选不足时继续向后检索。job_search 已在首批返回后闭合，
+      // 此处用相同事件 ID 回写最终累计数，前端和持久化层会原位合并，避免搜索数与评估数口径冲突。
+      Map<String, Object> completedSearchDetail =
+          new LinkedHashMap<String, Object>(jobSearchDetail);
+      completedSearchDetail.put("count", quality.getCandidateCount());
+      completedSearchDetail.put("candidateCount", quality.getCandidateCount());
+      completedSearchDetail.put("initialCandidateCount", candidateCount);
+      completedSearchDetail.put("continuedSearch", true);
+      completedSearchDetail.put("mode", "continued_candidate_pool");
+      completedSearchDetail.put("elapsedMs", elapsedMillis(searchStartedAt));
+      sender.sendToolStatus(
+          emitter,
+          sessionId,
+          state,
+          toolStatus(
+              "job_search",
+              "岗位搜索完成",
+              "success",
+              "累计检索到 " + quality.getCandidateCount() + " 个候选岗位。",
+              completedSearchDetail));
+    }
     sender.sendToolStatus(
         emitter,
         sessionId,
@@ -265,7 +400,7 @@ class JobRecommendHandler {
             "recommendation_quality_gate",
             jobs.isEmpty() ? "当前批次无合格岗位" : "画像与简历预筛完成",
             "success",
-            quality.getCandidateCount() > candidateCount
+            continuedSearch
                 ? "首批候选不足后已继续检索，累计评估 "
                     + quality.getCandidateCount()
                     + " 个候选，其中 "
@@ -274,27 +409,6 @@ class JobRecommendHandler {
                 : jobs.isEmpty() ? "没有岗位同时达到薪资、方向、匹配分和置信度门槛。" : "已有 " + jobs.size() + " 个岗位通过推荐门槛。",
             gateDetail));
     state.jobs = jobs;
-    Map<String, Object> jobSearchDetail = new LinkedHashMap<String, Object>();
-    jobSearchDetail.put("count", quality.getCandidateCount());
-    jobSearchDetail.put("candidateCount", quality.getCandidateCount());
-    jobSearchDetail.put("initialCandidateCount", candidateCount);
-    jobSearchDetail.put("continuedSearch", quality.getCandidateCount() > candidateCount);
-    jobSearchDetail.put("mode", "profile_resume_strict");
-    jobSearchDetail.put(
-        "sample",
-        initialCandidates.isEmpty()
-            ? Collections.emptyList()
-            : initialCandidates.subList(0, Math.min(3, initialCandidates.size())));
-    sender.sendToolStatus(
-        emitter,
-        sessionId,
-        state,
-        toolStatus(
-            "job_search",
-            "岗位搜索完成",
-            "success",
-            "累计检索到 " + quality.getCandidateCount() + " 个候选岗位。",
-            jobSearchDetail));
     if (jobs.isEmpty()) {
       sender.sendAssistant(
           emitter,
@@ -305,23 +419,57 @@ class JobRecommendHandler {
       return;
     }
     sender.send(emitter, "job_cards", jobs);
-    // 普通推荐保留独立助手消息，表示一轮新的用户意图；换一批是同一轮检索条件下的确定性翻页，
-    // 应直接替换最近的岗位卡片消息，避免聊天区和历史回放里出现“换一批又新开一轮会话”的错觉。
+    // 岗位推荐与换一批都追加独立助手消息；换一批仍复用上一轮槽位和候选池，但在聊天历史中是新的用户动作。
     if (!jobs.isEmpty()) {
-      if (replaceLatestJobTurn) {
-        persistence.replaceLatestJobMessageAsync(sessionId, jobs, state.toolEvents);
-      } else {
-        Map<String, Object> turnMeta = new LinkedHashMap<String, Object>();
-        turnMeta.put("jobCards", jobs);
-        if (state.toolEvents != null && !state.toolEvents.isEmpty()) {
-          turnMeta.put(
-              "toolEvents", new java.util.ArrayList<Map<String, Object>>(state.toolEvents));
-        }
-        persistence.appendMessageAsync(sessionId, "assistant", "", turnMeta);
+      Map<String, Object> turnMeta = new LinkedHashMap<String, Object>();
+      turnMeta.put("jobCards", jobs);
+      if (state.toolEvents != null && !state.toolEvents.isEmpty()) {
+        turnMeta.put("toolEvents", new java.util.ArrayList<Map<String, Object>>(state.toolEvents));
       }
+      persistence.appendMessageAsync(sessionId, "assistant", "", turnMeta);
     }
     // 岗位列表与本轮推理过程统一异步落库，确保扫码搜索路径下首屏卡片即时呈现、不被持久化阻塞。
     persistence.saveStateAsync(state);
+  }
+
+  /**
+   * 计算单个推荐阶段的单调时钟耗时。
+   *
+   * @param startedAtNanos 阶段开始时间
+   * @return 耗时毫秒数
+   */
+  private long elapsedMillis(long startedAtNanos) {
+    return Math.max(0L, (System.nanoTime() - startedAtNanos) / 1_000_000L);
+  }
+
+  /**
+   * 提取适合用户展示的异常摘要。
+   *
+   * @param exception 异常
+   * @param fallback 默认摘要
+   * @return 非空异常摘要
+   */
+  private String conciseMessage(RuntimeException exception, String fallback) {
+    if (exception == null
+        || exception.getMessage() == null
+        || exception.getMessage().trim().isEmpty()) return fallback;
+    return exception.getMessage().trim();
+  }
+
+  private String retainedPreviousSearchFailureMessage(boolean retainPreviousBatchOnFailure) {
+    if (retainPreviousBatchOnFailure) {
+      return "换一批未能完成，上一批通过画像与简历预筛的岗位消息仍保留，请稍后重试。";
+    }
+    return "本轮岗位搜索未能完成，上一批通过画像与简历预筛的岗位消息仍保留，请稍后重试。";
+  }
+
+  private List<Map<String, Object>> copyJobs(List<Map<String, Object>> jobs) {
+    List<Map<String, Object>> copied = new java.util.ArrayList<Map<String, Object>>();
+    if (jobs == null) return copied;
+    for (Map<String, Object> job : jobs) {
+      if (job != null) copied.add(new LinkedHashMap<String, Object>(job));
+    }
+    return copied;
   }
 
   /**

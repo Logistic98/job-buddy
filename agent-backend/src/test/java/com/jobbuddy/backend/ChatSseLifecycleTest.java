@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
@@ -17,6 +19,7 @@ import com.jobbuddy.backend.common.config.AgentServiceProperties;
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
+import com.jobbuddy.backend.modules.chat.dto.response.ChatMessageResponse;
 import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
 import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
@@ -27,12 +30,16 @@ import com.jobbuddy.backend.modules.chat.service.JobRuntimeService;
 import com.jobbuddy.backend.modules.chat.service.impl.ChatSseServiceImpl;
 import com.jobbuddy.backend.modules.chat.service.impl.ChatStreamAdmissionController;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
+import com.jobbuddy.backend.modules.prompt.model.PersonalContext;
 import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
 import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -45,6 +52,73 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * 验证 ChatSseLifecycle 的核心行为、异常路径与边界条件。
  */
 class ChatSseLifecycleTest {
+
+  /**
+   * 换批质量门失败时，真实 SSE 入口必须同时恢复上一批岗位和上一批游标。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void flipQualityFailureShouldRestorePreviousSlotsThroughSseEntry() throws Exception {
+    String sessionId = "s-flip-recovery";
+    ChatSessionState state = new ChatSessionState();
+    state.sessionId = sessionId;
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    state.jobs =
+        new java.util.ArrayList<Map<String, Object>>(
+            Collections.<Map<String, Object>>singletonList(
+                Collections.<String, Object>singletonMap("securityId", "previous-job")));
+    Map<String, Object> previousSlots = new LinkedHashMap<String, Object>();
+    previousSlots.put("role", "大模型应用开发");
+    previousSlots.put("boss_page", Integer.valueOf(1));
+    previousSlots.put("candidate_offset", Integer.valueOf(5));
+    state.lastSlots = new LinkedHashMap<String, Object>(previousSlots);
+
+    ChatSessionStore sessionStore = mock(ChatSessionStore.class);
+    when(sessionStore.getOrCreate(sessionId)).thenReturn(state);
+    JobRuntimeService jobRuntimeService = mock(JobRuntimeService.class);
+    when(jobRuntimeService.bossCandidatePoolTimeoutSeconds()).thenReturn(30);
+    List<Map<String, Object>> candidates =
+        Collections.<Map<String, Object>>singletonList(
+            Collections.<String, Object>singletonMap("securityId", "new-job"));
+    when(jobRuntimeService.recommendJobsFast(any(IntentResult.class), eq(sessionId), isNull()))
+        .thenReturn(candidates);
+    when(jobRuntimeService.prequalifyRecommendationsWithContinuation(
+            isNull(), any(IntentResult.class), eq(candidates), eq(sessionId)))
+        .thenThrow(new RuntimeException("岗位匹配结果不完整"));
+    PersonalContextBuilder personalContextBuilder = mock(PersonalContextBuilder.class);
+    when(personalContextBuilder.build(anyString(), anyString(), anyString(), any(), any()))
+        .thenReturn(emptyPersonalContext());
+    AgentServiceProperties agentProperties = new AgentServiceProperties();
+    ChatSseServiceImpl service =
+        new ChatSseServiceImpl(
+            jobRuntimeService,
+            sessionStore,
+            mock(AgentIntegrationService.class),
+            mock(IntentService.class),
+            mock(com.jobbuddy.backend.modules.chat.service.ChatAttachmentService.class),
+            mock(ResumeStorageService.class),
+            mock(BossCliService.class),
+            personalContextBuilder,
+            mock(SystemSettingsService.class),
+            new JobBuddyProperties(),
+            agentProperties,
+            new ChatStreamAdmissionController(agentProperties));
+    ChatStreamRequest request = new ChatStreamRequest();
+    request.setSessionId(sessionId);
+    request.setMessage("换一批");
+    request.setFlipJobs(true);
+    request.setAuthenticatedTenantId("tenant-a");
+    request.setAuthenticatedUserId("user-a");
+
+    SseEmitter emitter = service.stream(request);
+
+    assertTrue(waitUntilRemoved(cancelledMap(service), emitter, 3000));
+    assertEquals("previous-job", state.jobs.get(0).get("securityId"));
+    assertEquals(previousSlots, state.lastSlots);
+    service.shutdownExecutors();
+  }
 
   /**
    * 验证新会话的 SSE 主链路只向 Runtime 发送当前消息，不查询不存在的聊天历史。
@@ -116,6 +190,145 @@ class ChatSseLifecycleTest {
   }
 
   /**
+   * 验证 checkpoint 续跑跳过用户消息写入和任务理解，并把来源 run 交给 Runtime。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void checkpointResumeShouldReuseTurnWithoutRepeatingUnderstanding() throws Exception {
+    ChatSessionStore sessionStore = mock(ChatSessionStore.class);
+    IntentService intentService = mock(IntentService.class);
+    AgentIntegrationService integrationService = mock(AgentIntegrationService.class);
+    ChatSseServiceImpl service = newService(sessionStore, intentService, integrationService);
+    ChatSessionState state = new ChatSessionState();
+    state.sessionId = "session-resume";
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    when(sessionStore.getOrCreate("session-resume")).thenReturn(state);
+    ChatMessageResponse sourceMessage = new ChatMessageResponse();
+    sourceMessage.setTurnId("turn-original");
+    sourceMessage.setRole("user");
+    sourceMessage.setContent("原始任务");
+    when(sessionStore.listMessages("tenant-a", "user-a", "session-resume"))
+        .thenReturn(List.of(sourceMessage));
+    com.fasterxml.jackson.databind.node.ObjectNode runtimeResult =
+        JsonNodeFactory.instance.objectNode();
+    runtimeResult.put("run_id", "run-resumed");
+    runtimeResult.put("status", "fail");
+    runtimeResult.put("error", "still failing");
+    runtimeResult.put("resumable", true);
+    when(integrationService.runRuntimeStream(any(RuntimeRunRequest.class), any(), any()))
+        .thenReturn(RuntimeRunResult.fromJson(runtimeResult));
+    ChatStreamRequest request = new ChatStreamRequest();
+    request.setSessionId("session-resume");
+    request.setTurnId("turn-original");
+    request.setMessage("客户端篡改内容");
+    request.setResumeRunId("run-source");
+    request.setAuthenticatedTenantId("tenant-a");
+    request.setAuthenticatedUserId("user-a");
+
+    SseEmitter emitter = service.stream(request);
+
+    ArgumentCaptor<RuntimeRunRequest> runtimeRequest =
+        ArgumentCaptor.forClass(RuntimeRunRequest.class);
+    verify(integrationService, timeout(3000))
+        .runRuntimeStream(runtimeRequest.capture(), any(), any());
+    assertEquals("run-source", runtimeRequest.getValue().resumeFromRunId());
+    assertEquals("原始任务", runtimeRequest.getValue().messages().get(0).content().asText());
+    assertEquals("turn-original", runtimeRequest.getValue().metadata().path("turn_id").asText());
+    verify(sessionStore, org.mockito.Mockito.never())
+        .appendUserMessageOnce(anyString(), anyString(), anyString());
+    verify(intentService, org.mockito.Mockito.never()).classify(anyString());
+    verify(integrationService, org.mockito.Mockito.never())
+        .runRuntime(any(RuntimeRunRequest.class));
+    assertTrue(waitUntilRemoved(cancelledMap(service), emitter, 3000));
+    service.shutdownExecutors();
+  }
+
+  /**
+   * 换一批是新的聊天轮次：后端仍复用上一轮槽位短路执行，但必须按 turnId 幂等写入用户消息。
+   *
+   * @throws Exception 处理失败时抛出
+   */
+  @Test
+  void flipJobsShouldPersistUserTurnAndDeduplicateByTurnId() throws Exception {
+    String sessionId = "s-flip-turn";
+    ChatSessionState state = new ChatSessionState();
+    state.sessionId = sessionId;
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    state.jobs =
+        new java.util.ArrayList<Map<String, Object>>(
+            Collections.<Map<String, Object>>singletonList(
+                Collections.<String, Object>singletonMap("securityId", "previous-job")));
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "大模型应用开发");
+    slots.put("boss_page", Integer.valueOf(1));
+    state.lastSlots = slots;
+    ChatSessionStore sessionStore = mock(ChatSessionStore.class);
+    when(sessionStore.getOrCreate(sessionId)).thenReturn(state);
+    when(sessionStore.appendUserMessageOnce(sessionId, "turn-flip", "换一批")).thenReturn(true, false);
+    JobRuntimeService jobRuntimeService = mock(JobRuntimeService.class);
+    when(jobRuntimeService.bossCandidatePoolTimeoutSeconds()).thenReturn(30);
+    List<Map<String, Object>> candidates =
+        Collections.<Map<String, Object>>singletonList(
+            Collections.<String, Object>singletonMap("securityId", "new-job"));
+    when(jobRuntimeService.recommendJobsFast(any(IntentResult.class), eq(sessionId), isNull()))
+        .thenReturn(candidates);
+    when(jobRuntimeService.prequalifyRecommendationsWithContinuation(
+            isNull(), any(IntentResult.class), eq(candidates), eq(sessionId)))
+        .thenReturn(
+            new com.jobbuddy.backend.modules.chat.service.JobRecommendationResult(
+                candidates,
+                1,
+                Collections.<String, Integer>emptyMap(),
+                Collections.<String>emptyList()));
+    PersonalContextBuilder personalContextBuilder = mock(PersonalContextBuilder.class);
+    when(personalContextBuilder.build(anyString(), anyString(), anyString(), any(), any()))
+        .thenReturn(emptyPersonalContext());
+    AgentServiceProperties agentProperties = new AgentServiceProperties();
+    ChatSseServiceImpl service =
+        new ChatSseServiceImpl(
+            jobRuntimeService,
+            sessionStore,
+            mock(AgentIntegrationService.class),
+            mock(IntentService.class),
+            mock(com.jobbuddy.backend.modules.chat.service.ChatAttachmentService.class),
+            mock(ResumeStorageService.class),
+            mock(BossCliService.class),
+            personalContextBuilder,
+            mock(SystemSettingsService.class),
+            new JobBuddyProperties(),
+            agentProperties,
+            new ChatStreamAdmissionController(agentProperties));
+    ChatStreamRequest first = new ChatStreamRequest();
+    first.setSessionId(sessionId);
+    first.setTurnId("turn-flip");
+    first.setMessage("换一批");
+    first.setFlipJobs(true);
+    first.setAuthenticatedTenantId("tenant-a");
+    first.setAuthenticatedUserId("user-a");
+    SseEmitter firstEmitter = service.stream(first);
+    assertTrue(waitUntilRemoved(cancelledMap(service), firstEmitter, 3000));
+
+    ChatStreamRequest duplicate = new ChatStreamRequest();
+    duplicate.setSessionId(sessionId);
+    duplicate.setTurnId("turn-flip");
+    duplicate.setMessage("换一批");
+    duplicate.setFlipJobs(true);
+    duplicate.setAuthenticatedTenantId("tenant-a");
+    duplicate.setAuthenticatedUserId("user-a");
+    SseEmitter duplicateEmitter = service.stream(duplicate);
+    assertTrue(waitUntilRemoved(cancelledMap(service), duplicateEmitter, 3000));
+
+    verify(sessionStore, timeout(1000).times(2))
+        .appendUserMessageOnce(sessionId, "turn-flip", "换一批");
+    verify(jobRuntimeService, times(1))
+        .recommendJobsFast(any(IntentResult.class), eq(sessionId), isNull());
+    service.shutdownExecutors();
+  }
+
+  /**
    * 验证新建服务。
    *
    * @param intentService 意图服务
@@ -177,6 +390,24 @@ class ChatSseLifecycleTest {
         new JobBuddyProperties(),
         agentServiceProperties,
         new ChatStreamAdmissionController(agentServiceProperties));
+  }
+
+  /**
+   * 构造不包含业务数据的个人上下文。
+   *
+   * @return 空个人上下文
+   */
+  private PersonalContext emptyPersonalContext() {
+    return new PersonalContext(
+        "job",
+        Collections.<String, Object>emptyMap(),
+        Collections.<String, Object>emptyMap(),
+        Collections.<Map<String, Object>>emptyList(),
+        Collections.<Map<String, Object>>emptyList(),
+        Collections.<Map<String, Object>>emptyList(),
+        Collections.<Map<String, Object>>emptyList(),
+        Collections.<Map<String, Object>>emptyList(),
+        "");
   }
 
   /**
@@ -344,7 +575,7 @@ class ChatSseLifecycleTest {
                   Collections.<String, Object>emptyMap());
             });
     ChatSessionStore sessionStore = mock(ChatSessionStore.class);
-    when(sessionStore.appendUserMessageOnce("s-idempotent", "turn-same", "筛选上海大模型岗位"))
+    when(sessionStore.appendUserMessageOnce("s-idempotent", "turn-same", "筛选杭州 Go 后端岗位"))
         .thenReturn(true, false);
     ChatSseServiceImpl service =
         newService(sessionStore, intentService, mock(AgentIntegrationService.class));
@@ -352,7 +583,7 @@ class ChatSseLifecycleTest {
     ChatStreamRequest first = new ChatStreamRequest();
     first.setSessionId("s-idempotent");
     first.setTurnId("turn-same");
-    first.setMessage("筛选上海大模型岗位");
+    first.setMessage("筛选杭州 Go 后端岗位");
     first.setAuthenticatedTenantId("tenant-a");
     first.setAuthenticatedUserId("user-a");
     service.stream(first);
@@ -361,13 +592,13 @@ class ChatSseLifecycleTest {
     ChatStreamRequest duplicate = new ChatStreamRequest();
     duplicate.setSessionId("s-idempotent");
     duplicate.setTurnId("turn-same");
-    duplicate.setMessage("筛选上海大模型岗位");
+    duplicate.setMessage("筛选杭州 Go 后端岗位");
     duplicate.setAuthenticatedTenantId("tenant-a");
     duplicate.setAuthenticatedUserId("user-a");
     service.stream(duplicate);
 
     verify(sessionStore, timeout(1000).times(2))
-        .appendUserMessageOnce("s-idempotent", "turn-same", "筛选上海大模型岗位");
+        .appendUserMessageOnce("s-idempotent", "turn-same", "筛选杭州 Go 后端岗位");
     verify(intentService, times(1)).classify(anyString());
     release.countDown();
     service.shutdownExecutors();

@@ -42,6 +42,35 @@ class ChatSseSupportTest {
   }
 
   /**
+   * 验证格式、渲染、工具和当前任务指令不会因为包含泛化关键词而污染长期记忆。
+   */
+  @Test
+  void shouldRejectTransientInstructionsThatContainGenericMemoryKeywords() {
+    assertFalse(
+        ChatSseSupport.shouldCaptureLongTermMemory("请直接输出 Markdown 示例，不要执行任何工具，也不要解释渲染方法。"));
+    assertFalse(ChatSseSupport.shouldCaptureLongTermMemory("我希望你只输出 Mermaid 和 LaTeX，不要调用工具。"));
+    assertFalse(ChatSseSupport.shouldCaptureLongTermMemory("分析当前简历与目标岗位的匹配度"));
+    assertFalse(ChatSseSupport.shouldCaptureLongTermMemory("优先输出 javascript 代码块"));
+    assertFalse(ChatSseSupport.shouldCaptureLongTermMemory("不要解释，直接给答案"));
+    assertFalse(ChatSseSupport.shouldCaptureLongTermMemory("不要只看岗位标题，帮我分析公司发展"));
+    assertFalse(ChatSseSupport.shouldCaptureLongTermMemory("优先分析岗位职责，不要展开公司背景"));
+    assertFalse(ChatSseSupport.shouldCaptureLongTermMemory("请输出一句：我的名字是小明"));
+    assertFalse(ChatSseSupport.shouldCaptureLongTermMemory("请解释“请记住”是什么意思"));
+  }
+
+  /**
+   * 验证跨任务可复用的求职偏好、约束、目标和复盘仍会进入长期记忆。
+   */
+  @Test
+  void shouldCaptureOnlyDurableCareerSignals() {
+    assertTrue(ChatSseSupport.shouldCaptureLongTermMemory("我的求职目标是上海 Agent 开发岗位"));
+    assertTrue(ChatSseSupport.shouldCaptureLongTermMemory("我希望长期从事 Java 后端开发"));
+    assertTrue(ChatSseSupport.shouldCaptureLongTermMemory("优先考虑杭州 30-40K 的后端岗位"));
+    assertTrue(ChatSseSupport.shouldCaptureLongTermMemory("排除外包、驻场和长期夜班岗位"));
+    assertTrue(ChatSseSupport.shouldCaptureLongTermMemory("面试复盘：分布式事务回答不完整，需要加强"));
+  }
+
+  /**
    * 验证 ChatSseSupport 中记忆的检索、筛选与排序规则。
    */
   @Test
@@ -220,25 +249,25 @@ class ChatSseSupportTest {
     top.put("score", 86);
     top.put("score_confidence", "high");
     top.put("recommendation", "推荐");
-    top.put("reasoning", "Java 与 Agent 工程化经历能够覆盖岗位核心要求。。");
-    top.put("hits", Arrays.asList("具备 Java 后端经验。", "具备 Agent 项目经验。"));
+    top.put("reasoning", "Go 与 Kubernetes 工程化经历能够覆盖岗位核心要求。。");
+    top.put("hits", Arrays.asList("具备 Go 后端经验。", "具备 Kubernetes 项目经验。"));
     top.put("gaps", Arrays.asList("行业经验需要补充。"));
     Map<String, Object> match = new LinkedHashMap<String, Object>();
     match.put("matches", Arrays.asList(top));
     Map<String, Object> job = new LinkedHashMap<String, Object>();
-    job.put("jobName", "大模型应用开发岗");
-    job.put("company", "上海示例科技");
+    job.put("jobName", "云原生平台开发岗");
+    job.put("company", "星河云科（虚构）");
 
-    String summary = ChatSseSupport.resumeMatchSummary(match, "6年经验求职简历.pdf", job, true);
+    String summary = ChatSseSupport.resumeMatchSummary(match, "5年经验示例简历.pdf", job, true);
 
-    assertTrue(summary.contains("6年经验求职简历.pdf"));
-    assertTrue(summary.contains("上海示例科技 / 大模型应用开发岗"));
+    assertTrue(summary.contains("5年经验示例简历.pdf"));
+    assertTrue(summary.contains("星河云科（虚构） / 云原生平台开发岗"));
     assertTrue(summary.contains("重新评估上一轮岗位"));
     assertTrue(summary.contains("## 匹配结论"));
     assertTrue(summary.contains("## 核心判断"));
     assertTrue(summary.contains("## 主要匹配"));
     assertTrue(summary.contains("- **匹配评分：** **86/100**"));
-    assertTrue(summary.contains("- 具备 Agent 项目经验"));
+    assertTrue(summary.contains("- 具备 Kubernetes 项目经验"));
     assertFalse(summary.contains("。。"));
     assertFalse(summary.contains("经验。\n"));
   }

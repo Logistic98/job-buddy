@@ -21,20 +21,20 @@ public class JobBuddyProperties {
    * 岗位推荐与评分保护参数。
    */
   // 平台设置会在进程运行期间更新这些字段；volatile 保证 SSE 和候选池工作线程立即可见。
-  private volatile int maxJobsPerRecommend = 15;
+  private volatile int maxJobsPerRecommend = 5;
 
-  private volatile int recommendOverfetchFactor = 5;
-  private volatile int maxJobsPerScoring = 80;
+  private volatile int recommendOverfetchFactor = 3;
+  private volatile int maxJobsPerScoring = 30;
   private volatile int minimumRecommendedMatchScore = 60;
 
   /**
    * Boss 实时检索限流与缓存参数。
    */
-  private volatile int bossSearchMaxPages = 2;
+  private volatile int bossSearchMaxPages = 3;
 
-  private volatile int bossSearchTargetCandidates = 45;
-  private volatile int bossSearchMaxPageDepth = 5;
-  private volatile int bossSearchPageDelayMillis = 5000;
+  private volatile int bossSearchTargetCandidates = 15;
+  private volatile int bossSearchMaxPageDepth = 15;
+  private volatile int bossSearchPageDelayMillis = 3000;
   private volatile int bossSearchCacheTtlMinutes = 30;
   private volatile int bossSearchCooldownMinutesOnRisk = 30;
   private String bossWebBaseUrl = "https://www.zhipin.com";

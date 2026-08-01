@@ -28,6 +28,7 @@ class CanonicalBaselinePostgresTest {
   private static final Set<String> EXPECTED_TABLES =
       Set.of(
           "agent_run_checkpoint",
+          "agent_run_resume_claim",
           "analysis_task",
           "app_user",
           "auth_state",
@@ -84,11 +85,11 @@ class CanonicalBaselinePostgresTest {
   void emptyDatabaseMigratesWithDefaultUsersAuthorizationAndJobBlacklist() throws Exception {
     var result = flyway().migrate();
 
-    assertEquals(17, result.migrationsExecuted);
-    assertEquals("1.0.16", result.targetSchemaVersion);
+    assertEquals(18, result.migrationsExecuted);
+    assertEquals("1.0.17", result.targetSchemaVersion);
     assertEquals(EXPECTED_TABLES, applicationTables());
     assertEquals(
-        293,
+        302,
         queryLong(
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
                 + "AND table_name <> 'flyway_schema_history'"));
@@ -169,6 +170,7 @@ class CanonicalBaselinePostgresTest {
             "SELECT COUNT(*) FROM blacklist_item WHERE name = 'OD' AND item_type = 'keyword'"));
     assertFalse(tableExists("agent_tool_result"));
     assertTrue(tableExists("agent_run_checkpoint"));
+    assertTrue(tableExists("agent_run_resume_claim"));
     assertFalse(tableExists("project_asset"));
     assertFalse(tableExists("profile_document"));
     assertFalse(tableExists("user_permission"));

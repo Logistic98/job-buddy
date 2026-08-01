@@ -18,6 +18,7 @@ import com.jobbuddy.backend.common.util.JsonCodec;
 import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
 import com.jobbuddy.backend.modules.auth.service.BossCliService;
 import com.jobbuddy.backend.modules.chat.dto.request.ChatStreamRequest;
+import com.jobbuddy.backend.modules.chat.dto.response.ChatMessageResponse;
 import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunRequest;
 import com.jobbuddy.backend.modules.chat.dto.runtime.RuntimeRunResult;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
@@ -176,8 +177,7 @@ public class ChatSseServiceImpl implements ChatSseService {
         new RuntimeManagedRequestFactory(
             integrationService, personalContextBuilder, resumeStorageService, properties);
     CurrentResumeLoader resumeLoader = new CurrentResumeLoader(resumeStorageService);
-    SelectedJobContextResolver selectedJobContextResolver =
-        new SelectedJobContextResolver(bossCliService);
+    SelectedJobContextResolver selectedJobContextResolver = new SelectedJobContextResolver();
     this.resumeFlowHandler =
         new ResumeFlowHandler(
             sender,
@@ -435,15 +435,20 @@ public class ChatSseServiceImpl implements ChatSseService {
     ChatSessionState state = sessionStore.getOrCreate(sessionId);
     // 扫码续跑与换一批都是确定性动作：必须存在上一轮检索条件才能短路，否则优雅回退到正常意图管线。
     boolean resumeAfterAuthRequested = Boolean.TRUE.equals(request.getResumeAfterAuth());
+    boolean checkpointResumeRequested =
+        request.getResumeRunId() != null && !request.getResumeRunId().trim().isEmpty();
     boolean flipJobsRequested = Boolean.TRUE.equals(request.getFlipJobs());
     boolean hasLastSlots = state.lastSlots != null && !state.lastSlots.isEmpty();
     boolean resumeAfterAuth = resumeAfterAuthRequested && hasLastSlots;
     boolean flipJobs = flipJobsRequested && hasLastSlots;
     String turnId = request.getTurnId() == null ? "" : request.getTurnId().trim();
+    if (checkpointResumeRequested) {
+      restoreCheckpointTurn(request, sessionId, turnId);
+    }
     boolean hasAttachments =
         request.getAttachmentIds() != null && !request.getAttachmentIds().isEmpty();
     state.attachments = new java.util.ArrayList<Map<String, Object>>();
-    if (resumeAfterAuthRequested && hasAttachments) {
+    if ((resumeAfterAuthRequested || checkpointResumeRequested) && hasAttachments) {
       state.attachments =
           attachmentService.bindForTurn(
               request.getAttachmentIds(),
@@ -452,9 +457,9 @@ public class ChatSseServiceImpl implements ChatSseService {
               sessionId,
               turnId);
     }
-    // 普通用户消息在任务理解和外部调用前按 turnId 原子落库；重复 turn 直接结束，不再次执行 Runtime/Boss。
-    // 没有 turnId 的旧客户端保留顺序异步写入兼容。扫码续跑和换一批属于既有动作，继续跳过写入。
-    if (!resumeAfterAuthRequested && !flipJobsRequested) {
+    // 普通用户消息与换一批都在外部调用前按 turnId 原子落库；重复 turn 直接结束，不再次执行 Runtime/Boss。
+    // 没有 turnId 的旧客户端保留顺序异步写入兼容。扫码续跑和 checkpoint 恢复属于既有动作，继续跳过写入。
+    if (!resumeAfterAuthRequested && !checkpointResumeRequested) {
       if (!turnId.isEmpty()) {
         boolean accepted;
         if (hasAttachments) {
@@ -483,16 +488,24 @@ public class ChatSseServiceImpl implements ChatSseService {
       state.resumeId = request.getResumeId();
     }
 
+    // Checkpoint 续跑是对既有 Runtime run 的确定性恢复：不重复写入用户消息、长期记忆和任务理解，
+    // 仅用当前鉴权身份和上下文重建被脱敏剥离的请求数据，然后交给 Runtime 校验来源与原子领取。
+    if (checkpointResumeRequested) {
+      runtimeManagedTaskHandler.handleResume(
+          emitter, sessionId, request.getMessage(), state, request.getResumeRunId().trim(), turnId);
+      return;
+    }
+
     // 聊天岗位卡片上的“分析此岗位”是确定性的单岗位分析入口，直接进入流式分析，
     // 不再走同步弹窗接口，也避免任务理解误把它扩展成整批岗位分析。
     if (isSelectedJobAnalysis(request)) {
       selectedJobAnalysisHandler.handle(
-          emitter, sessionId, state, request.getMessage(), request.getSelectedJob());
+          emitter, sessionId, state, request.getMessage(), request.selectedJobMap());
       return;
     }
 
-    // 换简历复评在按需加载 JD 时也可能触发登录引导。扫码后必须恢复原 resume.match，
-    // 不能落入岗位搜索续跑，否则会把已解析正确的省略追问改写成另一个业务动作。
+    // 兼容已进入 Boss 登录续跑的历史复评请求：恢复原 resume.match，不能落入岗位搜索续跑，
+    // 否则会把已解析正确的省略追问改写成另一个业务动作。新复评仅复用检索快照，不再触发详情登录。
     if (resumeAfterAuth && shouldResumeSelectedJobMatchAfterAuth(request, state)) {
       sender.sendToolStatus(
           emitter,
@@ -548,7 +561,6 @@ public class ChatSseServiceImpl implements ChatSseService {
       int nextPage = jobRecommendHandler.currentBossPage(state.lastSlots) + 1;
       Map<String, Object> flipSlots = new LinkedHashMap<String, Object>(state.lastSlots);
       flipSlots.put("boss_page", nextPage);
-      state.lastSlots = flipSlots;
       sender.sendToolStatus(
           emitter,
           sessionId,
@@ -608,7 +620,7 @@ public class ChatSseServiceImpl implements ChatSseService {
     }
     // 选中岗位分析：把岗位关键信息注入 Runtime 消息上下文，回答仍走常规问答持久化链路。
     String effectiveMessage =
-        withSelectedJobContext(request.getMessage(), request.getSelectedJob());
+        withSelectedJobContext(request.getMessage(), request.selectedJobMap());
 
     sender.sendToolStatus(
         emitter,
@@ -643,7 +655,8 @@ public class ChatSseServiceImpl implements ChatSseService {
     long runtimeUnderstandingElapsedMillis = elapsedMillis(runtimeUnderstandingStartedNanos);
     IntentResult intent = intentFromRuntime(directive);
     log.info(
-        "智能引擎任务理解分段耗时 sessionId={} precheckMs={} runtimeStageMs={} totalMs={} preRouter={} runtimeRouter={}",
+        "智能引擎任务理解分段耗时 sessionId={} precheckMs={} runtimeStageMs={} totalMs={} preRouter={}"
+            + " runtimeRouter={}",
         sessionId,
         precheckElapsedMillis,
         runtimeUnderstandingElapsedMillis,
@@ -672,7 +685,41 @@ public class ChatSseServiceImpl implements ChatSseService {
             intent.getDomain() + "/" + intent.getIntent() + "，置信度 " + intent.getConfidence(),
             directive));
 
-    handleDirective(emitter, sessionId, effectiveMessage, state, directive, intent);
+    handleDirective(emitter, sessionId, effectiveMessage, state, directive, intent, turnId);
+  }
+
+  /**
+   * 从当前用户持久化的原始 turn 重建 checkpoint 续跑请求，拒绝信任客户端回传的消息正文和附件集合。
+   *
+   * @param request 当前请求
+   * @param sessionId 会话标识
+   * @param turnId 原始轮次标识
+   */
+  private void restoreCheckpointTurn(ChatStreamRequest request, String sessionId, String turnId) {
+    if (turnId == null || turnId.isBlank()) {
+      throw new IllegalArgumentException("checkpoint 续跑缺少原始 turnId");
+    }
+    ChatMessageResponse source =
+        sessionStore
+            .listMessages(
+                request.getAuthenticatedTenantId(), request.getAuthenticatedUserId(), sessionId)
+            .stream()
+            .filter(item -> "user".equals(item.getRole()))
+            .filter(item -> turnId.equals(item.getTurnId()))
+            .findFirst()
+            .orElseThrow(() -> new IllegalArgumentException("checkpoint 原始用户消息不存在或归属不匹配"));
+    request.setMessage(source.getContent());
+    java.util.List<String> attachmentIds = new java.util.ArrayList<String>();
+    if (source.getAttachments() != null && source.getAttachments().isArray()) {
+      source
+          .getAttachments()
+          .forEach(
+              item -> {
+                String attachmentId = item.path("attachmentId").asText("").trim();
+                if (!attachmentId.isEmpty()) attachmentIds.add(attachmentId);
+              });
+    }
+    request.setAttachmentIds(attachmentIds);
   }
 
   private String memoryActionLabel(String action) {
@@ -803,6 +850,7 @@ public class ChatSseServiceImpl implements ChatSseService {
    * @param state 状态
    * @param directive 运行时指令
    * @param intent 意图
+   * @param turnId 当前轮次标识
    * @throws IOException 文件或网络读写失败时抛出
    */
   private void handleDirective(
@@ -811,7 +859,8 @@ public class ChatSseServiceImpl implements ChatSseService {
       String rawMessage,
       ChatSessionState state,
       Map<String, Object> directive,
-      IntentResult intent)
+      IntentResult intent,
+      String turnId)
       throws IOException {
     String action = directiveAction(directive, intent);
     if (matchesCapability(action, intent, "call_login", "trigger_boss_login", "auth.login")) {
@@ -842,7 +891,8 @@ public class ChatSseServiceImpl implements ChatSseService {
       resumeFlowHandler.handleResumeAnalyze(emitter, sessionId, state);
       return;
     }
-    runtimeManagedTaskHandler.handle(emitter, sessionId, rawMessage, state, directive, intent);
+    runtimeManagedTaskHandler.handle(
+        emitter, sessionId, rawMessage, state, directive, intent, turnId);
   }
 
   /**
@@ -871,8 +921,8 @@ public class ChatSseServiceImpl implements ChatSseService {
    */
   private boolean isSelectedJobAnalysis(ChatStreamRequest request) {
     return request != null
-        && request.getSelectedJob() != null
-        && !request.getSelectedJob().isEmpty()
+        && request.selectedJobMap() != null
+        && !request.selectedJobMap().isEmpty()
         && !Boolean.TRUE.equals(request.getFlipJobs());
   }
 }

@@ -63,6 +63,20 @@ class JobRuntimeServiceImplTest {
   }
 
   /**
+   * 默认推荐预算应优先快速返回一屏结果，并把更大候选池交给“换一批”按需消费。
+   */
+  @Test
+  void defaultRecommendationBudgetShouldFavorFastFirstBatch() {
+    JobBuddyProperties properties = new JobBuddyProperties();
+
+    assertEquals(5, properties.getMaxJobsPerRecommend());
+    assertEquals(3, properties.getRecommendOverfetchFactor());
+    assertEquals(30, properties.getMaxJobsPerScoring());
+    assertEquals(15, properties.getBossSearchTargetCandidates());
+    assertEquals(3000, properties.getBossSearchPageDelayMillis());
+  }
+
+  /**
    * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
    */
   @Test
@@ -95,7 +109,7 @@ class JobRuntimeServiceImplTest {
             settingsService);
 
     Map<String, Object> firstSlots = new LinkedHashMap<String, Object>();
-    firstSlots.put("role", "大模型应用开发");
+    firstSlots.put("role", "云原生平台开发");
     IntentResult firstIntent =
         new IntentResult(
             "job",
@@ -110,7 +124,7 @@ class JobRuntimeServiceImplTest {
 
     // 换一批：同一组检索条件、boss_page=2，命中同一份候选池缓存切片，不再请求 Boss。
     Map<String, Object> flipSlots = new LinkedHashMap<String, Object>();
-    flipSlots.put("role", "大模型应用开发");
+    flipSlots.put("role", "云原生平台开发");
     flipSlots.put("boss_page", 2);
     IntentResult flipIntent =
         new IntentResult(
@@ -170,7 +184,7 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
+    slots.put("role", "云原生平台开发");
     IntentResult intent =
         new IntentResult(
             "job",
@@ -204,7 +218,7 @@ class JobRuntimeServiceImplTest {
     properties.setMaxJobsPerRecommend(4);
     properties.setRecommendOverfetchFactor(1);
     properties.setMaxJobsPerScoring(80);
-    properties.setBossSearchMaxPages(2);
+    properties.setBossSearchMaxPages(3);
     properties.setBossSearchMaxPageDepth(3);
     properties.setBossSearchPageDelayMillis(0);
 
@@ -224,7 +238,7 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
+    slots.put("role", "云原生平台开发");
     IntentResult intent =
         new IntentResult(
             "job",
@@ -260,20 +274,20 @@ class JobRuntimeServiceImplTest {
     properties.setBossSearchPageDelayMillis(0);
 
     List<Map<String, Object>> source = new ArrayList<Map<String, Object>>();
-    source.add(job("ok", "大模型应用开发工程师", "40-50K"));
-    source.add(job("overlap", "大模型平台开发", "45-60K"));
-    source.add(job("single", "大模型应用开发", "40K"));
-    source.add(job("low", "Java 开发", "17-18K"));
-    source.add(job("annualLow", "大模型应用开发", "21-35K·13薪"));
-    source.add(job("edgeOverlap", "Java 大模型应用开发", "30-41K"));
+    source.add(job("ok", "云原生平台开发工程师", "25-35K"));
+    source.add(job("overlap", "云平台开发", "30-45K"));
+    source.add(job("single", "云原生平台开发", "30K"));
+    source.add(job("low", "Go 开发", "12-14K"));
+    source.add(job("annualLow", "云原生平台开发", "14-22K·13薪"));
+    source.add(job("edgeOverlap", "Go 云原生平台开发", "20-26K"));
     source.add(job("rawYuanLow", "Java 开发", "8000-12000"));
     source.add(job("monthlyYuanLow", "Java 开发", "8000-12000元/月"));
-    source.add(job("monthlyYuanOverlap", "大模型应用开发", "35000-50000元/月"));
+    source.add(job("monthlyYuanOverlap", "云原生平台开发", "22000-38000元/月"));
     source.add(jobWithSalaryBounds("structuredLow", "Java 开发", 8000, 12000));
-    source.add(jobWithSalaryBounds("structuredOverlap", "大模型应用开发", 35000, 50000));
-    source.add(job("dayIntern", "大模型实习生", "490-500元/天"));
+    source.add(jobWithSalaryBounds("structuredOverlap", "云原生平台开发", 22000, 38000));
+    source.add(job("dayIntern", "云平台实习生", "490-500元/天"));
     source.add(job("day", "数据标注", "200-300元/天"));
-    source.add(job("negotiable", "大模型应用开发", "面议"));
+    source.add(job("negotiable", "云原生平台开发", "面议"));
 
     when(bossCliService.searchJobsFirstPage(any(IntentResult.class))).thenReturn(source);
     when(settingsService.filterBlacklistedJobs(any(List.class)))
@@ -288,9 +302,9 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
-    slots.put("salary_min_k", 40);
-    slots.put("salary_max_k", 50);
+    slots.put("role", "云原生平台开发");
+    slots.put("salary_min_k", 25);
+    slots.put("salary_max_k", 35);
     IntentResult intent =
         new IntentResult(
             "job",
@@ -335,8 +349,8 @@ class JobRuntimeServiceImplTest {
     when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
         .thenReturn(
             java.util.Arrays.asList(
-                job("fit", "Java RAG 大模型应用开发工程师", "40-50K"),
-                job("multimodal", "多模态大模型应用算法工程师", "40-50K")));
+                job("fit", "Go Kubernetes 云原生平台开发工程师", "25-35K"),
+                job("multimodal", "计算机视觉算法工程师", "25-35K")));
     when(settingsService.filterBlacklistedJobs(any(List.class)))
         .thenAnswer(invocation -> invocation.getArgument(0));
     JobBuddyProperties properties = new JobBuddyProperties();
@@ -350,8 +364,8 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "Java 大模型应用开发");
-    slots.put("include_keywords", java.util.Arrays.asList("Java", "RAG", "Agent", "Spring Cloud"));
+    slots.put("role", "Go 云原生平台开发");
+    slots.put("include_keywords", java.util.Arrays.asList("Go", "Kubernetes", "PostgreSQL", "微服务"));
 
     List<Map<String, Object>> result =
         service.recommendJobsFast(
@@ -396,7 +410,7 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
+    slots.put("role", "云原生平台开发");
     IntentResult intent =
         new IntentResult(
             "job",
@@ -443,7 +457,7 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
+    slots.put("role", "云原生平台开发");
     IntentResult intent =
         new IntentResult(
             "job",
@@ -477,6 +491,122 @@ class JobRuntimeServiceImplTest {
   }
 
   /**
+   * 验证换一批补页达到原始候选目标后提前停止，避免固定抓满单批页数。
+   */
+  @Test
+  void recommendJobsFastShouldStopBatchAfterCandidateTargetIsReached() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(2);
+    properties.setRecommendOverfetchFactor(3);
+    properties.setMaxJobsPerScoring(30);
+    properties.setBossSearchMaxPages(3);
+    properties.setBossSearchMaxPageDepth(15);
+    properties.setBossSearchPageDelayMillis(0);
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(jobsWithPrefix("p1-", 6));
+    when(bossCliService.searchJobsPage(any(IntentResult.class), anyInt()))
+        .thenReturn(jobsWithPrefix("p2-", 15));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "云原生平台开发");
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            slots);
+
+    service.recommendJobsFast(intent, "s1", null);
+    Map<String, Object> nextSlots = new LinkedHashMap<String, Object>(slots);
+    nextSlots.put("boss_page", 2);
+    nextSlots.put("candidate_offset", 6);
+    IntentResult nextIntent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            1.0,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            nextSlots);
+
+    List<Map<String, Object>> next = service.recommendJobsFast(nextIntent, "s1", null);
+
+    assertEquals(6, next.size());
+    verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), anyInt());
+  }
+
+  /**
+   * 验证单次抓取页数包含首屏页，默认三页预算不会额外预热第四页。
+   */
+  @Test
+  void recommendJobsFastShouldCountFirstPageAgainstSingleFetchBudget() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(10);
+    properties.setRecommendOverfetchFactor(3);
+    properties.setMaxJobsPerScoring(30);
+    properties.setBossSearchMaxPages(3);
+    properties.setBossSearchMaxPageDepth(15);
+    properties.setBossSearchPageDelayMillis(0);
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(jobsWithPrefix("p1-", 1));
+    when(bossCliService.searchJobsPage(any(IntentResult.class), anyInt()))
+        .thenAnswer(
+            invocation -> jobsWithPrefix("p" + invocation.getArgument(1, Integer.class) + "-", 1));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "云原生平台开发");
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            slots);
+
+    service.recommendJobsFast(intent, "s1", null);
+
+    verify(bossCliService, times(1)).searchJobsFirstPage(any(IntentResult.class));
+    verify(bossCliService, times(2)).searchJobsPage(any(IntentResult.class), anyInt());
+  }
+
+  /**
    * 验证 JobRuntimeServiceImpl 中用户的权限与租户隔离边界。
    */
   @Test
@@ -500,7 +630,7 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "上海 Java 大模型应用开发");
+    slots.put("role", "杭州 Go 云原生平台开发");
     IntentResult intent =
         new IntentResult(
             "job",
@@ -563,7 +693,7 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
+    slots.put("role", "云原生平台开发");
     IntentResult intent =
         new IntentResult(
             "job",
@@ -629,7 +759,7 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> firstSlots = new LinkedHashMap<String, Object>();
-    firstSlots.put("role", "大模型应用开发");
+    firstSlots.put("role", "云原生平台开发");
     IntentResult firstIntent =
         new IntentResult(
             "job",
@@ -949,7 +1079,7 @@ class JobRuntimeServiceImplTest {
     com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
         service.prequalifyRecommendations(parsedResume(), candidates, "s1");
 
-    assertEquals(java.util.Arrays.asList(15, 8), scoredBatchSizes);
+    assertEquals(java.util.Arrays.asList(4, 4, 4, 4, 4, 3), scoredBatchSizes);
     assertEquals(23, result.getCandidateCount());
     assertEquals(2, result.getQualifiedCount());
     assertEquals(21, result.getRejectedCount());
@@ -961,7 +1091,7 @@ class JobRuntimeServiceImplTest {
     assertTrue(result.getRejectionReasons().containsKey("投递建议为不建议"));
     assertEquals(
         result.getCandidateCount(), result.getQualifiedCount() + result.getRejectedCount());
-    verify(runtimeToolClient, times(2))
+    verify(runtimeToolClient, times(6))
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
@@ -1115,6 +1245,91 @@ class JobRuntimeServiceImplTest {
   }
 
   /**
+   * 最终排序与截断完成后，只为即将下发的合格岗位补充职位描述，不触碰候选池中的淘汰岗位。
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  void prequalifyRecommendationsWithContinuationShouldEnrichOnlyFinalQualifiedJobs() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(2);
+    properties.setMaxJobsPerScoring(4);
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
+        .thenAnswer(
+            invocation -> {
+              RuntimeToolArguments toolArguments = invocation.getArgument(1);
+              List<Map<String, Object>> jobs =
+                  (List<Map<String, Object>>) toolArguments.toMap(JSON).get("jobs");
+              List<Map<String, Object>> matches = new ArrayList<Map<String, Object>>();
+              for (Map<String, Object> job : jobs) {
+                String id = String.valueOf(job.get("securityId"));
+                int score = "job-0".equals(id) ? 70 : "job-2".equals(id) ? 90 : 50;
+                matches.add(recommendationMatch(id, score, "high", score >= 60 ? "推荐" : "不建议"));
+              }
+              return runtimeMatch(matches.toArray(new Map[0]));
+            });
+    when(bossCliService.enrichJobDetails(any(List.class), anyInt()))
+        .thenAnswer(
+            invocation -> {
+              List<Map<String, Object>> jobs = invocation.getArgument(0);
+              List<Map<String, Object>> enriched = new ArrayList<Map<String, Object>>();
+              for (Map<String, Object> job : jobs) {
+                Map<String, Object> copy = new LinkedHashMap<String, Object>(job);
+                copy.put("jobDescription", "最终合格岗位 " + job.get("securityId") + " 的完整职位描述。");
+                enriched.add(copy);
+              }
+              return enriched;
+            });
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    List<Map<String, Object>> candidates =
+        java.util.Arrays.asList(
+            realJob("job-0"), realJob("job-1"), realJob("job-2"), realJob("job-3"));
+    candidates.get(0).put("description", "负责大模型应用开发。");
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            0.9,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            Collections.singletonMap("role", "云原生平台开发"));
+
+    com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+        service.prequalifyRecommendationsWithContinuation(parsedResume(), intent, candidates, "s1");
+
+    assertEquals(
+        java.util.Arrays.asList("job-2", "job-0"),
+        result.getJobs().stream().map(job -> String.valueOf(job.get("securityId"))).toList());
+    assertTrue(
+        result.getJobs().stream()
+            .allMatch(job -> String.valueOf(job.get("jobDescription")).contains("完整职位描述")));
+    assertTrue(
+        result.getJobs().stream()
+            .allMatch(job -> "list_metadata".equals(job.get("recommendationEvidenceLevel"))));
+    verify(bossCliService, times(1))
+        .enrichJobDetails(
+            argThat(
+                jobs ->
+                    jobs.size() == 2
+                        && "job-2".equals(jobs.get(0).get("securityId"))
+                        && "job-0".equals(jobs.get(1).get("securityId"))),
+            eq(2));
+  }
+
+  /**
    * 验证 JobRuntimeServiceImpl 中岗位推荐的输入校验与拒绝边界。
    */
   @Test
@@ -1158,7 +1373,7 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
+    slots.put("role", "云原生平台开发");
     IntentResult intent =
         new IntentResult(
             "job",
@@ -1201,9 +1416,9 @@ class JobRuntimeServiceImplTest {
     properties.setBossSearchMaxPageDepth(2);
     properties.setBossSearchPageDelayMillis(0);
     when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
-        .thenReturn(Collections.singletonList(job("p1-low", "大模型应用开发", "10-20K")));
+        .thenReturn(Collections.singletonList(job("p1-low", "云原生平台开发", "10-20K")));
     when(bossCliService.searchJobsPage(any(IntentResult.class), eq(2)))
-        .thenReturn(Collections.singletonList(job("p2-fit", "大模型应用开发", "40-50K")));
+        .thenReturn(Collections.singletonList(job("p2-fit", "云原生平台开发", "25-35K")));
     when(settingsService.filterBlacklistedJobs(any(List.class)))
         .thenAnswer(invocation -> invocation.getArgument(0));
     when(runtimeToolClient.invoke(
@@ -1218,9 +1433,9 @@ class JobRuntimeServiceImplTest {
             bossCliService,
             settingsService);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
-    slots.put("salary_min_k", 40);
-    slots.put("salary_max_k", 50);
+    slots.put("role", "云原生平台开发");
+    slots.put("salary_min_k", 25);
+    slots.put("salary_max_k", 35);
     IntentResult intent =
         new IntentResult(
             "job",
@@ -1283,7 +1498,7 @@ class JobRuntimeServiceImplTest {
             "low",
             false,
             "call_get_recommend_jobs",
-            Collections.singletonMap("role", "大模型应用开发"));
+            Collections.singletonMap("role", "云原生平台开发"));
 
     com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
         service.prequalifyRecommendationsWithContinuation(
@@ -1318,7 +1533,7 @@ class JobRuntimeServiceImplTest {
             settingsService);
     ResumeRecord resume = new ResumeRecord();
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();
-    parsed.put("skills", Collections.singletonList("Java"));
+    parsed.put("skills", Collections.singletonList("Go"));
     resume.setParsed(parsed);
     Map<String, Object> job = new LinkedHashMap<String, Object>();
     job.put("source", "fixture");
@@ -1361,8 +1576,8 @@ class JobRuntimeServiceImplTest {
     Map<String, Object> job = new LinkedHashMap<String, Object>();
     job.put("securityId", id);
     job.put("source", "boss");
-    job.put("jobName", "上海 Java 大模型应用开发岗");
-    job.put("salaryDesc", "40-50K");
+    job.put("jobName", "杭州 Go 云原生平台开发岗");
+    job.put("salaryDesc", "25-35K");
     return job;
   }
 
@@ -1397,7 +1612,7 @@ class JobRuntimeServiceImplTest {
     row.put("score", score);
     row.put("score_confidence", confidence);
     row.put("recommendation", recommendation);
-    row.put("hits", Collections.singletonList("Java、RAG 与 Agent 能力匹配岗位要求"));
+    row.put("hits", Collections.singletonList("Go、Kubernetes 与平台工程能力匹配岗位要求"));
     return row;
   }
 
@@ -1428,8 +1643,8 @@ class JobRuntimeServiceImplTest {
     for (int i = 0; i < count; i++) {
       Map<String, Object> row = new LinkedHashMap<String, Object>();
       row.put("securityId", "sid" + i);
-      row.put("jobName", "Java 大模型应用开发工程师 " + i);
-      row.put("salaryDesc", "40-50K");
+      row.put("jobName", "Go 云原生平台开发工程师 " + i);
+      row.put("salaryDesc", "25-35K");
       rows.add(row);
     }
     return rows;
@@ -1445,7 +1660,7 @@ class JobRuntimeServiceImplTest {
   private List<Map<String, Object>> jobsWithPrefix(String prefix, int count) {
     List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
     for (int i = 0; i < count; i++) {
-      rows.add(job(prefix + i, "大模型应用开发 " + prefix + i, "40-50K"));
+      rows.add(job(prefix + i, "云原生平台开发 " + prefix + i, "25-35K"));
     }
     return rows;
   }

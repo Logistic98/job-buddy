@@ -34,8 +34,10 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class JobRuntimeServiceImpl implements JobRuntimeService {
-  private static final int RESUME_MATCH_BATCH_SIZE = 15;
+  // 小批次可提高结构化结果完整率，避免先等待大批次再执行拆分重试。
+  private static final int RESUME_MATCH_BATCH_SIZE = 4;
   private static final int RESUME_MATCH_RETRY_BATCH_SIZE = 4;
+  private static final int MIN_JOB_DESCRIPTION_CHARS = 30;
   private static final String RECOMMENDATION_LIST_MODE = "recommendation_list";
   private static final String FULL_JD_ANALYSIS_MODE = "full_jd_analysis";
   private static final String CANDIDATE_OFFSET_SLOT = "candidate_offset";
@@ -193,7 +195,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
    */
   private boolean needsPoolLoad(CacheEntry cached, int needed) {
     if (cached == null) return true;
-    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
+    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 30);
     return cached.jobs.size() < needed && !cached.exhausted && cached.nextPage <= maxDepth;
   }
 
@@ -273,14 +275,16 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
    */
   private CacheEntry buildInitialPool(
       IntentResult intent, Map<String, Object> slots, int needed, String cacheKey) {
-    int firstPaintPages = envInt("BOSS_SEARCH_FIRST_PAINT_PAGES", 1, 1, 3);
+    int totalPageBudget = bounded(properties.getBossSearchMaxPages(), 1, 5);
+    int firstPaintPages =
+        Math.min(envInt("BOSS_SEARCH_FIRST_PAINT_PAGES", 1, 1, 3), totalPageBudget);
     PoolFetch fetch = fetchPoolBatchWithSideEffects(intent, 1, firstPaintPages);
     List<Map<String, Object>> pool = applyFilterPipeline(fetch.rows, slots);
     CacheEntry entry =
         new CacheEntry(pool, collectIds(fetch.rows), fetch.nextPage, fetch.exhausted);
     putFastSearchCache(cacheKey, entry);
-    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
-    int reservePageBudget = bounded(properties.getBossSearchMaxPages(), 1, 5);
+    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 30);
+    int reservePageBudget = Math.max(0, totalPageBudget - firstPaintPages);
     CacheEntry warmed = entry;
     int fetchedPages = 0;
     while (warmed.jobs.size() < needed
@@ -309,7 +313,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       int needed,
       String cacheKey,
       CacheEntry entry) {
-    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
+    int maxDepth = bounded(properties.getBossSearchMaxPageDepth(), 1, 30);
     int batchPages = bounded(properties.getBossSearchMaxPages(), 1, 5);
     if (entry.jobs.size() >= needed || entry.exhausted || entry.nextPage > maxDepth) {
       return entry;
@@ -811,6 +815,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
                       exhausted = true;
                       break;
                     }
+                    if (accumulated.size() >= targetCandidates) break;
                     if (offset + 1 < Math.max(1, pagesToFetch)
                         && accumulated.size() < targetCandidates
                         && delayMillis > 0) {
@@ -933,19 +938,6 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   }
 
   /**
-   * 判断是否启用详情补全。
-   *
-   * @return 是否启用详情补全
-   */
-  private boolean isDetailEnrichmentEnabled() {
-    String value = System.getenv("BOSS_RECOMMEND_ENRICH_DETAILS");
-    return value != null
-        && ("1".equals(value.trim())
-            || "true".equalsIgnoreCase(value.trim())
-            || "yes".equalsIgnoreCase(value.trim()));
-  }
-
-  /**
    * 推荐岗位带有目标。
    *
    * @param intent 意图
@@ -1008,9 +1000,6 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     jobs = candidateFilter.sortByUserRequirement(jobs, slots);
     jobs =
         jobs.size() > target ? new ArrayList<Map<String, Object>>(jobs.subList(0, target)) : jobs;
-    if (isDetailEnrichmentEnabled()) {
-      return bossCliService.enrichJobDetails(jobs, Math.min(jobs.size(), Math.max(3, limit)));
-    }
     return jobs;
   }
 
@@ -1171,7 +1160,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     java.util.Set<String> warnings = new java.util.LinkedHashSet<String>();
     List<Map<String, Object>> candidates = copyJobs(initialJobs);
     int consecutiveEmptyContinuations = 0;
-    int emptyContinuationLimit = bounded(properties.getBossSearchMaxPageDepth(), 1, 10);
+    int emptyContinuationLimit = bounded(properties.getBossSearchMaxPageDepth(), 1, 30);
 
     // 候选耗尽时继续向后翻页，连续空页达到边界后停止。
     while (evaluated < scoringLimit && qualified.size() < desired) {
@@ -1208,6 +1197,16 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
             Integer.compare(toScore(right.get("matchScore")), toScore(left.get("matchScore"))));
     if (qualified.size() > desired) {
       qualified = new ArrayList<Map<String, Object>>(qualified.subList(0, desired));
+    }
+    // 质量门、最终排序和展示截断全部完成后，才为即将下发的合格岗位串行补充 JD。
+    // 候选池与淘汰岗位不触发详情访问，推荐证据等级仍保留评分时的 list_metadata。
+    if (!qualified.isEmpty()) {
+      List<Map<String, Object>> enriched =
+          bossCliService.enrichJobDetails(qualified, qualified.size());
+      // 详情补全只允许补字段，不能因下游异常返回而改变已经通过质量门的成员集合。
+      if (enriched != null && enriched.size() == qualified.size()) {
+        qualified = new ArrayList<Map<String, Object>>(enriched);
+      }
     }
     if (!qualified.isEmpty()) warnings.remove(NO_QUALIFIED_BATCH_WARNING);
     if (qualified.isEmpty()) warnings.add(NO_QUALIFIED_BATCH_WARNING);
@@ -1592,10 +1591,21 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
    * @return 是否存在岗位描述
    */
   private boolean hasJobDescription(Map<String, Object> job) {
-    return !stringValue(
-            firstPresent(job, "jobDescription", "description", "postDescription", "jobRequire"))
-        .trim()
-        .isEmpty();
+    String description =
+        stringValue(
+                firstPresent(
+                    job,
+                    "jobDescription",
+                    "description",
+                    "postDescription",
+                    "jobDesc",
+                    "jobSecText",
+                    "detailText",
+                    "jobRequire",
+                    "jobContent"))
+            .replaceAll("\\s+", " ")
+            .trim();
+    return description.length() >= MIN_JOB_DESCRIPTION_CHARS;
   }
 
   /**

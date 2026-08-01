@@ -22,30 +22,30 @@ class JobRecommendationCriteriaBuilderTest {
   @Test
   void shouldRecoverSalaryFromRawMessageAndMergeProfileResumeEvidence() {
     Map<String, Object> expectations = new LinkedHashMap<String, Object>();
-    expectations.put("city", "上海");
-    expectations.put("salary", "30-40K");
-    expectations.put("hard_excludes", java.util.Arrays.asList("外包", "驻场"));
+    expectations.put("city", "杭州");
+    expectations.put("salary", "20-25K");
+    expectations.put("hard_excludes", java.util.Arrays.asList("长期夜班", "频繁出差"));
     Map<String, Object> profile = new LinkedHashMap<String, Object>();
-    profile.put("skills", java.util.Arrays.asList("Java", "RAG"));
-    profile.put("years_experience", 6);
+    profile.put("skills", java.util.Arrays.asList("Java", "Kubernetes"));
+    profile.put("years_experience", 5);
     profile.put("job_expectations", expectations);
     Map<String, Object> resume = new LinkedHashMap<String, Object>();
-    resume.put("skills", java.util.Arrays.asList("Spring Cloud", "Agent"));
+    resume.put("skills", java.util.Arrays.asList("Spring Cloud", "Docker"));
     PersonalContext context = context(profile, resume);
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
-    slots.put("role", "大模型应用开发");
+    slots.put("role", "云原生后端开发");
     IntentResult intent = intent(slots);
 
     IntentResult result =
-        JobRecommendationCriteriaBuilder.enrich(intent, context, "筛选上海大模型应用开发 40-50K 岗位");
+        JobRecommendationCriteriaBuilder.enrich(intent, context, "筛选杭州云原生后端开发 20-30K 岗位");
 
-    assertEquals(40, result.getSlots().get("salary_min_k"));
-    assertEquals(50, result.getSlots().get("salary_max_k"));
+    assertEquals(20, result.getSlots().get("salary_min_k"));
+    assertEquals(30, result.getSlots().get("salary_max_k"));
     assertEquals(true, result.getSlots().get("salary_strict"));
-    assertEquals(6, result.getSlots().get("candidate_years_experience"));
+    assertEquals(5, result.getSlots().get("candidate_years_experience"));
     assertTrue(((List<?>) result.getSlots().get("include_keywords")).contains("Java"));
-    assertTrue(((List<?>) result.getSlots().get("include_keywords")).contains("Agent"));
-    assertTrue(((List<?>) result.getSlots().get("hard_excludes")).contains("外包"));
+    assertTrue(((List<?>) result.getSlots().get("include_keywords")).contains("Docker"));
+    assertTrue(((List<?>) result.getSlots().get("hard_excludes")).contains("长期夜班"));
   }
 
   /**
@@ -55,7 +55,7 @@ class JobRecommendationCriteriaBuilderTest {
   void shouldParseCommonMonthlySalaryExpressions() {
     assertRange("月薪 4-5 万", 40, 50);
     assertRange("40000-50000 元/月", 40, 50);
-    assertRange("40k-50k", 40, 50);
+    assertRange("45k-55k", 45, 55);
     int[] minimum = JobRecommendationCriteriaBuilder.parseSalaryRangeK("40K以上");
     assertEquals(40, minimum[0]);
     assertEquals(0, minimum[1]);

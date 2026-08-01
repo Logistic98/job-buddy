@@ -46,8 +46,8 @@ class ResumeStorageServiceImplTest {
   @Test
   void generateJobProfileSummaryReadsBusinessSummaryFromToolOutput() {
     Map<String, Object> output = new LinkedHashMap<String, Object>();
-    output.put("summary", "具备六年 Java 与 Python 研发经验，聚焦上海大模型应用开发岗位，期望月薪 40-50k。");
-    output.put("highlights", Arrays.asList("五年平台研发经验", "大模型应用开发"));
+    output.put("summary", "具备五年 Java 与 Python 研发经验，聚焦杭州云原生后端开发岗位，期望月薪 20-30k。");
+    output.put("highlights", Arrays.asList("五年研发经验", "云原生后端开发"));
     output.put("missing_fields", Arrays.asList("硬性排除项"));
 
     Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
@@ -62,7 +62,7 @@ class ResumeStorageServiceImplTest {
 
     assertEquals("当前人工摘要", response.getOldSummary());
     assertEquals(output.get("summary"), response.getNewSummary());
-    assertEquals("五年平台研发经验", response.getHighlights().get(0).asText());
+    assertEquals("五年研发经验", response.getHighlights().get(0).asText());
     assertEquals("硬性排除项", response.getMissingFields().get(0).asText());
     assertEquals("AI", response.getProvider());
   }
@@ -163,14 +163,14 @@ class ResumeStorageServiceImplTest {
   private com.fasterxml.jackson.databind.JsonNode profile(String summary) {
     Map<String, Object> profile = new LinkedHashMap<String, Object>();
     profile.put("summary", summary);
-    profile.put("years_experience", "6年");
-    profile.put("current_title", "Java 大模型应用开发");
-    profile.put("skills", Arrays.asList("Java", "Python", "Spring AI"));
+    profile.put("years_experience", "5年");
+    profile.put("current_title", "Go 云原生平台开发");
+    profile.put("skills", Arrays.asList("Go", "Kubernetes", "PostgreSQL"));
 
     Map<String, Object> expectations = new LinkedHashMap<String, Object>();
-    expectations.put("position", "大模型应用开发岗");
-    expectations.put("city", "上海");
-    expectations.put("salary", "40-50k");
+    expectations.put("position", "云原生平台开发岗");
+    expectations.put("city", "杭州");
+    expectations.put("salary", "25-35k");
     profile.put("job_expectations", expectations);
     return jsonCodec.toTree(profile);
   }

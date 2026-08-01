@@ -575,14 +575,18 @@ public class JobFavoriteServiceImpl implements JobFavoriteService {
     if (resumeId != null && !resumeId.trim().isEmpty()) {
       ResumeRecord record = resumeStorageService.get(resumeId.trim(), userId);
       if (record == null) throw new IllegalArgumentException("简历不存在: " + resumeId);
-      return record;
+      ResumeRecord prepared = resumeStorageService.prepareForMatch(record);
+      return prepared == null ? record : prepared;
     }
     for (ResumeSummaryResponse summary : resumeStorageService.list(userId)) {
       if ("success".equals(summary.getParseStatus())
           && summary.getParsed() != null
           && !summary.getParsed().isEmpty()) {
         ResumeRecord record = resumeStorageService.get(summary.getResumeId(), userId);
-        if (record != null) return record;
+        if (record != null) {
+          ResumeRecord prepared = resumeStorageService.prepareForMatch(record);
+          return prepared == null ? record : prepared;
+        }
       }
     }
     throw new IllegalArgumentException("未找到已解析的简历，请先上传并解析简历后再分析岗位");

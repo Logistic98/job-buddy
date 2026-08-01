@@ -33,7 +33,7 @@ class ResumeParsedContentTest {
     parsed.put("resumeFolder", "大模型");
     parsed.put("version", 3);
     parsed.put("labels", Arrays.asList("Java方向"));
-    parsed.put("manageTags", Arrays.asList("上海", "40-50k"));
+    parsed.put("manageTags", Arrays.asList("杭州", "20-30k"));
     parsed.put("updatedAt", "2026-07-22T16:20:00+08:00");
     assertFalse(ResumeParsedContent.hasContent(parsed));
   }

@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +21,7 @@ import java.util.Map;
  */
 public class ServiceHealthMonitor {
   private static final int HEALTH_TIMEOUT_MILLIS = 1500;
+  private static final int MAX_SANDBOX_HEALTH_READ_TIMEOUT_MILLIS = 35_000;
   private static final int HEALTH_HISTORY_LIMIT = 60;
 
   private final AgentServiceProperties agentProperties;
@@ -213,7 +215,7 @@ public class ServiceHealthMonitor {
       connection = (HttpURLConnection) new URL(healthUrl).openConnection();
       connection.setRequestMethod("GET");
       connection.setConnectTimeout(HEALTH_TIMEOUT_MILLIS);
-      connection.setReadTimeout(HEALTH_TIMEOUT_MILLIS);
+      connection.setReadTimeout(healthReadTimeoutMillis(id));
       int code = connection.getResponseCode();
       data.put("healthUrl", healthUrl);
       if (code < 200 || code >= 300) {
@@ -224,7 +226,11 @@ public class ServiceHealthMonitor {
       }
       BusinessHealth businessHealth = readBusinessHealth(connection);
       String businessStatus = businessHealth.status().toUpperCase(Locale.ROOT);
-      if ("DEGRADED".equals(businessStatus)) {
+      if ("sandbox".equals(id) && businessStatus.isBlank()) {
+        data.put("status", "down");
+        data.put("success", false);
+        data.put("message", "健康检查失败，Sandbox readiness 未返回状态");
+      } else if ("DEGRADED".equals(businessStatus)) {
         data.put("status", "degraded");
         data.put("success", false);
         data.put("message", withReason("运行降级", businessHealth.reason()));
@@ -345,6 +351,26 @@ public class ServiceHealthMonitor {
     String value = baseUrl.trim();
     if (value.endsWith("/")) value = value.substring(0, value.length() - 1);
     return value + ("sandbox".equals(serviceId) ? "/ready" : "/health");
+  }
+
+  /**
+   * Sandbox readiness 会真实启动 srt，使用与其执行预算对齐的读取超时；轻量健康端点保留短超时。
+   *
+   * @param serviceId 服务标识
+   * @return 读取超时毫秒数
+   */
+  int healthReadTimeoutMillis(String serviceId) {
+    if (!"sandbox".equals(serviceId)) return HEALTH_TIMEOUT_MILLIS;
+    Duration configured = agentProperties.getSandboxHealthReadTimeout();
+    if (configured == null || configured.isZero() || configured.isNegative())
+      return HEALTH_TIMEOUT_MILLIS;
+    long timeoutMillis;
+    try {
+      timeoutMillis = configured.toMillis();
+    } catch (ArithmeticException exception) {
+      return MAX_SANDBOX_HEALTH_READ_TIMEOUT_MILLIS;
+    }
+    return (int) Math.min(MAX_SANDBOX_HEALTH_READ_TIMEOUT_MILLIS, Math.max(1L, timeoutMillis));
   }
 
   private static final class BusinessHealth {
