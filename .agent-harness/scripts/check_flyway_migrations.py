@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MIGRATION_RE = re.compile(r"^V(?P<version>\d+_\d+_\d+)__(?P<description>[A-Za-z][A-Za-z0-9_]*)\.sql$")
-DESCRIPTION_PREFIXES = ("Create", "Insert", "Alter", "Update", "Delete", "Drop", "Rename")
+DESCRIPTION_PREFIXES = ("Create", "Insert", "Add", "Alter", "Update", "Delete", "Drop", "Rename")
 DEFAULT_MIGRATION_DIR = "agent-backend/src/main/resources/db/migration"
 SYSTEM_DATA_TABLES = {
     "tenant",
@@ -53,7 +53,10 @@ def collect(root: Path, directory: Path) -> tuple[list[Migration], list[str]]:
             continue
         version_text = match.group("version")
         description = match.group("description")
-        if not description.startswith(DESCRIPTION_PREFIXES):
+        if not any(
+            description == prefix or description.startswith(f"{prefix}_")
+            for prefix in DESCRIPTION_PREFIXES
+        ):
             errors.append(f"{rel}: description must start with a SQL action verb")
             continue
         if any(len(part) > 1 and part.startswith("0") for part in version_text.split("_")):

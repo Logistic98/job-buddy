@@ -88,6 +88,22 @@ class FlywayPolicyTest(unittest.TestCase):
         _, errors = MODULE.collect(self.root, self.root)
         self.assertTrue(any("SQL action verb" in error for error in errors))
 
+    def test_allows_add_description_prefix_for_published_migrations(self):
+        path = self.root / "V2_3_4__Add_checkpoint_recovery_scope.sql"
+        path.write_text("ALTER TABLE checkpoint ADD COLUMN tenant_id VARCHAR(64);", encoding="utf-8")
+        migrations, errors = MODULE.collect(self.root, self.root)
+        self.assertEqual([], errors)
+        self.assertEqual(["2_3_4"], [migration.version_text for migration in migrations])
+
+    def test_rejects_words_that_only_start_with_an_action_prefix(self):
+        for description in ("Address_checkpoint_scope", "Additional_checkpoint_scope"):
+            with self.subTest(description=description):
+                path = self.root / f"V2_3_4__{description}.sql"
+                path.write_text("", encoding="utf-8")
+                _, errors = MODULE.collect(self.root, self.root)
+                self.assertTrue(any("SQL action verb" in error for error in errors))
+                path.unlink()
+
     def test_rejects_duplicate_versions(self):
         (self.root / "V4_5_6__Create_first_table.sql").write_text("", encoding="utf-8")
         (self.root / "V4_5_6__Alter_second_table.sql").write_text("", encoding="utf-8")

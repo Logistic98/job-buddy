@@ -254,6 +254,25 @@ def grade_run(run: dict, expected: dict | None = None) -> dict:
 def _grade_trace_dimension(trace: list[dict], expected: dict) -> list[dict]:
     if not trace:
         return [_check("tool_execution", "trace_missing", 0.0, 1.0, "缺少 trace_events，无法审计执行路径", "high")]
+    if expected.get("checkpoint_resume"):
+        required = ["run_start", "run_resumed", "finalize", "run_end"]
+        if expected.get("checkpoint_replan"):
+            required.insert(2, "plan_created")
+        sequence = [str(_dict(step).get("event") or "") for step in trace]
+        missing = sorted(set(required) - set(sequence))
+        order_issues = _event_order_issues(sequence, required)
+        passed = not missing and not order_issues
+        return [
+            _check(
+                "tool_execution",
+                "checkpoint_resume_trace_flow",
+                1.0 if passed else 0.0,
+                1.0,
+                "Checkpoint 恢复 Trace 完整" if passed else "Checkpoint 恢复 Trace 缺少血缘事件或顺序异常",
+                "critical",
+                {"missing_events": missing, "order_issues": order_issues},
+            )
+        ]
     required_events = expected.get("trace_events")
     result = grade_trace(trace, required_events if isinstance(required_events, (list, tuple)) else None)
     return [
@@ -727,7 +746,7 @@ def _grade_runtime_contract_dimension(run: dict, expected: dict) -> list[dict]:
     success_status = str(run.get("status") or "").lower() in {"success", "done", "ok"}
     terminal = _structured_terminal_state(run)
     inconsistent = success_status and terminal["failed"]
-    return [
+    checks = [
         _check(
             "runtime_contract",
             "next_action_present",
@@ -751,6 +770,44 @@ def _grade_runtime_contract_dimension(run: dict, expected: dict) -> list[dict]:
             },
         ),
     ]
+    if expected.get("checkpoint_resume"):
+        source_run_id = str(run.get("resumed_from_run_id") or run.get("resumedFromRunId") or "")
+        source_stage = str(run.get("resumed_from_stage") or run.get("resumedFromStage") or "")
+        current_run_id = str(run.get("run_id") or run.get("runId") or "")
+        lineage_valid = bool(source_run_id and source_stage and current_run_id and current_run_id != source_run_id)
+        checks.append(
+            _check(
+                "runtime_contract",
+                "checkpoint_resume_lineage",
+                1.0 if lineage_valid else 0.0,
+                1.0,
+                "Checkpoint 恢复保留新旧运行血缘"
+                if lineage_valid
+                else "Checkpoint 恢复缺少来源 run/stage 或复用了来源 run_id",
+                "critical",
+                {
+                    "run_id": current_run_id,
+                    "resumed_from_run_id": source_run_id,
+                    "resumed_from_stage": source_stage,
+                },
+            )
+        )
+        if expected.get("checkpoint_replan"):
+            replan_stage_valid = source_stage == "tool_search"
+            checks.append(
+                _check(
+                    "runtime_contract",
+                    "checkpoint_replan_stage",
+                    1.0 if replan_stage_valid else 0.0,
+                    1.0,
+                    "非法计划从 Planner 前安全游标恢复"
+                    if replan_stage_valid
+                    else "非法计划恢复没有使用 tool_search 安全游标",
+                    "critical",
+                    {"resumed_from_stage": source_stage},
+                )
+            )
+    return checks
 
 
 def _grade_observability_dimension(run: dict, expected: dict) -> list[dict]:

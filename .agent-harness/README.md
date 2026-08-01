@@ -41,7 +41,7 @@ $ ./.agent-harness/scripts/smoke_sandbox_container.sh
 
 `--quick` 对 Java 使用 `test` 而不是 `verify`。Python 和前端仍执行完整的格式、测试与构建命令，避免“快速模式”变成跳过质量检查。
 
-Sandbox 的普通模块测试使用 fake srt，负责快速验证协议、参数和策略收窄；`smoke_sandbox_container.sh` 负责构建真实 Linux 镜像，以与 Compose 相同的轻量 PID 1 init、非 root、无 capability、只读根文件系统和 namespace 兼容边界验证 `/ready`、Python、Java、JavaScript、文件、网络、Unix socket 隔离以及子进程退出后无 zombie 泄漏。轻量 init 只负责回收 `srt` 遗留的孙进程，不扩大容器权限。为避免 macOS Docker 虚拟机与不同 Linux 发行版依赖宿主机预装自定义 profile，Sandbox 容器固定使用 `apparmor=unconfined`；该设置仅作用于此容器，其他容器和宿主机全局 AppArmor 不受影响。不得启用 privileged、添加 `CAP_SYS_ADMIN` 或挂载 Docker socket。
+Sandbox 的普通模块测试使用 fake srt，负责快速验证协议、参数和策略收窄；`smoke_sandbox_container.sh` 负责构建真实 Linux 镜像，以与 Compose 相同的轻量 PID 1 init、非 root、无 capability、只读根文件系统和 namespace 兼容边界验证 `/ready`、Python、Java、JavaScript、一次性 Python wheel 依赖、文件、网络、Unix socket 隔离以及子进程退出后无 zombie 泄漏。依赖目标目录位于独立的 `exec,nosuid,nodev` tmpfs 并随执行删除；普通 `/tmp` 与独立限额的下载缓存 tmpfs 保持 `noexec`，缓存可跨请求复用但不会挤占普通代码工作区。只有安装阶段可访问固定 PyPI 域名，代码阶段仍验证为无网络。轻量 init 只负责回收 `srt` 遗留的孙进程，不扩大容器权限。为避免 macOS Docker 虚拟机与不同 Linux 发行版依赖宿主机预装自定义 profile，Sandbox 容器固定使用 `apparmor=unconfined`；该设置仅作用于此容器，其他容器和宿主机全局 AppArmor 不受影响。不得启用 privileged、添加 `CAP_SYS_ADMIN` 或挂载 Docker socket。
 
 本地服务启停测试覆盖端口监听者归属、未记录仓库进程清理、外部进程保护、PID 复用、停止后的端口释放、就绪监听与受管进程树一致性，以及启动失败后的回滚边界。前端启动固定使用 `strictPort`，避免端口冲突被 Vite 静默转换为其他端口。
 
@@ -49,7 +49,7 @@ Sandbox 的普通模块测试使用 fake srt，负责快速验证协议、参数
 
 `check_flyway_migrations.py` 检查以下稳定约束：
 
-- 文件名符合 `V<major>_<minor>_<patch>__<English_description>.sql`，版本不重复。
+- 文件名符合 `V<major>_<minor>_<patch>__<English_description>.sql`，英文描述以 `Create`、`Insert`、`Add`、`Alter`、`Update`、`Delete`、`Drop` 或 `Rename` 等 SQL 动作动词开头，版本不重复。
 - 迁移中的 DML 只允许维护共享系统元数据、受控默认身份或同一迁移内声明的临时辅助表，用户私有业务数据必须通过受鉴权 API 写入。
 - 表结构演进只需追加合法的新版本迁移，不需要同步修改 Harness。
 

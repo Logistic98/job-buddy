@@ -14,8 +14,22 @@ runtime_profile: job-buddy
 # Runtime 流式事件契约：processing(首个可见反馈) -> reasoning(可选) -> token(答案增量) -> done(终态聚合)
 runtime_stream_contract:
   events: [processing, reasoning, token, done]
-  done_payload: [run_id, trace_id, status, stop_reason, answer, reasoning, latency_ms, metrics, trace_events]
+  done_payload: [run_id, trace_id, status, stop_reason, answer, reasoning, latency_ms, metrics, resumable, trace_events]
   required_trace_events: [run_start, understand_goal, task_understanding, capability_route, finalize, run_end]
+
+# Checkpoint 恢复创建新的运行链路；恢复 Trace 不要求重复出现已跳过的早期节点，
+# 但必须保留来源 run/stage，并以 run_resumed 明确记录血缘。
+checkpoint_recovery_contract:
+  request_field: resume_from_run_id
+  response_fields: [run_id, trace_id, resumed_from_run_id, resumed_from_stage]
+  required_trace_events: [run_start, run_resumed, finalize, run_end]
+  source_run_single_use: true
+  owner_scope_required: true
+  source_turn_binding_required: true
+  synthesis_only_after_finalize_stream_failure: true
+  structured_replan_stop_reasons: [invalid_plan_dependency]
+  structured_replan_source_stage: tool_search
+  max_invalid_plan_replan_attempts: 2
 
 # 风控约束：默认只跑不触达 Boss 的安全路径。标记 requires_live_boss 的用例需显式 --allow-boss 才执行，
 # 避免评估迭代期间高频请求 Boss 触发验证码/安全验证/限速。命中风控信号必须立即停手。
@@ -113,14 +127,108 @@ cases:
       domain: open_domain
       next_action: run_runtime_planner
       required_tools: [web_search]
+      max_tool_executions: {web_search: 1}
+      max_trace_event_counts: {tool_search: 1, plan_created: 1, tool_execute_start: 1, tool_execute_end: 1}
       web_search_quality:
         query_max_chars: 80
         forbidden_query_fragments: ["包括模型名称", "主要能力和适用场景"]
         require_expansion: true
         max_queries: 2
         require_unique_urls: true
+        allow_third_party_fallback: true
         preferred_source_domains_any: ["openai.com"]
         require_preferred_source_flag: true
+        require_preferred_query_scope: true
+        forbid_site_operator: true
+        min_official_sources: 1
+        require_official_tier: true
+        allowed_official_verifications: [configured_direct_fetch]
+        trusted_hosts_any: [openai.com, developers.openai.com, platform.openai.com, help.openai.com, cookbook.openai.com]
+        require_latest_verified: true
+        allowed_selection_bases: [official_canonical_snapshot]
+        allowed_latest_verification_methods: [configured_direct_fetch]
+        allowed_published_date_sources: [official_snapshot]
+        require_selected_url_in_answer: true
+      trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
+      answer_min_chars: 40
+    latency_budget:
+      ttfb_ms_target: 500
+      ttfb_ms_max: 1500
+      ttft_ms_target: 9000
+      ttft_ms_max: 18000
+      done_ms_target: 15000
+      done_ms_max: 30000
+
+  - id: autonomous_web_search_latest_model
+    category: autonomous_required_web_search_path
+    input: "查找 OpenAI 最新模型，并给出来源链接"
+    expected:
+      domain: open_domain
+      next_action: run_runtime_planner
+      required_tools: [web_search]
+      max_tool_executions: {web_search: 1}
+      max_trace_event_counts: {tool_search: 1, plan_created: 1, tool_execute_start: 1, tool_execute_end: 1}
+      web_search_quality:
+        query_max_chars: 80
+        forbidden_query_fragments: ["包括模型名称", "主要能力和适用场景"]
+        require_expansion: true
+        max_queries: 2
+        require_unique_urls: true
+        allow_third_party_fallback: true
+        preferred_source_domains_any: ["openai.com"]
+        require_preferred_source_flag: true
+        require_preferred_query_scope: true
+        forbid_site_operator: true
+        min_official_sources: 1
+        require_official_tier: true
+        allowed_official_verifications: [configured_direct_fetch]
+        trusted_hosts_any: [openai.com, developers.openai.com, platform.openai.com, help.openai.com, cookbook.openai.com]
+        require_latest_verified: true
+        allowed_selection_bases: [official_canonical_snapshot]
+        allowed_latest_verification_methods: [configured_direct_fetch]
+        allowed_published_date_sources: [official_snapshot]
+        require_selected_url_in_answer: true
+      trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
+      answer_min_chars: 40
+    latency_budget:
+      ttfb_ms_target: 500
+      ttfb_ms_max: 1500
+      ttft_ms_target: 9000
+      ttft_ms_max: 18000
+      done_ms_target: 15000
+      done_ms_max: 30000
+
+  - id: autonomous_web_search_latest_anthropic_engineering_blog
+    category: autonomous_required_web_search_path
+    input: "查找 Anthropic 最新工程博客，并给出官方来源"
+    expected:
+      domain: open_domain
+      next_action: run_runtime_planner
+      required_tools: [web_search]
+      max_tool_executions: {web_search: 1}
+      max_trace_event_counts: {tool_search: 1, plan_created: 1, tool_execute_start: 1, tool_execute_end: 1}
+      web_search_quality:
+        query_max_chars: 80
+        require_expansion: true
+        max_queries: 2
+        require_unique_urls: true
+        allow_third_party_fallback: true
+        preferred_source_domains_any: ["anthropic.com"]
+        require_preferred_source_flag: true
+        require_preferred_query_scope: true
+        forbid_site_operator: true
+        min_official_sources: 1
+        require_official_tier: true
+        allowed_official_verifications: [configured_official_index]
+        expected_content_scope: engineering_blog
+        trusted_hosts_any: [anthropic.com, www.anthropic.com]
+        require_latest_verified: true
+        allowed_selection_bases: [official_catalog_published_at]
+        allowed_latest_verification_methods: [configured_official_index]
+        allowed_published_date_sources: [official_detail]
+        require_selected_url_in_answer: true
+        require_selected_published_date_in_answer: true
+        require_selected_title_in_answer: true
       trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
       answer_min_chars: 40
     latency_budget:
@@ -163,6 +271,38 @@ cases:
       ttft_ms_max: 5500
       done_ms_target: 8000
       done_ms_max: 14000
+
+  - id: exact_markdown_code_rendering_without_tools
+    category: direct_synthesis_fast_path
+    input: "请直接输出一个标准 Markdown 示例，不要执行任何工具，也不要解释。只包含一个带 javascript 语言标记的代码围栏，代码内容为两行：const answer = 42; 和 console.log(answer);。"
+    expected:
+      domain: open_domain
+      intent: content_formatting
+      next_action: run_runtime_planner
+      required_tools: []
+      expect_no_tool_results: true
+      answer_contains_all: ["```javascript", "const answer = 42;", "console.log(answer);", "```"]
+      events: [intent, message, done]
+    latency_budget:
+      ttft_ms_target: 2000
+      ttft_ms_max: 4500
+      done_ms_target: 6000
+      done_ms_max: 11000
+
+  - id: code_generation_with_isolated_dependency
+    category: sandbox_code_execution_path
+    input: "用 Python 和 numpy 生成 0 到 9 的数组，计算总和，并执行验证"
+    expected:
+      domain: runtime
+      intent: code_generation_task
+      next_action: run_runtime_planner
+      required_tools: [sandbox_code_execute]
+      trace_events: [run_start, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
+    latency_budget:
+      ttft_ms_target: 2500
+      ttft_ms_max: 5500
+      done_ms_target: 12000
+      done_ms_max: 25000
 
   # ---- 澄清路径：成段下发，不进入合成，应快 ----
   - id: ambiguous_needs_clarification

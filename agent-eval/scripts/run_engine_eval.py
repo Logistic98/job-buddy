@@ -30,7 +30,7 @@ import os
 import statistics
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
@@ -244,6 +244,42 @@ def _build_run(sample: dict) -> dict:
     }
 
 
+def _parse_contract_date(value: Any) -> date | None:
+    normalized = str(value or "").strip()
+    if len(normalized) != 10:
+        return None
+    try:
+        parsed = date.fromisoformat(normalized)
+    except ValueError:
+        return None
+    return parsed if parsed.isoformat() == normalized else None
+
+
+def _has_exact_trusted_https_host(value: str, trusted_hosts: set[str]) -> bool:
+    if not value or not trusted_hosts:
+        return False
+    try:
+        parsed = urlparse(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower()
+    return (
+        parsed.scheme.lower() == "https"
+        and parsed.username is None
+        and parsed.password is None
+        and port in {None, 443}
+        and host in trusted_hosts
+    )
+
+
+def _path_matches_contract_prefix(path: str, prefix: str) -> bool:
+    normalized_prefix = str(prefix or "").strip().rstrip("/")
+    if not normalized_prefix:
+        return False
+    return path == normalized_prefix or path.startswith(f"{normalized_prefix}/")
+
+
 def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
     """效果维度：把用例 expected 中的语义断言逐条核对，只评估声明了的键。"""
     exp = case.get("expected") or {}
@@ -310,6 +346,15 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
         required = [str(item) for item in exp["answer_contains_all"]]
         missing = [item for item in required if item not in answer]
         add("answer_contains_all", not missing, {"required": required, "missing": missing})
+    if exp.get("expect_no_tool_results"):
+        real_tool_results = [
+            item
+            for item in (run.get("tool_results") or [])
+            if isinstance(item, dict)
+            and not (isinstance(item.get("metadata"), dict) and item["metadata"].get("synthetic") is True)
+        ]
+        actual_tools = [str(item.get("tool_name") or item.get("toolName") or "") for item in real_tool_results]
+        add("expect_no_tool_results", not real_tool_results, {"actual_tools": actual_tools})
     if "required_tools" in exp:
         required_tools = [str(item) for item in exp.get("required_tools") or []]
         tool_results = [item for item in run.get("tool_results") or [] if isinstance(item, dict)]
@@ -333,6 +378,39 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
                 "missing": missing_tools,
                 "invalid": invalid_tools,
             },
+        )
+    if isinstance(exp.get("max_tool_executions"), dict):
+        limits = {str(name): int(limit) for name, limit in exp["max_tool_executions"].items()}
+        counts = {name: 0 for name in limits}
+        for item in run.get("tool_results") or []:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            if metadata.get("synthetic") is True:
+                continue
+            tool_name = str(item.get("tool_name") or item.get("toolName") or "")
+            if tool_name in counts:
+                counts[tool_name] += 1
+        exceeded = {name: counts[name] for name, limit in limits.items() if counts[name] > limit}
+        add(
+            "max_tool_executions",
+            not exceeded,
+            {"limits": limits, "actual": counts, "exceeded": exceeded},
+        )
+    if isinstance(exp.get("max_trace_event_counts"), dict):
+        limits = {str(name): int(limit) for name, limit in exp["max_trace_event_counts"].items()}
+        counts = {name: 0 for name in limits}
+        for event in run.get("trace_events") or []:
+            if not isinstance(event, dict):
+                continue
+            event_name = str(event.get("event") or "")
+            if event_name in counts:
+                counts[event_name] += 1
+        exceeded = {name: counts[name] for name, limit in limits.items() if counts[name] > limit}
+        add(
+            "max_trace_event_counts",
+            not exceeded,
+            {"limits": limits, "actual": counts, "exceeded": exceeded},
         )
     if isinstance(exp.get("web_search_quality"), dict):
         quality = exp["web_search_quality"]
@@ -360,25 +438,235 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
         max_queries = quality.get("max_queries")
         if max_queries is not None and len(queries) > int(max_queries):
             issues.append("too_many_queries")
+        if quality.get("forbid_site_operator") and any("site:" in str(item).lower() for item in queries):
+            issues.append("site_operator_query")
         urls = [str(item.get("url") or "") for item in results if isinstance(item, dict)]
         canonical_urls = [_canonical_result_url(url) for url in urls if url]
         if quality.get("require_unique_urls") and len(canonical_urls) != len(set(canonical_urls)):
             issues.append("duplicate_result_urls")
         preferred_domains = [str(item).lower() for item in quality.get("preferred_source_domains_any") or []]
         hosts = [(urlparse(url).hostname or "").lower() for url in urls]
-        if preferred_domains and not any(
-            host == domain or host.endswith(f".{domain}") for host in hosts for domain in preferred_domains
+        has_usable_results = any(
+            isinstance(item, dict)
+            and bool(str(item.get("title") or "").strip())
+            and str(item.get("url") or "").strip().lower().startswith(("http://", "https://"))
+            for item in results
+        )
+        allow_third_party_fallback = bool(quality.get("allow_third_party_fallback")) and has_usable_results
+        if (
+            preferred_domains
+            and not any(host == domain or host.endswith(f".{domain}") for host in hosts for domain in preferred_domains)
+            and not allow_third_party_fallback
         ):
             issues.append("preferred_source_missing")
-        if quality.get("require_preferred_source_flag") and output.get("preferred_source_found") is not True:
+        if (
+            quality.get("require_preferred_source_flag")
+            and output.get("preferred_source_found") is not True
+            and not allow_third_party_fallback
+        ):
             issues.append("preferred_source_unverified")
+        query_scopes = output.get("query_scopes") if isinstance(output.get("query_scopes"), list) else []
+        scoped_domains = {
+            str(domain).lower()
+            for scope in query_scopes
+            if isinstance(scope, dict)
+            for domain in (scope.get("include_domains") or [])
+        }
+        if quality.get("require_preferred_query_scope") and not scoped_domains.intersection(preferred_domains):
+            issues.append("preferred_query_scope_missing")
+        all_official_rows = [
+            item for item in results if isinstance(item, dict) and item.get("source_tier") == "official"
+        ]
+        official_rows = [
+            item
+            for item in all_official_rows
+            if any(
+                (urlparse(str(item.get("url") or "")).hostname or "").lower() == domain
+                or (urlparse(str(item.get("url") or "")).hostname or "").lower().endswith(f".{domain}")
+                for domain in preferred_domains
+            )
+        ]
+        minimum_official = quality.get("min_official_sources")
+        try:
+            reported_official = int(output.get("official_source_count") or 0)
+        except (TypeError, ValueError):
+            reported_official = 0
+        if (
+            minimum_official is not None
+            and reported_official < int(minimum_official)
+            and not allow_third_party_fallback
+        ):
+            issues.append("official_source_count_too_low")
+        if quality.get("require_official_tier") and not official_rows and not allow_third_party_fallback:
+            issues.append("official_source_tier_missing")
+        allowed_verifications = [str(item) for item in quality.get("allowed_official_verifications") or []]
+        if (
+            allowed_verifications
+            and str(output.get("official_verification") or "") not in allowed_verifications
+            and not allow_third_party_fallback
+        ):
+            issues.append("official_verification_invalid")
+        if quality.get("require_latest_verified") and output.get("latest_evidence_verified") is not True:
+            issues.append("latest_evidence_unverified")
+        expected_content_scope = str(quality.get("expected_content_scope") or "").strip()
+        actual_content_scope = str(output.get("content_scope") or "").strip()
+        if expected_content_scope and actual_content_scope != expected_content_scope:
+            issues.append("content_scope_mismatch")
+        latest_result_path_prefixes = [
+            str(item).strip() for item in quality.get("latest_result_path_prefixes") or [] if str(item).strip()
+        ]
+        legacy_latest_result_path_prefix = str(quality.get("latest_result_path_prefix") or "").strip()
+        if legacy_latest_result_path_prefix:
+            latest_result_path_prefixes.append(legacy_latest_result_path_prefix)
+        latest_result_url = str(output.get("latest_result_url") or "").strip()
+        try:
+            latest_result_path = urlparse(latest_result_url).path
+        except ValueError:
+            latest_result_path = ""
+        if latest_result_path_prefixes and not any(
+            _path_matches_contract_prefix(latest_result_path, prefix) for prefix in latest_result_path_prefixes
+        ):
+            issues.append("latest_result_path_mismatch")
+        trusted_hosts = {
+            str(item).strip().lower() for item in quality.get("trusted_hosts_any") or [] if str(item).strip()
+        }
+        if trusted_hosts and any(
+            not _has_exact_trusted_https_host(str(item.get("url") or ""), trusted_hosts) for item in all_official_rows
+        ):
+            issues.append("official_result_host_untrusted")
+        selected_url = str(output.get("selected_url") or "").strip()
+        require_latest_verified = bool(quality.get("require_latest_verified"))
+        selection_basis = str(output.get("selection_basis") or "").strip()
+        allowed_selection_bases = {str(item) for item in quality.get("allowed_selection_bases") or []}
+        selection_basis_valid = not allowed_selection_bases or selection_basis in allowed_selection_bases
+        if not selection_basis_valid:
+            issues.append("selection_basis_invalid")
+        is_canonical_snapshot = (
+            require_latest_verified and selection_basis_valid and selection_basis == "official_canonical_snapshot"
+        )
+        requires_published_date = (
+            require_latest_verified and selection_basis_valid and selection_basis != "official_canonical_snapshot"
+        )
+        if require_latest_verified and latest_result_url != selected_url:
+            issues.append("latest_result_url_mismatch")
+        if trusted_hosts and not _has_exact_trusted_https_host(latest_result_url, trusted_hosts):
+            issues.append("latest_result_host_untrusted")
+        selected_rows = [
+            item for item in results if isinstance(item, dict) and str(item.get("url") or "").strip() == selected_url
+        ]
+        selected_row = selected_rows[0] if len(selected_rows) == 1 else None
+        if require_latest_verified and not selected_rows:
+            issues.append("selected_result_missing")
+        if require_latest_verified and len(selected_rows) > 1:
+            issues.append("selected_result_not_unique")
+        if require_latest_verified and selected_row is not None:
+            if selected_row.get("source_tier") != "official":
+                issues.append("selected_result_not_official")
+            if selected_row.get("is_latest") is not True:
+                issues.append("selected_result_not_marked_latest")
+            allowed_latest_verifications = {
+                str(item) for item in quality.get("allowed_latest_verification_methods") or []
+            }
+            if (
+                allowed_latest_verifications
+                and str(selected_row.get("verification_method") or "") not in allowed_latest_verifications
+            ):
+                issues.append("latest_verification_method_invalid")
+            allowed_published_date_sources = {str(item) for item in quality.get("allowed_published_date_sources") or []}
+            if (
+                allowed_published_date_sources
+                and str(selected_row.get("published_date_source") or "") not in allowed_published_date_sources
+            ):
+                issues.append("published_date_source_invalid")
+        selected_published_date = str(output.get("selected_published_date") or "").strip()
+        as_of_date = str(output.get("as_of_date") or "").strip()
+        time_range_start = str(output.get("time_range_start") or "").strip()
+        catalog_url = str(output.get("catalog_url") or "").strip()
+        expected_current_date = str(quality.get("expected_current_date") or date.today().isoformat()).strip()
+        if is_canonical_snapshot and not (catalog_url == selected_url == latest_result_url):
+            issues.append("canonical_snapshot_catalog_url_mismatch")
+        if is_canonical_snapshot and selected_published_date:
+            issues.append("canonical_snapshot_published_date_present")
+        if is_canonical_snapshot and time_range_start:
+            issues.append("canonical_snapshot_time_range_unsupported")
+        if is_canonical_snapshot and (
+            _parse_contract_date(as_of_date) is None
+            or _parse_contract_date(expected_current_date) is None
+            or as_of_date != expected_current_date
+        ):
+            issues.append("canonical_snapshot_as_of_not_current")
+        if requires_published_date and selected_row is not None:
+            row_published_date = str(selected_row.get("published_date") or "").strip()
+            if row_published_date != selected_published_date:
+                issues.append("selected_published_date_mismatch")
+        parsed_selected_date = _parse_contract_date(selected_published_date)
+        parsed_as_of_date = _parse_contract_date(as_of_date)
+        parsed_expected_current_date = _parse_contract_date(expected_current_date)
+        if requires_published_date and parsed_selected_date is None:
+            issues.append("selected_published_date_invalid")
+        if requires_published_date and parsed_as_of_date is None:
+            issues.append("as_of_date_invalid")
+        if requires_published_date and parsed_expected_current_date is None:
+            issues.append("expected_current_date_invalid")
+        if (
+            requires_published_date
+            and parsed_selected_date is not None
+            and parsed_as_of_date is not None
+            and parsed_selected_date > parsed_as_of_date
+        ):
+            issues.append("selected_published_date_after_as_of")
+        if (
+            requires_published_date
+            and parsed_as_of_date is not None
+            and parsed_expected_current_date is not None
+            and parsed_as_of_date > parsed_expected_current_date
+        ):
+            issues.append("as_of_date_after_current")
+        parsed_time_range_start = (
+            _parse_contract_date(time_range_start) if requires_published_date and time_range_start else None
+        )
+        if requires_published_date and time_range_start and parsed_time_range_start is None:
+            issues.append("time_range_start_invalid")
+        if (
+            requires_published_date
+            and parsed_selected_date is not None
+            and parsed_time_range_start is not None
+            and parsed_selected_date < parsed_time_range_start
+        ):
+            issues.append("selected_published_date_before_time_range")
+        if quality.get("require_selected_url_in_answer") and (not selected_url or selected_url not in answer):
+            issues.append("selected_url_missing_from_answer")
+        if quality.get("require_selected_published_date_in_answer") and (
+            not selected_published_date or selected_published_date not in answer
+        ):
+            issues.append("selected_published_date_missing_from_answer")
+        selected_title = str((selected_row or {}).get("title") or "").strip()
+        if (
+            quality.get("require_selected_title_in_answer")
+            and selected_row is not None
+            and (not selected_title or selected_title not in answer)
+        ):
+            issues.append("selected_title_missing_from_answer")
         add(
             "web_search_quality",
             bool(output) and not issues,
             {
                 "query": query,
                 "queries": queries,
+                "query_scopes": query_scopes,
                 "result_count": len(results),
+                "official_result_count": len(official_rows),
+                "content_scope": actual_content_scope,
+                "latest_evidence_verified": output.get("latest_evidence_verified"),
+                "latest_result_url": latest_result_url,
+                "selected_url": selected_url,
+                "selected_title": selected_title,
+                "selection_basis": selection_basis,
+                "catalog_url": catalog_url,
+                "selected_published_date": selected_published_date,
+                "as_of_date": as_of_date,
+                "time_range_start": time_range_start,
+                "expected_current_date": expected_current_date,
                 "issues": list(dict.fromkeys(issues)),
             },
         )
