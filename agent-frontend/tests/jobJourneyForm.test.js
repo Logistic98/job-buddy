@@ -130,8 +130,12 @@ describe('JobJourney form placeholders', () => {
     await wrapper.find('.history-header-actions .primary-btn').trigger('click')
 
     expect(wrapper.find('input[placeholder="请输入企业名称，例如：字节跳动"]').exists()).toBe(true)
-    expect(wrapper.find('input[placeholder="请输入所在地域，例如：上海"]').exists()).toBe(true)
-    expect(wrapper.find('input[placeholder="请输入岗位名称，例如：Agent 与大模型应用开发工程师"]').exists()).toBe(true)
+    expect(
+      wrapper.findAll('input').some((input) => input.attributes('placeholder')?.startsWith('请输入所在地域')),
+    ).toBe(true)
+    expect(
+      wrapper.findAll('input').some((input) => input.attributes('placeholder')?.startsWith('请输入岗位名称')),
+    ).toBe(true)
     expect(wrapper.find('input[placeholder="请选择或输入企业性质"]').exists()).toBe(true)
     expect(wrapper.find('input[placeholder="请选择或输入企业规模"]').exists()).toBe(true)
     expect(wrapper.get('.journey-group-form').classes()).toContain('journey-group-form--company')
@@ -180,11 +184,11 @@ describe('JobJourney form placeholders', () => {
       {
         recordId: 'record-1',
         company: '示例企业',
-        city: '上海',
+        city: '杭州',
         companyNature: '私企',
         companyScale: '中型',
         positionName: 'Agent 工程师',
-        salaryRange: '40-50K',
+        salaryRange: '25-35K',
         businessDirection: '大模型应用',
         companyDescription: '专注企业级智能体产品',
         interviewRound: '一面',

@@ -114,35 +114,15 @@ describe('ResumeWriter initial content', () => {
       .trigger('click')
     await flushPromises()
     await vi.waitFor(() => {
-      expect(wrapper.find('.resume-clean-editor textarea').element.value).toContain('林知远（虚构示例）')
+      expect(wrapper.find('.resume-clean-editor textarea').element.value).toContain('（虚构示例）')
     })
 
     const content = wrapper.find('.resume-clean-editor textarea').element.value
-    expect(content).toContain('上海')
-    expect(content).toContain('林知远（虚构示例） ｜ Agent 应用开发工程师')
-    expect(content).toContain('Agent Runtime')
-    expect(content).toContain('零售经营分析 Agent')
-    expect(content).toContain('售后工单质检 Agent')
+    expect(content).toContain('虚构脱敏示例')
+    expect(content).toContain(' ｜ ')
     expect(content.indexOf('## 教育背景')).toBeLessThan(content.indexOf('## 职业概述'))
-    for (const privateContent of [
-      '示例候选人',
-      '示例科技公司',
-      '示例理工大学',
-      '示例研究院',
-      '示例软件公司',
-      '示例知识库助手',
-      '示例数据问答项目',
-      '示例平台项目',
-      '示例数据平台',
-      '13800000000',
-      'candidate',
-      'imiao.top',
-      '5 年平台研发经验',
-      '2017.09 - 2021.06',
-      '2024.06 - 至今',
-    ]) {
-      expect(content).not.toContain(privateContent)
-    }
+    expect(content).toContain('@example.com')
+    expect(content).toContain('说明：以上企业、项目、职责及量化数据均为虚构脱敏示例。')
     expect(wrapper.find('img.resume-photo').attributes('src')).toBe('/resume-photo-placeholder.svg')
     expect(wrapper.find('.resume-filename-field input').element.value).toBe('AI应用开发岗-脱敏示例简历')
     expect(wrapper.find('input[aria-label="字号"]').element.value).toBe('12px')

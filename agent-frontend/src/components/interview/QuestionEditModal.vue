@@ -508,7 +508,7 @@
             <div class="question-section-heading">
               <div>
                 <span class="practice-field-label">审核候选题</span>
-                <small>生成结果尚未入库。请修改不准确内容，并逐题勾选“已核对”。</small>
+                <small>生成结果尚未入库。可统一勾选候选题，点击列表项查看渲染详情或继续编辑。</small>
               </div>
               <span class="candidate-review-progress"
                 >{{ reviewedCandidateCount }} / {{ aiCandidates.length }} 已核对</span
@@ -526,86 +526,229 @@
                   : '请确认选项互斥且完整，并核对正确答案使用现有选项编号。'
               }}</span>
             </div>
-            <article
-              v-for="(candidate, candidateIndex) in aiCandidates"
-              :key="candidate.id"
-              class="question-candidate-card"
-            >
-              <header>
+            <template v-if="!activeCandidate">
+              <div class="candidate-list-toolbar">
+                <label class="candidate-select-all">
+                  <input
+                    type="checkbox"
+                    :checked="allCandidatesConfirmed"
+                    :indeterminate="someCandidatesConfirmed"
+                    @change="setAllCandidateConfirmation($event.target.checked)"
+                  />
+                  <span>{{ allCandidatesConfirmed ? '取消全选' : '全选候选题' }}</span>
+                </label>
+                <small>确认前建议逐题打开详情，重点核对题面、代码模板和测试结果。</small>
+              </div>
+              <div class="candidate-list" role="list" aria-label="AI 生成候选题">
+                <article
+                  v-for="(candidate, candidateIndex) in aiCandidates"
+                  :key="candidate.id"
+                  :class="['question-candidate-row', { confirmed: candidate.confirmed }]"
+                  role="listitem"
+                >
+                  <label class="candidate-row-checkbox" :aria-label="`选择候选题 ${candidateIndex + 1}`">
+                    <input v-model="candidate.confirmed" type="checkbox" @change="clearCandidateError" />
+                  </label>
+                  <button type="button" class="candidate-row-main" @click="openCandidateDetail(candidate)">
+                    <span class="candidate-row-index">{{ String(candidateIndex + 1).padStart(2, '0') }}</span>
+                    <span class="candidate-row-content">
+                      <strong>{{ candidate.form.title || `候选题 ${candidateIndex + 1}` }}</strong>
+                      <small>{{ candidate.form.category }} · {{ candidate.form.difficulty }}</small>
+                    </span>
+                    <span :class="['candidate-row-status', { confirmed: candidate.confirmed }]">
+                      {{ candidate.confirmed ? '已核对' : '待核对' }}
+                    </span>
+                  </button>
+                  <button type="button" class="candidate-detail-button" @click="openCandidateDetail(candidate)">
+                    查看详情
+                  </button>
+                </article>
+              </div>
+            </template>
+
+            <section v-else class="candidate-detail" aria-label="候选题详情">
+              <header class="candidate-detail-head">
+                <button type="button" class="candidate-back-button" @click="closeCandidateDetail">返回候选列表</button>
                 <div>
-                  <b>候选题 {{ candidateIndex + 1 }}</b>
-                  <span>{{ candidate.form.difficulty }} · {{ candidate.form.category }}</span>
+                  <span>候选题 {{ activeCandidateIndex + 1 }}</span>
+                  <h3>{{ activeCandidate.form.title || `候选题 ${activeCandidateIndex + 1}` }}</h3>
+                  <small>{{ activeCandidate.form.category }} · {{ activeCandidate.form.difficulty }}</small>
                 </div>
                 <label class="candidate-confirm-toggle"
-                  ><input v-model="candidate.confirmed" type="checkbox" @change="clearCandidateError" />
-                  {{ candidateConfirmLabel(candidate.form) }}</label
+                  ><input v-model="activeCandidate.confirmed" type="checkbox" @change="clearCandidateError" />
+                  已核对</label
                 >
               </header>
-              <div class="maintain-field-grid candidate-field-grid">
+              <div class="candidate-detail-tabs" role="tablist" aria-label="候选题详情模式">
+                <button
+                  type="button"
+                  role="tab"
+                  :aria-selected="candidateDetailMode === 'preview'"
+                  :class="{ active: candidateDetailMode === 'preview' }"
+                  @click="candidateDetailMode = 'preview'"
+                >
+                  渲染预览
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  :aria-selected="candidateDetailMode === 'edit'"
+                  :class="{ active: candidateDetailMode === 'edit' }"
+                  @click="candidateDetailMode = 'edit'"
+                >
+                  编辑内容
+                </button>
+              </div>
+
+              <div v-if="candidateDetailMode === 'preview'" class="candidate-rendered-preview">
+                <section class="candidate-preview-section">
+                  <header><span>题目描述</span><small>Markdown 渲染</small></header>
+                  <div class="candidate-preview-surface">
+                    <PracticeMarkdown
+                      :content="activeCandidate.form.content"
+                      :custom-id="`${activeCandidate.id}-content-preview`"
+                      empty-text="暂无题目描述"
+                    />
+                  </div>
+                </section>
+                <section
+                  v-if="activeCandidate.form.bankType === 'qa' && isChoiceType(activeCandidate.form.questionType)"
+                  class="candidate-preview-section"
+                >
+                  <header>
+                    <span>候选选项</span><small>{{ activeCandidate.form.questionType }}</small>
+                  </header>
+                  <ol class="candidate-option-preview">
+                    <li v-for="option in activeCandidate.form.options" :key="option.key">
+                      <b>{{ option.key }}</b
+                      ><span>{{ option.text }}</span>
+                    </li>
+                  </ol>
+                </section>
+                <template v-if="activeCandidate.form.bankType === 'leetcode'">
+                  <section class="candidate-preview-section">
+                    <header>
+                      <span>初始代码模板</span
+                      ><small>{{ codingLanguageLabel(activeCandidate.form.codingLanguage) }}</small>
+                    </header>
+                    <div class="candidate-preview-surface candidate-code-preview">
+                      <PracticeMarkdown
+                        :content="candidateCodeMarkdown(activeCandidate.form)"
+                        :custom-id="`${activeCandidate.id}-code-preview`"
+                        empty-text="暂无代码模板"
+                      />
+                    </div>
+                  </section>
+                  <section class="candidate-preview-section">
+                    <header>
+                      <span>测试用例</span><small>{{ activeCandidate.form.codingTests.length }} 组结构化用例</small>
+                    </header>
+                    <div class="candidate-test-preview-list">
+                      <article v-for="(test, testIndex) in activeCandidate.form.codingTests" :key="test.id">
+                        <div>
+                          <strong>{{ test.name || `用例 ${testIndex + 1}` }}</strong>
+                          <span v-if="test.sample">公开样例</span>
+                        </div>
+                        <dl>
+                          <div>
+                            <dt>函数参数</dt>
+                            <dd>
+                              <code>{{ test.argsText }}</code>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>期望结果</dt>
+                            <dd>
+                              <code>{{ test.expectedText }}</code>
+                            </dd>
+                          </div>
+                        </dl>
+                      </article>
+                    </div>
+                  </section>
+                </template>
+                <section class="candidate-preview-section">
+                  <header>
+                    <span>{{
+                      activeCandidate.form.bankType === 'leetcode' ? '解题思路 / 参考答案' : '参考答案 / 评分要点'
+                    }}</span
+                    ><small>Markdown 渲染</small>
+                  </header>
+                  <div class="candidate-preview-surface">
+                    <PracticeMarkdown
+                      :content="activeCandidate.form.answer"
+                      :custom-id="`${activeCandidate.id}-answer-preview`"
+                      empty-text="暂无参考答案"
+                    />
+                  </div>
+                </section>
+              </div>
+
+              <div v-else class="maintain-field-grid candidate-field-grid">
                 <label class="practice-field wide"
                   ><span class="practice-field-label form-required">标题</span
                   ><input
-                    v-model="candidate.form.title"
+                    v-model="activeCandidate.form.title"
                     maxlength="200"
                     aria-required="true"
-                    :placeholder="candidateTitlePlaceholder(candidate.form)"
-                    @input="markCandidateChanged(candidate)"
+                    :placeholder="candidateTitlePlaceholder(activeCandidate.form)"
+                    @input="markCandidateChanged(activeCandidate)"
                 /></label>
                 <label class="practice-field"
                   ><span class="practice-field-label form-required">分类</span
                   ><input
-                    v-model="candidate.form.category"
+                    v-model="activeCandidate.form.category"
                     maxlength="64"
                     aria-required="true"
-                    :placeholder="candidateCategoryPlaceholder(candidate.form)"
-                    @input="markCandidateChanged(candidate)"
+                    :placeholder="candidateCategoryPlaceholder(activeCandidate.form)"
+                    @input="markCandidateChanged(activeCandidate)"
                 /></label>
                 <label class="practice-field"
                   ><span class="practice-field-label form-required">难度</span
                   ><select
-                    v-model="candidate.form.difficulty"
+                    v-model="activeCandidate.form.difficulty"
                     aria-required="true"
-                    @change="markCandidateChanged(candidate)"
+                    @change="markCandidateChanged(activeCandidate)"
                   >
                     <option v-for="difficulty in difficultyOptions" :key="difficulty" :value="difficulty">
                       {{ difficulty }}
                     </option>
                   </select></label
                 >
-                <label v-if="candidate.form.bankType === 'qa'" class="practice-field wide"
+                <label v-if="activeCandidate.form.bankType === 'qa'" class="practice-field wide"
                   ><span class="practice-field-label form-required">问答题型</span
                   ><select
-                    v-model="candidate.form.questionType"
+                    v-model="activeCandidate.form.questionType"
                     aria-required="true"
-                    @change="handleCandidateQuestionTypeChange(candidate)"
+                    @change="handleCandidateQuestionTypeChange(activeCandidate)"
                   >
                     <option v-for="type in qaQuestionTypeOptions" :key="type" :value="type">{{ type }}</option>
                   </select></label
                 >
                 <label class="practice-field wide"
                   ><span class="practice-field-label form-required">{{
-                    candidate.form.bankType === 'leetcode' ? '算法题面' : '问答题干'
+                    activeCandidate.form.bankType === 'leetcode' ? '算法题面' : '问答题干'
                   }}</span
                   ><textarea
-                    v-model="candidate.form.content"
+                    v-model="activeCandidate.form.content"
                     class="candidate-content-textarea"
                     aria-required="true"
-                    :placeholder="candidateContentPlaceholder(candidate.form)"
-                    @input="markCandidateChanged(candidate)"
+                    :placeholder="candidateContentPlaceholder(activeCandidate.form)"
+                    @input="markCandidateChanged(activeCandidate)"
                   />
                 </label>
                 <div
-                  v-if="candidate.form.bankType === 'qa' && isChoiceType(candidate.form.questionType)"
+                  v-if="activeCandidate.form.bankType === 'qa' && isChoiceType(activeCandidate.form.questionType)"
                   class="choice-option-editor wide"
                 >
                   <div class="choice-option-head">
                     <span class="form-required">选项</span
-                    ><button type="button" class="secondary-btn" @click="addCandidateOption(candidate)">
+                    ><button type="button" class="secondary-btn" @click="addCandidateOption(activeCandidate)">
                       新增选项
                     </button>
                   </div>
                   <label
-                    v-for="(option, optionIndex) in candidate.form.options"
+                    v-for="(option, optionIndex) in activeCandidate.form.options"
                     :key="option.key"
                     class="choice-option-row"
                   >
@@ -614,25 +757,25 @@
                       v-model="option.text"
                       :placeholder="`请输入选项 ${option.key} 的内容`"
                       aria-required="true"
-                      @input="markCandidateChanged(candidate)"
+                      @input="markCandidateChanged(activeCandidate)"
                     />
                     <button
                       type="button"
                       class="danger-text"
-                      :disabled="candidate.form.options.length <= 2"
-                      @click="removeCandidateOption(candidate, optionIndex)"
+                      :disabled="activeCandidate.form.options.length <= 2"
+                      @click="removeCandidateOption(activeCandidate, optionIndex)"
                     >
                       删除
                     </button>
                   </label>
                 </div>
-                <template v-if="candidate.form.bankType === 'leetcode'">
+                <template v-if="activeCandidate.form.bankType === 'leetcode'">
                   <label class="practice-field"
                     ><span class="practice-field-label form-required">代码语言</span
                     ><select
-                      v-model="candidate.form.codingLanguage"
+                      v-model="activeCandidate.form.codingLanguage"
                       aria-required="true"
-                      @change="markCandidateChanged(candidate)"
+                      @change="markCandidateChanged(activeCandidate)"
                     >
                       <option v-for="item in codingLanguageOptions" :key="item.value" :value="item.value">
                         {{ item.label }}
@@ -642,45 +785,52 @@
                   <label class="practice-field"
                     ><span class="practice-field-label form-required">函数入口</span
                     ><input
-                      v-model.trim="candidate.form.codingFunctionName"
+                      v-model.trim="activeCandidate.form.codingFunctionName"
                       maxlength="64"
                       aria-required="true"
-                      @input="markCandidateChanged(candidate)"
+                      @input="markCandidateChanged(activeCandidate)"
                   /></label>
-                  <label class="practice-field wide"
-                    ><span class="practice-field-label form-required">初始代码模板</span
-                    ><textarea
-                      v-model="candidate.form.codingTemplate"
-                      class="candidate-code-template"
-                      spellcheck="false"
-                      aria-required="true"
-                      @input="markCandidateChanged(candidate)"
+                  <div class="practice-field wide">
+                    <span class="practice-field-label form-required">初始代码模板</span>
+                    <CodeHighlightEditor
+                      v-model="activeCandidate.form.codingTemplate"
+                      :language="activeCandidate.form.codingLanguage"
+                      textarea-class="candidate-code-template"
+                      aria-label="候选题初始代码模板"
+                      required
+                      @update:model-value="markCandidateChanged(activeCandidate)"
                     />
-                  </label>
+                  </div>
                   <div class="practice-field wide candidate-tests-review">
                     <div class="coding-test-heading">
                       <div>
                         <span class="practice-field-label form-required">测试用例</span>
                         <small>参数和期望结果均使用 JSON；至少保留一条公开样例。</small>
                       </div>
-                      <button type="button" class="secondary-btn" @click="addCandidateTest(candidate)">新增用例</button>
+                      <button type="button" class="secondary-btn" @click="addCandidateTest(activeCandidate)">
+                        新增用例
+                      </button>
                     </div>
                     <article
-                      v-for="(test, testIndex) in candidate.form.codingTests"
+                      v-for="(test, testIndex) in activeCandidate.form.codingTests"
                       :key="test.id"
                       class="coding-test-card"
                     >
                       <header>
                         <b>用例 {{ testIndex + 1 }}</b>
                         <label class="coding-sample-toggle"
-                          ><input v-model="test.sample" type="checkbox" @change="markCandidateChanged(candidate)" />
+                          ><input
+                            v-model="test.sample"
+                            type="checkbox"
+                            @change="markCandidateChanged(activeCandidate)"
+                          />
                           公开样例</label
                         >
                         <button
                           type="button"
                           class="danger-text"
-                          :disabled="candidate.form.codingTests.length <= 1"
-                          @click="removeCandidateTest(candidate, testIndex)"
+                          :disabled="activeCandidate.form.codingTests.length <= 1"
+                          @click="removeCandidateTest(activeCandidate, testIndex)"
                         >
                           删除
                         </button>
@@ -688,7 +838,7 @@
                       <div class="coding-test-grid">
                         <label class="practice-field wide"
                           ><span class="practice-field-label">名称</span
-                          ><input v-model.trim="test.name" @input="markCandidateChanged(candidate)"
+                          ><input v-model.trim="test.name" @input="markCandidateChanged(activeCandidate)"
                         /></label>
                         <label class="practice-field"
                           ><span class="practice-field-label form-required">函数参数</span
@@ -696,7 +846,7 @@
                             v-model="test.argsText"
                             class="coding-test-value"
                             aria-required="true"
-                            @input="markCandidateChanged(candidate)"
+                            @input="markCandidateChanged(activeCandidate)"
                           />
                         </label>
                         <label class="practice-field"
@@ -705,7 +855,7 @@
                             v-model="test.expectedText"
                             class="coding-test-value"
                             aria-required="true"
-                            @input="markCandidateChanged(candidate)"
+                            @input="markCandidateChanged(activeCandidate)"
                           />
                         </label>
                       </div>
@@ -713,29 +863,32 @@
                   </div>
                 </template>
                 <label
-                  v-if="candidate.form.bankType === 'qa' && isChoiceType(candidate.form.questionType)"
+                  v-if="activeCandidate.form.bankType === 'qa' && isChoiceType(activeCandidate.form.questionType)"
                   class="practice-field wide"
                   ><span class="practice-field-label form-required">正确答案</span
                   ><input
-                    v-model.trim="candidate.form.answer"
+                    v-model.trim="activeCandidate.form.answer"
                     aria-required="true"
-                    :placeholder="candidate.form.questionType === '多选' ? '例如：A,C' : '例如：A'"
-                    @input="markCandidateChanged(candidate)"
+                    :placeholder="activeCandidate.form.questionType === '多选' ? '例如：A,C' : '例如：A'"
+                    @input="markCandidateChanged(activeCandidate)"
                 /></label>
                 <label v-else class="practice-field wide"
-                  ><span class="practice-field-label" :class="{ 'form-required': candidate.form.bankType === 'qa' }">{{
-                    candidate.form.bankType === 'leetcode' ? '解题思路 / 参考答案' : '参考答案 / 评分要点'
-                  }}</span
+                  ><span
+                    class="practice-field-label"
+                    :class="{ 'form-required': activeCandidate.form.bankType === 'qa' }"
+                    >{{
+                      activeCandidate.form.bankType === 'leetcode' ? '解题思路 / 参考答案' : '参考答案 / 评分要点'
+                    }}</span
                   ><textarea
-                    v-model="candidate.form.answer"
+                    v-model="activeCandidate.form.answer"
                     class="candidate-answer-textarea"
-                    :aria-required="candidate.form.bankType === 'qa' ? 'true' : undefined"
-                    :placeholder="candidateAnswerPlaceholder(candidate.form)"
-                    @input="markCandidateChanged(candidate)"
+                    :aria-required="activeCandidate.form.bankType === 'qa' ? 'true' : undefined"
+                    :placeholder="candidateAnswerPlaceholder(activeCandidate.form)"
+                    @input="markCandidateChanged(activeCandidate)"
                   />
                 </label>
               </div>
-            </article>
+            </section>
           </div>
         </div>
       </div>
@@ -827,6 +980,8 @@ const modalError = ref('')
 const currentStep = ref(0)
 const contentEditorMode = ref('edit')
 const answerEditorMode = ref('edit')
+const activeCandidateId = ref('')
+const candidateDetailMode = ref('preview')
 const scrollContainer = ref(null)
 const tagDraft = ref('')
 const tagError = ref('')
@@ -1015,6 +1170,19 @@ const wizardSteps = computed(() => (modalMode.value === 'manual' ? manualSteps.v
 const isLastStep = computed(() => currentStep.value === wizardSteps.value.length - 1)
 const nextButtonText = computed(() => (modalMode.value === 'ai' && currentStep.value === 1 ? '生成候选题' : '下一步'))
 const reviewedCandidateCount = computed(() => aiCandidates.value.filter((candidate) => candidate.confirmed).length)
+const activeCandidate = computed(() => aiCandidates.value.find((candidate) => candidate.id === activeCandidateId.value))
+const activeCandidateIndex = computed(() =>
+  Math.max(
+    0,
+    aiCandidates.value.findIndex((candidate) => candidate.id === activeCandidateId.value),
+  ),
+)
+const allCandidatesConfirmed = computed(
+  () => aiCandidates.value.length > 0 && aiCandidates.value.every((candidate) => candidate.confirmed),
+)
+const someCandidatesConfirmed = computed(
+  () => reviewedCandidateCount.value > 0 && reviewedCandidateCount.value < aiCandidates.value.length,
+)
 const generationSummary = computed(() => {
   const count = Number(aiForm.count) > 0 ? `${aiForm.count} 道` : '待填写数量的'
   const difficulty = aiForm.difficulty || '待选择难度'
@@ -1044,6 +1212,7 @@ function openCreate(defaultBankType = 'qa') {
   syncFormBankType()
   Object.assign(aiForm, emptyAiForm(), { bankType })
   aiCandidates.value = []
+  closeCandidateDetail()
   syncAiBankType()
   resetTagEditor()
   visible.value = true
@@ -1129,6 +1298,7 @@ function resetWizard() {
   furthestStep.value = 0
   contentEditorMode.value = 'edit'
   answerEditorMode.value = 'edit'
+  closeCandidateDetail()
   scrollToStepTop()
 }
 function setModalMode(mode) {
@@ -1144,6 +1314,7 @@ function scrollToStepTop() {
 function goToStep(index) {
   if (busy.value || index < 0 || index >= wizardSteps.value.length || index > furthestStep.value) return
   modalError.value = ''
+  if (index !== aiSteps.value.length - 1) closeCandidateDetail()
   currentStep.value = index
   scrollToStepTop()
 }
@@ -1235,6 +1406,7 @@ async function generateAiCandidates() {
       confirmed: false,
       form: candidateToQuestionForm(item),
     }))
+    closeCandidateDetail()
     const reviewStep = aiSteps.value.length - 1
     furthestStep.value = reviewStep
     currentStep.value = reviewStep
@@ -1312,15 +1484,32 @@ function markCandidateChanged(candidate) {
   candidate.confirmed = false
   clearCandidateError()
 }
+function setAllCandidateConfirmation(confirmed) {
+  aiCandidates.value.forEach((candidate) => {
+    candidate.confirmed = confirmed
+  })
+  clearCandidateError()
+}
+function openCandidateDetail(candidate, mode = 'preview') {
+  activeCandidateId.value = candidate.id
+  candidateDetailMode.value = mode
+  scrollToStepTop()
+}
+function closeCandidateDetail() {
+  activeCandidateId.value = ''
+  candidateDetailMode.value = 'preview'
+}
 function clearCandidateError() {
   modalError.value = ''
 }
-function candidateConfirmLabel(candidateForm) {
-  return candidateForm.bankType === 'leetcode'
-    ? '已核对题干、代码和预期结果'
-    : isChoiceType(candidateForm.questionType)
-      ? '已核对题干、选项和正确答案'
-      : '已核对题干、参考答案和评分要点'
+function codingLanguageLabel(language) {
+  return codingLanguageOptions.find((item) => item.value === language)?.label || language || '代码'
+}
+function candidateCodeMarkdown(candidateForm) {
+  const code = String(candidateForm.codingTemplate || '').trimEnd()
+  if (!code) return ''
+  const fence = code.includes('```') ? '````' : '```'
+  return `${fence}${candidateForm.codingLanguage || ''}\n${code}\n${fence}`
 }
 function candidateTitlePlaceholder(candidateForm) {
   return candidateForm.bankType === 'leetcode'
@@ -1354,6 +1543,7 @@ async function importReviewedCandidates() {
         validateQuestionForm(candidate.form)
         return buildQuestionPayload(candidate.form)
       } catch (err) {
+        openCandidateDetail(candidate, 'edit')
         throw new Error(`候选题 ${index + 1}：${err.message}`)
       }
     })

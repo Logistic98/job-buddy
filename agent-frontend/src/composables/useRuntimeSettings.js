@@ -1,9 +1,9 @@
 export const RUNTIME_SETTING_LIMITS = {
-  maxJobsPerRecommend: { min: 1, max: 30, fallback: 15 },
-  recommendOverfetchFactor: { min: 1, max: 10, fallback: 5 },
+  maxJobsPerRecommend: { min: 1, max: 30, fallback: 5 },
+  recommendOverfetchFactor: { min: 1, max: 10, fallback: 3 },
   minimumRecommendedMatchScore: { min: 0, max: 100, fallback: 60 },
-  bossSearchMaxPages: { min: 1, max: 5, fallback: 2 },
-  bossSearchMaxPageDepth: { min: 1, max: 10, fallback: 5 },
+  bossSearchMaxPages: { min: 1, max: 5, fallback: 3 },
+  bossSearchMaxPageDepth: { min: 1, max: 30, fallback: 15 },
   bossSearchCacheTtlMinutes: { min: 1, max: 1440, fallback: 30 },
   bossSearchCooldownMinutesOnRisk: { min: 1, max: 1440, fallback: 30 },
   runtimeMaxTurns: { min: 1, max: 20, fallback: 12 },

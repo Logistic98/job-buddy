@@ -520,6 +520,69 @@ describe('chat store - send', () => {
     expect(store.messages[1].reasoning).toBe('后台推理过程')
   })
 
+  it('restores background flip auth_required state when switching back to the original session', async () => {
+    let streamHandlers
+    let finishStream
+    getBossLoginStatus.mockResolvedValue({ status: 'logged_out' })
+    streamChat.mockImplementation(
+      (payload, handlers) =>
+        new Promise((resolve) => {
+          streamHandlers = handlers
+          finishStream = () => {
+            handlers.done?.({ ok: false })
+            resolve()
+          }
+        }),
+    )
+    listSessionMessages.mockImplementation(async (sessionId) =>
+      sessionId === 's2' ? [{ role: 'user', content: '当前可见会话' }] : [{ role: 'user', content: '筛选岗位' }],
+    )
+    const store = useChatStore()
+    store.sessionId = 's1'
+    store.messages = [
+      { id: 'u1', role: 'user', content: '筛选岗位' },
+      { id: 'a1', role: 'assistant', content: '', jobCards: [{ securityId: 'old-job' }], toolEvents: [] },
+    ]
+    store.lastJobCardsEvent = [{ securityId: 'old-job' }]
+    store.snapshotCurrentSession()
+
+    const sendPromise = store.send('换一批', 'r1', { flipJobs: true })
+    const turnId = store.messages[2].turnId
+    const assistantId = store.activeSessionRequests.s1.acc.assistantId
+    await store.openSession('s2')
+
+    streamHandlers.onEvent?.('tool_status', {
+      id: 'job_search',
+      status: 'error',
+      name: '需要登录 Boss 直聘',
+      detail: '登录态不完整',
+    })
+    streamHandlers.auth_required?.({ authRequired: true, message: '请重新登录' })
+    finishStream()
+    await sendPromise
+
+    expect(store.sessionId).toBe('s2')
+    expect(store.authRequired).toBeNull()
+    expect(store.pendingAuthRequest).toBeNull()
+
+    await store.openSession('s1')
+
+    expect(store.messages.map((item) => item.role)).toEqual(['user', 'assistant', 'user', 'assistant'])
+    expect(store.messages[1].jobCards).toEqual([{ securityId: 'old-job' }])
+    expect(store.messages[2]).toEqual(expect.objectContaining({ role: 'user', content: '换一批', turnId }))
+    expect(store.messages[3]).toEqual(
+      expect.objectContaining({
+        id: assistantId,
+        role: 'assistant',
+        content: '请重新登录',
+        jobCards: [],
+      }),
+    )
+    expect(store.messages[3].toolEvents.map((item) => item.id)).toEqual(['job_search'])
+    expect(store.authRequired).toEqual({ authRequired: true, message: '请重新登录' })
+    expect(store.pendingAuthRequest).toEqual(expect.objectContaining({ message: '换一批', turnId, assistantId }))
+  })
+
   it('allows different sessions to own concurrent requests', async () => {
     const streams = []
     streamChat.mockImplementation(
@@ -609,7 +672,7 @@ describe('chat store - send', () => {
     expect(assistant.content).toContain('模型超时')
   })
 
-  it('reuses the current assistant message when flipping job batches', async () => {
+  it('creates a new message turn when flipping job batches', async () => {
     streamChat.mockImplementation(async (payload, handlers) => {
       handlers.onEvent?.('tool_status', { id: 'job_flip', status: 'success', name: '换一批', detail: '第 2 批' })
       handlers.onEvent?.('job_cards', [{ securityId: 'new-job', jobName: '新岗位' }])
@@ -629,20 +692,30 @@ describe('chat store - send', () => {
     ]
     store.lastJobCardsEvent = [{ securityId: 'old-job' }]
 
-    const ok = await store.send('换一批', 'r1', { replay: true, flipJobs: true, assistantId: 'a1' })
+    const ok = await store.send('换一批', 'r1', { flipJobs: true })
 
     expect(ok).toBe(true)
     expect(streamChat).toHaveBeenCalledWith(
       expect.objectContaining({ flipJobs: true, resumeAfterAuth: false }),
       expect.any(Object),
     )
-    expect(store.messages).toHaveLength(2)
-    expect(store.messages[1].id).toBe('a1')
-    expect(store.messages[1].jobCards).toEqual([{ securityId: 'new-job', jobName: '新岗位' }])
-    expect(store.messages[1].toolEvents.map((item) => item.id)).toEqual(['job_flip'])
+    expect(store.messages).toHaveLength(4)
+    expect(store.messages[1]).toEqual({
+      id: 'a1',
+      role: 'assistant',
+      content: '',
+      jobCards: [{ securityId: 'old-job' }],
+      toolEvents: [{ id: 'old', status: 'success' }],
+    })
+    expect(store.messages[2]).toEqual(expect.objectContaining({ role: 'user', content: '换一批' }))
+    expect(store.messages[3].id).not.toBe('a1')
+    expect(store.messages[3].role).toBe('assistant')
+    expect(store.messages[3].jobCards).toEqual([{ securityId: 'new-job', jobName: '新岗位' }])
+    expect(store.messages[3].toolEvents.map((item) => item.id)).toEqual(['job_flip'])
   })
 
-  it('keeps existing job cards when a flip attempt reports auth_required', async () => {
+  it('does not suppress flip-job auth_required because a previous batch exists', async () => {
+    getBossLoginStatus.mockResolvedValue({ status: 'logged_out' })
     streamChat.mockImplementation(async (payload, handlers) => {
       handlers.onEvent?.('tool_status', {
         id: 'job_search',
@@ -661,18 +734,25 @@ describe('chat store - send', () => {
     ]
     store.lastJobCardsEvent = [{ securityId: 'old-job' }]
 
-    const ok = await store.send('换一批', 'r1', { replay: true, flipJobs: true, assistantId: 'a1' })
+    const ok = await store.send('换一批', 'r1', { flipJobs: true })
 
     expect(ok).toBe(true)
-    expect(getBossLoginStatus).not.toHaveBeenCalled()
+    expect(getBossLoginStatus).toHaveBeenCalled()
     expect(listSessionMessages).not.toHaveBeenCalled()
-    expect(store.authRequired).toBeNull()
-    expect(store.pendingAuthRequest).toBeNull()
-    expect(store.messages).toHaveLength(2)
+    await vi.waitFor(() => {
+      expect(store.authRequired).toEqual({ authRequired: true, message: '请重新登录' })
+      expect(store.pendingAuthRequest).toEqual(
+        expect.objectContaining({ message: '换一批', resumeId: 'r1', assistantId: expect.any(String) }),
+      )
+    })
+    expect(store.messages).toHaveLength(4)
     expect(store.messages[1].id).toBe('a1')
-    expect(store.messages[1].content).toBe('')
     expect(store.messages[1].jobCards).toEqual([{ securityId: 'old-job' }])
-    expect(store.messages[1].toolEvents.map((item) => item.id)).toEqual(['job_search'])
+    expect(store.messages[2]).toEqual(expect.objectContaining({ role: 'user', content: '换一批' }))
+    expect(store.messages[3].id).toBe(store.pendingAuthRequest.assistantId)
+    expect(store.messages[3].content).toBe('请重新登录')
+    expect(store.messages[3].jobCards).toEqual([])
+    expect(store.messages[3].toolEvents.map((item) => item.id)).toEqual(['job_search'])
   })
 })
 

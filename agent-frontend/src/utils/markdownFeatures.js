@@ -1,4 +1,5 @@
-import { enableKatex, enableMermaid } from 'markstream-vue'
+import { enableKatex, enableMermaid, setCustomComponents } from 'markstream-vue'
+import HighlightedCodeBlock from '../components/HighlightedCodeBlock.vue'
 
 const MERMAID_CONFIG = Object.freeze({
   startOnLoad: false,
@@ -9,6 +10,7 @@ const MERMAID_CONFIG = Object.freeze({
 
 let mermaidLoaderPromise = null
 let katexLoaderPromise = null
+let assistantMarkdownFeaturesRegistered = false
 
 export function loadMermaid() {
   if (!mermaidLoaderPromise) {
@@ -29,38 +31,17 @@ export function loadKatex() {
 enableMermaid(loadMermaid)
 enableKatex(loadKatex)
 
-export function markdownMermaidProps(overrides = {}) {
-  return {
-    isStrict: true,
-    ...overrides,
-  }
+export function registerAssistantMarkdownFeatures() {
+  if (assistantMarkdownFeaturesRegistered) return
+  setCustomComponents('job-chat', { code_block: HighlightedCodeBlock })
+  assistantMarkdownFeaturesRegistered = true
 }
 
-export function normalizeMarkdownFeatures(content) {
-  const lines = String(content ?? '').split('\n')
-  let fence = null
-  return lines
-    .map((line) => {
-      const fenceMatch = line.match(/^[ \t]{0,3}(`{3,}|~{3,})/)
-      if (fenceMatch) {
-        const marker = fenceMatch[1]
-        if (!fence) fence = { character: marker[0], length: marker.length }
-        else if (marker[0] === fence.character && marker.length >= fence.length) fence = null
-        return line
-      }
-      if (fence) return line
-      return line
-        .split(/(`+[^`]*`+)/g)
-        .map((part, index) =>
-          index % 2 === 0
-            ? part.replace(/(^|[^\\$])\$(?!\$)([^$\n]+?)\$(?!\$)/g, (_, prefix, expression) => {
-                return `${prefix}\\(${expression}\\)`
-              })
-            : part,
-        )
-        .join('')
-    })
-    .join('\n')
+export function markdownMermaidProps(overrides = {}) {
+  return {
+    ...overrides,
+    isStrict: true,
+  }
 }
 
 export { MERMAID_CONFIG }

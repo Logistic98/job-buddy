@@ -11,6 +11,7 @@ import {
   filterVisibleToolEvents,
   normalizeAssistantMarkdown,
   selectReasoningHighlights,
+  selectSandboxExecutionDetail,
   selectToolEventHighlights,
 } from '../src/utils/chatHelpers'
 
@@ -190,17 +191,60 @@ describe('assistant presentation helpers', () => {
     expect(JSON.stringify(highlights)).not.toContain('outputSha256')
   })
 
+  it('selects bounded sandbox source and code products without exposing internal fields', () => {
+    const detail = selectSandboxExecutionDetail({
+      id: 'runtime_sandbox_code_execute',
+      payload: {
+        language: 'python',
+        code: "text = 'JobBuddy'\nprint(text.count('d'))",
+        codeChars: 42,
+        codeTruncated: false,
+        stdout: '2\n',
+        stdoutChars: 2,
+        stdoutTruncated: false,
+        stderr: '',
+        stderrChars: 0,
+        stderrTruncated: false,
+        argv: ['python3', '/tmp/private.py'],
+      },
+    })
+
+    expect(detail).toEqual({
+      language: 'Python',
+      source: {
+        content: "text = 'JobBuddy'\nprint(text.count('d'))",
+        chars: 42,
+        truncated: false,
+      },
+      products: [
+        { id: 'stdout', label: '标准输出', content: '2\n', chars: 2, truncated: false, emptyText: '无标准输出' },
+        { id: 'stderr', label: '标准错误', content: '', chars: 0, truncated: false, emptyText: '无标准错误' },
+      ],
+    })
+    expect(JSON.stringify(detail)).not.toContain('private.py')
+    expect(
+      selectSandboxExecutionDetail({
+        id: 'runtime_sandbox_code_execute',
+        payload: { language: 'python', exitCode: 0, outputChars: 2 },
+      }),
+    ).toBeNull()
+    expect(selectSandboxExecutionDetail({ id: 'runtime_web_search', payload: {} })).toBeNull()
+  })
+
   it('shows auditable web search evidence', () => {
     const highlights = selectToolEventHighlights({
       id: 'runtime_web_search',
       payload: {
         query: 'OpenAI latest models',
-        queries: ['OpenAI latest models', 'site:openai.com OpenAI latest models 2026'],
+        queries: ['OpenAI latest models', 'OpenAI latest models 2026 official'],
         provider: 'bocha_web',
         rawCount: 7,
         deduplicatedCount: 5,
         preferredSourceDomains: ['openai.com'],
         preferredSourceFound: true,
+        officialSourceCount: 1,
+        thirdPartySourceCount: 4,
+        officialVerification: 'configured_direct_fetch',
         sourceCount: 5,
       },
     })
@@ -209,13 +253,40 @@ describe('assistant presentation helpers', () => {
       { label: '搜索词', value: 'OpenAI latest models' },
       {
         label: '扩展查询',
-        value: 'site:openai.com OpenAI latest models 2026',
+        value: 'OpenAI latest models 2026 official',
       },
       { label: '搜索来源', value: '博查 Web Search' },
       { label: '结果去重', value: '7 → 5 个' },
-      { label: '官方来源', value: '已命中 openai.com' },
       { label: '参考来源', value: '5 个' },
     ])
+    expect(highlights.some((item) => item.label === '来源分层')).toBe(false)
+  })
+
+  it('does not expose official latest-verification details', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'runtime_web_search',
+      payload: {
+        query: 'Anthropic 最新工程博客',
+        provider: 'bocha_web',
+        preferredSourceDomains: ['anthropic.com'],
+        preferredSourceFound: true,
+        officialSourceCount: 1,
+        thirdPartySourceCount: 0,
+        officialVerification: 'configured_official_index',
+        selectionMode: 'latest',
+        timeRangeStart: '2026-01-01',
+        asOfDate: '2026-08-01',
+        contentScope: 'engineering_blog',
+        latestEvidenceVerified: true,
+        selectedPublishedDate: '2026-05-25',
+        sourceCount: 1,
+      },
+    })
+
+    expect(highlights.some((item) => item.label === '官方核验')).toBe(false)
+    expect(highlights.some((item) => item.label === '来源分层')).toBe(false)
+    expect(highlights.some((item) => item.label === '最新性')).toBe(false)
+    expect(highlights.some((item) => item.label === '发布日期')).toBe(false)
   })
 
   it('selects high-signal reasoning sentences with a bounded count', () => {

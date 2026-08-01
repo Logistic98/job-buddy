@@ -7,18 +7,31 @@ export function normalizeMessageText(message) {
 }
 
 export function requestKey(sessionId, resumeId, message, selectedJob = null, attachmentIds = []) {
-  const selectedJobKey = selectedJob
-    ? String(
-        selectedJob.favoriteKey ||
-          selectedJob.securityId ||
-          selectedJob.id ||
-          selectedJob.jobId ||
-          selectedJob.encryptJobId ||
-          '',
-      )
-    : ''
+  const selectedJobKey = selectedJobRequestKey(selectedJob)
   const attachmentKey = Array.isArray(attachmentIds) ? attachmentIds.map(String).sort().join(',') : ''
   return `${sessionId || 'new'}::${resumeId || 'none'}::${normalizeMessageText(message)}::${selectedJobKey}::${attachmentKey}`
+}
+
+export function selectedJobRequestKey(selectedJob = null) {
+  if (!selectedJob || typeof selectedJob !== 'object') return ''
+  const stableId =
+    selectedJob.favoriteKey ||
+    selectedJob.securityId ||
+    selectedJob.security_id ||
+    selectedJob.id ||
+    selectedJob.jobId ||
+    selectedJob.job_id ||
+    selectedJob.encryptJobId ||
+    selectedJob.encrypt_job_id
+  if (stableId !== undefined && stableId !== null && String(stableId).trim()) return String(stableId).trim()
+  return [
+    selectedJob.originalUrl || selectedJob.jobUrl || selectedJob.url,
+    selectedJob.jobName || selectedJob.job_name || selectedJob.title || selectedJob.name,
+    selectedJob.brandName || selectedJob.companyName || selectedJob.company,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join('::')
 }
 
 export function isAbortError(error) {
@@ -116,13 +129,21 @@ const protectedMarkdownPattern =
  * 这里只处理明确的重复句末符号，不把省略号、版本号或技术符号改写成自然语言。
  */
 export function normalizeAssistantMarkdown(content) {
-  const normalized = String(content || '')
+  const normalized = repairBracketOnlyUrls(content)
     .split(protectedMarkdownPattern)
     .map((part, index) =>
       index % 2 === 1 ? normalizeProtectedMarkdownPart(part) : escapeUnlinkedFileNames(normalizeProsePunctuation(part)),
     )
     .join('')
   return linkifyBareUrls(normalized)
+}
+
+function repairBracketOnlyUrls(content) {
+  const bracketOnlyUrlPattern = /\[(https?:\/\/[^\s<>"'，。；、！？（）()\[\]{}【】《》\u4e00-\u9fff]+)\](?!\()/g
+  return String(content || '').replace(bracketOnlyUrlPattern, (raw, url, offset, source) => {
+    if (source[offset - 1] === '!') return raw
+    return `[${url}](${url})`
+  })
 }
 
 function normalizeProtectedMarkdownPart(content) {
@@ -158,10 +179,13 @@ export function linkifyBareUrls(content) {
   const urlPattern = /https?:\/\/[^\s<>"'，。；、！？（）()\[\]{}【】《》\u4e00-\u9fff]+/g
   return String(content || '').replace(urlPattern, (raw, offset, source) => {
     const before = source.slice(Math.max(0, offset - 3), offset)
-    if (before.endsWith('](') || before.endsWith(']（') || before.endsWith('<')) return raw
+    const after = source.slice(offset + raw.length, offset + raw.length + 2)
+    if (before.endsWith('](') || before.endsWith(']（') || before.endsWith('<') || after === '](') return raw
+    if (before.endsWith('![') && after.startsWith(']')) return raw
     const trailing = raw.match(/[.,;:!?]+$/)?.[0] || ''
     const url = trailing ? raw.slice(0, -trailing.length) : raw
     if (!url) return raw
+    if (source[offset - 1] === '[' && source[offset - 2] !== '!') return `${url}](${url})${trailing}`
     return `[${url}](${url})${trailing}`
   })
 }
@@ -226,7 +250,7 @@ export function selectToolEventHighlights(item = {}) {
   const sources = [payload, directive, intent, top, selectedJob, slots]
   const highlights = []
   const seenLabels = new Set()
-  const highlightLimit = item.id === 'runtime_web_search' ? 6 : 4
+  const highlightLimit = item.id === 'runtime_web_search' ? 9 : 4
   const add = (label, rawValue) => {
     const value = conciseScalar(rawValue)
     if (!value || seenLabels.has(label) || highlights.length >= highlightLimit) return
@@ -275,12 +299,6 @@ export function selectToolEventHighlights(item = {}) {
       payload.rawCount !== payload.deduplicatedCount
     ) {
       add('结果去重', `${payload.rawCount} → ${payload.deduplicatedCount} 个`)
-    }
-    const preferredDomains = Array.isArray(payload.preferredSourceDomains)
-      ? payload.preferredSourceDomains.filter(Boolean)
-      : []
-    if (preferredDomains.length) {
-      add('官方来源', `${payload.preferredSourceFound === true ? '已命中' : '未命中'} ${preferredDomains.join('、')}`)
     }
     add('参考来源', payload.sourceCount === undefined ? '' : `${payload.sourceCount} 个`)
   }
@@ -335,6 +353,55 @@ export function selectToolEventHighlights(item = {}) {
   add('处理结果', firstValue(sources, ['stopReason', 'stop_reason', 'status']))
   add('异常说明', firstValue(sources, ['warning', 'error']))
   return highlights
+}
+
+/**
+ * 选择沙箱代码执行的用户可见详情。只读取 Backend 白名单投影字段，不接触 argv、路径或原始响应。
+ */
+export function selectSandboxExecutionDetail(item = {}) {
+  if (item?.id !== 'runtime_sandbox_code_execute') return null
+  const payload = item?.payload && typeof item.payload === 'object' ? item.payload : {}
+  if (!['code', 'stdout', 'stderr'].some((key) => Object.prototype.hasOwnProperty.call(payload, key))) return null
+  const languageLabels = {
+    python: 'Python',
+    javascript: 'JavaScript',
+    java: 'Java',
+    shell: 'Shell',
+  }
+  const text = (value) => (value === null || value === undefined ? '' : String(value))
+  const chars = (value, content) => {
+    const numeric = Number(value)
+    return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : content.length
+  }
+  const sourceContent = text(payload.code)
+  const stdout = text(payload.stdout)
+  const stderr = text(payload.stderr)
+  return {
+    language: languageLabels[String(payload.language || '').toLowerCase()] || text(payload.language) || '代码',
+    source: {
+      content: sourceContent,
+      chars: chars(payload.codeChars, sourceContent),
+      truncated: payload.codeTruncated === true,
+    },
+    products: [
+      {
+        id: 'stdout',
+        label: '标准输出',
+        content: stdout,
+        chars: chars(payload.stdoutChars, stdout),
+        truncated: payload.stdoutTruncated === true,
+        emptyText: '无标准输出',
+      },
+      {
+        id: 'stderr',
+        label: '标准错误',
+        content: stderr,
+        chars: chars(payload.stderrChars, stderr),
+        truncated: payload.stderrTruncated === true,
+        emptyText: '无标准错误',
+      },
+    ],
+  }
 }
 
 /**

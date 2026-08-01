@@ -17,7 +17,7 @@ describe('interview document API', () => {
   it('uploads reference material with multipart form data', async () => {
     const data = {
       fileName: 'reference.docx',
-      text: '上海 Java 大模型应用开发岗，月薪40-50k',
+      text: '杭州 Java 云原生后端开发岗，月薪20-30k',
       characterCount: 28,
       truncated: false,
     }

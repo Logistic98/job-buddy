@@ -364,7 +364,7 @@
     flex-direction: column;
   }
 }
-/* 思考与工具执行过程：只展示完整步骤摘要和白名单内的精选关键详情，不回显原始 JSON。 */
+/* 思考与工具执行过程：展示白名单内的精选详情；代码执行额外回显有界源码与标准输出，不回显原始 JSON。 */
 .tool-step-card {
   padding: 11px 12px;
   border: 1px solid #e8eef6;
@@ -500,6 +500,9 @@
   font-size: 12px;
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+.tool-execution-detail {
+  margin-top: 8px;
 }
 .reasoning-highlights {
   display: flex;

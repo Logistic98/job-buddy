@@ -17,6 +17,7 @@ import {
   normalizeMessageText,
   normalizeToolEvent,
   requestKey,
+  selectedJobRequestKey,
 } from '../utils/chatHelpers'
 import {
   buildSnapshotFromMessages,
@@ -163,6 +164,12 @@ export const useChatStore = defineStore('chat', {
       this.abortController = request?.controller || null
       this.inFlightRequestKey = request?.key || ''
     },
+    isAnalyzingSelectedJob(selectedJob) {
+      const selectedJobKey = selectedJobRequestKey(selectedJob)
+      if (!this.sessionId || !selectedJobKey) return false
+      const request = this.activeSessionRequests[this.sessionId]
+      return !!request?.selectedJobKey && request.selectedJobKey === selectedJobKey
+    },
     clearSessionRequest(sessionId, requestKeyValue) {
       const request = this.activeSessionRequests[sessionId]
       // Pinia/Vue 可能代理 AbortController，不能依赖控制器对象引用相等；请求键才是稳定身份。
@@ -208,6 +215,44 @@ export const useChatStore = defineStore('chat', {
           : snapshot?.lastJobCardsEvent || [],
         lastResumeMatchEvent: snapshot?.lastResumeMatchEvent || null,
         lastPersonalContextEvent: snapshot?.lastPersonalContextEvent || null,
+        authRequired: snapshot?.authRequired || null,
+        pendingAuthRequest: snapshot?.pendingAuthRequest || null,
+      }
+    },
+    mergeAuthRequiredIntoSnapshot(sessionId, data, pending, assistantId, acc) {
+      if (!sessionId || !assistantId) return
+      const snapshot = this.sessionSnapshots[sessionId]
+      const messages = snapshot?.messages ? JSON.parse(JSON.stringify(snapshot.messages)) : []
+      let msg = messages.find((item) => item.id === assistantId)
+      if (!msg) {
+        msg = {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          reasoning: '',
+          pending: false,
+          toolEvents: [],
+          jobCards: [],
+        }
+        messages.push(msg)
+      }
+      msg.pending = false
+      msg.content =
+        data?.message || 'Boss 直聘需要重新扫码登录。请在弹窗中完成登录后，我会从当前进度继续处理刚才的请求。'
+      const visibleTools = filterVisibleToolEvents(acc?.toolEvents || msg.toolEvents || [])
+      msg.toolEvents = JSON.parse(JSON.stringify(visibleTools))
+      msg.jobCards = Array.isArray(msg.jobCards) ? msg.jobCards : []
+      const authRequired = data && data.authRequired === false ? null : data
+      const pendingAuthRequest = authRequired ? { ...pending, assistantId } : null
+      this.sessionSnapshots[sessionId] = {
+        rows: snapshot?.rows || [],
+        messages,
+        toolEvents: visibleTools.length ? JSON.parse(JSON.stringify(visibleTools)) : snapshot?.toolEvents || [],
+        lastJobCardsEvent: snapshot?.lastJobCardsEvent || [],
+        lastResumeMatchEvent: snapshot?.lastResumeMatchEvent || null,
+        lastPersonalContextEvent: snapshot?.lastPersonalContextEvent || null,
+        authRequired: authRequired ? JSON.parse(JSON.stringify(authRequired)) : null,
+        pendingAuthRequest: pendingAuthRequest ? JSON.parse(JSON.stringify(pendingAuthRequest)) : null,
       }
     },
     accumulateToolEvent(acc, data) {
@@ -382,6 +427,10 @@ export const useChatStore = defineStore('chat', {
       this.lastPersonalContextEvent = snapshot.lastPersonalContextEvent
         ? JSON.parse(JSON.stringify(snapshot.lastPersonalContextEvent))
         : null
+      this.authRequired = snapshot.authRequired ? JSON.parse(JSON.stringify(snapshot.authRequired)) : null
+      this.pendingAuthRequest = snapshot.pendingAuthRequest
+        ? JSON.parse(JSON.stringify(snapshot.pendingAuthRequest))
+        : null
     },
     restoreSessionDerivedState(rows = []) {
       this.lastJobCardsEvent = lastJobCards(this.messages)
@@ -548,13 +597,7 @@ export const useChatStore = defineStore('chat', {
           if (!this.pendingAttachments.length) this.attachmentError = ''
         }
       }
-      const fallbackFlipAssistantId = options.flipJobs
-        ? [...this.messages].reverse().find((item) => item.role === 'assistant' && item.jobCards?.length)?.id
-        : ''
-      const reusableAssistantId =
-        options.assistantId && (options.resumeAfterAuth || options.flipJobs)
-          ? options.assistantId
-          : fallbackFlipAssistantId || ''
+      const reusableAssistantId = options.assistantId && options.resumeAfterAuth ? options.assistantId : ''
       const reused = reusableAssistantId ? this.messages.find((item) => item.id === reusableAssistantId) : null
       if (options.resumeAfterAuth && reused) {
         // 续跑复用同一条助手消息（同一个过程框）：清掉登录墙文案与上一轮残留工具事件，
@@ -564,15 +607,9 @@ export const useChatStore = defineStore('chat', {
         reused.toolEvents = []
         reused.pending = false
         this.toolEvents = []
-      } else if (options.flipJobs && reused) {
-        // 换一批复用当前岗位卡片所在的助手消息：保留原岗位直到新 job_cards 到达，
-        // 只重置本轮工具过程，避免卡片区域闪空或追加新的助手消息。
-        reused.toolEvents = []
-        reused.pending = false
-        this.toolEvents = []
       } else {
         this.toolEvents = []
-        if (!options.flipJobs) this.lastJobCardsEvent = []
+        this.lastJobCardsEvent = []
       }
       const requestRevision = this.lifecycleRevision
       const requestController = new AbortController()
@@ -584,6 +621,7 @@ export const useChatStore = defineStore('chat', {
         key,
         turnId,
         acc: requestAcc,
+        selectedJobKey: selectedJobRequestKey(selectedJob),
       }
       this.applyCurrentRequestProjection(requestSessionId)
       const streamSignal = requestController.signal
@@ -593,7 +631,7 @@ export const useChatStore = defineStore('chat', {
       const isRequestVisible = () => this.sessionId === requestSessionId
       const assistantId = reusableAssistantId || createUuid()
       requestAcc.assistantId = assistantId
-      // 续跑/换一批复用同一条助手消息时，视为已存在，避免收尾逻辑误判为空消息或漏清 pending。
+      // 登录续跑复用同一条助手消息时，视为已存在，避免收尾逻辑误判为空消息或漏清 pending。
       let assistantCreated = !!(reusableAssistantId && this.messages.some((item) => item.id === assistantId))
       let errorAppended = false
       let doneReceived = false
@@ -661,6 +699,7 @@ export const useChatStore = defineStore('chat', {
             resumeId,
             attachmentIds,
             resumeAfterAuth: !!options.resumeAfterAuth,
+            resumeRunId: String(options.resumeRunId || '').trim() || undefined,
             flipJobs: !!options.flipJobs,
             selectedJob,
           },
@@ -723,12 +762,13 @@ export const useChatStore = defineStore('chat', {
               this.snapshotCurrentSession()
             },
             auth_required: (data) => {
-              if (!isStreamStale() && isRequestVisible())
-                this.handleBossAuthRequired(
-                  data,
-                  { message: text, resumeId, selectedJob, turnId, attachments },
-                  assistantId,
-                )
+              if (isStreamStale()) return
+              const pending = { message: text, resumeId, selectedJob, turnId, attachments }
+              if (isRequestVisible()) {
+                this.handleBossAuthRequired(data, pending, assistantId)
+              } else {
+                this.mergeAuthRequiredIntoSnapshot(requestSessionId, data, pending, assistantId, requestAcc)
+              }
             },
             error: (data) => {
               if (errorAppended) return
@@ -888,8 +928,8 @@ export const useChatStore = defineStore('chat', {
         this.pendingAuthRequest = null
         return
       }
-      const hasResults = Array.isArray(this.lastJobCardsEvent) && this.lastJobCardsEvent.length > 0
       const existing = this.messages.find((item) => item.id === assistantId)
+      const hasResults = Array.isArray(existing?.jobCards) && existing.jobCards.length > 0
       // 仅当已交付真实岗位结果时才抑制登录引导：此时本次请求已产出价值，尾随的
       // 二次 4001（如详情补全）不应用登录墙覆盖结果。不能因为助手消息里已有部分
       // 流式文本（理解/前言）就吞掉登录引导，否则用户会卡死且看不到扫码弹窗。

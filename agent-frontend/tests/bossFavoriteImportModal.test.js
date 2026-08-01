@@ -20,10 +20,10 @@ function favorite(index, alreadyImported = false) {
   return {
     favoriteKey: `boss-${index}`,
     securityId: `boss-${index}`,
-    jobName: `Java 大模型应用开发岗 ${index}`,
-    brandName: `上海示例科技 ${index}`,
-    cityName: '上海',
-    salaryDesc: '40-50K',
+    jobName: `Go 云原生平台开发岗 ${index}`,
+    brandName: `星河云科（虚构）${index}`,
+    cityName: '杭州',
+    salaryDesc: '25-35K',
     favoritedAt: '2025-10-02T01:33:13Z',
     alreadyImported,
   }
@@ -107,14 +107,14 @@ describe('BossFavoriteImportModal', () => {
     const { wrapper } = mountModal()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Java 大模型应用开发岗 2')
+    expect(wrapper.text()).toContain('Go 云原生平台开发岗 2')
     const nextButton = wrapper.findAll('.boss-favorite-pagination button').find((button) => button.text() === '下一页')
     await nextButton.trigger('click')
     await flushPromises()
 
     expect(mocks.listBossFavoriteJobs).toHaveBeenNthCalledWith(2, 2, false)
-    expect(wrapper.text()).not.toContain('Java 大模型应用开发岗 2')
-    expect(wrapper.text()).toContain('Java 大模型应用开发岗 8')
+    expect(wrapper.text()).not.toContain('Go 云原生平台开发岗 2')
+    expect(wrapper.text()).toContain('Go 云原生平台开发岗 8')
     expect(wrapper.text()).toContain('第 2 / 2 页')
     expect(nextButton.attributes('disabled')).toBeDefined()
   })
@@ -172,7 +172,7 @@ describe('BossFavoriteImportModal', () => {
     await flushPromises()
 
     expect(mocks.listBossFavoriteJobs).toHaveBeenCalledTimes(2)
-    expect(wrapper.text()).not.toContain('Java 大模型应用开发岗 1')
-    expect(wrapper.text()).toContain('Java 大模型应用开发岗 2')
+    expect(wrapper.text()).not.toContain('Go 云原生平台开发岗 1')
+    expect(wrapper.text()).toContain('Go 云原生平台开发岗 2')
   })
 })

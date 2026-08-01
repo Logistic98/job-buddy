@@ -37,12 +37,12 @@ const profile = {
   resumeId: 'profile-1',
   parsed: {
     education_experiences: [
-      { school: '示例理工大学', major: '计算机科学', degree: '本科', startDate: '2014-09', endDate: '2018-06' },
-      { school: '示例科技大学', major: '软件工程', degree: '硕士', startDate: '2018-09', endDate: '2021-06' },
+      { school: '示例理工大学', major: '计算机科学', degree: '本科', startDate: '2017-09', endDate: '2021-06' },
+      { school: '示例科技大学', major: '软件工程', degree: '硕士', startDate: '2021-09', endDate: '2024-06' },
     ],
     work_experiences: [
       { company: '示例云服务公司', position: 'Java 工程师', startDate: '2021-07', endDate: '2023-06' },
-      { company: '示例智能科技公司', position: 'Agent 平台工程师', startDate: '2023-07', endDate: '2026-07' },
+      { company: '示例智能科技公司', position: '平台工程师', startDate: '2023-07', endDate: '2026-07' },
     ],
     project_experiences: [
       {
@@ -51,7 +51,7 @@ const profile = {
         startDate: '2024-01',
         endDate: '',
         techStack: 'Agent, RAG, LangGraph, Spring Boot, Redis',
-        background: '面向企业知识服务的示例知识库助手',
+        background: '面向虚构企业知识服务的示例助手',
         responsibility: '负责平台架构设计',
         achievement: '推动平台按期交付',
       },
@@ -187,14 +187,14 @@ describe('BossResumePage profile overview', () => {
     await flushPromises()
 
     const expectedPositionField = wrapper.findAll('label').find((label) => label.text().includes('期望岗位'))
-    await expectedPositionField.get('input').setValue('Java 大模型应用开发工程师')
+    await expectedPositionField.get('input').setValue('Go 云原生平台开发工程师')
     await wrapper.get('.profile-overview-trigger').trigger('click')
     await wrapper.get('.profile-summary-ai-button').trigger('click')
     await flushPromises()
 
     expect(mocks.generateJobProfileSummary).toHaveBeenCalledTimes(1)
     expect(mocks.saveJobProfile).not.toHaveBeenCalled()
-    expect(mocks.generateJobProfileSummary.mock.calls[0][0].expected_titles).toEqual(['Java', '大模型应用开发工程师'])
+    expect(mocks.generateJobProfileSummary.mock.calls[0][0].expected_titles).toEqual(['Go', '云原生平台开发工程师'])
     expect(wrapper.get('.profile-overview-editor textarea').element.value).toBe('AI 提取后的画像摘要')
   })
 
@@ -227,9 +227,9 @@ describe('BossResumePage editable profile fields', () => {
         ...profile.parsed,
         job_status: { arrivalTime: '不确定' },
         job_expectations: {
-          position: 'Java 大模型应用开发工程师',
-          salary: '40-50K·14薪',
-          industry: '大模型基础设施',
+          position: 'Go 云原生平台开发工程师',
+          salary: '25-35K·14薪',
+          industry: '云计算基础设施',
         },
       },
     })
@@ -240,9 +240,9 @@ describe('BossResumePage editable profile fields', () => {
     const industryField = wrapper.findAll('label').find((label) => label.text().includes('期望行业'))
     const arrivalField = wrapper.findAll('label').find((label) => label.text().includes('到岗时间'))
 
-    expect(salaryField.get('input').element.value).toBe('40-50K·14薪')
+    expect(salaryField.get('input').element.value).toBe('25-35K·14薪')
     expect(salaryField.get('input').attributes('role')).toBe('combobox')
-    expect(industryField.get('input').element.value).toBe('大模型基础设施')
+    expect(industryField.get('input').element.value).toBe('云计算基础设施')
     expect(arrivalField.get('select').element.value).toBe('不确定')
     expect(arrivalField.findAll('option').some((option) => option.text() === '不确定')).toBe(true)
 
@@ -365,7 +365,7 @@ describe('BossResumePage project experience', () => {
     expect(savedProject.endDate).toBe('')
     expect(savedProject.techStack).toContain('ClickHouse')
     expect(savedProject).not.toHaveProperty('techDraft')
-    expect(savedProject.background).toBe('面向企业知识服务的示例知识库助手')
+    expect(savedProject.background).toBe('面向虚构企业知识服务的示例助手')
     expect(savedProject.responsibility).toBe('负责平台架构设计')
     expect(savedProject.achievement).toBe('推动平台按期交付')
   })

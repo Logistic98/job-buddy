@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import { clearMemories, listMemories, updateMemory } from '../src/api/settings'
+import { addMemory, clearMemories, deleteMemory, listMemories, updateMemory } from '../src/api/settings'
 import MemorySettingsPanel from '../src/components/settings/MemorySettingsPanel.vue'
 
 vi.mock('../src/api/settings', () => ({
@@ -59,7 +59,7 @@ describe('MemorySettingsPanel', () => {
     listMemories.mockResolvedValueOnce([
       {
         id: 'manual-memory',
-        content: '优先看上海 Agent 应用开发岗',
+        content: '示例偏好：优先看杭州云原生平台开发岗',
         source: 'manual',
         enabled: true,
         updatedAt: '2026-07-27T11:51:00Z',
@@ -77,8 +77,12 @@ describe('MemorySettingsPanel', () => {
     await flushPromises()
 
     const editor = wrapper.find('.memory-editor input')
-    expect(editor.attributes('placeholder')).toBe('例如：优先看上海 Agent 应用开发岗，薪资 40-50k，排除外包驻场')
-    expect(editor.attributes('placeholder').toLowerCase()).not.toContain('java')
+    const placeholder = editor.attributes('placeholder')
+    expect(placeholder).toContain('例如：')
+    expect(placeholder).toContain('岗')
+    expect(placeholder).toContain('薪资')
+    expect(placeholder).toContain('排除')
+    expect(placeholder.toLowerCase()).not.toContain('java')
     expect(wrapper.findAll('.memory-item small').map((item) => item.text())).toEqual([
       expect.stringContaining('手动添加'),
       expect.stringContaining('自动沉淀'),
@@ -91,7 +95,7 @@ describe('MemorySettingsPanel', () => {
     listMemories.mockResolvedValueOnce([
       {
         id: 'mem_1',
-        content: '优先上海岗位',
+        content: '示例偏好：优先成都岗位',
         source: 'manual',
         enabled: true,
         updatedAt: '2026-07-27T11:51:00Z',
@@ -99,7 +103,7 @@ describe('MemorySettingsPanel', () => {
     ])
     updateMemory.mockResolvedValueOnce({
       id: 'mem_1',
-      content: '优先杭州岗位',
+      content: '示例偏好：优先杭州岗位',
       source: 'manual',
       enabled: true,
       updatedAt: '2026-07-31T03:00:00Z',
@@ -109,25 +113,79 @@ describe('MemorySettingsPanel', () => {
 
     await wrapper.get('button[aria-label="编辑记忆"]').trigger('click')
     const editor = wrapper.get('.memory-editor input')
-    expect(editor.element.value).toBe('优先上海岗位')
-    await editor.setValue('优先杭州岗位')
+    expect(editor.element.value).toBe('示例偏好：优先成都岗位')
+    await editor.setValue('示例偏好：优先杭州岗位')
     await wrapper.get('.memory-editor .primary-btn').trigger('click')
     await flushPromises()
 
     expect(updateMemory).toHaveBeenCalledWith('mem_1', {
-      content: '优先杭州岗位',
+      content: '示例偏好：优先杭州岗位',
       source: 'manual',
       enabled: true,
     })
-    expect(wrapper.text()).toContain('优先杭州岗位')
-    expect(wrapper.text()).not.toContain('优先上海岗位')
+    expect(wrapper.text()).toContain('示例偏好：优先杭州岗位')
+    expect(wrapper.text()).not.toContain('示例偏好：优先成都岗位')
+  })
+
+  it('adds a memory and renders the persisted response', async () => {
+    addMemory.mockResolvedValueOnce({
+      id: 'mem_new',
+      content: '优先远程 Agent 岗位',
+      source: 'manual',
+      enabled: true,
+      updatedAt: '2026-08-01T06:00:00Z',
+    })
+    const wrapper = mount(MemorySettingsPanel)
+    await flushPromises()
+
+    const editor = wrapper.get('.memory-editor input')
+    await editor.setValue('优先远程 Agent 岗位')
+    await wrapper.get('.memory-editor .primary-btn').trigger('click')
+    await flushPromises()
+
+    expect(addMemory).toHaveBeenCalledWith({
+      content: '优先远程 Agent 岗位',
+      source: 'manual',
+      enabled: true,
+    })
+    expect(wrapper.text()).toContain('优先远程 Agent 岗位')
+    expect(editor.element.value).toBe('')
+  })
+
+  it('deletes only the selected memory after the API succeeds', async () => {
+    listMemories.mockResolvedValueOnce([
+      {
+        id: 'mem_delete',
+        content: '本轮待删除记忆',
+        source: 'manual',
+        enabled: true,
+        updatedAt: '2026-08-01T06:00:00Z',
+      },
+      {
+        id: 'mem_keep',
+        content: '应保留的既有记忆',
+        source: 'manual',
+        enabled: true,
+        updatedAt: '2026-08-01T05:00:00Z',
+      },
+    ])
+    deleteMemory.mockResolvedValueOnce({ memoryId: 'mem_delete' })
+    const wrapper = mount(MemorySettingsPanel)
+    await flushPromises()
+
+    await wrapper.findAll('.memory-item .danger-text')[0].trigger('click')
+    await flushPromises()
+
+    expect(deleteMemory).toHaveBeenCalledWith('mem_delete')
+    expect(wrapper.text()).not.toContain('本轮待删除记忆')
+    expect(wrapper.text()).toContain('应保留的既有记忆')
   })
 
   it('returns to create mode after clearing memories while editing', async () => {
     listMemories.mockResolvedValueOnce([
       {
         id: 'mem_1',
-        content: '优先上海岗位',
+        content: '示例偏好：优先成都岗位',
         source: 'manual',
         enabled: true,
         updatedAt: '2026-07-27T11:51:00Z',

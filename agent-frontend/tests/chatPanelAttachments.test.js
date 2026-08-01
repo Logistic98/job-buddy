@@ -69,7 +69,7 @@ describe('ChatPanel attachment composer', () => {
   it('shows an oversized-file error next to the attachment area without truncation', async () => {
     const wrapper = mount(ChatPanel)
     const input = wrapper.get('.attachment-file-input')
-    const oversized = new File(['x'], '智能问答组件项目-平台介绍.pdf', { type: 'application/pdf' })
+    const oversized = new File(['x'], '示例知识库项目-平台介绍.pdf', { type: 'application/pdf' })
     Object.defineProperty(oversized, 'size', { value: 128 * 1024 * 1024 + 1 })
     Object.defineProperty(input.element, 'files', { configurable: true, value: [oversized] })
 
@@ -77,7 +77,7 @@ describe('ChatPanel attachment composer', () => {
 
     const error = wrapper.get('.composer-file-notice')
     expect(error.attributes('role')).toBe('alert')
-    expect(error.text()).toContain('未添加“智能问答组件项目-平台介绍.pdf”：文件大小不能超过 128MB')
+    expect(error.text()).toContain('未添加“示例知识库项目-平台介绍.pdf”：文件大小不能超过 128MB')
     expect(wrapper.find('.composer-attachment').exists()).toBe(false)
 
     wrapper.unmount()
@@ -217,7 +217,7 @@ describe('ChatPanel attachment composer', () => {
     const wrapper = mount(ChatPanel, {
       props: {
         resumeId: 'resume-1',
-        resumeName: '示例候选人-大模型应用开发岗-求职简历.pdf',
+        resumeName: '示例候选人-云原生后端开发岗-求职简历.pdf',
       },
     })
 

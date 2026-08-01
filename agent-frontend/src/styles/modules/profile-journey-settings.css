@@ -1054,10 +1054,10 @@
   }
 }
 .msg.assistant .bubble {
+  width: min(960px, calc(100% - 38px));
+  min-width: 0;
+  max-width: calc(100% - 38px);
   padding: 16px 18px;
-}
-.msg.assistant.has-job-cards .bubble {
-  width: 78%;
 }
 .bubble .chat-markdown {
   white-space: normal;
@@ -1152,6 +1152,33 @@
   font-size: 1.08em;
   color: #344054;
 }
+.checkpoint-resume-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e8eef8;
+}
+.checkpoint-resume-action button {
+  flex: none;
+  border: 1px solid #3157ff;
+  border-radius: 9px;
+  padding: 7px 12px;
+  background: #3157ff;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+.checkpoint-resume-action button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.checkpoint-resume-action small {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.5;
+}
 .chat-job-cards {
   margin-top: 12px;
   display: flex;
@@ -1159,7 +1186,7 @@
   gap: 8px;
 }
 @media (max-width: 760px) {
-  .msg.assistant.has-job-cards .bubble {
+  .msg.assistant .bubble {
     width: calc(100% - 38px);
   }
 }

@@ -1,7 +1,7 @@
 <template>
   <MarkdownRender
     v-bind="$attrs"
-    :content="normalizedContent"
+    :content="content"
     :custom-id="customId"
     :final="final"
     html-policy="escape"
@@ -14,7 +14,7 @@
 import { computed } from 'vue'
 import MarkdownRender from 'markstream-vue'
 import { copyText } from '../utils/clipboard'
-import { markdownMermaidProps, normalizeMarkdownFeatures } from '../utils/markdownFeatures'
+import { markdownMermaidProps } from '../utils/markdownFeatures'
 
 defineOptions({ inheritAttrs: false })
 
@@ -25,7 +25,6 @@ const props = defineProps({
   mermaidProps: { type: Object, default: () => ({}) },
 })
 
-const normalizedContent = computed(() => normalizeMarkdownFeatures(props.content))
 const resolvedMermaidProps = computed(() => markdownMermaidProps(props.mermaidProps))
 
 async function handleCopy(text) {

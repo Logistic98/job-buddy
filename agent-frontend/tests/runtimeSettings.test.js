@@ -24,8 +24,11 @@ describe('normalizeRuntimeSettings', () => {
   it('returns all supported business settings with defaults', () => {
     const normalized = normalizeRuntimeSettings()
     expect(Object.keys(normalized)).toEqual(Object.keys(RUNTIME_SETTING_LIMITS))
-    expect(normalized.maxJobsPerRecommend).toBe(15)
+    expect(normalized.maxJobsPerRecommend).toBe(5)
+    expect(normalized.recommendOverfetchFactor).toBe(3)
     expect(normalized.minimumRecommendedMatchScore).toBe(60)
+    expect(normalized.bossSearchMaxPages).toBe(3)
+    expect(normalized.bossSearchMaxPageDepth).toBe(15)
     expect(normalized.runtimeMaxTurns).toBe(12)
     expect(normalized.runtimeMaxToolCalls).toBe(20)
     expect(normalized.runtimeMaxFailures).toBe(3)
@@ -57,7 +60,7 @@ describe('normalizeRuntimeSettings', () => {
       recommendOverfetchFactor: 1,
       minimumRecommendedMatchScore: 100,
       bossSearchMaxPages: 1,
-      bossSearchMaxPageDepth: 10,
+      bossSearchMaxPageDepth: 30,
       bossSearchCacheTtlMinutes: 1,
       bossSearchCooldownMinutesOnRisk: 1440,
       runtimeMaxTurns: 1,

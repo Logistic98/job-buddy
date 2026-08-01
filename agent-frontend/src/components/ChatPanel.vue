@@ -69,15 +69,23 @@
                     @click="toggleToolDetail(msg, item)"
                   >
                     {{ isToolDetailOpen(msg, item) ? '收起详情' : '展开详情' }}
-                    <small>{{ toolEventHighlights(item).length }} 项</small>
+                    <small>{{ toolDetailCount(item) }} 项</small>
                   </button>
                 </div>
-                <dl v-if="isToolDetailOpen(msg, item)" class="tool-key-details">
-                  <div v-for="detail in toolEventHighlights(item)" :key="`${item.id}:${detail.label}`">
-                    <dt>{{ detail.label }}</dt>
-                    <dd>{{ detail.value }}</dd>
-                  </div>
-                </dl>
+                <template v-if="isToolDetailOpen(msg, item)">
+                  <dl class="tool-key-details">
+                    <div v-for="detail in toolEventHighlights(item)" :key="`${item.id}:${detail.label}`">
+                      <dt>{{ detail.label }}</dt>
+                      <dd>{{ detail.value }}</dd>
+                    </div>
+                  </dl>
+                  <section v-if="sandboxExecutionDetail(item)" class="tool-execution-detail">
+                    <SandboxExecutionConsole
+                      :detail="sandboxExecutionDetail(item)"
+                      :execution-key="executionCopyKey(msg, item)"
+                    />
+                  </section>
+                </template>
               </article>
               <details
                 v-if="msg.reasoning && msg.reasoning.trim()"
@@ -156,11 +164,7 @@
                         @click.stop
                         >Boss 原岗位</a
                       >
-                      <button
-                        type="button"
-                        :disabled="isChatJdLoading(item, idx)"
-                        @click.stop="toggleChatJd(item, idx)"
-                      >
+                      <button type="button" @click.stop="toggleChatJd(item, idx)">
                         {{ chatJdButtonText(item, idx) }}
                       </button>
                       <button
@@ -171,8 +175,8 @@
                       >
                         {{ isRecommendationEvidenceOpen(item, idx) ? '收起推荐依据' : '推荐依据' }}
                       </button>
-                      <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item)">
-                        {{ chat.loading ? '分析中' : '分析此岗位' }}
+                      <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item, idx)">
+                        {{ chat.isAnalyzingSelectedJob(item) ? '分析中' : '分析此岗位' }}
                       </button>
                       <button
                         type="button"
@@ -206,11 +210,15 @@
                     </div>
                   </article>
                   <div class="chat-job-more">
-                    <button type="button" :disabled="chat.loading" @click="requestMoreJobs(msg)">
-                      换一批 / 更多岗位
-                    </button>
+                    <button type="button" :disabled="chat.loading" @click="requestMoreJobs">换一批 / 更多岗位</button>
                     <small>点击后再加载下一批岗位。</small>
                   </div>
+                </div>
+                <div v-if="checkpointResumeInfo(msg)" class="checkpoint-resume-action">
+                  <button type="button" :disabled="chat.loading" @click="resumeCheckpoint(msg)">
+                    {{ chat.loading ? '正在恢复' : '从断点继续' }}
+                  </button>
+                  <small>从已完成节点继续，不重复执行已经成功的工具步骤。</small>
                 </div>
               </template>
               <template v-else>
@@ -364,15 +372,16 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownContent from './MarkdownContent.vue'
+import SandboxExecutionConsole from './SandboxExecutionConsole.vue'
 import { useChatStore } from '../stores/chat'
 import { useJobStore } from '../stores/job'
-import { fetchJobDetail } from '../api/jobs'
 import { firstJobDescriptionText, normalizeJobDescriptionText } from '../utils/jobText'
 import { validateFile } from '../utils/formValidation'
 import {
   activeToolSummary,
   normalizeAssistantMarkdown,
   selectReasoningHighlights,
+  selectSandboxExecutionDetail,
   selectToolEventHighlights,
 } from '../utils/chatHelpers'
 import { bossDetailUrl } from '../utils/zhipinUrl'
@@ -393,8 +402,8 @@ let elapsedTimer = null
 let composerResizeObserver = null
 // 过程面板/推理步骤的展开状态按消息 id 记忆，完成后不强制收起，避免“跑完过程就没了”。
 const panelOpenState = ref({})
-// 岗位职位描述（JD）懒加载状态：按 jobId 记忆加载中/错误/展开，仅在用户点击时才请求 Boss。
-const jdLoadingKeys = ref(new Set())
+// 检索结果已经携带职位描述；这里仅记录卡片内的展开状态与用户可见错误。
+const MIN_CHAT_JOB_DESCRIPTION_CHARS = 30
 const jdErrorMap = ref({})
 const jdExpandedKeys = ref(new Set())
 // 推荐依据默认收起，按岗位记忆展开状态，避免大段证据挤占候选岗位浏览空间。
@@ -663,8 +672,8 @@ function jobId(item, idx) {
 function chatJobFullJd(item) {
   return normalizeJobDescriptionText(firstJobDescriptionText(item))
 }
-function isChatJdLoading(item, idx) {
-  return jdLoadingKeys.value.has(jobId(item, idx))
+function hasSufficientChatJobDescription(item) {
+  return chatJobFullJd(item).length >= MIN_CHAT_JOB_DESCRIPTION_CHARS
 }
 function chatJdError(item, idx) {
   return jdErrorMap.value[jobId(item, idx)] || ''
@@ -673,9 +682,9 @@ function isChatJdOpen(item, idx) {
   return jdExpandedKeys.value.has(jobId(item, idx))
 }
 function chatJdButtonText(item, idx) {
-  if (isChatJdLoading(item, idx)) return '加载中'
-  if (isChatJdOpen(item, idx)) return '收起职位描述'
-  return chatJobFullJd(item) ? '查看职位描述' : '加载职位描述'
+  const hasSufficientDescription = hasSufficientChatJobDescription(item)
+  if (hasSufficientDescription && isChatJdOpen(item, idx)) return '收起职位描述'
+  return hasSufficientDescription ? '查看职位描述' : '加载职位描述'
 }
 async function toggleChatFavorite(item, idx) {
   const key = jobId(item, idx)
@@ -690,48 +699,54 @@ async function toggleChatFavorite(item, idx) {
     jdErrorMap.value = { ...jdErrorMap.value, [key]: error?.message || '收藏岗位失败' }
   }
 }
-async function toggleChatJd(item, idx) {
+function showMissingChatJobDescription(item, idx) {
   const key = jobId(item, idx)
+  jdErrorMap.value = { ...jdErrorMap.value, [key]: '当前岗位未包含完整职位描述，请重新检索后再试。' }
+}
+function toggleChatJd(item, idx) {
+  const key = jobId(item, idx)
+  if (!hasSufficientChatJobDescription(item)) {
+    jdExpandedKeys.value.delete(key)
+    jdExpandedKeys.value = new Set(jdExpandedKeys.value)
+    showMissingChatJobDescription(item, idx)
+    return
+  }
   if (isChatJdOpen(item, idx)) {
     jdExpandedKeys.value.delete(key)
     jdExpandedKeys.value = new Set(jdExpandedKeys.value)
     return
   }
-  if (!chatJobFullJd(item)) {
-    // 仅在展开且本地缺少正文时访问 Boss，降低无效外部请求。
-    if (jdLoadingKeys.value.has(key)) return
-    const securityId = item.securityId || item.security_id || item.encryptJobId || item.encrypt_job_id || ''
-    const detailUrl = originalUrl(item)
-    if (!securityId && !detailUrl) {
-      jdErrorMap.value = { ...jdErrorMap.value, [key]: '缺少 Boss 原岗位链接或 securityId，无法安全加载职位描述。' }
-      return
-    }
-    jdLoadingKeys.value.add(key)
-    jdLoadingKeys.value = new Set(jdLoadingKeys.value)
-    jdErrorMap.value = { ...jdErrorMap.value, [key]: '' }
-    try {
-      const detail = await fetchJobDetail(securityId, detailUrl)
-      if (detail && typeof detail === 'object') Object.assign(item, detail)
-    } catch (error) {
-      if (error?.authRequired) {
-        chat.authRequired = error.authData || { message: error.message }
-        return
-      }
-      jdErrorMap.value = { ...jdErrorMap.value, [key]: error?.message || '获取岗位详情失败' }
-      return
-    } finally {
-      jdLoadingKeys.value.delete(key)
-      jdLoadingKeys.value = new Set(jdLoadingKeys.value)
-    }
-    // 外部接口成功但未返回正文时保持折叠，并向用户给出可恢复提示。
-    if (!chatJobFullJd(item)) {
-      jdErrorMap.value = { ...jdErrorMap.value, [key]: '未获取到职位描述，请稍后重试或打开 Boss 原岗位查看。' }
-      return
-    }
-  }
+  jdErrorMap.value = { ...jdErrorMap.value, [key]: '' }
   jdExpandedKeys.value.add(key)
   jdExpandedKeys.value = new Set(jdExpandedKeys.value)
 }
+
+function compactSelectedJobForAnalysis(item) {
+  if (!item || typeof item !== 'object') return {}
+  const result = {}
+  const putText = (key, aliases, maxLength = 512) => {
+    const value = aliases.map((alias) => item[alias]).find((candidate) => candidate !== undefined && candidate !== null)
+    const normalized = String(value || '').trim()
+    if (normalized) result[key] = normalized.slice(0, maxLength)
+  }
+  putText('securityId', ['securityId', 'security_id', 'id', 'jobId', 'encryptJobId', 'encrypt_job_id'], 256)
+  putText('jobName', ['jobName', 'job_name', 'title', 'name'])
+  putText('company', ['brandName', 'companyName', 'company'])
+  putText('salary', ['salaryDesc', 'salary_desc', 'salary', 'salaryText', 'jobSalary'], 256)
+  putText('city', ['cityName', 'city', 'location', 'areaDistrict'], 256)
+  putText('experience', ['jobExperience', 'experience', 'experienceName'], 256)
+  putText('degree', ['jobDegree', 'education', 'degree', 'degreeName'], 256)
+  putText('industry', ['brandIndustry', 'companyIndustry', 'industry', 'industryName'], 256)
+  putText('originalUrl', ['originalUrl', 'jobUrl', 'url', 'href', 'link', 'detailUrl', 'jobDetailUrl'], 2048)
+  const description = normalizeJobDescriptionText(firstJobDescriptionText(item)).slice(0, 2400)
+  if (description) result.jobDescription = description
+  const tags = jobTags(item)
+    .map((tag) => tag.slice(0, 120))
+    .slice(0, 12)
+  if (tags.length) result.skills = tags
+  return result
+}
+
 function jobTags(item) {
   return [
     ...(item.skills || []),
@@ -757,6 +772,53 @@ function processStepEvents(msg) {
     isStreamingMsg(msg) && active ? events.filter((item) => item.id !== active.id || item.status !== 'running') : events
   // 过程始终按时间倒序展示：当前运行步骤在顶部，完成后也保持最新步骤在最上方。
   return [...visible].reverse()
+}
+
+function checkpointResumeInfo(msg) {
+  const events = messageToolEvents(msg)
+  const failed = [...events]
+    .reverse()
+    .find(
+      (item) =>
+        item.id === 'runtime_managed' &&
+        ['error', 'cancelled'].includes(item.status) &&
+        item.payload?.resumable === true &&
+        String(item.payload?.runId || '').trim(),
+    )
+  if (!failed) return null
+  const runId = String(failed.payload.runId).trim()
+  const alreadyResumed = chat.messages.some((message) =>
+    messageToolEvents(message).some(
+      (item) => String(item.payload?.resumedFromRunId || item.payload?.resumed_from_run_id || '').trim() === runId,
+    ),
+  )
+  return alreadyResumed ? null : { runId }
+}
+
+async function resumeCheckpoint(msg) {
+  if (chat.loading) return false
+  const recovery = checkpointResumeInfo(msg)
+  if (!recovery) return false
+  const messageIndex = chat.messages.findIndex((item) => item.id === msg.id)
+  let userMessage = null
+  for (let index = messageIndex - 1; index >= 0; index -= 1) {
+    if (chat.messages[index]?.role === 'user') {
+      userMessage = chat.messages[index]
+      break
+    }
+  }
+  if (!userMessage) return false
+  return chat.send(userMessage.content, props.resumeId, {
+    replay: true,
+    resumeRunId: recovery.runId,
+    turnId: userMessage.turnId || userMessage.id,
+    attachments: Array.isArray(userMessage.attachments) ? userMessage.attachments : [],
+  })
+}
+
+function latestCheckpointResumeMessage() {
+  const latestAssistant = [...chat.messages].reverse().find((item) => item?.role === 'assistant')
+  return latestAssistant && checkpointResumeInfo(latestAssistant) ? latestAssistant : null
 }
 
 function isStreamingMsg(msg) {
@@ -839,6 +901,18 @@ function toolEventHighlights(item) {
   return selectToolEventHighlights(item)
 }
 
+function sandboxExecutionDetail(item) {
+  return selectSandboxExecutionDetail(item)
+}
+
+function toolDetailCount(item) {
+  return toolEventHighlights(item).length + (sandboxExecutionDetail(item) ? 3 : 0)
+}
+
+function executionCopyKey(msg, item) {
+  return `${String(msg?.id || 'message')}:${String(item?.id || 'sandbox-code')}`
+}
+
 function toolDetailStateKey(msg, item) {
   return `tool-detail:${msg?.id || 'message'}:${item?.id || 'step'}`
 }
@@ -856,17 +930,20 @@ function reasoningHighlights(reasoning) {
   return selectReasoningHighlights(reasoning)
 }
 
-function requestMoreJobs(msg) {
+function requestMoreJobs() {
   if (chat.loading) return
-  // 换一批走确定性翻页：复用上一轮检索条件直接翻到下一批候选。
-  // 前端复用当前岗位卡片所在的助手消息，在同一个卡片区域原位切换，避免新开一轮过程框。
-  chat.send('换一批', props.resumeId, { replay: true, flipJobs: true, assistantId: msg?.id })
+  // 换一批仍由后端复用上一轮检索条件，但前端按普通消息轮次展示本次请求。
+  chat.send('换一批', props.resumeId, { flipJobs: true })
 }
 
-function analyzeChatJob(item) {
+async function analyzeChatJob(item, idx) {
   if (!item || chat.loading) return
+  if (!hasSufficientChatJobDescription(item)) {
+    showMissingChatJobDescription(item, idx)
+    return
+  }
   const prompt = `分析此岗位与当前简历的匹配度：${jobTitle(item)} / ${company(item)}。请给出评分、结论、匹配优势、主要差距和下一步建议。`
-  chat.send(prompt, props.resumeId, { selectedJob: item })
+  await chat.send(prompt, props.resumeId, { selectedJob: compactSelectedJobForAnalysis(item) })
 }
 
 onMounted(() => {
@@ -976,6 +1053,15 @@ watch(
 async function submit() {
   const text = input.value.trim()
   if (!text || chat.loading || attachmentsBusy.value || attachmentsFailed.value) return
+  if (text === '继续' && chat.pendingAttachments.length === 0) {
+    const recoverableMessage = latestCheckpointResumeMessage()
+    if (recoverableMessage) {
+      input.value = ''
+      const resumed = await resumeCheckpoint(recoverableMessage)
+      if (!resumed && !chat.loading) input.value = text
+      return
+    }
+  }
   input.value = ''
   const sent = await chat.send(text, props.resumeId)
   if (!sent && !chat.loading) input.value = text

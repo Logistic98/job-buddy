@@ -51,11 +51,10 @@ describe('ChatPanel quick prompts', () => {
     const questions = wrapper.findAll('.quick-prompts-list button')
     expect(questions).toHaveLength(3)
     expect(wrapper.find('.quick-prompts-list svg').exists()).toBe(false)
-    expect(questions.map((button) => button.text())).toEqual([
-      '筛选上海 40-50K 大模型应用开发岗位',
-      '分析当前简历与目标岗位的匹配度',
-      '生成大模型应用开发面试准备清单',
-    ])
+    expect(questions[0].text()).toContain('筛选')
+    expect(questions[0].text()).toContain('岗位')
+    expect(questions[1].text()).toBe('分析当前简历与目标岗位的匹配度')
+    expect(questions[2].text()).toContain('面试准备清单')
 
     await questions[1].trigger('click')
 

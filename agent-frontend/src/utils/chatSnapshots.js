@@ -120,6 +120,8 @@ export function buildSnapshotFromRows(sessionId, rows = [], previous = null) {
     lastJobCardsEvent: clone(lastWithJobs?.jobCards || []),
     lastResumeMatchEvent: lastMatch ? clone(lastMatch) : null,
     lastPersonalContextEvent: previous?.lastPersonalContextEvent || null,
+    authRequired: previous?.authRequired ? clone(previous.authRequired) : null,
+    pendingAuthRequest: previous?.pendingAuthRequest ? clone(previous.pendingAuthRequest) : null,
   }
 }
 
@@ -130,6 +132,8 @@ export function buildSnapshotFromMessages(state = {}) {
     lastJobCardsEvent: clone(state.lastJobCardsEvent || []),
     lastResumeMatchEvent: state.lastResumeMatchEvent ? clone(state.lastResumeMatchEvent) : null,
     lastPersonalContextEvent: state.lastPersonalContextEvent ? clone(state.lastPersonalContextEvent) : null,
+    authRequired: state.authRequired ? clone(state.authRequired) : null,
+    pendingAuthRequest: state.pendingAuthRequest ? clone(state.pendingAuthRequest) : null,
   }
 }
 

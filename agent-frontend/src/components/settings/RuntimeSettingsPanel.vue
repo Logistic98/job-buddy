@@ -85,10 +85,10 @@
                 v-model.number="workspace.bossSearchMaxPageDepth"
                 type="number"
                 min="1"
-                max="10"
+                max="30"
                 step="1"
                 @blur="normalizeLimits"
-              /><small>范围 1–10，限制一次检索最多深入的页数。</small></label
+              /><small>范围 1–30，按需逐批深入，不会一次抓完全部页面。</small></label
             >
             <label
               ><span>候选缓存（分钟）</span
@@ -384,7 +384,7 @@ async function save() {
       ['recommendOverfetchFactor', '候选池倍率', 1, 10],
       ['minimumRecommendedMatchScore', '最低推荐匹配度', 0, 100],
       ['bossSearchMaxPages', '单次抓取页数', 1, 5],
-      ['bossSearchMaxPageDepth', '最大检索页深', 1, 10],
+      ['bossSearchMaxPageDepth', '最大检索页深', 1, 30],
       ['bossSearchCacheTtlMinutes', '候选缓存时间', 1, 1440],
       ['bossSearchCooldownMinutesOnRisk', '风控冷却时间', 1, 1440],
       ['runtimeMaxTurns', '最大执行轮数', 1, 20],

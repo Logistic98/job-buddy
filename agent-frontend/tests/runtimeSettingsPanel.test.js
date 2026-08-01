@@ -28,8 +28,8 @@ function settings(maxJobsPerRecommend) {
       maxJobsPerRecommend,
       recommendOverfetchFactor: 5,
       minimumRecommendedMatchScore: 60,
-      bossSearchMaxPages: 2,
-      bossSearchMaxPageDepth: 5,
+      bossSearchMaxPages: 3,
+      bossSearchMaxPageDepth: 15,
       bossSearchCacheTtlMinutes: 30,
       bossSearchCooldownMinutesOnRisk: 30,
       runtimeMaxTurns: 12,
@@ -60,6 +60,16 @@ describe('RuntimeSettingsPanel restore defaults', () => {
     mocks.getSettings.mockReset().mockResolvedValue(settings(25))
     mocks.restoreWorkspaceDefaults.mockReset().mockResolvedValue(settings(15))
     mocks.saveSettings.mockReset()
+  })
+
+  it('exposes the expanded Boss page-depth range without changing the candidate multiplier range', async () => {
+    const wrapper = await mountPanel()
+    const inputs = wrapper.findAll('input')
+
+    expect(inputs[1].attributes('max')).toBe('10')
+    expect(inputs[3].element.value).toBe('3')
+    expect(inputs[4].element.value).toBe('15')
+    expect(inputs[4].attributes('max')).toBe('30')
   })
 
   it('requires confirmation and does not restore when cancelled', async () => {

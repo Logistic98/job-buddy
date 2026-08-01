@@ -28,14 +28,14 @@ describe('resume picker display', () => {
     const item = {
       parseStatus: 'success',
       parsed: {
-        years_experience: '6年',
-        expected_titles: ['Java开发', '架构师'],
-        skills: ['Java', 'Spring Boot', 'MySQL'],
+        years_experience: '5年',
+        expected_titles: ['Java开发', '平台工程师'],
+        skills: ['Java', 'Spring Boot', 'PostgreSQL'],
       },
     }
 
     expect(resumePickerSummary(item)).toBe(
-      '6年工作经验；求职方向：Java开发、架构师；核心技能：Java、Spring Boot、MySQL',
+      '5年工作经验；求职方向：Java开发、平台工程师；核心技能：Java、Spring Boot、PostgreSQL',
     )
   })
 

@@ -21,7 +21,7 @@ const profile = {
   resumeId: 'profile-guard',
   parsed: {
     name: '当前姓名',
-    basic_info: { name: '当前姓名', city: '上海' },
+    basic_info: { name: '示例候选人', city: '杭州' },
     job_expectations: { position: 'Java 工程师' },
     skills: ['Java'],
   },

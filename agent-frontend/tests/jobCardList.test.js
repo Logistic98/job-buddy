@@ -56,11 +56,11 @@ function mountFavorites(overrides = {}) {
     {
       favoriteKey: 'favorite-1',
       securityId: 'security-1',
-      jobName: 'Java 大模型应用开发工程师',
-      brandName: '示例科技',
-      cityName: '上海',
-      salaryDesc: '40-50K',
-      jobDescription: '负责基于 Java 的大模型应用系统设计与开发。',
+      jobName: 'Go 云原生平台开发工程师',
+      brandName: '星河云科（虚构）',
+      cityName: '杭州',
+      salaryDesc: '25-35K',
+      jobDescription: '负责基于 Go 与 Kubernetes 的云原生平台设计与开发。',
       ...overrides,
     },
   ]
@@ -135,22 +135,28 @@ describe('JobCardList favorites interactions', () => {
 
     await action.trigger('click')
 
-    expect(wrapper.find('.job-jd-full').text()).toContain('负责基于 Java 的大模型应用系统设计与开发')
+    expect(wrapper.find('.job-jd-full').text()).toContain('负责基于 Go 与 Kubernetes 的云原生平台设计与开发')
     expect(action.text()).toBe('收起描述')
   })
 
   it('renders duplicate labels only once for legacy imported snapshots', () => {
     const wrapper = mountFavorites({
-      skills: ['Java', 'Agent', '上海'],
-      skillList: ['java', 'RAG'],
-      jobLabels: ['Agent', '上海'],
+      skills: ['Go', 'Kubernetes', '杭州'],
+      skillList: ['go', 'PostgreSQL'],
+      jobLabels: ['Kubernetes', '杭州'],
       companyIndustry: '100020',
       brandIndustry: '互联网',
       industry: '互联网',
       welfareList: ['免费班车', '餐补'],
     })
 
-    expect(wrapper.findAll('.tags span').map((tag) => tag.text())).toEqual(['Java', 'Agent', '上海', 'RAG', '互联网'])
+    expect(wrapper.findAll('.tags span').map((tag) => tag.text())).toEqual([
+      'Go',
+      'Kubernetes',
+      '杭州',
+      'PostgreSQL',
+      '互联网',
+    ])
     expect(wrapper.get('.job-info-grid').text()).toContain('行业：互联网')
     expect(wrapper.find('.job-welfare').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('免费班车')
@@ -205,8 +211,8 @@ describe('JobCardList favorites interactions', () => {
     expect(report.text()).toContain('Java 与 Spring Boot 经验明确')
     expect(report.text()).toContain('缺少业务结果量化')
     const modalHead = wrapper.get('.favorite-analysis-modal-head')
-    expect(modalHead.get('.favorite-analysis-title-block').text()).toContain('Java 大模型应用开发工程师')
-    expect(modalHead.get('.favorite-analysis-job-meta').text()).toContain('示例科技')
+    expect(modalHead.get('.favorite-analysis-title-block').text()).toContain('Go 云原生平台开发工程师')
+    expect(modalHead.get('.favorite-analysis-job-meta').text()).toContain('星河云科（虚构）')
     expect(modalHead.get('.favorite-analysis-context-card').text()).toContain('高级研发工程师.pdf')
 
     const evidenceTab = wrapper
@@ -365,8 +371,8 @@ describe('JobCardList favorites interactions', () => {
     await wrapper.get('.remove-job-btn').trigger('click')
 
     const dialog = wrapper.get('[role="dialog"]')
-    expect(dialog.text()).toContain('确认移出“Java 大模型应用开发工程师”')
-    expect(dialog.text()).toContain('示例科技')
+    expect(dialog.text()).toContain('确认移出“Go 云原生平台开发工程师”')
+    expect(dialog.text()).toContain('星河云科（虚构）')
     expect(deleteFavoriteJob).not.toHaveBeenCalled()
 
     await dialog.get('.secondary-btn').trigger('click')

@@ -233,11 +233,22 @@ describe('QuestionEditModal', () => {
       }),
     )
     expect(mocks.importQuestions).not.toHaveBeenCalled()
-    expect(wrapper.findAll('.question-candidate-card')).toHaveLength(1)
+    expect(wrapper.findAll('.question-candidate-row')).toHaveLength(1)
+    expect(wrapper.find('.candidate-select-all').text()).toContain('全选候选题')
     expect(wrapper.find('.question-wizard-save').text()).toBe('确认导入 1 道题')
 
     await wrapper.find('.question-wizard-save').trigger('click')
     expect(wrapper.find('.question-wizard-error').text()).toBe('请先核对并确认候选题 1')
+    await wrapper.find('.candidate-detail-button').trigger('click')
+    expect(wrapper.find('.candidate-detail').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="候选题详情模式"] [aria-selected="true"]').text()).toBe('渲染预览')
+    expect(
+      wrapper.findAllComponents(PracticeMarkdown).some((item) => item.props('content').includes('给定区间数组')),
+    ).toBe(true)
+    expect(
+      wrapper.findAllComponents(PracticeMarkdown).some((item) => item.props('content').includes('```python')),
+    ).toBe(true)
+    await wrapper.findAll('[aria-label="候选题详情模式"] [role="tab"]')[1].trigger('click')
     await wrapper.find('.candidate-field-grid input').setValue('人工修订后的区间题')
     expect(wrapper.find('.question-wizard-error').exists()).toBe(false)
     await wrapper.find('.candidate-confirm-toggle input').setValue(true)
@@ -287,9 +298,13 @@ describe('QuestionEditModal', () => {
     expect(mocks.generateQuestions).toHaveBeenCalledWith(
       expect.objectContaining({ bankType: 'qa', questionType: '单选', topic: 'Java 线程池' }),
     )
-    expect(wrapper.findAll('.question-candidate-card .choice-option-row')).toHaveLength(2)
-    expect(wrapper.find('.candidate-content-textarea').element.value).not.toContain('A. AbortPolicy')
-    expect(wrapper.text()).toContain('已核对题干、选项和正确答案')
+    expect(wrapper.findAll('.question-candidate-row')).toHaveLength(1)
+    await wrapper.find('.candidate-row-main').trigger('click')
+    expect(wrapper.findAll('.candidate-option-preview li')).toHaveLength(2)
+    const contentPreview = wrapper
+      .findAllComponents(PracticeMarkdown)
+      .find((item) => item.props('customId').includes('content-preview'))
+    expect(contentPreview.props('content')).not.toContain('A. AbortPolicy')
 
     await wrapper.find('.candidate-confirm-toggle input').setValue(true)
     await wrapper.find('.question-wizard-save').trigger('click')
@@ -304,6 +319,35 @@ describe('QuestionEditModal', () => {
         }),
       ],
     })
+    wrapper.unmount()
+  })
+
+  it('selects and clears all generated candidates from the review list', async () => {
+    mocks.generateQuestions.mockResolvedValueOnce({
+      count: 2,
+      items: [algorithmCandidate(), algorithmCandidate({ title: '滑动窗口最大值' })],
+    })
+    const wrapper = mountModal()
+    wrapper.vm.openCreate('leetcode')
+    await nextTick()
+
+    await wrapper.findAll('[role="tab"]')[1].trigger('click')
+    await wrapper.find('input[placeholder="例如：动态规划、图论、二分查找"]').setValue('滑动窗口')
+    await wrapper.find('input[placeholder="例如：动态规划"]').setValue('数组')
+    await wrapper.find('input[type="number"]').setValue(2)
+    await wrapper.find('.question-wizard-next').trigger('click')
+    await wrapper.find('.question-wizard-next').trigger('click')
+    await flushPromises()
+
+    const selectAll = wrapper.find('.candidate-select-all input')
+    expect(wrapper.findAll('.question-candidate-row')).toHaveLength(2)
+    await selectAll.setValue(true)
+    expect(wrapper.find('.candidate-review-progress').text()).toBe('2 / 2 已核对')
+    expect(wrapper.findAll('.candidate-row-status').every((status) => status.text() === '已核对')).toBe(true)
+
+    await wrapper.find('.candidate-select-all input').setValue(false)
+    expect(wrapper.find('.candidate-review-progress').text()).toBe('0 / 2 已核对')
+    expect(wrapper.findAll('.candidate-row-status').every((status) => status.text() === '待核对')).toBe(true)
     wrapper.unmount()
   })
 
