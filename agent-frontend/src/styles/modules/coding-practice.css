@@ -1955,14 +1955,28 @@
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  overflow-y: auto;
   padding: 12px;
 }
+.leetcode-answer-editor > .code-highlight-editor {
+  flex: 0 0 auto;
+}
 .leetcode-answer-editor .leetcode-code-editor {
-  flex: 1;
+  flex: none;
   min-height: 300px;
   background: #07111f;
   color: #dbeafe;
   border-color: #3157ff;
+}
+.leetcode-answer-editor.debug-open > .code-highlight-editor,
+.leetcode-answer-editor.debug-open .leetcode-code-editor {
+  min-height: 220px;
+}
+.leetcode-answer-editor > .practice-editor-toolbar,
+.leetcode-answer-editor > .leetcode-run-actions,
+.leetcode-answer-editor > .practice-debug-panel,
+.leetcode-answer-editor > .compact-code-results {
+  flex: 0 0 auto;
 }
 .practice-choice-answer {
   display: flex;
@@ -2014,65 +2028,9 @@
   border: 1px solid #e3eaf6;
   background: #fff;
 }
-.practice-records-home-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 24px 26px 20px;
-  border-bottom: 1px solid #edf1f7;
-}
-.practice-records-home-header .eyebrow {
-  margin: 0 0 5px;
-}
-.practice-records-home-header h2 {
-  margin: 0;
-  color: #101828;
-  font-size: 24px;
-}
-.practice-records-home-header > div > p:last-child {
-  margin: 7px 0 0;
-  color: #667085;
-  font-size: 13px;
-  line-height: 1.6;
-}
 .practice-create-button {
   min-width: 112px;
   flex: none;
-}
-.practice-record-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  padding: 18px 26px;
-  background: #fbfcff;
-  border-bottom: 1px solid #edf1f7;
-}
-.practice-record-summary > div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  min-width: 0;
-  padding: 14px 16px;
-  border: 1px solid #e6ebf5;
-  border-radius: 14px;
-  background: #fff;
-}
-.practice-record-summary span {
-  color: #667085;
-  font-size: 13px;
-  font-weight: 700;
-}
-.practice-record-summary strong {
-  color: #172033;
-  font-size: 22px;
-}
-.practice-record-summary > div:nth-child(2) strong {
-  color: #3157ff;
-}
-.practice-record-summary > div:nth-child(3) strong {
-  color: #067647;
 }
 .practice-records-home-toolbar {
   display: flex;
@@ -2081,6 +2039,13 @@
   gap: 16px;
   padding: 14px 26px;
   border-bottom: 1px solid #edf1f7;
+}
+.practice-record-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex: none;
 }
 .practice-record-search {
   display: inline-flex;
@@ -2379,7 +2344,6 @@
     width: 100%;
     margin-right: 0;
   }
-  .practice-records-home-header,
   .practice-records-home-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -2390,19 +2354,22 @@
   .practice-record-search input {
     width: 100%;
   }
-  .practice-records-home-header .practice-create-button,
   .practice-record-search {
     width: 100%;
     min-width: 0;
   }
-  .practice-record-summary {
-    grid-template-columns: 1fr;
+  .practice-record-toolbar-actions {
+    width: 100%;
+    flex-wrap: wrap;
   }
   .practice-record-status-tabs {
-    width: 100%;
+    flex: 1 1 220px;
   }
   .practice-record-status-tabs button {
     flex: 1;
+  }
+  .practice-record-toolbar-actions .practice-create-button {
+    flex: 1 0 112px;
   }
   .practice-records-empty {
     min-height: 320px;

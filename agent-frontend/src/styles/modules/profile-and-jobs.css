@@ -798,20 +798,48 @@
   }
 }
 /* Practice center UX: page-level scrolling, compact navigation and persistent history access */
+.written-center-page {
+  padding: 18px;
+}
+.written-center-header {
+  flex: none;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.written-center-header h1 {
+  margin: 2px 0 4px;
+  font-size: 26px;
+}
+.written-center-header > div > p:last-child {
+  font-size: 14px;
+  line-height: 1.5;
+}
+.written-center-tabs button {
+  min-height: 50px;
+  padding: 8px 12px;
+  border-radius: 14px;
+}
+.written-center-page > .interview-embedded:has(.practice-active-workbench) {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
 .practice-desk-view {
   min-height: 0;
 }
 .practice-active-workbench {
   display: flex;
+  flex: 1;
+  min-height: 0;
   min-width: 0;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 .practice-overview-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px 20px;
-  padding: 14px 16px;
+  flex: none;
+  gap: 8px 20px;
+  padding: 10px 14px;
   border: 1px solid #e3eaf6;
   background: #fff;
 }
@@ -877,7 +905,7 @@
 .practice-question-navigator {
   grid-column: 1/-1;
   border-top: 1px solid #edf1f7;
-  padding-top: 10px;
+  padding-top: 8px;
 }
 .practice-question-navigator > summary {
   display: flex;
@@ -910,7 +938,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
-  padding-top: 10px;
+  padding-top: 8px;
 }
 .practice-question-number {
   display: grid;
@@ -941,22 +969,29 @@
 }
 .practice-leetcode-shell {
   display: grid;
-  grid-template-columns: minmax(360px, 0.92fr) minmax(440px, 1.08fr);
+  grid-template-columns: minmax(320px, 0.88fr) minmax(440px, 1.12fr) !important;
+  flex: 1;
   gap: 12px;
   height: auto;
   min-height: 0;
-  align-items: start;
+  align-items: stretch;
 }
 .practice-problem-panel,
 .practice-answer-panel {
   min-width: 0;
   min-height: 0;
-  overflow: visible;
+  height: 100%;
+  overflow: hidden;
+}
+.practice-panel-head {
+  flex: none;
+  padding: 12px 16px;
 }
 .practice-problem-body {
   min-height: 0;
-  overflow: visible;
-  padding: 18px;
+  flex: 1;
+  overflow: auto;
+  padding: 14px 16px;
 }
 .practice-answer-panel {
   background: #f8fafc;
@@ -968,11 +1003,12 @@
   min-height: 400px;
 }
 .practice-choice-answer {
-  overflow: visible;
+  flex: 1;
+  overflow: auto;
 }
 .practice-text-answer {
-  min-height: 480px;
-  resize: vertical;
+  min-height: 0;
+  resize: none;
 }
 .practice-bottom-bar {
   position: static;
@@ -1135,10 +1171,32 @@
     width: 100%;
   }
   .practice-leetcode-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(320px, 0.88fr) minmax(420px, 1.12fr) !important;
   }
+}
+@media (max-width: 1100px) {
+  .written-center-page > .interview-embedded:has(.practice-active-workbench) {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .practice-active-workbench {
+    flex: none;
+  }
+  .practice-leetcode-shell {
+    grid-template-columns: 1fr !important;
+    height: auto;
+  }
+  .practice-problem-panel,
   .practice-answer-panel {
     grid-column: auto;
+    height: auto;
+    min-height: 360px;
+  }
+  .practice-problem-body {
+    overflow: visible;
+  }
+  .practice-text-answer {
+    min-height: 300px;
   }
 }
 @media (max-width: 760px) {

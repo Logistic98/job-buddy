@@ -85,11 +85,11 @@ class CanonicalBaselinePostgresTest {
   void emptyDatabaseMigratesWithDefaultUsersAuthorizationAndJobBlacklist() throws Exception {
     var result = flyway().migrate();
 
-    assertEquals(18, result.migrationsExecuted);
-    assertEquals("1.0.17", result.targetSchemaVersion);
+    assertEquals(19, result.migrationsExecuted);
+    assertEquals("1.0.18", result.targetSchemaVersion);
     assertEquals(EXPECTED_TABLES, applicationTables());
     assertEquals(
-        302,
+        303,
         queryLong(
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
                 + "AND table_name <> 'flyway_schema_history'"));
@@ -99,6 +99,16 @@ class CanonicalBaselinePostgresTest {
             "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
                 + "AND table_name = 'interview_exam' AND column_name = 'recorded' "
                 + "AND is_nullable = 'NO' AND column_default = 'true'"));
+    assertEquals(
+        1,
+        queryLong(
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = 'public' "
+                + "AND table_name = 'interview_question' AND column_name = 'user_id'"));
+    assertEquals(
+        1,
+        queryLong(
+            "SELECT COUNT(*) FROM pg_constraint WHERE conname = "
+                + "'ck_interview_question_user_required' AND contype = 'c'"));
     assertEquals(
         1,
         queryLong(
@@ -154,6 +164,8 @@ class CanonicalBaselinePostgresTest {
     assertTrue(tableExists("uk_chat_message_user_turn"));
     assertTrue(tableExists("idx_chat_attachment_owner_created"));
     assertTrue(tableExists("idx_chat_attachment_owner_turn"));
+    assertTrue(tableExists("idx_interview_question_owner_updated"));
+    assertTrue(tableExists("uq_app_user_tenant_user"));
     assertEquals(
         40,
         queryLong(

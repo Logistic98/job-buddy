@@ -42,18 +42,21 @@ public class InterviewRepository {
    * 查询题目列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param category 分类
    * @return 题目列表
    */
-  public List<Map<String, Object>> listQuestions(String tenantId, String keyword, String category) {
-    return listQuestions(tenantId, keyword, null, category, null, 1, 200);
+  public List<Map<String, Object>> listQuestions(
+      String tenantId, String userId, String keyword, String category) {
+    return listQuestions(tenantId, userId, keyword, null, category, null, 1, 200);
   }
 
   /**
    * 查询题目列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param bankType 题库类型
    * @param category 分类
@@ -62,14 +65,21 @@ public class InterviewRepository {
    * @return 题目列表
    */
   public List<Map<String, Object>> listQuestions(
-      String tenantId, String keyword, String bankType, String category, int page, int size) {
-    return listQuestions(tenantId, keyword, bankType, category, null, page, size);
+      String tenantId,
+      String userId,
+      String keyword,
+      String bankType,
+      String category,
+      int page,
+      int size) {
+    return listQuestions(tenantId, userId, keyword, bankType, category, null, page, size);
   }
 
   /**
    * 查询题目列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param bankType 题库类型
    * @param category 分类
@@ -80,6 +90,7 @@ public class InterviewRepository {
    */
   public List<Map<String, Object>> listQuestions(
       String tenantId,
+      String userId,
       String keyword,
       String bankType,
       String category,
@@ -91,6 +102,7 @@ public class InterviewRepository {
     List<Map<String, Object>> rows =
         mapper.listQuestions(
             tenantId,
+            userId,
             like(keyword),
             trim(bankType),
             trim(category),
@@ -107,18 +119,20 @@ public class InterviewRepository {
    * 统计题目列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param category 分类
    * @return 统计数量
    */
-  public int countQuestions(String tenantId, String keyword, String category) {
-    return countQuestions(tenantId, keyword, null, category, null);
+  public int countQuestions(String tenantId, String userId, String keyword, String category) {
+    return countQuestions(tenantId, userId, keyword, null, category, null);
   }
 
   /**
    * 统计题目列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param bankType 题库类型
    * @param category 分类
@@ -126,28 +140,35 @@ public class InterviewRepository {
    * @return 统计数量
    */
   public int countQuestions(
-      String tenantId, String keyword, String bankType, String category, String difficulty) {
+      String tenantId,
+      String userId,
+      String keyword,
+      String bankType,
+      String category,
+      String difficulty) {
     return mapper.countQuestions(
-        tenantId, like(keyword), trim(bankType), trim(category), trim(difficulty));
+        tenantId, userId, like(keyword), trim(bankType), trim(category), trim(difficulty));
   }
 
   /**
    * 查找启用状态。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param category 分类
    * @param difficulty 难度
    * @return 启用状态
    */
   public List<Map<String, Object>> findEnabled(
-      String tenantId, String category, String difficulty) {
-    return findEnabled(tenantId, null, category, difficulty, null);
+      String tenantId, String userId, String category, String difficulty) {
+    return findEnabled(tenantId, userId, null, category, difficulty, null);
   }
 
   /**
    * 查找启用状态。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param bankType 题库类型
    * @param category 分类
    * @param difficulty 难度
@@ -155,10 +176,15 @@ public class InterviewRepository {
    * @return 启用状态
    */
   public List<Map<String, Object>> findEnabled(
-      String tenantId, String bankType, String category, String difficulty, String questionType) {
+      String tenantId,
+      String userId,
+      String bankType,
+      String category,
+      String difficulty,
+      String questionType) {
     List<Map<String, Object>> rows =
         mapper.findEnabled(
-            tenantId, trim(bankType), trim(category), trim(difficulty), trim(questionType));
+            tenantId, userId, trim(bankType), trim(category), trim(difficulty), trim(questionType));
     for (Map<String, Object> row : rows) {
       hydrateQuestion(row);
     }
@@ -169,15 +195,16 @@ public class InterviewRepository {
    * 构造题目元数据。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param bankType 题库类型
    * @return 题目元数据
    */
-  public Map<String, Object> questionMeta(String tenantId, String bankType) {
+  public Map<String, Object> questionMeta(String tenantId, String userId, String bankType) {
     Map<String, Object> meta = new LinkedHashMap<String, Object>();
-    meta.put("bankTypes", mapper.listBankTypes(tenantId));
-    meta.put("categories", mapper.listCategories(tenantId, trim(bankType)));
-    meta.put("difficulties", mapper.listDifficulties(tenantId, trim(bankType)));
-    meta.put("questionTypes", mapper.listQuestionTypes(tenantId, trim(bankType)));
+    meta.put("bankTypes", mapper.listBankTypes(tenantId, userId));
+    meta.put("categories", mapper.listCategories(tenantId, userId, trim(bankType)));
+    meta.put("difficulties", mapper.listDifficulties(tenantId, userId, trim(bankType)));
+    meta.put("questionTypes", mapper.listQuestionTypes(tenantId, userId, trim(bankType)));
     return meta;
   }
 
@@ -185,27 +212,30 @@ public class InterviewRepository {
    * 查找题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    * @return 题目
    */
-  public Map<String, Object> findQuestion(String tenantId, String questionId) {
-    return hydrateQuestion(mapper.findQuestion(tenantId, questionId));
+  public Map<String, Object> findQuestion(String tenantId, String userId, String questionId) {
+    return hydrateQuestion(mapper.findQuestion(tenantId, userId, questionId));
   }
 
   /**
    * 保存题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param question 题目
    */
-  public void saveQuestion(String tenantId, Map<String, Object> question) {
+  public void saveQuestion(String tenantId, String userId, Map<String, Object> question) {
     question.put("tenantId", tenantId);
+    question.put("userId", userId);
     question.put("tagsJson", jsonCodec.toJson(question.get("tags")));
     question.put("codingMetaJson", jsonCodec.toJson(question.get("codingMeta")));
     question.put("enabled", Boolean.valueOf(!Boolean.FALSE.equals(question.get("enabled"))));
     question.put("updatedAt", Timestamp.from(Instant.now()));
 
-    if (mapper.countQuestion(tenantId, question.get("questionId")) > 0) {
+    if (mapper.countQuestion(tenantId, userId, question.get("questionId")) > 0) {
       mapper.updateQuestion(question);
     } else {
       mapper.insertQuestion(question);
@@ -216,24 +246,26 @@ public class InterviewRepository {
    * 删除题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    */
-  public void deleteQuestion(String tenantId, String questionId) {
-    mapper.softDeleteQuestion(tenantId, questionId, Timestamp.from(Instant.now()));
+  public void deleteQuestion(String tenantId, String userId, String questionId) {
+    mapper.softDeleteQuestion(tenantId, userId, questionId, Timestamp.from(Instant.now()));
   }
 
   /**
    * 批量删除题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionIds 题目标识列表
    * @return 实际删除数量
    */
-  public int batchDeleteQuestions(String tenantId, List<String> questionIds) {
+  public int batchDeleteQuestions(String tenantId, String userId, List<String> questionIds) {
     Timestamp now = Timestamp.from(Instant.now());
     int affected = 0;
     for (String questionId : questionIds) {
-      affected += mapper.softDeleteQuestion(tenantId, questionId, now);
+      affected += mapper.softDeleteQuestion(tenantId, userId, questionId, now);
     }
     return affected;
   }
@@ -242,12 +274,13 @@ public class InterviewRepository {
    * 批量更新题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionIds 题目标识列表
    * @param fields 待更新字段
    * @return 实际更新数量
    */
   public int batchUpdateQuestions(
-      String tenantId, List<String> questionIds, Map<String, Object> fields) {
+      String tenantId, String userId, List<String> questionIds, Map<String, Object> fields) {
     Timestamp now = Timestamp.from(Instant.now());
     int affected = 0;
     for (String questionId : questionIds) {
@@ -256,21 +289,22 @@ public class InterviewRepository {
         questionAffected =
             Math.max(
                 questionAffected,
-                mapper.updateQuestionCategory(tenantId, questionId, fields.get("category"), now));
+                mapper.updateQuestionCategory(
+                    tenantId, userId, questionId, fields.get("category"), now));
       }
       if (fields.containsKey("difficulty")) {
         questionAffected =
             Math.max(
                 questionAffected,
                 mapper.updateQuestionDifficulty(
-                    tenantId, questionId, fields.get("difficulty"), now));
+                    tenantId, userId, questionId, fields.get("difficulty"), now));
       }
       if (fields.containsKey("tags")) {
         questionAffected =
             Math.max(
                 questionAffected,
                 mapper.updateQuestionTags(
-                    tenantId, questionId, jsonCodec.toJson(fields.get("tags")), now));
+                    tenantId, userId, questionId, jsonCodec.toJson(fields.get("tags")), now));
       }
       affected += questionAffected;
     }

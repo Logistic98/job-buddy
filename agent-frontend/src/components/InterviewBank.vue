@@ -233,7 +233,7 @@
             <button class="secondary-btn compact" @click="returnToPracticeHome">练习记录</button>
             <button class="primary-btn compact" @click="requestComposePractice('smart')">创建练习</button>
           </div>
-          <details class="practice-question-navigator">
+          <details class="practice-question-navigator" open>
             <summary>
               题目导航 <span>当前第 {{ currentQuestionIndex }} 题</span>
             </summary>
@@ -269,6 +269,7 @@
             </div>
             <div class="practice-problem-body">
               <PracticeMarkdown
+                v-if="shouldRenderQuestionStem(activeQuestion)"
                 :key="`stem-${activeQuestion.questionId}`"
                 :content="questionStem(activeQuestion)"
                 :custom-id="`practice-stem-${activeQuestion.questionId}`"
@@ -295,14 +296,8 @@
                 class="answer-review leetcode-answer-review"
               >
                 <summary>
-                  <strong
-                    :class="
-                      currentExam.status === 'submitted' ? (activeQuestion.correct ? 'ok-text' : 'error') : 'ok-text'
-                    "
-                  >
-                    {{ currentExam.status === 'submitted' ? (activeQuestion.correct ? '正确' : '待改进') : '参考答案' }}
-                  </strong>
-                  <span>查看参考答案</span>
+                  <strong class="ok-text">参考答案</strong>
+                  <span>展开查看</span>
                 </summary>
                 <PracticeMarkdown
                   :key="`answer-${activeQuestion.questionId}`"
@@ -330,7 +325,14 @@
               </span>
             </div>
 
-            <div v-if="isCodingQuestion(activeQuestion)" class="practice-code-panel leetcode-answer-editor">
+            <div
+              v-if="isCodingQuestion(activeQuestion)"
+              :class="[
+                'practice-code-panel',
+                'leetcode-answer-editor',
+                { 'debug-open': codingDebugOpen[activeQuestion.questionId] },
+              ]"
+            >
               <div class="leetcode-editor-toolbar practice-editor-toolbar">
                 <label
                   ><span>语言</span
@@ -502,15 +504,6 @@
       </div>
 
       <section v-else class="glass-card practice-records-home">
-        <header class="practice-records-home-header">
-          <div>
-            <p class="eyebrow">Practice History</p>
-            <h2>练习记录</h2>
-            <p>继续未完成练习，或查看已提交练习的得分与复盘。</p>
-          </div>
-          <button class="primary-btn practice-create-button" @click="requestComposePractice('smart')">创建练习</button>
-        </header>
-
         <div
           v-if="recordsLoading"
           class="practice-records-loading"
@@ -526,41 +519,31 @@
         </div>
 
         <template v-else>
-          <div class="practice-record-summary" aria-label="练习记录概览">
-            <div>
-              <span>全部练习</span>
-              <strong>{{ exams.length }}</strong>
-            </div>
-            <div>
-              <span>进行中</span>
-              <strong>{{ inProgressExamCount }}</strong>
-            </div>
-            <div>
-              <span>已完成</span>
-              <strong>{{ submittedExamCount }}</strong>
-            </div>
-          </div>
-
           <div class="practice-records-home-toolbar">
             <label class="practice-record-search">
               <span>搜索练习记录</span>
               <input v-model.trim="recordKeyword" type="search" placeholder="搜索练习名称" />
             </label>
-            <div class="practice-record-status-tabs" aria-label="按状态筛选练习" role="tablist">
-              <button
-                v-for="item in [
-                  { value: 'all', label: '全部' },
-                  { value: 'running', label: '进行中' },
-                  { value: 'submitted', label: '已完成' },
-                ]"
-                :key="item.value"
-                type="button"
-                role="tab"
-                :aria-selected="recordStatus === item.value"
-                :class="{ active: recordStatus === item.value }"
-                @click="recordStatus = item.value"
-              >
-                {{ item.label }}
+            <div class="practice-record-toolbar-actions">
+              <div class="practice-record-status-tabs" aria-label="按状态筛选练习" role="tablist">
+                <button
+                  v-for="item in [
+                    { value: 'all', label: '全部' },
+                    { value: 'running', label: '进行中' },
+                    { value: 'submitted', label: '已完成' },
+                  ]"
+                  :key="item.value"
+                  type="button"
+                  role="tab"
+                  :aria-selected="recordStatus === item.value"
+                  :class="{ active: recordStatus === item.value }"
+                  @click="recordStatus = item.value"
+                >
+                  {{ item.label }}
+                </button>
+              </div>
+              <button class="primary-btn practice-create-button" @click="requestComposePractice('smart')">
+                创建练习
               </button>
             </div>
           </div>
@@ -781,8 +764,6 @@ const {
   answeredCount,
   unansweredQuestions,
   examProgressPercent,
-  inProgressExamCount,
-  submittedExamCount,
   filteredExams,
   activeQuestion,
   currentQuestionIndex,
@@ -843,6 +824,14 @@ const {
   PracticeMarkdown,
   QuestionEditModal,
 } = useInterviewBankPage(props, emit)
+
+function shouldRenderQuestionStem(question) {
+  const normalize = (value) =>
+    String(value || '')
+      .replace(/\s+/g, '')
+      .replace(/[。.!！?？]+$/g, '')
+  return normalize(questionStem(question)) !== normalize(question?.title)
+}
 
 defineExpose({
   showRecordsHome: returnToPracticeHome,

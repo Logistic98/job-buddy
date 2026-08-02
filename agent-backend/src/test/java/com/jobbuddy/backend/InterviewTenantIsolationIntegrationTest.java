@@ -38,7 +38,7 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
- * 使用真实 MyBatis SQL 验证面试题库的租户隔离边界。
+ * 使用真实 MyBatis SQL 验证面试题库的租户与用户隔离边界。
  */
 @SpringBootTest(
     classes = AgentBackendApplication.class,
@@ -56,6 +56,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class InterviewTenantIsolationIntegrationTest {
   private static final String TENANT_A = "interview-tenant-a";
   private static final String TENANT_B = "interview-tenant-b";
+  private static final String TENANT_A_USER = "tenant-a-user";
+  private static final String TENANT_A_OTHER_USER = "tenant-a-other-user";
+  private static final String TENANT_B_USER = "tenant-b-user";
 
   @Autowired private InterviewService interviewService;
   @Autowired private JdbcTemplate jdbcTemplate;
@@ -79,37 +82,49 @@ class InterviewTenantIsolationIntegrationTest {
   }
 
   /**
-   * 验证查询、元数据、更新、删除、批量、导入和手动选题都只作用于当前租户。
+   * 验证查询、元数据、更新、删除、批量、导入和手动选题都只作用于当前租户和用户。
    */
   @Test
   void questionMaintenanceAndManualSelectionShouldStayWithinTenant() {
     InterviewQuestionResponse tenantAQuestion =
         interviewService.saveQuestion(
-            TENANT_A, question("Tenant A question", "Tenant A category"), null);
+            TENANT_A, TENANT_A_USER, question("Tenant A question", "Tenant A category"), null);
+    InterviewQuestionResponse sameTenantOtherQuestion =
+        interviewService.saveQuestion(
+            TENANT_A,
+            TENANT_A_OTHER_USER,
+            question("Same tenant other question", "Same tenant other category"),
+            null);
     InterviewQuestionResponse tenantBQuestion =
         interviewService.saveQuestion(
-            TENANT_B, question("Tenant B question", "Tenant B category"), null);
+            TENANT_B, TENANT_B_USER, question("Tenant B question", "Tenant B category"), null);
 
     assertEquals(
         Integer.valueOf(1),
         interviewService
-            .pageQuestions(TENANT_A, "Tenant A question", null, null, null, 1, 20)
+            .pageQuestions(TENANT_A, TENANT_A_USER, "Tenant A question", null, null, null, 1, 20)
             .getTotal());
     assertEquals(
         Integer.valueOf(0),
         interviewService
-            .pageQuestions(TENANT_B, "Tenant A question", null, null, null, 1, 20)
+            .pageQuestions(
+                TENANT_A, TENANT_A_OTHER_USER, "Tenant A question", null, null, null, 1, 20)
+            .getTotal());
+    assertEquals(
+        Integer.valueOf(0),
+        interviewService
+            .pageQuestions(TENANT_B, TENANT_B_USER, "Tenant A question", null, null, null, 1, 20)
             .getTotal());
     assertTrue(
         interviewService
-            .questionMeta(TENANT_A, null)
+            .questionMeta(TENANT_A, TENANT_A_USER, null)
             .getCategories()
             .contains("Tenant A category"));
     assertFalse(
         interviewService
-            .questionMeta(TENANT_A, null)
+            .questionMeta(TENANT_A, TENANT_A_USER, null)
             .getCategories()
-            .contains("Tenant B category"));
+            .contains("Same tenant other category"));
 
     IllegalArgumentException updateError =
         assertThrows(
@@ -117,31 +132,42 @@ class InterviewTenantIsolationIntegrationTest {
             () ->
                 interviewService.saveQuestion(
                     TENANT_A,
+                    TENANT_A_USER,
                     question("Cross tenant update", "Cross tenant category"),
-                    tenantBQuestion.getQuestionId()));
+                    sameTenantOtherQuestion.getQuestionId()));
     assertEquals("题目不存在", updateError.getMessage());
 
-    interviewService.deleteQuestion(TENANT_A, tenantBQuestion.getQuestionId());
+    interviewService.deleteQuestion(
+        TENANT_A, TENANT_A_USER, sameTenantOtherQuestion.getQuestionId());
     assertEquals(
         Integer.valueOf(1),
         interviewService
-            .pageQuestions(TENANT_B, "Tenant B question", null, null, null, 1, 20)
+            .pageQuestions(
+                TENANT_A,
+                TENANT_A_OTHER_USER,
+                "Same tenant other question",
+                null,
+                null,
+                null,
+                1,
+                20)
             .getTotal());
 
     InterviewBatchRequest batchRequest = new InterviewBatchRequest();
     batchRequest.setAction("update");
-    batchRequest.setQuestionIds(Collections.singletonList(tenantBQuestion.getQuestionId()));
+    batchRequest.setQuestionIds(Collections.singletonList(sameTenantOtherQuestion.getQuestionId()));
     batchRequest.setCategory("Cross tenant batch");
-    InterviewBatchResponse batchResponse = interviewService.batchQuestions(TENANT_A, batchRequest);
+    InterviewBatchResponse batchResponse =
+        interviewService.batchQuestions(TENANT_A, TENANT_A_USER, batchRequest);
     assertEquals(Integer.valueOf(0), batchResponse.getCount());
     assertTrue(
         interviewService
-            .questionMeta(TENANT_B, null)
+            .questionMeta(TENANT_A, TENANT_A_OTHER_USER, null)
             .getCategories()
-            .contains("Tenant B category"));
+            .contains("Same tenant other category"));
     assertFalse(
         interviewService
-            .questionMeta(TENANT_B, null)
+            .questionMeta(TENANT_A, TENANT_A_OTHER_USER, null)
             .getCategories()
             .contains("Cross tenant batch"));
 
@@ -149,7 +175,7 @@ class InterviewTenantIsolationIntegrationTest {
     importRequest.setItems(
         Collections.singletonList(question("Tenant A imported", "Tenant A imported category")));
     InterviewImportResponse importResponse =
-        interviewService.importQuestions(TENANT_A, importRequest);
+        interviewService.importQuestions(TENANT_A, TENANT_A_USER, importRequest);
     assertEquals(Integer.valueOf(1), importResponse.getCount());
     assertEquals(
         TENANT_A,
@@ -157,28 +183,48 @@ class InterviewTenantIsolationIntegrationTest {
             "SELECT tenant_id FROM interview_question WHERE question_id = ?",
             String.class,
             importResponse.getItems().get(0).getQuestionId()));
+    assertEquals(
+        TENANT_A_USER,
+        jdbcTemplate.queryForObject(
+            "SELECT user_id FROM interview_question WHERE question_id = ?",
+            String.class,
+            importResponse.getItems().get(0).getQuestionId()));
 
     InterviewExamRequest examRequest = new InterviewExamRequest();
     examRequest.setTitle("Tenant A manual practice");
     examRequest.setRecorded(Boolean.FALSE);
     examRequest.setQuestionIds(
-        Arrays.asList(tenantAQuestion.getQuestionId(), tenantBQuestion.getQuestionId()));
+        Arrays.asList(
+            tenantAQuestion.getQuestionId(),
+            sameTenantOtherQuestion.getQuestionId(),
+            tenantBQuestion.getQuestionId()));
     InterviewExamResponse exam =
-        interviewService.createRandomExam(TENANT_A, "tenant-a-user", examRequest);
+        interviewService.createRandomExam(TENANT_A, TENANT_A_USER, examRequest);
     assertEquals(Integer.valueOf(1), exam.getTotalCount());
     assertEquals(tenantAQuestion.getQuestionId(), exam.getQuestions().get(0).getQuestionId());
   }
 
   /**
-   * 验证智能组卷只向 Runtime 披露当前租户的启用题目。
+   * 验证智能组卷只向 Runtime 披露当前租户和用户的启用题目。
    */
   @Test
   void smartSelectionShouldOnlyExposeCurrentTenantCandidates() {
     InterviewQuestionResponse tenantAQuestion =
         interviewService.saveQuestion(
-            TENANT_A, question("Tenant A smart question", "Tenant A smart category"), null);
+            TENANT_A,
+            TENANT_A_USER,
+            question("Tenant A smart question", "Tenant A smart category"),
+            null);
     interviewService.saveQuestion(
-        TENANT_B, question("Tenant B smart question", "Tenant B smart category"), null);
+        TENANT_A,
+        TENANT_A_OTHER_USER,
+        question("Same tenant other smart question", "Same tenant other smart category"),
+        null);
+    interviewService.saveQuestion(
+        TENANT_B,
+        TENANT_B_USER,
+        question("Tenant B smart question", "Tenant B smart category"),
+        null);
 
     Map<String, Object> output = new LinkedHashMap<String, Object>();
     output.put("title", "Tenant A smart practice");
@@ -195,7 +241,7 @@ class InterviewTenantIsolationIntegrationTest {
 
     InterviewSmartExamRequest request = new InterviewSmartExamRequest();
     request.setRequirements("Choose the current tenant question for a focused practice.");
-    interviewService.createSmartExam(TENANT_A, "tenant-a-user", request);
+    interviewService.createSmartExam(TENANT_A, TENANT_A_USER, request);
 
     ArgumentCaptor<RuntimeToolArguments> argumentsCaptor =
         ArgumentCaptor.forClass(RuntimeToolArguments.class);

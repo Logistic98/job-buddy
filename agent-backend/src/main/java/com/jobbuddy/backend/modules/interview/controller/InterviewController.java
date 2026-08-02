@@ -90,6 +90,7 @@ public class InterviewController {
     return ApiResponse.success(
         interviewService.pageQuestions(
             AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
             keyword,
             bankType,
             category,
@@ -111,7 +112,10 @@ public class InterviewController {
       @RequestParam(value = "bankType", required = false) String bankType,
       HttpServletRequest request) {
     return ApiResponse.success(
-        interviewService.questionMeta(AuthenticatedUserContext.tenantId(request), bankType));
+        interviewService.questionMeta(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
+            bankType));
   }
 
   /**
@@ -126,7 +130,11 @@ public class InterviewController {
   public ApiResponse<InterviewQuestionResponse> createQuestion(
       @RequestBody InterviewQuestionRequest payload, HttpServletRequest request) {
     return ApiResponse.success(
-        interviewService.saveQuestion(AuthenticatedUserContext.tenantId(request), payload, null));
+        interviewService.saveQuestion(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
+            payload,
+            null));
   }
 
   /**
@@ -141,7 +149,10 @@ public class InterviewController {
   public ApiResponse<InterviewImportResponse> importQuestions(
       @RequestBody InterviewImportRequest payload, HttpServletRequest request) {
     return ApiResponse.success(
-        interviewService.importQuestions(AuthenticatedUserContext.tenantId(request), payload));
+        interviewService.importQuestions(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
+            payload));
   }
 
   /**
@@ -182,7 +193,10 @@ public class InterviewController {
   public ApiResponse<InterviewBatchResponse> batchQuestions(
       @RequestBody InterviewBatchRequest payload, HttpServletRequest request) {
     return ApiResponse.success(
-        interviewService.batchQuestions(AuthenticatedUserContext.tenantId(request), payload));
+        interviewService.batchQuestions(
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
+            payload));
   }
 
   /**
@@ -201,7 +215,10 @@ public class InterviewController {
       HttpServletRequest request) {
     return ApiResponse.success(
         interviewService.saveQuestion(
-            AuthenticatedUserContext.tenantId(request), payload, questionId));
+            AuthenticatedUserContext.tenantId(request),
+            AuthenticatedUserContext.userId(request),
+            payload,
+            questionId));
   }
 
   /**
@@ -215,7 +232,10 @@ public class InterviewController {
   @DeleteMapping("/questions/{questionId}")
   public ApiResponse<QuestionIdResponse> deleteQuestion(
       @PathVariable String questionId, HttpServletRequest request) {
-    interviewService.deleteQuestion(AuthenticatedUserContext.tenantId(request), questionId);
+    interviewService.deleteQuestion(
+        AuthenticatedUserContext.tenantId(request),
+        AuthenticatedUserContext.userId(request),
+        questionId);
     return ApiResponse.success(new QuestionIdResponse(questionId));
   }
 

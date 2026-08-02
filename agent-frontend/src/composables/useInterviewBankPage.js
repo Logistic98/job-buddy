@@ -186,8 +186,6 @@ export function useInterviewBankPage(props, emit) {
   const examProgressPercent = computed(() =>
     examTotalCount.value ? Math.round((answeredCount.value / examTotalCount.value) * 100) : 0,
   )
-  const inProgressExamCount = computed(() => exams.value.filter((exam) => exam.status !== 'submitted').length)
-  const submittedExamCount = computed(() => exams.value.filter((exam) => exam.status === 'submitted').length)
   const filteredExams = computed(() => {
     const keyword = recordKeyword.value.trim().toLowerCase()
     return exams.value.filter((exam) => {
@@ -800,8 +798,6 @@ export function useInterviewBankPage(props, emit) {
     answeredCount,
     unansweredQuestions,
     examProgressPercent,
-    inProgressExamCount,
-    submittedExamCount,
     filteredExams,
     currentQuestionIndexMap,
     activeQuestion,

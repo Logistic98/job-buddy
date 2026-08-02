@@ -1,3 +1,4 @@
+import katex from 'katex'
 import { enableKatex, enableMermaid, setCustomComponents } from 'markstream-vue'
 import HighlightedCodeBlock from '../components/HighlightedCodeBlock.vue'
 
@@ -9,7 +10,6 @@ const MERMAID_CONFIG = Object.freeze({
 })
 
 let mermaidLoaderPromise = null
-let katexLoaderPromise = null
 let assistantMarkdownFeaturesRegistered = false
 
 export function loadMermaid() {
@@ -24,8 +24,7 @@ export function loadMermaid() {
 }
 
 export function loadKatex() {
-  if (!katexLoaderPromise) katexLoaderPromise = import('katex').then((module) => module.default || module)
-  return katexLoaderPromise
+  return Promise.resolve(katex)
 }
 
 enableMermaid(loadMermaid)

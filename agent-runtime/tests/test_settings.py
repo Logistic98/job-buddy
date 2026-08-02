@@ -23,6 +23,7 @@ llm_service:
   timeout_seconds: "${JOB_BUDDY_LLM_TIMEOUT_SECONDS:60}"
 runtime:
   use_llm_planner: "${JOB_BUDDY_RUNTIME_USE_LLM_PLANNER:false}"
+  interview_generation_concurrency: "${JOB_BUDDY_RUNTIME_INTERVIEW_GENERATION_CONCURRENCY:4}"
 """,
         encoding="utf-8",
     )
@@ -31,6 +32,7 @@ runtime:
     monkeypatch.setenv("JOB_BUDDY_LLM_TIMEOUT_SECONDS", "15")
     monkeypatch.setenv("JOB_BUDDY_LLM_PROVIDER", "chatgpt_pro")
     monkeypatch.setenv("JOB_BUDDY_RUNTIME_USE_LLM_PLANNER", "false")
+    monkeypatch.setenv("JOB_BUDDY_RUNTIME_INTERVIEW_GENERATION_CONCURRENCY", "6")
 
     loaded = reload_settings(str(config_path))
 
@@ -39,6 +41,7 @@ runtime:
     assert loaded.model_api_key == "test-secret"
     assert loaded.model_timeout_seconds == 15
     assert loaded.config.runtime.use_llm_planner is False
+    assert loaded.config.runtime.interview_generation_concurrency == 6
 
 
 def test_config_reload_switches_file(tmp_path):

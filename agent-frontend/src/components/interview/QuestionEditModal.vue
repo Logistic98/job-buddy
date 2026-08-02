@@ -433,22 +433,14 @@
           </div>
 
           <div v-else-if="currentStep === 1" class="practice-section">
-            <div v-if="aiForm.bankType === 'leetcode'" class="question-source-notice">
-              <b>LeetCode 链接只作为来源标识</b>
-              <span
-                >当前没有可依赖的公开题目导入
-                API，系统不会抓取网页。若要按原题精确生成，请同时粘贴题面或上传资料。</span
-              >
+            <div class="question-section-heading question-source-heading">
+              <div>
+                <span class="practice-field-label">生成依据</span>
+                <small>{{ aiSourceStepHint }}</small>
+              </div>
+              <span class="question-parallel-badge">{{ aiGenerationModeLabel }}</span>
             </div>
-            <label v-if="aiForm.bankType === 'leetcode'" class="practice-field"
-              ><span class="practice-field-label">LeetCode 题目链接</span
-              ><input
-                v-model.trim="aiForm.sourceUrl"
-                maxlength="500"
-                placeholder="https://leetcode.com/problems/two-sum/"
-              /><small class="field-hint">支持 leetcode.com 和 leetcode.cn 的标准题目地址，可不填。</small></label
-            >
-            <div class="practice-field">
+            <div class="practice-field question-source-upload">
               <span class="practice-field-label">上传资料</span>
               <div class="doc-upload-field">
                 <label class="doc-upload-box">
@@ -473,24 +465,26 @@
               </div>
               <small v-if="documentNotice" class="field-hint">{{ documentNotice }}</small>
             </div>
-            <label class="practice-field"
-              ><span class="practice-field-label">{{ aiSourceTextLabel }}</span
-              ><textarea
-                v-model="aiForm.documentText"
-                class="question-source-textarea"
-                maxlength="20000"
-                :placeholder="aiSourceTextPlaceholder"
-              /><small class="field-hint">{{ aiForm.documentText.length }} / 20000</small></label
-            >
-            <label class="practice-field"
-              ><span class="practice-field-label">出题要求</span
-              ><textarea
-                v-model="aiForm.requirements"
-                class="question-requirements-textarea"
-                maxlength="2000"
-                :placeholder="aiRequirementsPlaceholder"
-              />
-            </label>
+            <div class="question-source-layout">
+              <label class="practice-field question-source-main"
+                ><span class="practice-field-label">{{ aiSourceTextLabel }}</span
+                ><textarea
+                  v-model="aiForm.documentText"
+                  class="question-source-textarea"
+                  maxlength="20000"
+                  :placeholder="aiSourceTextPlaceholder"
+                /><small class="field-hint">{{ aiForm.documentText.length }} / 20000</small></label
+              >
+              <label class="practice-field question-source-requirements"
+                ><span class="practice-field-label">出题要求</span
+                ><textarea
+                  v-model="aiForm.requirements"
+                  class="question-requirements-textarea"
+                  maxlength="2000"
+                  :placeholder="aiRequirementsPlaceholder"
+                /><small class="field-hint">{{ aiForm.requirements.length }} / 2000</small></label
+              >
+            </div>
             <div class="question-generation-summary" aria-live="polite">
               <span>本次将生成待审核候选题</span>
               <strong>{{ generationSummary }}</strong>
@@ -1013,7 +1007,6 @@ const emptyAiForm = () => ({
   language: 'python',
   count: 3,
   requirements: '',
-  sourceUrl: '',
   documentName: '',
   documentText: '',
 })
@@ -1076,7 +1069,7 @@ const aiSteps = computed(() =>
   aiForm.bankType === 'leetcode'
     ? [
         { key: 'settings', label: '生成设置', description: '算法主题与难度' },
-        { key: 'requirements', label: '生成来源', description: '题面、链接与要求' },
+        { key: 'requirements', label: '生成来源', description: '资料与出题要求' },
         { key: 'review', label: '审核入库', description: '题面、代码与用例' },
       ]
     : [
@@ -1159,6 +1152,12 @@ const aiSourceTextPlaceholder = computed(() =>
     ? '可粘贴已合法取得的题面、输入输出说明和样例；上传文档后也可在这里继续修改'
     : '可粘贴技术文档、岗位要求、面试笔记或评分依据；上传文档后也可继续修改',
 )
+const aiSourceStepHint = computed(() =>
+  aiForm.bankType === 'leetcode'
+    ? '可上传或粘贴已有题面，也可以只填写要求生成原创算法题。'
+    : '可上传或粘贴知识资料，也可以只填写要求生成完整问答题。',
+)
+const aiGenerationModeLabel = computed(() => (Number(aiForm.count) > 1 ? '多题并行生成' : '单题生成'))
 const aiRequirementsPlaceholder = computed(() =>
   aiForm.bankType === 'leetcode'
     ? '例如：生成 3 道动态规划算法题，覆盖状态定义、边界条件与时间复杂度分析（最多 2000 字）'

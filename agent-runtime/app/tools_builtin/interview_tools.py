@@ -4,12 +4,14 @@
 Prompt 资产中，Runtime Core 只负责加载、调用与结构校验。
 """
 
+import asyncio
 import json
 import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from app.core.common.constants import ToolRiskLevel
+from app.core.common.settings import settings
 from app.core.llm.openai_client import LLMServiceError, OpenAICompatibleClient
 from app.core.prompt.loader import PromptTemplateLoader
 from app.core.tool.base import BaseTool, ToolExecutionContext, ValidationResult
@@ -25,6 +27,20 @@ SUPPORTED_LANGUAGES = {"python", "java", "javascript"}
 SUPPORTED_DIFFICULTIES = {"简单", "中等", "困难"}
 LEETCODE_HOSTS = {"leetcode.com", "www.leetcode.com", "leetcode.cn", "www.leetcode.cn"}
 FUNCTION_NAME_PATTERN = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+
+
+def _generation_batches(count: int, concurrency: int) -> List[tuple[int, int]]:
+    """把候选题数量均匀拆成有序批次，返回每批的起始序号和题量。"""
+
+    worker_count = min(count, max(1, concurrency))
+    base_size, remainder = divmod(count, worker_count)
+    batches: List[tuple[int, int]] = []
+    start_index = 1
+    for worker_index in range(worker_count):
+        batch_size = base_size + (1 if worker_index < remainder else 0)
+        batches.append((start_index, batch_size))
+        start_index += batch_size
+    return batches
 
 
 def _extract_json_object(content: str) -> Dict[str, Any]:
@@ -417,22 +433,40 @@ class InterviewQuestionGenerateTool(BaseTool):
             "source_url": source_url,
             "source_text": source_text,
         }
-        try:
-            response = await self._client().chat(
-                messages=[
-                    ChatMessage(role="system", content=prompt),
-                    ChatMessage(role="user", content=json.dumps(generation_input, ensure_ascii=False)),
-                ],
-                temperature=0.2,
-                max_tokens=MAX_GENERATION_TOKENS,
-                disable_thinking=True,
-            )
-        except LLMServiceError as exc:
-            raise RuntimeError(f"候选题生成调用模型失败：{exc}") from exc
-        # 模型返回题量必须与请求完全一致，每道题再按题库类型规范化。
-        payload = _extract_json_object(response.get("content") or "")
-        rows = payload.get("items")
-        if not isinstance(rows, list) or len(rows) != count:
+
+        async def generate_batch(start_index: int, batch_size: int) -> List[Dict[str, Any]]:
+            batch_input = {
+                **generation_input,
+                "count": batch_size,
+                "candidate_start_index": start_index,
+                "candidate_total": count,
+            }
+            try:
+                response = await self._client().chat(
+                    messages=[
+                        ChatMessage(role="system", content=prompt),
+                        ChatMessage(role="user", content=json.dumps(batch_input, ensure_ascii=False)),
+                    ],
+                    temperature=0.2,
+                    max_tokens=MAX_GENERATION_TOKENS,
+                    disable_thinking=True,
+                )
+            except LLMServiceError as exc:
+                raise RuntimeError(f"第 {start_index}-{start_index + batch_size - 1} 道候选题生成失败：{exc}") from exc
+            payload = _extract_json_object(response.get("content") or "")
+            batch_rows = payload.get("items")
+            if not isinstance(batch_rows, list) or len(batch_rows) != batch_size:
+                raise ValueError(f"模型应返回 {batch_size} 道候选题，请重新生成")
+            return batch_rows
+
+        concurrency = settings.config.runtime.interview_generation_concurrency
+        batches = _generation_batches(count, concurrency)
+        generated_batches = await asyncio.gather(
+            *(generate_batch(start_index, batch_size) for start_index, batch_size in batches)
+        )
+        rows = [row for batch_rows in generated_batches for row in batch_rows]
+        # 并行批次按起始序号合并后仍必须与请求题量完全一致，再逐题规范化。
+        if len(rows) != count:
             raise ValueError(f"模型应返回 {count} 道候选题，请重新生成")
         items = [_normalize_item(row, bank_type, category, difficulty, question_type, language) for row in rows]
         notice = (

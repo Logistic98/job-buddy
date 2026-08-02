@@ -70,14 +70,15 @@ public class InterviewServiceImpl implements InterviewService {
    * 查询题目列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param category 题目分类
    * @return 题目列表
    */
   public List<InterviewQuestionResponse> listQuestions(
-      String tenantId, String keyword, String category) {
+      String tenantId, String userId, String keyword, String category) {
     return jsonCodec.convertList(
-        interviewRepository.listQuestions(tenantId, keyword, category),
+        interviewRepository.listQuestions(tenantId, userId, keyword, category),
         InterviewQuestionResponse.class);
   }
 
@@ -85,6 +86,7 @@ public class InterviewServiceImpl implements InterviewService {
    * 获取分页题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param bankType 题库类型
    * @param category 题目分类
@@ -95,6 +97,7 @@ public class InterviewServiceImpl implements InterviewService {
    */
   public InterviewQuestionPageResponse pageQuestions(
       String tenantId,
+      String userId,
       String keyword,
       String bankType,
       String category,
@@ -106,10 +109,10 @@ public class InterviewServiceImpl implements InterviewService {
     String normalizedBankType = normalizeBankType(bankType, null);
     int total =
         interviewRepository.countQuestions(
-            tenantId, keyword, normalizedBankType, category, difficulty);
+            tenantId, userId, keyword, normalizedBankType, category, difficulty);
     List<Map<String, Object>> items =
         interviewRepository.listQuestions(
-            tenantId, keyword, normalizedBankType, category, difficulty, page, size);
+            tenantId, userId, keyword, normalizedBankType, category, difficulty, page, size);
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("items", items);
     result.put("total", Integer.valueOf(total));
@@ -123,12 +126,14 @@ public class InterviewServiceImpl implements InterviewService {
    * 获取题目元数据。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param bankType 题库类型
    * @return 题目元数据
    */
-  public InterviewQuestionMetaResponse questionMeta(String tenantId, String bankType) {
+  public InterviewQuestionMetaResponse questionMeta(
+      String tenantId, String userId, String bankType) {
     Map<String, Object> meta =
-        interviewRepository.questionMeta(tenantId, normalizeBankType(bankType, null));
+        interviewRepository.questionMeta(tenantId, userId, normalizeBankType(bankType, null));
     List<Map<String, Object>> bankTypes = new ArrayList<Map<String, Object>>();
     addBankTypeMeta(bankTypes, "leetcode", "算法题库");
     addBankTypeMeta(bankTypes, "qa", "问答题库");
@@ -140,14 +145,15 @@ public class InterviewServiceImpl implements InterviewService {
    * 保存题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param request 请求对象
    * @param questionId 题目标识
    * @return 保存后的题目
    */
   public InterviewQuestionResponse saveQuestion(
-      String tenantId, InterviewQuestionRequest request, String questionId) {
+      String tenantId, String userId, InterviewQuestionRequest request, String questionId) {
     return jsonCodec.convert(
-        saveQuestionMap(tenantId, jsonCodec.toMap(request), questionId),
+        saveQuestionMap(tenantId, userId, jsonCodec.toMap(request), questionId),
         InterviewQuestionResponse.class);
   }
 
@@ -155,14 +161,16 @@ public class InterviewServiceImpl implements InterviewService {
    * 保存题目映射。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param payload 请求载荷
    * @param questionId 题目标识
    * @return 保存后的题目映射
    */
   private Map<String, Object> saveQuestionMap(
-      String tenantId, Map<String, Object> payload, String questionId) {
+      String tenantId, String userId, Map<String, Object> payload, String questionId) {
     if (payload == null) payload = Collections.emptyMap();
-    if (!isBlank(questionId) && interviewRepository.findQuestion(tenantId, questionId) == null) {
+    if (!isBlank(questionId)
+        && interviewRepository.findQuestion(tenantId, userId, questionId) == null) {
       throw new IllegalArgumentException("题目不存在");
     }
     Map<String, Object> question = new LinkedHashMap<String, Object>();
@@ -187,29 +195,33 @@ public class InterviewServiceImpl implements InterviewService {
     question.put(
         "codingMeta", normalizeCodingMeta(payload.get("codingMeta"), "leetcode".equals(bankType)));
     question.put("enabled", Boolean.TRUE);
-    interviewRepository.saveQuestion(tenantId, question);
-    return interviewRepository.findQuestion(tenantId, String.valueOf(question.get("questionId")));
+    interviewRepository.saveQuestion(tenantId, userId, question);
+    return interviewRepository.findQuestion(
+        tenantId, userId, String.valueOf(question.get("questionId")));
   }
 
   /**
    * 删除题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    */
-  public void deleteQuestion(String tenantId, String questionId) {
-    interviewRepository.deleteQuestion(tenantId, questionId);
+  public void deleteQuestion(String tenantId, String userId, String questionId) {
+    interviewRepository.deleteQuestion(tenantId, userId, questionId);
   }
 
   /**
    * 获取批次题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param request 请求对象
    * @return 批次题目
    */
   @SuppressWarnings("unchecked")
-  public InterviewBatchResponse batchQuestions(String tenantId, InterviewBatchRequest request) {
+  public InterviewBatchResponse batchQuestions(
+      String tenantId, String userId, InterviewBatchRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
     Object idsValue = payload == null ? null : payload.get("questionIds");
     if (!(idsValue instanceof List)) throw new IllegalArgumentException("请选择要批量操作的题目");
@@ -222,7 +234,7 @@ public class InterviewServiceImpl implements InterviewService {
     String action = defaultString(payload.get("action"), "update");
     int affectedCount;
     if ("delete".equals(action)) {
-      affectedCount = interviewRepository.batchDeleteQuestions(tenantId, questionIds);
+      affectedCount = interviewRepository.batchDeleteQuestions(tenantId, userId, questionIds);
     } else {
       Map<String, Object> fields = new LinkedHashMap<String, Object>();
       String category = stringValue(payload.get("category"));
@@ -233,7 +245,8 @@ public class InterviewServiceImpl implements InterviewService {
         fields.put("difficulty", difficulty.trim());
       if (tags != null) fields.put("tags", normalizeTags(tags));
       if (fields.isEmpty()) throw new IllegalArgumentException("请至少填写分类、难度或标签中的一项");
-      affectedCount = interviewRepository.batchUpdateQuestions(tenantId, questionIds, fields);
+      affectedCount =
+          interviewRepository.batchUpdateQuestions(tenantId, userId, questionIds, fields);
     }
     Map<String, Object> result = new LinkedHashMap<String, Object>();
     result.put("count", Integer.valueOf(affectedCount));
@@ -245,12 +258,14 @@ public class InterviewServiceImpl implements InterviewService {
    * 导入题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param request 请求对象
    * @return 导入后的题目列表
    */
   @SuppressWarnings("unchecked")
   @Transactional
-  public InterviewImportResponse importQuestions(String tenantId, InterviewImportRequest request) {
+  public InterviewImportResponse importQuestions(
+      String tenantId, String userId, InterviewImportRequest request) {
     Map<String, Object> payload = jsonCodec.toMap(request);
     Object value = payload == null ? null : payload.get("items");
     List<Object> rows = value instanceof List ? (List<Object>) value : Collections.emptyList();
@@ -258,7 +273,7 @@ public class InterviewServiceImpl implements InterviewService {
     List<Map<String, Object>> items = new ArrayList<Map<String, Object>>();
     for (Object row : rows) {
       if (!(row instanceof Map)) continue;
-      Map<String, Object> item = saveQuestionMap(tenantId, (Map<String, Object>) row, null);
+      Map<String, Object> item = saveQuestionMap(tenantId, userId, (Map<String, Object>) row, null);
       items.add(item);
       saved++;
     }
@@ -410,7 +425,7 @@ public class InterviewServiceImpl implements InterviewService {
         if (questionId == null || questionId.trim().isEmpty() || used.contains(questionId))
           continue;
         Map<String, Object> question =
-            interviewRepository.findQuestion(tenantId, questionId.trim());
+            interviewRepository.findQuestion(tenantId, userId, questionId.trim());
         if (question == null) continue;
         selected.add(question);
         used.add(questionId);
@@ -427,6 +442,7 @@ public class InterviewServiceImpl implements InterviewService {
         List<Map<String, Object>> pool =
             interviewRepository.findEnabled(
                 tenantId,
+                userId,
                 bankType,
                 stringValue(rule.get("category")),
                 stringValue(rule.get("difficulty")),
@@ -450,6 +466,7 @@ public class InterviewServiceImpl implements InterviewService {
       List<Map<String, Object>> pool =
           interviewRepository.findEnabled(
               tenantId,
+              userId,
               bankType,
               category,
               difficulty,
@@ -513,7 +530,7 @@ public class InterviewServiceImpl implements InterviewService {
     if (agentIntegrationService == null) throw new IllegalStateException("智能组卷服务未配置");
 
     List<Map<String, Object>> enabledQuestions =
-        interviewRepository.findEnabled(tenantId, null, null, null, null);
+        interviewRepository.findEnabled(tenantId, userId, null, null, null, null);
     if (enabledQuestions == null || enabledQuestions.isEmpty()) {
       throw new IllegalArgumentException("题库暂无可用题目，请先维护题库再智能组卷");
     }
@@ -592,7 +609,7 @@ public class InterviewServiceImpl implements InterviewService {
           || !candidateQuestions.containsKey(questionId)) {
         throw new IllegalArgumentException("智能组卷结果包含不可用题目，请调整要求后重试");
       }
-      Map<String, Object> current = interviewRepository.findQuestion(tenantId, questionId);
+      Map<String, Object> current = interviewRepository.findQuestion(tenantId, userId, questionId);
       if (current == null || Boolean.FALSE.equals(current.get("enabled"))) {
         throw new IllegalArgumentException("智能组卷结果包含不可用题目，请调整要求后重试");
       }

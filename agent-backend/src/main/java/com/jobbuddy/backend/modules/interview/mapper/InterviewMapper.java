@@ -16,6 +16,7 @@ public interface InterviewMapper {
    * 查询题目列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param bankType 题库类型
    * @param category 分类
@@ -26,6 +27,7 @@ public interface InterviewMapper {
    */
   List<Map<String, Object>> listQuestions(
       @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
       @Param("keyword") String keyword,
       @Param("bankType") String bankType,
       @Param("category") String category,
@@ -37,6 +39,7 @@ public interface InterviewMapper {
    * 统计题目列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param keyword 关键词
    * @param bankType 题库类型
    * @param category 分类
@@ -45,6 +48,7 @@ public interface InterviewMapper {
    */
   int countQuestions(
       @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
       @Param("keyword") String keyword,
       @Param("bankType") String bankType,
       @Param("category") String category,
@@ -54,6 +58,7 @@ public interface InterviewMapper {
    * 查找启用状态。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param bankType 题库类型
    * @param category 分类
    * @param difficulty 难度
@@ -62,6 +67,7 @@ public interface InterviewMapper {
    */
   List<Map<String, Object>> findEnabled(
       @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
       @Param("bankType") String bankType,
       @Param("category") String category,
       @Param("difficulty") String difficulty,
@@ -71,58 +77,75 @@ public interface InterviewMapper {
    * 查询题库类型。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @return 题库类型列表
    */
-  List<String> listBankTypes(@Param("tenantId") String tenantId);
+  List<String> listBankTypes(@Param("tenantId") String tenantId, @Param("userId") String userId);
 
   /**
    * 查询题目分类。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param bankType 题库类型
    * @return 题目分类列表
    */
   List<String> listCategories(
-      @Param("tenantId") String tenantId, @Param("bankType") String bankType);
+      @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
+      @Param("bankType") String bankType);
 
   /**
    * 查询难度列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param bankType 题库类型
    * @return 难度列表
    */
   List<String> listDifficulties(
-      @Param("tenantId") String tenantId, @Param("bankType") String bankType);
+      @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
+      @Param("bankType") String bankType);
 
   /**
    * 查询题目类型列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param bankType 题库类型
    * @return 题目类型列表
    */
   List<String> listQuestionTypes(
-      @Param("tenantId") String tenantId, @Param("bankType") String bankType);
+      @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
+      @Param("bankType") String bankType);
 
   /**
    * 查找题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    * @return 题目
    */
   Map<String, Object> findQuestion(
-      @Param("tenantId") String tenantId, @Param("questionId") String questionId);
+      @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
+      @Param("questionId") String questionId);
 
   /**
    * 统计题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    * @return 统计数量
    */
-  int countQuestion(@Param("tenantId") String tenantId, @Param("questionId") Object questionId);
+  int countQuestion(
+      @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
+      @Param("questionId") Object questionId);
 
   /**
    * 新增题目。
@@ -144,12 +167,14 @@ public interface InterviewMapper {
    * 软删除题目。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    * @param updatedAt 更新时间
    * @return 题目
    */
   int softDeleteQuestion(
       @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
       @Param("questionId") String questionId,
       @Param("updatedAt") Timestamp updatedAt);
 
@@ -157,6 +182,7 @@ public interface InterviewMapper {
    * 更新题目分类。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    * @param category 分类
    * @param updatedAt 更新时间
@@ -164,6 +190,7 @@ public interface InterviewMapper {
    */
   int updateQuestionCategory(
       @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
       @Param("questionId") String questionId,
       @Param("category") Object category,
       @Param("updatedAt") Timestamp updatedAt);
@@ -172,6 +199,7 @@ public interface InterviewMapper {
    * 更新题目难度。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    * @param difficulty 难度
    * @param updatedAt 更新时间
@@ -179,6 +207,7 @@ public interface InterviewMapper {
    */
   int updateQuestionDifficulty(
       @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
       @Param("questionId") String questionId,
       @Param("difficulty") Object difficulty,
       @Param("updatedAt") Timestamp updatedAt);
@@ -187,6 +216,7 @@ public interface InterviewMapper {
    * 更新题目标签列表。
    *
    * @param tenantId 租户标识
+   * @param userId 用户标识
    * @param questionId 题目标识
    * @param tagsJson 标签列表 JSON
    * @param updatedAt 更新时间
@@ -194,6 +224,7 @@ public interface InterviewMapper {
    */
   int updateQuestionTags(
       @Param("tenantId") String tenantId,
+      @Param("userId") String userId,
       @Param("questionId") String questionId,
       @Param("tagsJson") String tagsJson,
       @Param("updatedAt") Timestamp updatedAt);

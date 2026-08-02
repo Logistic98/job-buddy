@@ -1,10 +1,15 @@
+import asyncio
 import json
 
 import pytest
 
 from app.core.tool.base import ToolExecutionContext
 from app.models.schemas import ToolCall
-from app.tools_builtin.interview_tools import InterviewPaperComposeTool, InterviewQuestionGenerateTool
+from app.tools_builtin.interview_tools import (
+    InterviewPaperComposeTool,
+    InterviewQuestionGenerateTool,
+    _generation_batches,
+)
 
 
 class _StubLLM:
@@ -22,6 +27,30 @@ class _StubLLM:
             }
         )
         return {"content": self.content}
+
+
+class _ParallelStubLLM:
+    def __init__(self):
+        self.calls = []
+        self.active_calls = 0
+        self.max_active_calls = 0
+
+    async def chat(self, messages, temperature=None, max_tokens=None, disable_thinking=False):
+        self.calls.append({"messages": messages, "max_tokens": max_tokens})
+        self.active_calls += 1
+        self.max_active_calls = max(self.max_active_calls, self.active_calls)
+        try:
+            await asyncio.sleep(0.02)
+            generation_input = json.loads(messages[1].content)
+            start_index = generation_input["candidate_start_index"]
+            items = []
+            for offset in range(generation_input["count"]):
+                item = json.loads(json.dumps(_algorithm_item(), ensure_ascii=False))
+                item["title"] = f"并行候选题 {start_index + offset}"
+                items.append(item)
+            return {"content": json.dumps({"items": items}, ensure_ascii=False)}
+        finally:
+            self.active_calls -= 1
 
 
 def _context():
@@ -90,6 +119,46 @@ async def test_generate_algorithm_candidates_without_persistence():
     user_input = json.loads(stub.calls[0]["messages"][1].content)
     assert user_input["source_url"] == "https://leetcode.com/problems/merge-intervals/"
     assert user_input["source_text"] == "用户粘贴的参考题面"
+    system_prompt = stub.calls[0]["messages"][0].content
+    assert "## 1. 解题思路" in system_prompt
+    assert "## 2. 口述要点" in system_prompt
+    assert "## 3. 代码示例" in system_prompt
+    assert "参考实现必须能通过 codingMeta.tests" in system_prompt
+
+
+def test_generation_batches_are_bounded_and_keep_order():
+    assert _generation_batches(1, 4) == [(1, 1)]
+    assert _generation_batches(10, 4) == [(1, 3), (4, 3), (7, 2), (9, 2)]
+
+
+@pytest.mark.asyncio
+async def test_generate_multiple_candidates_in_parallel(monkeypatch):
+    stub = _ParallelStubLLM()
+    tool = InterviewQuestionGenerateTool(llm_client=stub)
+    monkeypatch.setattr("app.tools_builtin.interview_tools.settings.config.runtime.interview_generation_concurrency", 3)
+
+    result = await tool.safe_run(
+        ToolCall(
+            id="call_parallel_generate",
+            name=tool.name,
+            arguments={
+                "topic": "数组",
+                "bank_type": "leetcode",
+                "category": "数组",
+                "difficulty": "中等",
+                "question_type": "编程题",
+                "language": "python",
+                "count": 3,
+            },
+        ),
+        _context(),
+    )
+
+    assert result.success is True
+    assert [item["title"] for item in result.output["items"]] == ["并行候选题 1", "并行候选题 2", "并行候选题 3"]
+    assert len(stub.calls) == 3
+    assert stub.max_active_calls == 3
+    assert all(json.loads(call["messages"][1].content)["count"] == 1 for call in stub.calls)
 
 
 @pytest.mark.asyncio

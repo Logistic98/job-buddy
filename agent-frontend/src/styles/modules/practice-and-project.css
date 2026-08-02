@@ -147,6 +147,45 @@
 .question-wizard-panel .practice-section {
   min-height: 250px;
 }
+.question-source-heading {
+  align-items: center;
+  padding: 2px 2px 4px;
+}
+.question-parallel-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 28px;
+  border: 1px solid #cad6ff;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #eef2ff, #f7f9ff);
+  padding: 0 11px;
+  color: #3157ff;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+}
+.question-source-upload {
+  border: 1px solid #e2e8f4;
+  border-radius: 13px;
+  background: #fff;
+  padding: 12px;
+}
+.question-source-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
+  gap: 14px;
+}
+.question-source-layout > .practice-field {
+  min-width: 0;
+  border: 1px solid #e2e8f4;
+  border-radius: 13px;
+  background: #fff;
+  padding: 13px;
+}
+.question-source-layout textarea {
+  resize: vertical;
+}
 .question-section-heading,
 .coding-test-heading,
 .coding-entry-heading {
@@ -261,9 +300,10 @@
   font-size: 12px;
 }
 .question-generation-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 3px 12px;
   border: 1px solid #dbe3ff;
   border-radius: 12px;
   background: #f7f9ff;
@@ -278,6 +318,9 @@
 .question-generation-summary strong {
   color: #2447d8;
   font-size: 14px;
+}
+.question-generation-summary small {
+  grid-column: 1/-1;
 }
 .question-source-notice {
   display: flex;
@@ -851,11 +894,11 @@
   font-family: inherit !important;
 }
 .interview-manager-page .interview-modal-card.question-maintain-modal .question-requirements-textarea {
-  min-height: 140px !important;
+  min-height: 220px !important;
   max-height: none;
 }
 .interview-manager-page .interview-modal-card.question-maintain-modal .question-source-textarea {
-  min-height: 190px !important;
+  min-height: 220px !important;
   max-height: none;
 }
 .interview-manager-page .interview-modal-card.question-maintain-modal .question-content-textarea--standalone {
@@ -1097,6 +1140,9 @@
   .question-wizard-panel .practice-section {
     min-height: 0;
   }
+  .question-source-layout {
+    grid-template-columns: 1fr;
+  }
   .question-source-notice,
   .question-section-heading,
   .coding-test-heading,
@@ -1215,7 +1261,8 @@
   .interview-manager-page .interview-modal-card.question-maintain-modal .question-answer-textarea {
     min-height: 180px !important;
   }
-  .interview-manager-page .interview-modal-card.question-maintain-modal .question-requirements-textarea {
+  .interview-manager-page .interview-modal-card.question-maintain-modal .question-requirements-textarea,
+  .interview-manager-page .interview-modal-card.question-maintain-modal .question-source-textarea {
     min-height: 120px !important;
   }
   .interview-manager-page .interview-modal-card.question-maintain-modal .question-content-textarea--standalone,

@@ -73,6 +73,9 @@ runtime:
   # 大工具结果内联返回的最大字符数。超过后仅返回截断预览，不写本地业务文件。
   max_inline_result_chars: 12000
 
+  # 面试候选题生成的最大并发批次数。多题会均匀拆分，默认 4 路，允许范围 1-8。
+  interview_generation_concurrency: "${JOB_BUDDY_RUNTIME_INTERVIEW_GENERATION_CONCURRENCY:4}"
+
   # Profile / Workflow / Prompt 配置目录。Agent Core 通过这些配置加载业务能力，核心代码不硬编码业务规则。
   profiles_dir: "${JOB_BUDDY_RUNTIME_PROFILES_DIR:config/profiles}"
   workflows_dir: "${JOB_BUDDY_RUNTIME_WORKFLOWS_DIR:config/workflows}"

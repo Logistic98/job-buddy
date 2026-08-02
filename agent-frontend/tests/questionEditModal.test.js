@@ -212,10 +212,9 @@ describe('QuestionEditModal', () => {
     await wrapper.find('input[type="number"]').setValue(1)
     await wrapper.find('.question-wizard-next').trigger('click')
 
-    expect(wrapper.text()).toContain('LeetCode 链接只作为来源标识')
-    await wrapper
-      .find('input[placeholder="https://leetcode.com/problems/two-sum/"]')
-      .setValue('https://leetcode.com/problems/merge-intervals/')
+    expect(wrapper.text()).not.toContain('LeetCode 题目链接')
+    expect(wrapper.find('.question-source-layout').exists()).toBe(true)
+    expect(wrapper.find('.question-parallel-badge').text()).toBe('单题生成')
     expect(wrapper.find('.question-wizard-next').text()).toBe('生成候选题')
     await wrapper.find('.question-wizard-next').trigger('click')
     await flushPromises()
@@ -229,7 +228,6 @@ describe('QuestionEditModal', () => {
         difficulty: '中等',
         language: 'python',
         count: 1,
-        sourceUrl: 'https://leetcode.com/problems/merge-intervals/',
       }),
     )
     expect(mocks.importQuestions).not.toHaveBeenCalled()

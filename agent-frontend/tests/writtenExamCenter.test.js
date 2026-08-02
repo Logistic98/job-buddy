@@ -116,7 +116,8 @@ describe('WrittenExamCenter', () => {
 
     expect(wrapper.find('.practice-records-home').exists()).toBe(true)
     expect(wrapper.find('.practice-start-card').exists()).toBe(false)
-    expect(wrapper.find('.practice-records-home-header h2').text()).toBe('练习记录')
+    expect(wrapper.find('.practice-records-home-header').exists()).toBe(false)
+    expect(wrapper.find('.practice-records-home-toolbar .practice-create-button').exists()).toBe(true)
 
     await wrapper.find('.practice-create-button').trigger('click')
     await flushPromises()
@@ -177,7 +178,7 @@ describe('WrittenExamCenter', () => {
     await flushPromises()
 
     expect(wrapper.find('.practice-records-loading').exists()).toBe(false)
-    expect(wrapper.find('.practice-record-summary').exists()).toBe(true)
+    expect(wrapper.find('.practice-record-summary').exists()).toBe(false)
     expect(wrapper.find('.practice-records-home-toolbar').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -218,7 +219,7 @@ describe('WrittenExamCenter', () => {
     wrapper.unmount()
   })
 
-  it('removes duplicate navigation actions from the empty practice desk header', async () => {
+  it('keeps a single create action in the practice toolbar', async () => {
     const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
     await flushPromises()
 
@@ -229,6 +230,7 @@ describe('WrittenExamCenter', () => {
     expect(headerButtons).toHaveLength(0)
     expect(wrapper.text()).not.toContain('随机组卷')
     expect(wrapper.findAll('.practice-records-home .practice-create-button')).toHaveLength(1)
+    expect(wrapper.find('.practice-record-toolbar-actions .practice-create-button').exists()).toBe(true)
     expect(wrapper.find('.practice-create-button').text()).toBe('创建练习')
     expect(wrapper.text()).not.toContain('题库中的单题练习不会加入记录')
     wrapper.unmount()
@@ -272,7 +274,7 @@ describe('WrittenExamCenter', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.practice-record-row')).toHaveLength(2)
-    expect(wrapper.find('.practice-record-summary').text()).toContain('进行中1')
+    expect(wrapper.find('.practice-record-summary').exists()).toBe(false)
     const actionTexts = wrapper.findAll('.practice-record-actions .secondary-btn').map((button) => button.text())
     expect(actionTexts).toEqual(['继续练习', '查看复盘'])
 
@@ -319,6 +321,7 @@ describe('WrittenExamCenter', () => {
     await flushPromises()
     expect(mocks.getExam).toHaveBeenCalledWith('practice-record')
     expect(wrapper.find('.practice-active-workbench').exists()).toBe(true)
+    expect(wrapper.find('.practice-question-navigator').attributes()).toHaveProperty('open')
 
     await wrapper
       .findAll('.practice-overview-actions button')
@@ -331,6 +334,44 @@ describe('WrittenExamCenter', () => {
     await wrapper.findAll('.written-center-tabs button')[1].trigger('click')
     await flushPromises()
     expect(wrapper.find('.practice-records-home').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('avoids duplicate question copy and neutralizes the submitted answer label', async () => {
+    const question = {
+      questionId: 'q-duplicate-stem',
+      title: 'Agent 如何避免无限循环和失控？',
+      bankType: 'qa',
+      difficulty: '困难',
+      questionType: '简答',
+      content: 'Agent 如何避免无限循环和失控？',
+      answer: '设置轮次、预算和权限边界。',
+      correct: false,
+    }
+    const exam = {
+      examId: 'practice-duplicate-stem',
+      title: 'Agent 工程练习',
+      status: 'submitted',
+      totalCount: 1,
+      answeredCount: 1,
+      score: 0,
+      strategy: { mode: 'manual', showAnswer: true },
+      questions: [question],
+    }
+    mocks.listExams.mockResolvedValue([exam])
+    mocks.getExam.mockResolvedValue(exam)
+
+    const wrapper = mount(WrittenExamCenter, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.findAll('.written-center-tabs button')[1].trigger('click')
+    await flushPromises()
+    await wrapper.find('.practice-record-main').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.practice-panel-head h2').text()).toContain(question.title)
+    expect(wrapper.find('.practice-problem-body > .practice-markdown-wrap').exists()).toBe(false)
+    expect(wrapper.find('.answer-review summary').text()).toContain('参考答案')
+    expect(wrapper.find('.answer-review summary').text()).not.toContain('待改进')
     wrapper.unmount()
   })
 
@@ -718,6 +759,14 @@ describe('WrittenExamCenter', () => {
       expect.arrayContaining(['class', 'def', 'return']),
     )
     expect(editor.find('textarea').attributes('aria-label')).toBe('编程题代码答案')
+
+    const debugButton = wrapper.findAll('.leetcode-run-actions button').find((button) => button.text() === '自定义调试')
+    await debugButton.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.leetcode-answer-editor').classes()).toContain('debug-open')
+    expect(wrapper.find('.practice-debug-panel').exists()).toBe(true)
+    expect(wrapper.findComponent(CodeHighlightEditor).exists()).toBe(true)
 
     await editor
       .find('textarea')

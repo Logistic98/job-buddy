@@ -46,6 +46,7 @@
       <include refid="questionColumns" />
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND enabled = TRUE
     <include refid="questionFilters" />
     ORDER BY updated_at DESC
@@ -57,6 +58,7 @@
     SELECT COUNT(*)
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND enabled = TRUE
     <include refid="questionFilters" />
   </select>
@@ -66,6 +68,7 @@
       <include refid="questionColumns" />
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND enabled = TRUE
     <if test="bankType != null and bankType != ''">
       AND CASE WHEN bank_type = 'leetcode' THEN 'leetcode' ELSE 'qa' END = #{bankType}
@@ -89,6 +92,7 @@
     SELECT DISTINCT CASE WHEN bank_type = 'leetcode' THEN 'leetcode' ELSE 'qa' END
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND enabled = TRUE
     ORDER BY 1 ASC
   </select>
@@ -97,6 +101,7 @@
     SELECT DISTINCT category
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND enabled = TRUE
       AND category IS NOT NULL
       AND category != ''
@@ -110,6 +115,7 @@
     SELECT DISTINCT difficulty
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND enabled = TRUE
       AND difficulty IS NOT NULL
       AND difficulty != ''
@@ -127,6 +133,7 @@
       END
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND enabled = TRUE
       AND question_type IS NOT NULL
       AND question_type != ''
@@ -141,6 +148,7 @@
       <include refid="questionColumns" />
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND question_id = #{questionId}
   </select>
 
@@ -148,12 +156,14 @@
     SELECT COUNT(*)
     FROM interview_question
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND question_id = #{questionId}
   </select>
 
   <insert id="insertQuestion">
     INSERT INTO interview_question(
       tenant_id,
+      user_id,
       title,
       bank_type,
       category,
@@ -169,6 +179,7 @@
     )
     VALUES (
       #{question.tenantId},
+      #{question.userId},
       #{question.title},
       #{question.bankType},
       #{question.category},
@@ -199,6 +210,7 @@
       enabled = #{question.enabled},
       updated_at = #{question.updatedAt}
     WHERE tenant_id = #{question.tenantId}
+      AND user_id = #{question.userId}
       AND question_id = #{question.questionId}
   </update>
 
@@ -208,6 +220,7 @@
       enabled = FALSE,
       updated_at = #{updatedAt}
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND question_id = #{questionId}
   </update>
 
@@ -215,6 +228,7 @@
     UPDATE interview_question
     SET category = #{category}, updated_at = #{updatedAt}
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND question_id = #{questionId}
   </update>
 
@@ -222,6 +236,7 @@
     UPDATE interview_question
     SET difficulty = #{difficulty}, updated_at = #{updatedAt}
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND question_id = #{questionId}
   </update>
 
@@ -229,6 +244,7 @@
     UPDATE interview_question
     SET tags_json = #{tagsJson}, updated_at = #{updatedAt}
     WHERE tenant_id = #{tenantId}
+      AND user_id = #{userId}
       AND question_id = #{questionId}
   </update>
 

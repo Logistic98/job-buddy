@@ -130,7 +130,6 @@ describe('validateAiForm', () => {
     expect(() =>
       validateAiForm({
         topic: '',
-        sourceUrl: '',
         documentText: '',
         requirements: '',
         bankType: 'qa',
@@ -168,14 +167,13 @@ describe('validateAiForm', () => {
       count: 3,
     }
     expect(() => validateAiStep(settings, 0)).not.toThrow()
-    expect(() => validateAiForm(settings)).toThrow('请填写算法主题、LeetCode 链接、题面或上传算法资料')
+    expect(() => validateAiForm(settings)).toThrow('请填写算法主题、题面、出题要求或上传算法资料')
   })
 
   it('accepts QA generation requirements as the only source', () => {
     expect(() =>
       validateAiForm({
         topic: '',
-        sourceUrl: '',
         documentText: '',
         requirements: '生成一道考察 Java 集合线程安全性的单选题',
         bankType: 'qa',
@@ -187,12 +185,11 @@ describe('validateAiForm', () => {
     ).not.toThrow()
   })
 
-  it('accepts official LeetCode problem links and rejects arbitrary scraping targets', () => {
+  it('accepts algorithm generation requirements without a link field', () => {
     const settings = {
       topic: '',
-      sourceUrl: 'https://leetcode.com/problems/two-sum/',
       documentText: '',
-      requirements: '',
+      requirements: '生成一道双指针算法题，并给出完整参考答案',
       bankType: 'leetcode',
       category: '数组',
       difficulty: '简单',
@@ -201,9 +198,6 @@ describe('validateAiForm', () => {
       count: 1,
     }
     expect(() => validateAiForm(settings)).not.toThrow()
-    expect(() => validateAiForm({ ...settings, sourceUrl: 'https://example.com/problems/two-sum/' })).toThrow(
-      '请输入 leetcode.com 或 leetcode.cn 的标准 HTTPS 题目链接',
-    )
   })
 })
 

@@ -104,6 +104,8 @@ class RuntimeConfig(BaseModel):
     use_llm_planner: bool = True
     workspace_dir: str = "."
     max_inline_result_chars: int = 12000
+    # 面试候选题按批次并行生成，限制并发避免模型服务过载和请求量无界放大。
+    interview_generation_concurrency: int = Field(default=4, ge=1, le=8)
     profiles_dir: str = "config/profiles"
     workflows_dir: str = "config/workflows"
     prompts_dir: str = "config/prompts"

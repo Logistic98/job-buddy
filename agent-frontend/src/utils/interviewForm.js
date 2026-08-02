@@ -84,15 +84,12 @@ export function validateQuestionForm(form) {
 export function validateAiForm(aiForm) {
   if (
     !String(aiForm.topic || '').trim() &&
-    !String(aiForm.sourceUrl || '').trim() &&
     !String(aiForm.documentText || '').trim() &&
     !String(aiForm.requirements || '').trim()
   )
     throw new Error(aiSourceRequiredMessage(aiForm.bankType))
   validateAiStep(aiForm, 0)
   validateLength(aiForm.requirements, '补充要求', { max: 2000 })
-  validateLength(aiForm.sourceUrl, 'LeetCode 题目链接', { max: 500 })
-  validateLeetCodeSourceUrl(aiForm.sourceUrl)
   validateLength(aiForm.documentText, '参考资料', { max: 20000 })
 }
 
@@ -106,11 +103,8 @@ export function validateAiStep(aiForm, step) {
     throw new Error('请选择生成代码语言')
   validateInteger(aiForm.count, '生成数量', { min: 1, max: 20 })
   if (step > 0) {
-    validateLength(aiForm.sourceUrl, 'LeetCode 题目链接', { max: 500 })
-    validateLeetCodeSourceUrl(aiForm.sourceUrl)
     if (
       !String(aiForm.topic || '').trim() &&
-      !String(aiForm.sourceUrl || '').trim() &&
       !String(aiForm.documentText || '').trim() &&
       !String(aiForm.requirements || '').trim()
     )
@@ -120,26 +114,8 @@ export function validateAiStep(aiForm, step) {
 
 function aiSourceRequiredMessage(bankType) {
   return bankType === 'leetcode'
-    ? '请填写算法主题、LeetCode 链接、题面或上传算法资料'
+    ? '请填写算法主题、题面、出题要求或上传算法资料'
     : '请填写知识主题、参考文本、出题要求或上传问答资料'
-}
-
-function validateLeetCodeSourceUrl(value) {
-  const sourceUrl = String(value || '').trim()
-  if (!sourceUrl) return
-  let parsed
-  try {
-    parsed = new URL(sourceUrl)
-  } catch (_) {
-    throw new Error('LeetCode 题目链接格式不正确')
-  }
-  const supportedHosts = new Set(['leetcode.com', 'www.leetcode.com', 'leetcode.cn', 'www.leetcode.cn'])
-  if (
-    parsed.protocol !== 'https:' ||
-    !supportedHosts.has(parsed.hostname) ||
-    !/^\/problems\/[^/?#]+\/?$/.test(parsed.pathname)
-  )
-    throw new Error('请输入 leetcode.com 或 leetcode.cn 的标准 HTTPS 题目链接')
 }
 
 export function examRuleTotal(rules = []) {
