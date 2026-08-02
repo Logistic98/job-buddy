@@ -119,7 +119,12 @@ export function defaultSignature(functionName, language = 'python') {
 export function extractFunctionName(template, language = 'python') {
   const text = String(template || '')
   const lang = normalizeCodingLanguage(language)
-  if (lang === 'python') return (text.match(/def\s+([A-Za-z_]\w*)\s*\(/) || [])[1] || ''
+  if (lang === 'python') {
+    const solutionBody = (text.match(/class\s+Solution(?:\s*\([^)]*\))?\s*:\s*\n([\s\S]*)/) || [])[1] || ''
+    const solutionMethod = (solutionBody.match(/^\s+def\s+(?!__)([A-Za-z_]\w*)\s*\(/m) || [])[1] || ''
+    if (solutionMethod) return solutionMethod
+    return (text.match(/^\s*def\s+(?!__)([A-Za-z_]\w*)\s*\(/m) || [])[1] || ''
+  }
   if (lang === 'java')
     return (
       (text.match(/(?:public|private|protected)?\s*(?:static\s+)?[A-Za-z_][\w<>\[\]]*\s+([A-Za-z_]\w*)\s*\(/) ||

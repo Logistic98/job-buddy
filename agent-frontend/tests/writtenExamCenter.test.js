@@ -714,6 +714,15 @@ describe('WrittenExamCenter', () => {
   })
 
   it('uses the highlighted editor for a coding practice answer', async () => {
+    const pythonSolutionSource = [
+      'class TreeNode:',
+      '    def __init__(self, val=0):',
+      '        self.val = val',
+      '',
+      'class Solution:',
+      '    def longestPalindrome(self, s: str) -> str:',
+      '        return s',
+    ].join('\n')
     const question = {
       questionId: 'q-code',
       title: '最长回文子串',
@@ -727,7 +736,7 @@ describe('WrittenExamCenter', () => {
         language: 'python',
         functionName: 'longest_palindrome',
         parameterCount: 1,
-        template: 'class Solution:\n    def longestPalindrome(self, s: str) -> str:\n        return s',
+        template: pythonSolutionSource,
         tests: [{ name: '示例', args: ['babad'], expected: 'bab' }],
       },
     }
@@ -768,9 +777,7 @@ describe('WrittenExamCenter', () => {
     expect(wrapper.find('.practice-debug-panel').exists()).toBe(true)
     expect(wrapper.findComponent(CodeHighlightEditor).exists()).toBe(true)
 
-    await editor
-      .find('textarea')
-      .setValue('class Solution:\n    def longestPalindrome(self, s: str) -> str:\n        return s')
+    await editor.find('textarea').setValue(pythonSolutionSource)
     const runSampleButton = wrapper
       .findAll('.leetcode-run-actions button')
       .find((button) => button.text() === '运行样例')

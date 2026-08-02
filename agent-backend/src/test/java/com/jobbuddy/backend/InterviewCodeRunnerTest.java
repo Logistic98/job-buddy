@@ -78,6 +78,9 @@ class InterviewCodeRunnerTest {
     String childCode = decodeEmbeddedChildCode(orchestrator);
     assertTrue(childCode.contains("globals().get(\"Solution\")"));
     assertTrue(childCode.contains("has_expected = \"expected\" in test"));
+    assertTrue(childCode.contains("inspect.signature(fn)"));
+    assertTrue(childCode.contains("_build_tree(value, tree_class)"));
+    assertTrue(childCode.contains("_build_linked_list(value, list_class)"));
     assertTrue(body.containsKey("policy"));
     Map policy = (Map) body.get("policy");
     Map filesystem = (Map) policy.get("filesystem");

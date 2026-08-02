@@ -84,6 +84,19 @@ describe('coding language and templates', () => {
     expect(extractFunctionName('function run(x) {}', 'javascript')).toBe('run')
     expect(extractFunctionName('public int add(int a)', 'java')).toBe('add')
   })
+  it('extracts the Solution method after a Python helper class', () => {
+    const source = [
+      'class TreeNode:',
+      '    def __init__(self, val=0, left=None, right=None):',
+      '        self.val = val',
+      '',
+      'class Solution:',
+      '    def pathSum(self, root: TreeNode, targetSum: int) -> int:',
+      '        return 0',
+    ].join('\n')
+
+    expect(extractFunctionName(source, 'python')).toBe('pathSum')
+  })
 })
 
 describe('misc formatting', () => {
