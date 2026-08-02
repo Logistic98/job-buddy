@@ -122,7 +122,8 @@ async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not owner_key:
             return err("Boss 工具调用缺少可信所有者身份", code=400)
         service = get_service(owner_key)
-        service.load_credential_json(payload.get("credential_json"))
+        injected_credential_json = str(payload.get("credential_json") or "").strip()
+        service.load_credential_json(injected_credential_json)
         if operation == "status":
             return ok(await service.status())
         if operation == "refresh_auth":
@@ -147,7 +148,11 @@ async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if operation == "rate":
             return ok(service.rate_snapshot())
         if operation == "favorite_list":
-            return ok(await service.favorite_jobs(page=int(payload.get("page") or 1)))
+            return _ok_with_refreshed_credential(
+                await service.favorite_jobs(page=int(payload.get("page") or 1)),
+                service,
+                injected_credential_json,
+            )
         if operation == "search":
             jobs = await service.search(
                 query=str(payload.get("query") or ""),
@@ -159,16 +164,26 @@ async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
                     if payload.get(key) not in (None, "")
                 },
             )
-            return ok({"jobs": jobs, "count": len(jobs)})
+            return _ok_with_refreshed_credential(
+                {"jobs": jobs, "count": len(jobs)},
+                service,
+                injected_credential_json,
+            )
         if operation == "detail":
-            return ok(
+            return _ok_with_refreshed_credential(
                 await service.detail(
                     security_id=str(payload.get("securityId") or payload.get("security_id") or ""),
                     url=str(payload.get("url") or ""),
-                )
+                ),
+                service,
+                injected_credential_json,
             )
         if operation == "profile":
-            return ok(await service.profile())
+            return _ok_with_refreshed_credential(
+                await service.profile(),
+                service,
+                injected_credential_json,
+            )
         return err(f"未知 Boss 工具操作: {operation}", code=CODE_BROWSER_ERROR)
     except AuthRequiredError as exc:
         return err(str(exc), code=CODE_AUTH_REQUIRED)
@@ -178,6 +193,22 @@ async def _dispatch(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         return err(str(exc), code=CODE_RATE_LIMITED)
     except Exception as exc:  # noqa: BLE001
         return err(str(exc), code=CODE_BROWSER_ERROR)
+
+
+def _ok_with_refreshed_credential(
+    data: Dict[str, Any],
+    service: Any,
+    injected_credential_json: str,
+) -> Dict[str, Any]:
+    """仅在成功业务请求确实刷新凭据时，把新值交回 Backend 加密持久化。"""
+    current_credential_json = str(service.credential_json() or "").strip()
+    if not current_credential_json or current_credential_json == injected_credential_json:
+        return ok(data)
+    internal_data = dict(data)
+    # 该字段只允许穿过 Runtime 直达 Backend 客户端；Backend 会在业务 Service 之前
+    # 持久化并剥离，Runtime Trace/Checkpoint 继续按 credential_json 敏感键脱敏。
+    internal_data["credential_json"] = current_credential_json
+    return ok(internal_data)
 
 
 def _tool_error(

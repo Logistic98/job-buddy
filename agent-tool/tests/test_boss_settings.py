@@ -12,15 +12,15 @@ def test_rate_limit_model_defaults_match_yaml_baseline():
 
     assert rate_limit.search_per_hour == yaml_settings.rate_limit.search_per_hour == 60
     assert rate_limit.search_per_day == yaml_settings.rate_limit.search_per_day == 120
-    assert rate_limit.detail_per_hour == yaml_settings.rate_limit.detail_per_hour == 60
-    assert rate_limit.detail_per_day == yaml_settings.rate_limit.detail_per_day == 60
+    assert rate_limit.detail_per_hour == yaml_settings.rate_limit.detail_per_hour == 0
+    assert rate_limit.detail_per_day == yaml_settings.rate_limit.detail_per_day == 0
 
 
-def test_daily_rate_limits_support_environment_overrides(monkeypatch):
+def test_search_daily_rate_limit_supports_environment_override_but_detail_stays_unlimited(monkeypatch):
     monkeypatch.setenv("BOSS_CLI_SEARCH_PER_DAY", "90")
     monkeypatch.setenv("BOSS_CLI_DETAIL_PER_DAY", "45")
 
     settings = _apply_env_overrides(Settings())
 
     assert settings.rate_limit.search_per_day == 90
-    assert settings.rate_limit.detail_per_day == 45
+    assert settings.rate_limit.detail_per_day == 0

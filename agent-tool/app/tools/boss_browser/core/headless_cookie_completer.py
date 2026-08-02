@@ -41,12 +41,14 @@ class HeadlessCookieCompleter:
 
         with sync_playwright() as playwright:
             last_closed_error: Exception | None = None
+            completed_attempt = False
             for attempt in range(_BROWSER_ATTEMPTS):
                 # 浏览器或页面提前关闭后，旧 Profile 可能残留 SingletonLock。每次尝试
-                # 使用独立临时 Profile，确保第二次启动是真正的新浏览器上下文。
+                # 使用独立临时 Profile。页面正常结束却没有生成 __zp_stoken__ 时也必须
+                # 换全新上下文再试一次，避免把单次安全脚本加载抖动直接暴露给用户。
                 with tempfile.TemporaryDirectory(prefix="job-buddy-boss-browser-") as user_data_dir:
                     try:
-                        return self._complete_once(
+                        completed = self._complete_once(
                             playwright,
                             user_data_dir,
                             base_url,
@@ -55,13 +57,18 @@ class HeadlessCookieCompleter:
                             timeout_ms=timeout_ms,
                             lean=lean,
                         )
+                        completed_attempt = True
+                        combined.update(completed)
+                        if combined.get("__zp_stoken__"):
+                            return combined
                     except Exception as exc:  # noqa: BLE001
                         if not self._is_target_closed(exc):
                             raise
                         last_closed_error = exc
                         if attempt + 1 >= _BROWSER_ATTEMPTS:
                             break
-            raise RuntimeError("Boss 临时浏览器会话提前关闭，未能刷新安全令牌，请稍后重试。") from last_closed_error
+            if not completed_attempt and last_closed_error is not None:
+                raise RuntimeError("Boss 临时浏览器会话提前关闭，未能刷新安全令牌，请稍后重试。") from last_closed_error
         return combined
 
     def _complete_once(

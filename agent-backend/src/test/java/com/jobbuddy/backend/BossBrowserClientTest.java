@@ -1,7 +1,9 @@
 package com.jobbuddy.backend;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -110,6 +112,58 @@ class BossBrowserClientTest {
     Map<String, Object> payload = (Map<String, Object>) arguments.get("payload");
     assertEquals("{\"cookies\":{\"wt2\":\"persisted\"}}", payload.get("credential_json"));
     verify(repository).findByProvider("jackwener/boss-cli");
+  }
+
+  /**
+   * 成功刷新后的内部凭据必须加密回写，并在返回业务 Service 前剥离。
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  void successfulSearchShouldPersistAndStripRefreshedCredential() {
+    RestTemplate restTemplate = mock(RestTemplate.class);
+    AuthStateRepository repository = mock(AuthStateRepository.class);
+    AgentServiceProperties properties = new AgentServiceProperties();
+    properties.setRuntimeUrl("http://runtime.local");
+    Map<String, Object> persisted = new LinkedHashMap<String, Object>();
+    persisted.put(
+        "credentialJson", "{\"cookies\":{\"wt2\":\"identity\",\"__zp_stoken__\":\"expired\"}}");
+    persisted.put("metadata", Collections.singletonMap("source", "qr"));
+    when(repository.findByProvider("jackwener/boss-cli")).thenReturn(persisted);
+    BossBrowserClient client =
+        new BossBrowserClient(
+            restTemplate, properties, new ServiceResilience(properties), repository);
+
+    Map<String, Object> outputData = new LinkedHashMap<String, Object>();
+    outputData.put("count", 0);
+    outputData.put(
+        "credential_json", "{\"cookies\":{\"wt2\":\"identity\",\"__zp_stoken__\":\"fresh\"}}");
+    Map<String, Object> output = new LinkedHashMap<String, Object>();
+    output.put("code", 200);
+    output.put("message", "success");
+    output.put("data", outputData);
+    Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
+    toolResult.put("success", true);
+    toolResult.put("output", output);
+    Map<String, Object> response = new LinkedHashMap<String, Object>();
+    response.put("data", toolResult);
+    when(restTemplate.postForObject(
+            eq("http://runtime.local/v1/runtime/tools/boss_browser/invoke"),
+            org.mockito.ArgumentMatchers.any(),
+            eq(Map.class)))
+        .thenReturn(response);
+
+    Map<String, Object> result =
+        client.post("/search", Collections.<String, Object>singletonMap("query", "大模型应用开发"));
+
+    Map<String, Object> resultData = (Map<String, Object>) result.get("data");
+    assertEquals(0, resultData.get("count"));
+    assertFalse(resultData.containsKey("credential_json"));
+    verify(repository)
+        .save(
+            eq("jackwener/boss-cli"),
+            eq("logged_in"),
+            eq("{\"cookies\":{\"wt2\":\"identity\",\"__zp_stoken__\":\"fresh\"}}"),
+            anyMap());
   }
 
   /**

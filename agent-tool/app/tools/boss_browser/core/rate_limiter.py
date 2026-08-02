@@ -131,7 +131,9 @@ class RateLimiter:
             return self._config.search_per_hour, self._config.search_per_day
         if action == "favorite_list":
             return self._config.favorite_list_per_hour, self._config.favorite_list_per_day
-        return self._config.detail_per_hour, self._config.detail_per_day
+        # 详情是显式用户动作，不使用固定小时或每日配额；仍执行串行抖动、
+        # 风控冷却和连续失败硬停，真实上游限流也照常归类并停止。
+        return 0, 0
 
     async def acquire(self, action: str) -> None:
         """在执行一次 Boss 动作前调用：校验冷却/配额，并施加拟人抖动延迟。"""
@@ -205,9 +207,9 @@ class RateLimiter:
             "favorite_list_used_day": len(self._windows["favorite_list"].day),
             "favorite_list_limit_day": self._config.favorite_list_per_day,
             "detail_used_hour": len(self._windows["detail"].hour),
-            "detail_limit_hour": self._config.detail_per_hour,
+            "detail_limit_hour": 0,
             "detail_used_day": len(self._windows["detail"].day),
-            "detail_limit_day": self._config.detail_per_day,
+            "detail_limit_day": 0,
             "cooldown_active": now < self._cooldown_until,
             "cooldown_remaining_seconds": max(0, int(self._cooldown_until - now)),
             "consecutive_failures": self._consecutive_failures,

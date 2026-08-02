@@ -31,7 +31,7 @@ Boss 能力位于 [app/tools/boss_browser](app/tools/boss_browser)，对外使�
 | `BOSS_CLI_TIMEOUT_SECONDS` / `BOSS_CLI_MAX_RETRIES`               | 单请求超时与最大重试次数，默认 20 秒、2 次             |
 | `BOSS_CLI_STATUS_VERIFY`                                          | 是否让状态检查访问 Boss；默认关闭                      |
 | `BOSS_CLI_MAX_SEARCH_PAGE`                                        | 最大搜索页码，默认及硬上限均为 30                      |
-| `BOSS_CLI_SEARCH_PER_HOUR` / `BOSS_CLI_DETAIL_PER_HOUR`           | 搜索与详情小时配额；默认均为 60                        |
+| `BOSS_CLI_SEARCH_PER_HOUR` / `BOSS_CLI_SEARCH_PER_DAY`           | 搜索小时与每日配额；详情不设置固定配额                 |
 | `BOSS_CLI_DELAY_MIN_MS` / `BOSS_CLI_DELAY_MAX_MS`                 | 动作前抖动；根环境模板为 1.5–4 秒，模块回退为 0.8–2 秒 |
 
 非真实访问的限速状态验证会返回 `*_used_*` 与 `*_limit_*` 字段，可直接确认当前配置是否生效：

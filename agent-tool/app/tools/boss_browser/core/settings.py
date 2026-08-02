@@ -24,8 +24,9 @@ class RateLimitConfig(BaseModel):
     # 0 表示不设置本地硬配额；仍保留串行抖动和上游风控信号停手。
     favorite_list_per_hour: int = 0
     favorite_list_per_day: int = 0
-    detail_per_hour: int = 60
-    detail_per_day: int = 60
+    # 职位详情由用户按需读取，不设置小时或每日固定配额。
+    detail_per_hour: int = 0
+    detail_per_day: int = 0
     action_delay_min_ms: int = 800
     action_delay_max_ms: int = 2000
     cooldown_minutes_on_risk: int = 30
@@ -145,8 +146,6 @@ def _apply_env_overrides(settings: Settings) -> Settings:
     settings.rate_limit.favorite_list_per_day = _env_int(
         "BOSS_CLI_FAVORITE_LIST_PER_DAY", settings.rate_limit.favorite_list_per_day
     )
-    settings.rate_limit.detail_per_hour = _env_int("BOSS_CLI_DETAIL_PER_HOUR", settings.rate_limit.detail_per_hour)
-    settings.rate_limit.detail_per_day = _env_int("BOSS_CLI_DETAIL_PER_DAY", settings.rate_limit.detail_per_day)
     settings.rate_limit.action_delay_min_ms = _env_int("BOSS_CLI_DELAY_MIN_MS", settings.rate_limit.action_delay_min_ms)
     settings.rate_limit.action_delay_max_ms = _env_int("BOSS_CLI_DELAY_MAX_MS", settings.rate_limit.action_delay_max_ms)
     settings.rate_limit.cooldown_minutes_on_risk = _env_int(

@@ -140,6 +140,22 @@ def test_lean_refresh_retries_with_fresh_browser_when_first_context_closes(monke
     assert manager.user_data_dirs[0] != manager.user_data_dirs[1]
 
 
+def test_lean_refresh_retries_with_fresh_browser_when_first_context_has_no_stoken(monkeypatch):
+    first = _FakeContext(stoken_visit=99)
+    second = _FakeContext(stoken_visit=1)
+    manager = _FakePlaywrightManager([first, second])
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright", lambda: manager)
+    monkeypatch.setattr("app.tools.boss_browser.core.headless_cookie_completer.time.sleep", lambda _seconds: None)
+
+    result = _completer().complete({"wt2": "identity", "zp_at": "account"}, lean=True)
+
+    assert result["__zp_stoken__"] == "fresh-token"
+    assert first.closed is True
+    assert second.closed is True
+    assert len(manager.user_data_dirs) == 2
+    assert manager.user_data_dirs[0] != manager.user_data_dirs[1]
+
+
 def test_lean_refresh_waits_for_delayed_stoken_generation(monkeypatch):
     context = _FakeContext(stoken_visit=99, stoken_cookie_read=4)
     manager = _FakePlaywrightManager([context])

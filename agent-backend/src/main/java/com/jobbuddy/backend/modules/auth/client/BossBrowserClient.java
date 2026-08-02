@@ -138,12 +138,77 @@ public class BossBrowserClient {
               return failure("BOSS_TOOL_FAILED", String.valueOf(toolResult.get("error")));
             }
             Object output = toolResult.get("output");
-            if (output instanceof Map) return (Map<String, Object>) output;
+            if (output instanceof Map)
+              return persistRefreshedCredential(operation, (Map<String, Object>) output);
             return failure("BOSS_TOOL_BAD_OUTPUT", "Runtime Boss 工具输出不是对象");
           }
         },
         fallback,
         false);
+  }
+
+  /**
+   * 将成功业务请求产生的新 Cookie 加密回写，并在进入业务 Service 前剥离敏感字段。
+   *
+   * <p>临时安全令牌由 Tool 的一次性 Chromium 静默刷新。如果只保留在 Tool 内存，服务重启后 Backend
+   * 会再次注入数据库中的旧令牌，导致首次搜索重复进入不稳定的刷新路径。这里沿用二维码登录的内部凭据通道，把新值保存到当前租户和用户的 auth_state。
+   *
+   * @param operation Boss 操作
+   * @param envelope 工具业务信封
+   * @return 已剥离 credential_json 的业务信封
+   */
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> persistRefreshedCredential(
+      String operation, Map<String, Object> envelope) {
+    if (!mayRefreshCredential(operation) || envelope == null) return envelope;
+    Object rawData = envelope.get("data");
+    if (!(rawData instanceof Map)) return envelope;
+
+    Map<String, Object> sanitizedData =
+        new LinkedHashMap<String, Object>((Map<String, Object>) rawData);
+    Object rawCredential = sanitizedData.remove("credential_json");
+    if (rawCredential == null) return envelope;
+
+    Map<String, Object> sanitizedEnvelope = new LinkedHashMap<String, Object>(envelope);
+    sanitizedEnvelope.put("data", sanitizedData);
+    if (!(rawCredential instanceof String)) return sanitizedEnvelope;
+    String credentialJson = ((String) rawCredential).trim();
+    if (credentialJson.isEmpty() || authStateRepository == null || !successfulEnvelope(envelope)) {
+      return sanitizedEnvelope;
+    }
+
+    Map<String, Object> existing =
+        authStateRepository.findByProvider(BossAuthProviders.STORAGE_PROVIDER);
+    if (existing == null) {
+      existing = authStateRepository.findByProvider(BossAuthProviders.LEGACY_STORAGE_PROVIDER);
+    }
+    Map<String, Object> metadata = new LinkedHashMap<String, Object>();
+    if (existing != null && existing.get("metadata") instanceof Map) {
+      metadata.putAll((Map<String, Object>) existing.get("metadata"));
+    }
+    authStateRepository.save(
+        BossAuthProviders.STORAGE_PROVIDER, "logged_in", credentialJson, metadata);
+    return sanitizedEnvelope;
+  }
+
+  /**
+   * 判断操作是否可能在成功过程中静默刷新临时 Cookie。
+   */
+  private boolean mayRefreshCredential(String operation) {
+    return "search".equals(operation)
+        || "favorite_list".equals(operation)
+        || "detail".equals(operation)
+        || "profile".equals(operation);
+  }
+
+  /**
+   * 判断工具业务信封是否成功。
+   */
+  private boolean successfulEnvelope(Map<String, Object> envelope) {
+    Object rawCode = envelope.get("code");
+    if (!(rawCode instanceof Number)) return false;
+    int code = ((Number) rawCode).intValue();
+    return code >= 200 && code < 300;
   }
 
   /**
