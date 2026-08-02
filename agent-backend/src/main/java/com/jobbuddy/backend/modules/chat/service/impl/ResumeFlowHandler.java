@@ -119,11 +119,6 @@ class ResumeFlowHandler {
           contextResolver.resolve(selectedJob, state == null ? null : state.jobs);
       selectedJobContext = resolution.getJob();
       rememberSelectedJob(state, selectedJobContext);
-      if (!contextResolver.hasSufficientDescription(selectedJobContext)) {
-        sendSelectedJobEvidenceMissing(
-            emitter, sessionId, state, resume, selectedJobContext, resolution.getWarning(), true);
-        return;
-      }
       jobs = Collections.singletonList(selectedJobContext);
     } else {
       jobs =
@@ -264,11 +259,16 @@ class ResumeFlowHandler {
     Map<String, Object> runningDetail = new LinkedHashMap<String, Object>();
     runningDetail.put("target", target);
     runningDetail.put("resumeId", resume.getResumeId());
+    boolean useListEvidence =
+        selectedJobContext != null
+            && !selectedJobContext.isEmpty()
+            && !contextResolver.hasSufficientDescription(selectedJobContext);
     if (selectedJobContext != null && !selectedJobContext.isEmpty()) {
       runningDetail.put("selectedJob", selectedJobContext);
       runningDetail.put(
           "contextSource", reusedPreviousJob ? "previous_selected_job" : "selected_job");
     }
+    runningDetail.put("matchBasis", useListEvidence ? "recommendation_list" : "full_jd_analysis");
     sender.sendToolStatus(
         emitter,
         sessionId,
@@ -277,22 +277,38 @@ class ResumeFlowHandler {
             "resume_match",
             reusedPreviousJob ? "复评上一轮岗位" : "简历匹配分析",
             "running",
-            reusedPreviousJob ? "已解析当前追问，正在使用当前简历重新评估上一轮选中岗位。" : "正在基于完整 JD 与当前简历执行证据型匹配。",
+            useListEvidence
+                ? "正在基于岗位列表结构化信息与当前简历执行分析；加载职位描述不会被自动触发。"
+                : (reusedPreviousJob ? "已解析当前追问，正在使用当前简历重新评估上一轮选中岗位。" : "正在基于完整 JD 与当前简历执行证据型匹配。"),
             runningDetail));
     Map<String, Object> match =
-        jobRuntimeService.matchResumeSections(
-            resume,
-            jobs,
-            sessionId,
-            java.util.Arrays.asList(
-                "score",
-                "score_confidence",
-                "recommendation",
-                "reasoning",
-                "evidence",
-                "hits",
-                "gaps",
-                "limitations"));
+        useListEvidence
+            ? jobRuntimeService.matchResumeListEvidenceSections(
+                resume,
+                jobs,
+                sessionId,
+                java.util.Arrays.asList(
+                    "score",
+                    "score_confidence",
+                    "recommendation",
+                    "reasoning",
+                    "evidence",
+                    "hits",
+                    "gaps",
+                    "limitations"))
+            : jobRuntimeService.matchResumeSections(
+                resume,
+                jobs,
+                sessionId,
+                java.util.Arrays.asList(
+                    "score",
+                    "score_confidence",
+                    "recommendation",
+                    "reasoning",
+                    "evidence",
+                    "hits",
+                    "gaps",
+                    "limitations"));
     if (!match.containsKey("target")) match.put("target", target);
     state.resumeMatch = match;
     sender.sendToolStatus(
@@ -315,63 +331,12 @@ class ResumeFlowHandler {
       metadata.put("selectedJob", selectedJobContext);
       metadata.put("contextSource", reusedPreviousJob ? "previous_selected_job" : "selected_job");
     }
+    metadata.put("matchBasis", useListEvidence ? "recommendation_list" : "full_jd_analysis");
     sender.sendAssistant(
         emitter,
         sessionId,
         state,
         resumeMatchSummary(match, resume.getOriginalName(), selectedJobContext, reusedPreviousJob),
-        metadata);
-  }
-
-  /**
-   * 发送已选岗位证据缺失提示。
-   *
-   * @param emitter SSE 事件发送器
-   * @param sessionId 会话标识
-   * @param state 状态
-   * @param resume 简历
-   * @param selectedJob 已选岗位
-   * @param warning 警告信息
-   * @param reusedPreviousJob 是否复用上一岗位
-   * @throws IOException 文件或网络读写失败时抛出
-   */
-  private void sendSelectedJobEvidenceMissing(
-      SseEmitter emitter,
-      String sessionId,
-      ChatSessionState state,
-      ResumeRecord resume,
-      Map<String, Object> selectedJob,
-      String warning,
-      boolean reusedPreviousJob)
-      throws IOException {
-    Map<String, Object> detail = new LinkedHashMap<String, Object>();
-    detail.put("selectedJob", selectedJob);
-    detail.put("resumeId", resume.getResumeId());
-    detail.put("contextSource", reusedPreviousJob ? "previous_selected_job" : "selected_job");
-    detail.put("warning", warning);
-    sender.sendToolStatus(
-        emitter,
-        sessionId,
-        state,
-        toolStatus("resume_match", "岗位证据不足", "error", "已正确复用上一轮岗位，但未取得完整 JD，因此未生成伪精确评分。", detail));
-    Map<String, Object> metadata = new LinkedHashMap<String, Object>();
-    metadata.put("selectedJob", selectedJob);
-    metadata.put("resumeId", resume.getResumeId());
-    metadata.put("resumeName", resume.getOriginalName());
-    metadata.put("matchBasis", "previous_selected_job_without_jd");
-    metadata.put("contextResolution", detail);
-    String reason = warning == null || warning.trim().isEmpty() ? "岗位卡片缺少完整 JD" : warning.trim();
-    sender.sendAssistant(
-        emitter,
-        sessionId,
-        state,
-        "已理解你的意思：使用当前简历「"
-            + stringValue(resume.getOriginalName(), "当前选择的简历")
-            + "」重新评估上一轮岗位「"
-            + selectedJobLabel(selectedJob)
-            + "」。本轮没有给出精确分数，不是因为丢失了对话上下文，而是因为"
-            + reason
-            + "。已保留该岗位引用；补充或重新加载完整 JD 后，可直接继续复评。",
         metadata);
   }
 

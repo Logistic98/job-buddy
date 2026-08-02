@@ -220,12 +220,12 @@ class ResumeFlowHandlerTest {
   }
 
   /**
-   * 换简历复评缺少完整 JD 时只返回证据不足，并提示重新检索，不触发岗位匹配或隐式详情加载。
+   * 换简历复评缺少完整 JD 时直接使用列表证据，不触发隐式详情加载。
    *
    * @throws Exception 处理失败时抛出
    */
   @Test
-  void shouldAskForNewSearchWhenResumeSwitchSnapshotStillLacksJobDescription() throws Exception {
+  void shouldUseListEvidenceWhenResumeSwitchSnapshotLacksJobDescription() throws Exception {
     ChatSseEventSender sender = mock(ChatSseEventSender.class);
     CurrentResumeLoader resumeLoader = mock(CurrentResumeLoader.class);
     JobRuntimeService jobRuntimeService = mock(JobRuntimeService.class);
@@ -234,6 +234,18 @@ class ResumeFlowHandlerTest {
     resume.setOriginalName("当前选择的简历.pdf");
     resume.setParsed(Collections.<String, Object>singletonMap("summary", "后端工程经验"));
     when(resumeLoader.loadCurrentResume(any(ChatSessionState.class))).thenReturn(resume);
+    Map<String, Object> row = new LinkedHashMap<String, Object>();
+    row.put("id", "job-without-jd");
+    row.put("score", 68);
+    row.put("score_confidence", "medium");
+    row.put("recommendation", "可尝试");
+    row.put("reasoning", "岗位列表信息与简历后端经验有部分匹配。");
+    Map<String, Object> match = new LinkedHashMap<String, Object>();
+    match.put("matches", Collections.singletonList(row));
+    match.put("evaluation_mode", "recommendation_list");
+    when(jobRuntimeService.matchResumeListEvidenceSections(
+            any(ResumeRecord.class), anyList(), eq("session-missing-jd"), anyList()))
+        .thenReturn(match);
     ResumeFlowHandler handler =
         new ResumeFlowHandler(
             sender,
@@ -272,16 +284,16 @@ class ResumeFlowHandlerTest {
 
     verify(jobRuntimeService, never())
         .matchResumeSections(any(ResumeRecord.class), anyList(), any(String.class), anyList());
-    ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
+    verify(jobRuntimeService)
+        .matchResumeListEvidenceSections(
+            eq(resume), anyList(), eq("session-missing-jd"), anyList());
     verify(sender)
         .sendAssistant(
             eq(emitter),
             eq("session-missing-jd"),
             eq(state),
-            messageCaptor.capture(),
+            org.mockito.ArgumentMatchers.contains("重新评估上一轮岗位"),
             any(Map.class));
-    assertTrue(messageCaptor.getValue().contains("请重新检索岗位"));
-    assertFalse(messageCaptor.getValue().contains("重新点击“分析此岗位”"));
   }
 
   /**

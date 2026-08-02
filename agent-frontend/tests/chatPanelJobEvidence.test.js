@@ -41,6 +41,7 @@ import { useChatStore } from '../src/stores/chat'
 describe('ChatPanel job recommendation evidence', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    fetchJobDetail.mockReset()
   })
 
   it('keeps evidence collapsed and opens it below the actions on demand', async () => {
@@ -292,7 +293,7 @@ describe('ChatPanel job recommendation evidence', () => {
     wrapper.unmount()
   })
 
-  it('reports a missing job description without requesting detail or sending analysis', async () => {
+  it('loads a missing job description on demand and then analyzes the completed snapshot', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const chat = useChatStore()
@@ -313,6 +314,9 @@ describe('ChatPanel job recommendation evidence', () => {
       },
     ]
     const send = vi.spyOn(chat, 'send').mockResolvedValue(true)
+    fetchJobDetail.mockResolvedValueOnce({
+      jobDescription: '负责 Agent 平台、工具编排、RAG 效果评估、Java 微服务和线上稳定性建设。',
+    })
     const wrapper = mount(ChatPanel, { global: { plugins: [pinia] } })
     const buttons = wrapper.get('.chat-job-actions').findAll('button')
     const descriptionButton = buttons.find((button) => button.text() === '加载职位描述')
@@ -324,18 +328,35 @@ describe('ChatPanel job recommendation evidence', () => {
     await descriptionButton.trigger('click')
     await flushPromises()
 
-    expect(fetchJobDetail).not.toHaveBeenCalled()
-    expect(wrapper.get('.chat-job-jd-error').text()).toContain('当前岗位未包含完整职位描述')
-    expect(descriptionButton.text()).toBe('加载职位描述')
+    expect(fetchJobDetail).toHaveBeenCalledWith('job-missing-jd', '')
+    expect(wrapper.find('.chat-job-jd-error').exists()).toBe(false)
+    expect(wrapper.get('.chat-job-jd-full').text()).toContain('工具编排')
+    expect(descriptionButton.text()).toBe('收起职位描述')
     expect(analyzeButton.text()).toBe('分析此岗位')
     expect(analyzeButton.attributes('disabled')).toBeUndefined()
 
-    await analyzeButton.trigger('click')
+    // 分析完成后的服务端会话回读仍可能携带原始列表卡片；本地已加载 JD 不能因此消失。
+    chat.messages[0].jobCards = [
+      {
+        securityId: 'job-missing-jd',
+        jobName: 'Agent 平台开发工程师',
+        brandName: '示例科技',
+      },
+    ]
+    await flushPromises()
+    expect(wrapper.get('.chat-job-jd-full').text()).toContain('工具编排')
+    expect(wrapper.get('.chat-job-actions').findAll('button')[0].text()).toBe('收起职位描述')
+
+    const refreshedAnalyzeButton = wrapper
+      .get('.chat-job-actions')
+      .findAll('button')
+      .find((button) => button.text() === '分析此岗位')
+    await refreshedAnalyzeButton.trigger('click')
     await flushPromises()
 
-    expect(fetchJobDetail).not.toHaveBeenCalled()
-    expect(send).not.toHaveBeenCalled()
-    expect(wrapper.get('.chat-job-jd-error').text()).toContain('当前岗位未包含完整职位描述')
+    expect(fetchJobDetail).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0][2].selectedJob.jobDescription).toContain('RAG 效果评估')
     expect(descriptionButton.attributes('disabled')).toBeUndefined()
     expect(analyzeButton.text()).toBe('分析此岗位')
     wrapper.unmount()
@@ -375,6 +396,9 @@ describe('ChatPanel job recommendation evidence', () => {
       },
     ]
     const wrapper = mount(ChatPanel, { global: { plugins: [pinia] } })
+    fetchJobDetail.mockResolvedValueOnce({
+      jobDescription: '负责 Agent 平台研发与交付，包括运行时编排、Java 服务治理和效果评估。',
+    })
     const cards = wrapper.findAll('.chat-job-card')
     const completeDescriptionButton = cards[0]
       .get('.chat-job-actions')
@@ -387,13 +411,14 @@ describe('ChatPanel job recommendation evidence', () => {
     expect(incompleteDescriptionButton.text()).toBe('加载职位描述')
 
     await incompleteDescriptionButton.trigger('click')
+    await flushPromises()
 
-    expect(fetchJobDetail).not.toHaveBeenCalled()
-    expect(cards[1].get('.chat-job-jd-error').text()).toContain('当前岗位未包含完整职位描述')
+    expect(fetchJobDetail).toHaveBeenCalledWith('repeated-job', '')
+    expect(cards[1].get('.chat-job-jd-full').text()).toContain('运行时编排')
     wrapper.unmount()
   })
 
-  it('does not analyze a short list summary as a complete job description', async () => {
+  it('analyzes list evidence without loading detail when the card only contains a short summary', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const chat = useChatStore()
@@ -421,17 +446,71 @@ describe('ChatPanel job recommendation evidence', () => {
     const analyzeButton = buttons.find((button) => button.text() === '分析此岗位')
 
     expect(descriptionButton.text()).toBe('加载职位描述')
-    await descriptionButton.trigger('click')
-
-    expect(wrapper.find('.chat-job-jd-full').exists()).toBe(false)
-    expect(wrapper.get('.chat-job-jd-error').text()).toContain('完整职位描述')
-
     await analyzeButton.trigger('click')
     await flushPromises()
 
     expect(fetchJobDetail).not.toHaveBeenCalled()
-    expect(send).not.toHaveBeenCalled()
-    expect(wrapper.get('.chat-job-jd-error').text()).toContain('完整职位描述')
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0][2].selectedJob.jobDescription).toBe('负责大模型应用开发。')
+    expect(descriptionButton.text()).toBe('加载职位描述')
+    wrapper.unmount()
+  })
+
+  it('keeps analysis independent and clickable while the same card is loading its description', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const chat = useChatStore()
+    chat.messages = [
+      {
+        id: 'assistant-job-loading-detail',
+        role: 'assistant',
+        content: '',
+        pending: false,
+        toolEvents: [],
+        jobCards: [
+          {
+            securityId: 'job-loading-detail',
+            jobName: 'Agent 平台开发工程师',
+            brandName: '示例科技',
+            cityName: '上海',
+            jobExperience: '3-5年',
+            skills: ['Java', 'Agent'],
+          },
+        ],
+      },
+    ]
+    const send = vi.spyOn(chat, 'send').mockResolvedValue(true)
+    let resolveDetail
+    fetchJobDetail.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDetail = resolve
+      }),
+    )
+    const wrapper = mount(ChatPanel, { global: { plugins: [pinia] } })
+    const buttons = wrapper.get('.chat-job-actions').findAll('button')
+    const descriptionButton = buttons[0]
+    const analyzeButton = buttons.find((button) => button.text() === '分析此岗位')
+
+    await descriptionButton.trigger('click')
+    await flushPromises()
+
+    expect(descriptionButton.text()).toBe('加载中')
+    expect(descriptionButton.attributes('disabled')).toBeDefined()
+    expect(analyzeButton.text()).toBe('分析此岗位')
+    expect(analyzeButton.attributes('disabled')).toBeUndefined()
+
+    await analyzeButton.trigger('click')
+    await flushPromises()
+
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(send.mock.calls[0][2].selectedJob).not.toHaveProperty('jobDescription')
+    expect(fetchJobDetail).toHaveBeenCalledTimes(1)
+
+    resolveDetail({
+      jobDescription: '负责 Agent 平台、工具编排、Java 服务治理和线上稳定性建设。',
+    })
+    await flushPromises()
+    expect(descriptionButton.text()).toBe('收起职位描述')
     wrapper.unmount()
   })
 

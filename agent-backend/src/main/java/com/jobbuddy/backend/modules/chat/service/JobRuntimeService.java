@@ -116,6 +116,18 @@ public interface JobRuntimeService {
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId, List<String> sections);
 
   /**
+   * 使用岗位列表结构化信息匹配简历，不要求先加载完整职位描述。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @param sections 简历章节列表
+   * @return 简历章节匹配结果
+   */
+  Map<String, Object> matchResumeListEvidenceSections(
+      ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId, List<String> sections);
+
+  /**
    * 渐进式召回期间接收稳定累计预览与最新 Boss 批次。
    */
   interface JobProgressConsumer {

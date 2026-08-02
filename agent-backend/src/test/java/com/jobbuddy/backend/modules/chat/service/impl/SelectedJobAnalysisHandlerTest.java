@@ -127,7 +127,7 @@ class SelectedJobAnalysisHandlerTest {
    * @throws Exception 处理失败时抛出
    */
   @Test
-  void shouldNotRunMatchWhenJobDescriptionCannotBeResolved() throws Exception {
+  void shouldRunListEvidenceMatchWithoutLoadingJobDescription() throws Exception {
     ChatSseEventSender sender = mock(ChatSseEventSender.class);
     ResumeFlowHandler resumeFlowHandler = mock(ResumeFlowHandler.class);
     SelectedJobAnalysisHandler handler =
@@ -139,17 +139,21 @@ class SelectedJobAnalysisHandlerTest {
 
     handler.handle(mock(SseEmitter.class), "session-3", state, "分析此岗位", selectedJob);
 
-    verify(resumeFlowHandler, never()).handleSelectedJobMatch(any(), any(), any(), any(), any());
-    ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
-    verify(sender)
+    ArgumentCaptor<Map<String, Object>> contextCaptor = ArgumentCaptor.forClass(Map.class);
+    verify(resumeFlowHandler)
+        .handleSelectedJobMatch(
+            any(SseEmitter.class),
+            eq("session-3"),
+            eq(state),
+            eq("分析此岗位"),
+            contextCaptor.capture());
+    assertEquals("只有名称的岗位", contextCaptor.getValue().get("jobName"));
+    verify(sender, never())
         .sendAssistant(
             any(SseEmitter.class),
             eq("session-3"),
             any(ChatSessionState.class),
-            messageCaptor.capture(),
+            org.mockito.ArgumentMatchers.contains("请重新检索岗位"),
             any(Map.class));
-    assertTrue(messageCaptor.getValue().contains("不会仅凭岗位名称"));
-    assertTrue(messageCaptor.getValue().contains("请重新检索岗位"));
-    assertTrue(!messageCaptor.getValue().contains("重新点击“分析此岗位”"));
   }
 }

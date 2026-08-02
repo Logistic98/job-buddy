@@ -65,6 +65,9 @@ export const useJobStore = defineStore('job', {
     favoriteAnalysisTasks: {},
     detailLoadingKeys: [],
     detailErrors: {},
+    // 已按用户动作加载的详情按岗位键保留，防止聊天完成后的服务端快照回读
+    // 用原始列表卡片覆盖本地 JD。鉴权身份变化时随 Store 一并清空。
+    detailSnapshots: {},
     lifecycleRevision: 0,
   }),
   getters: {
@@ -287,6 +290,9 @@ export const useJobStore = defineStore('job', {
     detailError(item) {
       return this.detailErrors[jobKey(item)] || ''
     },
+    detailSnapshot(item) {
+      return this.detailSnapshots[jobKey(item)] || null
+    },
     setDetailError(item, message) {
       const key = jobKey(item)
       if (!key) return
@@ -295,6 +301,10 @@ export const useJobStore = defineStore('job', {
     applyJobDetail(item, detail) {
       if (!detail || typeof detail !== 'object') return
       const key = jobKey(item)
+      this.detailSnapshots = {
+        ...this.detailSnapshots,
+        [key]: { ...(this.detailSnapshots[key] || {}), ...detail },
+      }
       const merge = (list) => {
         const idx = list.findIndex((row) => jobKey(row) === key)
         if (idx >= 0) list.splice(idx, 1, { ...list[idx], ...detail })

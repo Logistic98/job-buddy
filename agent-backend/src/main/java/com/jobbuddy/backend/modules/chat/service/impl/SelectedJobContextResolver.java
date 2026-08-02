@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * 选中岗位上下文解析器：把当前卡片与会话推荐快照合并成稳定的紧凑结构。
  *
- * <p>岗位分析与换简历复评只消费检索阶段已经取得的岗位证据，不在交互入口访问 Boss。缺少完整 JD 时由上层明确提示重新检索，避免按钮点击触发隐式外部请求。
+ * <p>岗位分析与换简历复评只消费检索阶段已经取得的岗位证据，不在交互入口访问 Boss。缺少完整 JD 时使用岗位列表结构化信息执行低置信度分析，加载职位描述保持为独立的用户动作。
  */
 final class SelectedJobContextResolver {
   private static final int MIN_JOB_DESCRIPTION_CHARS = 30;
@@ -45,7 +45,7 @@ final class SelectedJobContextResolver {
     if (hasSufficientDescription(compact)) {
       return new Resolution(compact, false, "");
     }
-    return new Resolution(compact, false, "当前推荐岗位快照缺少完整 JD，请重新检索岗位后再分析。");
+    return new Resolution(compact, false, "当前未加载完整 JD，本次将基于岗位列表结构化信息分析。");
   }
 
   /**

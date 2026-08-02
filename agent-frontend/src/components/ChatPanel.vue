@@ -37,15 +37,15 @@
               </strong>
               <b>{{ panelStatusText(msg) }}</b>
             </summary>
-            <div v-if="isStreamingMsg(msg) && activeRunningToolEvent" class="tool-thinking-step">
+            <div v-if="isStreamingMsg(msg) && activeRunningToolEventFor(msg)" class="tool-thinking-step">
               <div class="loading-spinner"></div>
               <div class="loading-copy">
-                <strong>{{ loadingTitle }}</strong>
-                <span>{{ loadingSummary }}</span>
+                <strong>{{ panelLoadingTitle(msg) }}</strong>
+                <span>{{ panelLoadingSummary(msg) }}</span>
               </div>
               <div class="loading-count">
-                <strong>{{ completedToolCount }}/{{ visibleToolEvents.length || 1 }}</strong>
-                <small>{{ activeRunningTimingText }}</small>
+                <strong>{{ completedToolCountFor(msg) }}/{{ messageToolEvents(msg).length || 1 }}</strong>
+                <small>{{ activeRunningTimingTextFor(msg) }}</small>
               </div>
             </div>
             <div class="tool-step-list">
@@ -164,7 +164,7 @@
                         @click.stop
                         >Boss 原岗位</a
                       >
-                      <button type="button" @click.stop="toggleChatJd(item, idx)">
+                      <button type="button" :disabled="job.isLoadingDetail(item)" @click.stop="toggleChatJd(item, idx)">
                         {{ chatJdButtonText(item, idx) }}
                       </button>
                       <button
@@ -175,8 +175,8 @@
                       >
                         {{ isRecommendationEvidenceOpen(item, idx) ? '收起推荐依据' : '推荐依据' }}
                       </button>
-                      <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item, idx)">
-                        {{ chat.isAnalyzingSelectedJob(item) ? '分析中' : '分析此岗位' }}
+                      <button type="button" :disabled="chat.loading" @click.stop="analyzeChatJob(item)">
+                        {{ chatJobAnalysisButtonText(item) }}
                       </button>
                       <button
                         type="button"
@@ -402,7 +402,7 @@ let elapsedTimer = null
 let composerResizeObserver = null
 // 过程面板/推理步骤的展开状态按消息 id 记忆，完成后不强制收起，避免“跑完过程就没了”。
 const panelOpenState = ref({})
-// 检索结果已经携带职位描述；这里仅记录卡片内的展开状态与用户可见错误。
+// 推荐列表允许只携带摘要；完整职位描述由用户展开或发起分析时按需加载。
 const MIN_CHAT_JOB_DESCRIPTION_CHARS = 30
 const jdErrorMap = ref({})
 const jdExpandedKeys = ref(new Set())
@@ -450,9 +450,6 @@ const activeRunningToolEvent = computed(
 )
 const currentToolEvent = computed(() => activeRunningToolEvent.value || latestToolEvent.value || null)
 const terminalToolStatuses = new Set(['success', 'error', 'down', 'cancelled'])
-const completedToolCount = computed(
-  () => visibleToolEvents.value.filter((item) => terminalToolStatuses.has(item.status)).length,
-)
 // 工具事件签名独立成 computed：答案逐 token 流式期间工具事件不变，签名命中缓存，
 // 避免滚动跟随的 watch 在每个 token 上对全部工具事件重复做 map+join 字符串拼接。
 const toolEventsSignature = computed(() =>
@@ -475,23 +472,7 @@ const showProcessingHint = computed(
   () => chat.loading && !lastAssistantContent.value && visibleToolEvents.value.length === 0,
 )
 const loadingTitle = computed(() => currentToolEvent.value?.name || '正在处理')
-const currentToolElapsedSeconds = computed(() => {
-  const startedAt = Number(currentToolEvent.value?.startedAt || 0)
-  if (!startedAt) return 0
-  return Math.max(0, Math.floor((nowTick.value - startedAt) / 1000))
-})
 const loadingSummary = computed(() => activeToolSummary(currentToolEvent.value))
-const activeRunningTimingText = computed(() => {
-  const clock = toolEventClockText(activeRunningToolEvent.value)
-  const elapsed = currentToolElapsedSeconds.value
-  return [clock, elapsed ? `已运行 ${elapsed} 秒` : '刚刚开始'].filter(Boolean).join(' · ')
-})
-const toolProcessText = computed(() => {
-  const total = visibleToolEvents.value.length
-  if (chat.loading)
-    return `进行中 · ${completedToolCount.value}/${total || 1} 步 · ${currentToolElapsedSeconds.value} 秒`
-  return `已完成 ${completedToolCount.value}/${total || completedToolCount.value} 步`
-})
 const composerPlaceholder = computed(() =>
   chat.loading ? '正在处理当前请求，请等待结果返回后再继续输入' : defaultWorkbenchCopy.placeholder,
 )
@@ -669,8 +650,12 @@ function matchConfidence(item) {
 function jobId(item, idx) {
   return String(item.securityId || item.id || item.jobId || item.encryptJobId || `job_${idx}`)
 }
+function resolvedChatJob(item) {
+  const detail = job.detailSnapshot(item)
+  return detail ? { ...item, ...detail } : item
+}
 function chatJobFullJd(item) {
-  return normalizeJobDescriptionText(firstJobDescriptionText(item))
+  return normalizeJobDescriptionText(firstJobDescriptionText(resolvedChatJob(item)))
 }
 function hasSufficientChatJobDescription(item) {
   return chatJobFullJd(item).length >= MIN_CHAT_JOB_DESCRIPTION_CHARS
@@ -682,9 +667,13 @@ function isChatJdOpen(item, idx) {
   return jdExpandedKeys.value.has(jobId(item, idx))
 }
 function chatJdButtonText(item, idx) {
+  if (job.isLoadingDetail(item)) return '加载中'
   const hasSufficientDescription = hasSufficientChatJobDescription(item)
   if (hasSufficientDescription && isChatJdOpen(item, idx)) return '收起职位描述'
   return hasSufficientDescription ? '查看职位描述' : '加载职位描述'
+}
+function chatJobAnalysisButtonText(item) {
+  return chat.isAnalyzingSelectedJob(item) ? '分析中' : '分析此岗位'
 }
 async function toggleChatFavorite(item, idx) {
   const key = jobId(item, idx)
@@ -699,23 +688,43 @@ async function toggleChatFavorite(item, idx) {
     jdErrorMap.value = { ...jdErrorMap.value, [key]: error?.message || '收藏岗位失败' }
   }
 }
-function showMissingChatJobDescription(item, idx) {
+function showMissingChatJobDescription(item, idx, message = '') {
   const key = jobId(item, idx)
-  jdErrorMap.value = { ...jdErrorMap.value, [key]: '当前岗位未包含完整职位描述，请重新检索后再试。' }
+  jdErrorMap.value = {
+    ...jdErrorMap.value,
+    [key]: message || '未获取到完整职位描述，请稍后重试或打开 Boss 原岗位查看。',
+  }
 }
-function toggleChatJd(item, idx) {
+async function ensureChatJobDescription(item, idx) {
   const key = jobId(item, idx)
-  if (!hasSufficientChatJobDescription(item)) {
+  if (hasSufficientChatJobDescription(item)) return true
+  jdErrorMap.value = { ...jdErrorMap.value, [key]: '' }
+  try {
+    const detail = await job.loadJobDetail(item, originalUrl(item))
+    if (detail && typeof detail === 'object') Object.assign(item, detail)
+  } catch (error) {
+    if (error?.authRequired) {
+      chat.authRequired = error.authData || { message: error.message }
+      return false
+    }
+    showMissingChatJobDescription(item, idx, error?.message)
+    return false
+  }
+  if (hasSufficientChatJobDescription(item)) {
+    jdErrorMap.value = { ...jdErrorMap.value, [key]: '' }
+    return true
+  }
+  showMissingChatJobDescription(item, idx, job.detailError(item))
+  return false
+}
+async function toggleChatJd(item, idx) {
+  const key = jobId(item, idx)
+  if (hasSufficientChatJobDescription(item) && isChatJdOpen(item, idx)) {
     jdExpandedKeys.value.delete(key)
     jdExpandedKeys.value = new Set(jdExpandedKeys.value)
-    showMissingChatJobDescription(item, idx)
     return
   }
-  if (isChatJdOpen(item, idx)) {
-    jdExpandedKeys.value.delete(key)
-    jdExpandedKeys.value = new Set(jdExpandedKeys.value)
-    return
-  }
+  if (!(await ensureChatJobDescription(item, idx))) return
   jdErrorMap.value = { ...jdErrorMap.value, [key]: '' }
   jdExpandedKeys.value.add(key)
   jdExpandedKeys.value = new Set(jdExpandedKeys.value)
@@ -723,9 +732,12 @@ function toggleChatJd(item, idx) {
 
 function compactSelectedJobForAnalysis(item) {
   if (!item || typeof item !== 'object') return {}
+  const source = resolvedChatJob(item)
   const result = {}
   const putText = (key, aliases, maxLength = 512) => {
-    const value = aliases.map((alias) => item[alias]).find((candidate) => candidate !== undefined && candidate !== null)
+    const value = aliases
+      .map((alias) => source[alias])
+      .find((candidate) => candidate !== undefined && candidate !== null)
     const normalized = String(value || '').trim()
     if (normalized) result[key] = normalized.slice(0, maxLength)
   }
@@ -738,9 +750,9 @@ function compactSelectedJobForAnalysis(item) {
   putText('degree', ['jobDegree', 'education', 'degree', 'degreeName'], 256)
   putText('industry', ['brandIndustry', 'companyIndustry', 'industry', 'industryName'], 256)
   putText('originalUrl', ['originalUrl', 'jobUrl', 'url', 'href', 'link', 'detailUrl', 'jobDetailUrl'], 2048)
-  const description = normalizeJobDescriptionText(firstJobDescriptionText(item)).slice(0, 2400)
+  const description = normalizeJobDescriptionText(firstJobDescriptionText(source)).slice(0, 2400)
   if (description) result.jobDescription = description
-  const tags = jobTags(item)
+  const tags = jobTags(source)
     .map((tag) => tag.slice(0, 120))
     .slice(0, 12)
   if (tags.length) result.skills = tags
@@ -765,9 +777,37 @@ function messageToolEvents(msg) {
   return events.filter((item) => item && !hiddenToolEventIds.has(item.id))
 }
 
+function activeRunningToolEventFor(msg) {
+  return [...messageToolEvents(msg)].reverse().find((item) => item.status === 'running') || null
+}
+
+function completedToolCountFor(msg) {
+  return messageToolEvents(msg).filter((item) => terminalToolStatuses.has(item.status)).length
+}
+
+function panelCurrentToolEvent(msg) {
+  const events = messageToolEvents(msg)
+  return activeRunningToolEventFor(msg) || events[events.length - 1] || null
+}
+
+function panelLoadingTitle(msg) {
+  return panelCurrentToolEvent(msg)?.name || '正在处理'
+}
+
+function panelLoadingSummary(msg) {
+  return activeToolSummary(panelCurrentToolEvent(msg))
+}
+
+function activeRunningTimingTextFor(msg) {
+  const active = activeRunningToolEventFor(msg)
+  const startedAt = Number(active?.startedAt || 0)
+  const elapsed = startedAt ? Math.max(0, Math.floor((nowTick.value - startedAt) / 1000)) : 0
+  return [toolEventClockText(active), elapsed ? `已运行 ${elapsed} 秒` : '刚刚开始'].filter(Boolean).join(' · ')
+}
+
 function processStepEvents(msg) {
   const events = messageToolEvents(msg)
-  const active = activeRunningToolEvent.value
+  const active = activeRunningToolEventFor(msg)
   const visible =
     isStreamingMsg(msg) && active ? events.filter((item) => item.id !== active.id || item.status !== 'running') : events
   // 过程始终按时间倒序展示：当前运行步骤在顶部，完成后也保持最新步骤在最上方。
@@ -851,9 +891,14 @@ function panelLatestEvent(msg) {
 }
 
 function panelStatusText(msg) {
-  if (isStreamingMsg(msg)) return toolProcessText.value
   const events = messageToolEvents(msg)
   const done = events.filter((item) => terminalToolStatuses.has(item.status)).length
+  if (isStreamingMsg(msg)) {
+    const current = panelCurrentToolEvent(msg)
+    const startedAt = Number(current?.startedAt || 0)
+    const elapsed = startedAt ? Math.max(0, Math.floor((nowTick.value - startedAt) / 1000)) : 0
+    return `进行中 · ${done}/${events.length || 1} 步 · ${elapsed} 秒`
+  }
   const errors = events.filter((item) => ['error', 'down'].includes(item.status)).length
   if (errors) return `已结束 ${done}/${events.length || done} 步 · ${errors} 项异常`
   return `已完成 ${done}/${events.length || done} 步`
@@ -936,12 +981,8 @@ function requestMoreJobs() {
   chat.send('换一批', props.resumeId, { flipJobs: true })
 }
 
-async function analyzeChatJob(item, idx) {
+async function analyzeChatJob(item) {
   if (!item || chat.loading) return
-  if (!hasSufficientChatJobDescription(item)) {
-    showMissingChatJobDescription(item, idx)
-    return
-  }
   const prompt = `分析此岗位与当前简历的匹配度：${jobTitle(item)} / ${company(item)}。请给出评分、结论、匹配优势、主要差距和下一步建议。`
   await chat.send(prompt, props.resumeId, { selectedJob: compactSelectedJobForAnalysis(item) })
 }

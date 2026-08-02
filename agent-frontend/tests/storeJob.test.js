@@ -301,6 +301,7 @@ describe('job store - favorites', () => {
 
     expect(store.jobs[0].jobDescription).toBe('职责描述')
     expect(store.favorites[0].jobDescription).toBe('职责描述')
+    expect(store.detailSnapshot({ securityId: 'sec-1' }).jobDescription).toBe('职责描述')
     expect(saveFavoriteJob).toHaveBeenCalledWith({
       favoriteKey: 'sec-1',
       securityId: 'sec-1',
@@ -308,6 +309,9 @@ describe('job store - favorites', () => {
       jobDescription: '职责描述',
     })
     expect(store.detailError({ securityId: 'sec-1' })).toBe('')
+
+    store.disposeForAuthChange()
+    expect(store.detailSnapshot({ securityId: 'sec-1' })).toBeNull()
   })
 
   it('loadJobDetail records an error message on failure without throwing', async () => {

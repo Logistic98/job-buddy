@@ -1376,6 +1376,25 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   }
 
   /**
+   * 使用岗位列表结构化信息匹配简历，不要求先加载完整职位描述。
+   *
+   * @param resume 简历
+   * @param jobs 岗位列表
+   * @param sessionId 会话标识
+   * @param sections 简历章节列表
+   * @return 简历章节匹配结果
+   */
+  @Override
+  public Map<String, Object> matchResumeListEvidenceSections(
+      ResumeRecord resume,
+      List<Map<String, Object>> jobs,
+      String sessionId,
+      List<String> sections) {
+    return normalizeResumeMatchEvidence(
+        invokeResumeMatch(resume, jobs, sessionId, sections, RECOMMENDATION_LIST_MODE), true);
+  }
+
+  /**
    * 调用简历匹配结果。
    *
    * @param resume 简历

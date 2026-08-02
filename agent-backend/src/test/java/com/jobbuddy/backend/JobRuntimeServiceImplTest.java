@@ -948,6 +948,43 @@ class JobRuntimeServiceImplTest {
   }
 
   /**
+   * 单岗位列表证据分析必须显式选择 recommendation_list，不能要求先加载完整 JD。
+   */
+  @Test
+  void matchResumeListEvidenceSectionsShouldUseRecommendationListMode() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    Map<String, Object> row = recommendationMatch("list-job", 68, "medium", "可尝试");
+    when(runtimeToolClient.invoke(
+            any(String.class), any(RuntimeToolArguments.class), any(String.class), any()))
+        .thenReturn(runtimeMatch(row));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            new JobBuddyProperties(),
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> job = new LinkedHashMap<String, Object>();
+    job.put("securityId", "list-job");
+    job.put("jobName", "Agent 平台开发工程师");
+    job.put("skills", java.util.Arrays.asList("Java", "Agent"));
+
+    service.matchResumeListEvidenceSections(
+        parsedResume(), Collections.singletonList(job), "s-list", Collections.<String>emptyList());
+
+    verify(runtimeToolClient)
+        .invoke(
+            eq("resume_match"),
+            argThat(args -> "recommendation_list".equals(args.get("evaluation_mode").asText())),
+            eq("s-list"),
+            any());
+  }
+
+  /**
    * 验证 JobRuntimeServiceImpl 中岗位推荐的输入校验与拒绝边界。
    */
   @Test
