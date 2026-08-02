@@ -20,6 +20,7 @@ from app.tools.boss_browser.core.extract import (
     assemble_profile,
     extract_favorite_jobs,
     extract_jobs,
+    has_salary_evidence,
     normalize_detail,
 )
 from app.tools.boss_browser.core.qr_session_codec import QrSessionCodec
@@ -232,6 +233,12 @@ class BossService:
             raise AuthRequiredError(result.get("error_message") or "Boss 未登录或登录态失效，请扫码登录。")
         payload = result.get("payload")
         jobs = extract_jobs(payload)
+        if jobs and not any(has_salary_evidence(job) for job in jobs):
+            # Boss 偶尔会返回结构完整但薪资等关键值全部为空的岗位卡片。这不是“无岗位”，
+            # 也不能在用户显式薪资筛选时继续下游处理，否则会被本地规则全部剔除并伪装成 0 个结果。
+            # 此处不自动重试，避免增加真实 Boss 访问频率；由用户稍后手动重试。
+            self._limiter.record_failure()
+            raise RuntimeError("Boss 搜索返回的岗位薪资信息不完整，本次结果未采用，请稍后手动重试。")
         if not jobs:
             if result.get("temporary_auth_refresh_failed"):
                 self._limiter.record_failure()

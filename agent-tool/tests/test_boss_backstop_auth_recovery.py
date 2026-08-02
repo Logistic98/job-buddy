@@ -28,7 +28,11 @@ class _FakeSession:
     async def search(self, *args, **kwargs):
         # 未登录时引擎层返回登录重定向，登录后返回真实结果。
         if self.authenticated:
-            return {"payload": {"jobList": [{"jobName": "Java"}]}, "login_redirect": False, "risk_marker": None}
+            return {
+                "payload": {"jobList": [{"jobName": "Java", "salaryDesc": "30-50K"}]},
+                "login_redirect": False,
+                "risk_marker": None,
+            }
         return {"payload": None, "login_redirect": True, "risk_marker": None}
 
 
@@ -81,6 +85,24 @@ def test_search_success_after_login(tmp_path):
     jobs = asyncio.run(service.search("Go", "杭州"))
     assert jobs and jobs[0].get("jobName") == "Java"
     assert service.rate_snapshot()["consecutive_failures"] == 0
+
+
+def test_incomplete_salary_cards_are_not_reported_as_empty_search(tmp_path):
+    service = _service(tmp_path, authenticated=True)
+
+    async def _incomplete_result(*_args, **_kwargs):
+        return {
+            "payload": {"jobList": [{"securityId": "opaque-id", "jobName": "大模型应用开发"}]},
+            "login_redirect": False,
+            "risk_marker": None,
+        }
+
+    service._session.search = _incomplete_result  # noqa: SLF001
+
+    with pytest.raises(RuntimeError, match="薪资信息不完整"):
+        asyncio.run(service.search("大模型应用开发", "上海"))
+
+    assert service.rate_snapshot()["consecutive_failures"] == 1
 
 
 def test_temporary_token_refresh_failure_does_not_request_qr_login(tmp_path):

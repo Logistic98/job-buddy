@@ -63,12 +63,20 @@ class BossCliServiceImplTest {
     Map<String, Object> slots = new LinkedHashMap<String, Object>();
     slots.put("role", "大模型应用开发");
     slots.put("city", "杭州");
+    slots.put("salary_min_k", 40);
+    slots.put("salary_max_k", 50);
     intent.setSlots(slots);
 
     List<Map<String, Object>> jobs = service.searchJobsPage(intent, 1);
 
     assertEquals(1, jobs.size());
     assertEquals("大模型应用开发", jobs.get(0).get("jobName"));
+    verify(browserClient)
+        .post(
+            eq("/search"),
+            argThat(
+                payload ->
+                    "杭州".equals(payload.get("city")) && "30-50K".equals(payload.get("salary"))));
   }
 
   /**

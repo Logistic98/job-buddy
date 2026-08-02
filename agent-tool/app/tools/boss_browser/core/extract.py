@@ -91,10 +91,25 @@ def extract_jobs(payload: Any) -> list[dict]:
         return []
     found = _find_job_list(payload, depth=0) or []
     jobs = [_normalize_job(item) for item in found]
-    # 自诊断：首项缺薪资字段时打出真实键名，便于定位 Boss 端薪资字段漂移；字段正常则不打。
-    if jobs and not any(jobs[0].get(k) for k in ("salaryDesc", "salary")):
-        logger.warning(f"岗位项缺薪资字段，首项可用键：{sorted(jobs[0].keys())}")
+    # 自诊断：记录整批缺薪资数量，便于区分真实空结果与 Boss 返回的残缺岗位卡片。
+    missing_salary = sum(1 for job in jobs if not has_salary_evidence(job))
+    if missing_salary:
+        logger.warning(
+            "岗位项缺薪资字段: missing={missing}, total={total}, 首项可用键={keys}",
+            missing=missing_salary,
+            total=len(jobs),
+            keys=sorted(jobs[0].keys()),
+        )
     return jobs
+
+
+def has_salary_evidence(job: dict) -> bool:
+    """判断岗位卡片是否包含可用于薪资复核的展示值或结构化上下界。"""
+    if not isinstance(job, dict):
+        return False
+    if any(_has_value(job.get(key)) for key in _JOB_FIELD_CANDIDATES["salaryDesc"]):
+        return True
+    return any(_has_value(job.get(key)) for key in (*_LOW_SALARY_KEYS, *_HIGH_SALARY_KEYS))
 
 
 def extract_favorite_jobs(payload: Any) -> list[dict]:

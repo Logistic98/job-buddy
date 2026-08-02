@@ -610,6 +610,8 @@ public class BossCliServiceImpl implements BossCliService {
     Object city = slots.get("city");
     if (city != null && !String.valueOf(city).trim().isEmpty())
       body.put("city", String.valueOf(city));
+    String salaryFilter = bossSalaryFilter(slots);
+    if (!salaryFilter.isEmpty()) body.put("salary", salaryFilter);
     if (page > 1) body.put("page", page);
 
     Map<String, Object> envelope = browserClient.post("/search", body);
@@ -624,6 +626,32 @@ public class BossCliServiceImpl implements BossCliService {
     }
     Map<String, Object> data = dataOf(envelope);
     return enrichJobs(extractJobs(data.get("jobs")));
+  }
+
+  /**
+   * 将完全落在单个 Boss 薪资桶内的用户区间下推到上游。跨桶区间不下推，避免因为 Boss
+   * 只接受单个枚举值而漏召回；精确区间仍由本地规则复核。
+   *
+   * @param slots 意图槽位
+   * @return Boss 薪资筛选枚举，无法安全下推时返回空字符串
+   */
+  private String bossSalaryFilter(Map<String, Object> slots) {
+    int min = numberOrDefault(slots.get("salary_min_k"), -1);
+    int max = numberOrDefault(slots.get("salary_max_k"), -1);
+    if (min < 0 || max < 0) {
+      return min >= 50 && max < 0 ? "50K以上" : "";
+    }
+    int lower = Math.min(min, max);
+    int upper = Math.max(min, max);
+    if (upper <= 3) return "3K以下";
+    if (lower >= 3 && upper <= 5) return "3-5K";
+    if (lower >= 5 && upper <= 10) return "5-10K";
+    if (lower >= 10 && upper <= 15) return "10-15K";
+    if (lower >= 15 && upper <= 20) return "15-20K";
+    if (lower >= 20 && upper <= 30) return "20-30K";
+    if (lower >= 30 && upper <= 50) return "30-50K";
+    if (lower >= 50) return "50K以上";
+    return "";
   }
 
   /**
