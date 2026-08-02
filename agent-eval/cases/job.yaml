@@ -133,6 +133,7 @@ cases:
       intent: resume.optimize
       runtime_capability: resume.optimize
       runtime_next_action: run_runtime_planner
+      required_tools: [resume_context_read]
       events: [intent, message, done]
   - id: job_compare_request
     input: "对比一下这两个岗位哪个更适合我"

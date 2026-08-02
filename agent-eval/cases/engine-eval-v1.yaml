@@ -378,8 +378,9 @@ cases:
       intent: resume.optimize
       next_action: run_runtime_planner
       forbidden_intent: job.recommend
+      required_tools: [resume_context_read]
       events: [intent, message, done]
-      trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, finalize, run_end]
+      trace_events: [run_start, understand_goal, task_understanding, capability_route, tool_search, plan_created, tool_execute_start, tool_execute_end, finalize, run_end]
     latency_budget:
       ttft_ms_target: 2500
       ttft_ms_max: 5500

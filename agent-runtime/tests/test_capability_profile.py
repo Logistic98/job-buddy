@@ -36,6 +36,17 @@ def test_code_generation_capability_uses_explicit_bounded_tool_scope():
     }
 
 
+def test_resume_optimize_reads_backend_selected_resume_context_without_file_path():
+    profiles_dir = Path(__file__).resolve().parents[1] / "config" / "profiles"
+    registry = CapabilityRegistry(str(profiles_dir))
+
+    capability = registry.find_capability("job-buddy", capability_id="resume.optimize")
+
+    assert capability is not None
+    assert capability.required_tools == ["resume_context_read"]
+    assert "resume_parse" not in capability.required_tools
+
+
 def test_content_formatting_capability_is_strictly_tool_free():
     profiles_dir = Path(__file__).resolve().parents[1] / "config" / "profiles"
     registry = CapabilityRegistry(str(profiles_dir))

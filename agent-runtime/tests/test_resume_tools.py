@@ -14,6 +14,7 @@ from app.tools_builtin import resume_tools
 from app.tools_builtin.resume_tools import (
     JobProfileSummaryTool,
     ResumeAnalyzeTool,
+    ResumeContextReadTool,
     ResumeMatchTool,
     ResumeParseTool,
     _extract_json,
@@ -73,6 +74,46 @@ def _context(workspace):
         session_id=f"session_{uuid4().hex[:8]}",
         workspace_dir=str(workspace),
     )
+
+
+@pytest.mark.asyncio
+async def test_resume_context_read_uses_selected_structured_resume_without_file_path(workspace):
+    tool = ResumeContextReadTool()
+    context = ToolExecutionContext(
+        run_id="run_resume_context",
+        trace_id="trace_resume_context",
+        session_id="session_resume_context",
+        workspace_dir=str(workspace),
+        metadata={
+            "resume_id": "resume-selected",
+            "personal_context": {
+                "resume_summary": {
+                    "name": "张三",
+                    "skills": ["Java", "Python"],
+                    "projects": [{"name": "JobBuddy"}],
+                }
+            },
+        },
+    )
+
+    result = await tool.safe_run(ToolCall(id="context-read", name="resume_context_read", arguments={}), context)
+
+    assert result.success is True
+    assert result.output["resume"]["name"] == "张三"
+    assert result.output["resume_id"] == "resume-selected"
+    assert result.output["source"] == "personal_context.current_resume"
+
+
+@pytest.mark.asyncio
+async def test_resume_context_read_fails_closed_without_selected_resume(workspace):
+    tool = ResumeContextReadTool()
+
+    result = await tool.safe_run(
+        ToolCall(id="context-missing", name="resume_context_read", arguments={}), _context(workspace)
+    )
+
+    assert result.success is False
+    assert "已选结构化简历" in result.error
 
 
 def _score_breakdown(score=82):

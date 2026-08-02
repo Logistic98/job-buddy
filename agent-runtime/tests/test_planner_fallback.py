@@ -413,9 +413,11 @@ async def test_profile_specific_planner_prompt_reaches_runtime_planner(tmp_path)
     class PlannerLLM:
         def __init__(self):
             self.messages = []
+            self.kwargs = {}
 
         async def chat(self, messages, **kwargs):
             self.messages = messages
+            self.kwargs = kwargs
             return {"content": '{"is_complete": true, "final_answer": "custom prompt applied"}'}
 
     capability = CapabilityCard(
@@ -456,6 +458,8 @@ async def test_profile_specific_planner_prompt_reaches_runtime_planner(tmp_path)
     assert task.metadata["planner_prompt"] == "planner/custom-profile.md"
     assert prompt_loader.path == "planner/custom-profile.md"
     assert llm.messages[0].content == "custom planner instructions"
+    assert llm.kwargs["disable_thinking"] is True
+    assert llm.kwargs["max_tokens"] == 2048
     assert plan.final_answer == "custom prompt applied"
     assert call is None
 

@@ -5,7 +5,13 @@ from app.tools_builtin.file_edit_tool import FileEditTool
 from app.tools_builtin.file_read_tool import FileReadTool
 from app.tools_builtin.file_write_tool import FileWriteTool
 from app.tools_builtin.interview_tools import InterviewPaperComposeTool, InterviewQuestionGenerateTool
-from app.tools_builtin.resume_tools import JobProfileSummaryTool, ResumeAnalyzeTool, ResumeMatchTool, ResumeParseTool
+from app.tools_builtin.resume_tools import (
+    JobProfileSummaryTool,
+    ResumeAnalyzeTool,
+    ResumeContextReadTool,
+    ResumeMatchTool,
+    ResumeParseTool,
+)
 from app.tools_builtin.sandbox_code_tool import SandboxCodeExecuteTool
 from app.tools_builtin.search_tools import GlobTool, GrepTool
 from app.tools_builtin.shell_tool import ShellTool
@@ -28,6 +34,7 @@ def _builtin_tool_instances():
         ShellTool(),
         InterviewPaperComposeTool(),
         InterviewQuestionGenerateTool(),
+        ResumeContextReadTool(),
         ResumeParseTool(),
         ResumeAnalyzeTool(),
         ResumeMatchTool(),

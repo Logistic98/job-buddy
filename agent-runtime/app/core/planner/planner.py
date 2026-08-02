@@ -1,5 +1,6 @@
 """依据任务理解生成有界执行计划与确定性降级方案。"""
 
+import asyncio
 import json
 import re
 from typing import List, Optional
@@ -14,6 +15,8 @@ from app.core.utils.time_utils import TimeUtils
 from app.models.schemas import AgentPlan, AgentPlanStep, ChatMessage, TaskUnderstandingResult, ToolCall, ToolDefinition
 
 DETERMINISTIC_TOOL_MATCH_MIN_SCORE = 4
+PLANNER_MAX_TOKENS = 2048
+PLANNER_LLM_TIMEOUT_SECONDS = 30
 
 
 DEFAULT_PLANNER_PROMPT = """
@@ -84,7 +87,14 @@ class RuntimePlanner:
         )
         try:
             # 模型输出必须经过结构化解析和可用工具白名单校验。
-            response = await self.llm_client.chat(planner_messages)
+            response = await asyncio.wait_for(
+                self.llm_client.chat(
+                    planner_messages,
+                    max_tokens=PLANNER_MAX_TOKENS,
+                    disable_thinking=True,
+                ),
+                timeout=PLANNER_LLM_TIMEOUT_SECONDS,
+            )
             content = response.get("content") or "{}"
             data = self._parse_json(content)
             plan, calls = self._build_plan_and_calls(

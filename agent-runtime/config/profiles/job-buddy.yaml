@@ -226,7 +226,7 @@ capabilities:
     risk: low
     next_action: run_runtime_planner
     planner_needed: true
-    required_tools: ["resume_parse"]
+    required_tools: ["resume_context_read"]
     allowed_tools: ["web_search", "web_fetch"]
     evidence_requirements: ["已解析简历或用户粘贴的简历内容", "目标岗位 JD 或明确优化目标", "可审计修改建议", "必要时引用 Web 搜索结果或用户提供 URL 的 Web 内容"]
     context_dependencies: ["profile", "resume"]

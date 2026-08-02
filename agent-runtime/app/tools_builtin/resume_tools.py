@@ -317,6 +317,40 @@ class ResumeParseTool(BaseTool):
         }
 
 
+class ResumeContextReadTool(BaseTool):
+    """读取 Backend 已按当前用户注入的结构化简历快照。"""
+
+    name = "resume_context_read"
+    aliases = ["read_selected_resume", "current_resume"]
+    search_hint = "读取 当前 已选 已解析 简历 上下文 优化 润色 改写"
+    description = "读取 Backend 已按当前租户和用户注入的已选结构化简历，不访问本地文件或要求系统路径。"
+    input_schema = {"type": "object", "properties": {}}
+    output_schema = {
+        "type": "object",
+        "properties": {
+            "resume": {"type": "object"},
+            "source": {"type": "string"},
+            "resume_id": {"type": "string"},
+        },
+        "required": ["resume", "source"],
+    }
+    tags = ["resume", "job", "context"]
+    timeout_seconds = 5
+    risk_level = ToolRiskLevel.LOW
+    read_only = True
+
+    async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
+        personal_context = context.metadata.get("personal_context")
+        resume = personal_context.get("resume_summary") if isinstance(personal_context, dict) else None
+        if not isinstance(resume, dict) or not resume:
+            raise ValueError("当前任务没有可用的已选结构化简历，请先选择并完成简历解析。")
+        return {
+            "resume": dict(resume),
+            "source": "personal_context.current_resume",
+            "resume_id": str(context.metadata.get("resume_id") or ""),
+        }
+
+
 class ResumeAnalyzeTool(BaseTool):
     """生成基于证据的简历分析，并支持限定分析区段。"""
 
