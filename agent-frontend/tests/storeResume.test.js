@@ -21,6 +21,7 @@ vi.mock('../src/api/workspace', () => ({
 }))
 
 import {
+  deleteResume,
   getJobProfile,
   getResume,
   listResumes,
@@ -286,6 +287,46 @@ describe('resume store loading', () => {
     expect(store.current.parsed.analysis.summary).toBe('首组总体判断')
   })
 
+  it('keeps a failed analysis error scoped to its resume instead of the manager error', () => {
+    const store = useResumeStore()
+
+    store.applyAnalysisTask({
+      taskId: 'resume-failed',
+      resourceKey: 'r1',
+      status: 'failed',
+      stage: 'failed',
+      errorMessage: '从 MinIO 下载简历失败',
+      result: {},
+      partialResult: {},
+    })
+
+    expect(store.analysisError('r1')).toBe('从 MinIO 下载简历失败')
+    expect(store.error).toBe('')
+  })
+
+  it('does not show a historical task failure when a successful report is currently available', () => {
+    const store = useResumeStore()
+    store.current = {
+      resumeId: 'r1',
+      suffix: 'pdf',
+      parsed: { analysis: { overall_score: 88, summary: '已保存的成功报告' } },
+    }
+    store.items = [store.current]
+
+    store.applyAnalysisTask({
+      taskId: 'resume-later-failed',
+      resourceKey: 'r1',
+      status: 'failed',
+      stage: 'failed',
+      errorMessage: '从 MinIO 下载简历失败',
+      result: {},
+      partialResult: {},
+    })
+
+    expect(store.analysisError('r1')).toBe('')
+    expect(store.current.parsed.analysis.overall_score).toBe(88)
+  })
+
   it('drops a late account-A load after disposeForAuthChange', async () => {
     let resolveList
     listResumes.mockReturnValue(
@@ -328,6 +369,39 @@ describe('resume store loading', () => {
 
     expect(streamSignal.aborted).toBe(true)
     expect(store.analysisTasks).toEqual({})
+  })
+
+  it('drops the deleted resume task subscription before selecting the next resume', async () => {
+    let streamSignal
+    deleteResume.mockResolvedValue({ deleted: true })
+    listResumes.mockResolvedValue([{ resumeId: 'r2', suffix: 'pdf', parsed: {} }])
+    getWorkspaceState.mockResolvedValue({ resumeId: 'r2' })
+    getResume.mockResolvedValue({ resumeId: 'r2', suffix: 'pdf', parsed: {} })
+    streamAnalysisTask.mockImplementation((_taskId, _handlers, signal) => {
+      streamSignal = signal
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })
+    })
+    const store = useResumeStore()
+    store.current = { resumeId: 'r1', suffix: 'pdf' }
+    store.items = [store.current, { resumeId: 'r2', suffix: 'pdf' }]
+    store.analysisTasks = {
+      r1: {
+        taskId: 'resume-task-r1',
+        resourceKey: 'r1',
+        status: 'running',
+        stage: 'analyzing',
+      },
+    }
+    store.watchAnalysisTask('resume-task-r1')
+
+    await store.remove('r1')
+
+    expect(deleteResume).toHaveBeenCalledWith('r1')
+    expect(streamSignal.aborted).toBe(true)
+    expect(store.analysisTasks.r1).toBeUndefined()
+    expect(store.current?.resumeId).toBe('r2')
   })
 
   it('merges management metadata with the full parsed detail before saving', async () => {

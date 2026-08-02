@@ -22,7 +22,9 @@
         >
           {{ currentAnalysisPending ? '分析中' : '开始分析' }}
         </button>
-        <p v-if="resume.error" class="error analysis-error">{{ resume.error }}</p>
+        <p v-if="resume.error || currentAnalysisError" class="error analysis-error">
+          {{ resume.error || currentAnalysisError }}
+        </p>
       </div>
     </header>
 
@@ -361,6 +363,7 @@ const scoreBreakdownRows = computed(() => {
 })
 const currentAnalysisPending = computed(() => resume.isAnalyzing(currentAnalysisResume.value?.resumeId))
 const currentAnalysisStage = computed(() => resume.analysisStage(currentAnalysisResume.value?.resumeId))
+const currentAnalysisError = computed(() => resume.analysisError(currentAnalysisResume.value?.resumeId))
 
 function scorePresentation(score) {
   if (score >= 90) return { level: '卓越', tone: 'excellent' }

@@ -22,9 +22,10 @@ export default defineConfig(({ mode }) => {
     envDir: repositoryRoot,
     plugins: [vue()],
     optimizeDeps: {
-      // markstream-vue 会按内容动态加载代码高亮和公式模块。预先纳入依赖优化，避免首次渲染时
-      // Vite 重新优化依赖并使页面仍持有的旧哈希模块失效。
-      include: ['markstream-vue', 'stream-markdown', 'katex'],
+      // markstream-vue 会按内容动态加载代码高亮和公式模块，简历 PDF 导出也会按需加载
+      // html2canvas 与 jsPDF。统一在开发服务启动时完成预构建，避免首次使用时重新优化依赖，
+      // 导致页面仍持有的旧哈希模块失效。
+      include: ['markstream-vue', 'stream-markdown', 'katex', 'html2canvas', 'jspdf'],
     },
     build: {
       rollupOptions: {

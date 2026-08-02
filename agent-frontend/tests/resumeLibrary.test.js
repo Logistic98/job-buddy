@@ -136,6 +136,66 @@ describe('ResumeLibrary analysis report', () => {
     expect(wrapper.find('.favorite-analysis-loading').exists()).toBe(false)
   })
 
+  it('shows the selected resume analysis error without promoting it to a manager error', () => {
+    const resume = useResumeStore()
+    const current = {
+      resumeId: 'resume-failed-ui',
+      originalName: '失败简历.pdf',
+      suffix: 'pdf',
+      parsed: {},
+    }
+    resume.current = current
+    resume.items = [current]
+    resume.analysisTasks = {
+      'resume-failed-ui': {
+        taskId: 'task-failed-ui',
+        resourceKey: 'resume-failed-ui',
+        status: 'failed',
+        stage: 'failed',
+        errorMessage: '对象存储暂时不可用',
+      },
+    }
+
+    const wrapper = mount(ResumeLibrary)
+
+    expect(wrapper.get('.analysis-error').text()).toBe('对象存储暂时不可用')
+    expect(resume.error).toBe('')
+    wrapper.unmount()
+  })
+
+  it('keeps a successful report visible without showing a later historical failure', () => {
+    const resume = useResumeStore()
+    const current = {
+      resumeId: 'resume-success-with-history',
+      originalName: '成功简历.pdf',
+      suffix: 'pdf',
+      parsed: {
+        analysis: {
+          overall_score: 88,
+          summary: '当前成功报告',
+        },
+      },
+    }
+    resume.current = current
+    resume.items = [current]
+    resume.analysisTasks = {
+      'resume-success-with-history': {
+        taskId: 'task-later-failed',
+        resourceKey: 'resume-success-with-history',
+        status: 'failed',
+        stage: 'failed',
+        errorMessage: '从 MinIO 下载简历失败',
+      },
+    }
+
+    const wrapper = mount(ResumeLibrary)
+
+    expect(wrapper.find('.analysis-error').exists()).toBe(false)
+    expect(wrapper.get('.resume-analysis-summary').text()).toContain('88')
+    expect(wrapper.get('.primary-analysis').text()).toContain('当前成功报告')
+    wrapper.unmount()
+  })
+
   it('renders action items in the dedicated full-width report list', () => {
     const resume = useResumeStore()
     const current = {

@@ -42,6 +42,11 @@ function mergeResumeAnalysisResult(current, incoming) {
   }
 }
 
+function hasVisibleResumeAnalysis(item) {
+  const analysis = item?.parsed?.analysis
+  return Boolean(analysis && typeof analysis === 'object' && !Array.isArray(analysis) && Object.keys(analysis).length)
+}
+
 // 管理当前简历选择、画像、上传同步与可恢复的异步分析任务。
 export const useResumeStore = defineStore('resume', {
   state: () => ({
@@ -160,6 +165,16 @@ export const useResumeStore = defineStore('resume', {
       const task = this.analysisTask(resumeId)
       return task?.message || (task?.status === 'failed' ? task.errorMessage : '') || ''
     },
+    analysisError(resumeId) {
+      const task = this.analysisTask(resumeId)
+      if (task?.status !== 'failed') return ''
+      const item =
+        this.current?.resumeId === resumeId ? this.current : this.items.find((resume) => resume.resumeId === resumeId)
+      // 已持久化的成功报告是当前可见结果。历史失败任务不应与成功报告同时显示，
+      // 否则用户会误以为当前 PDF 或报告仍不可用。
+      if (hasVisibleResumeAnalysis(item)) return ''
+      return task.errorMessage || '简历分析失败'
+    },
     applyAnalysisTask(task) {
       if (!task?.resourceKey) return
       this.analysisTasks = { ...this.analysisTasks, [task.resourceKey]: task }
@@ -173,7 +188,6 @@ export const useResumeStore = defineStore('resume', {
           this.current = mergeResumeAnalysisResult(this.current, visibleResult)
         }
       }
-      if (task.status === 'failed') this.error = task.errorMessage || '简历分析失败'
     },
     async restoreAnalysis(resumeId, expectedRevision = this.lifecycleRevision) {
       if (!resumeId) return null
@@ -254,6 +268,16 @@ export const useResumeStore = defineStore('resume', {
       try {
         await deleteResume(resumeId)
         if (revision !== this.lifecycleRevision) return false
+        const taskId = this.analysisTasks[resumeId]?.taskId
+        const subscription = taskId ? resumeTaskSubscriptions.get(taskId) : null
+        if (subscription) {
+          subscription.controller?.abort()
+          if (subscription.timer) window.clearTimeout(subscription.timer)
+          resumeTaskSubscriptions.delete(taskId)
+        }
+        const nextAnalysisTasks = { ...this.analysisTasks }
+        delete nextAnalysisTasks[resumeId]
+        this.analysisTasks = nextAnalysisTasks
         const removingCurrent = this.current?.resumeId === resumeId
         this.items = this.items.filter((item) => item.resumeId !== resumeId)
         if (removingCurrent) {
