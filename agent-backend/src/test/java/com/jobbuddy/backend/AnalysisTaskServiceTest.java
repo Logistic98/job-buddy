@@ -136,6 +136,45 @@ class AnalysisTaskServiceTest {
   }
 
   /**
+   * 验证删除业务资源前会取消该资源仍在运行的分析任务。
+   */
+  @Test
+  void shouldCancelActiveTaskForOwnedResource() {
+    AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
+    AnalysisTask running = task("task-1", "tenant-a", "user-a", "resume", "resume-1", "running");
+    when(mapper.findActive("tenant-a", "user-a", "resume", "resume-1")).thenReturn(running);
+    when(mapper.markCancelled("task-1")).thenReturn(1);
+    service =
+        new AnalysisTaskServiceImpl(
+            mapper,
+            new JsonCodec(),
+            mock(ResumeStorageService.class),
+            mock(JobFavoriteService.class));
+
+    service.cancelActiveResource("tenant-a", "user-a", "resume", "resume-1");
+
+    verify(mapper).markCancelled("task-1");
+  }
+
+  /**
+   * 验证资源没有活动任务时取消操作保持幂等。
+   */
+  @Test
+  void shouldIgnoreMissingActiveTaskForResource() {
+    AnalysisTaskMapper mapper = mock(AnalysisTaskMapper.class);
+    service =
+        new AnalysisTaskServiceImpl(
+            mapper,
+            new JsonCodec(),
+            mock(ResumeStorageService.class),
+            mock(JobFavoriteService.class));
+
+    service.cancelActiveResource("tenant-a", "user-a", "resume", "resume-1");
+
+    verify(mapper, never()).markCancelled(anyString());
+  }
+
+  /**
    * 验证 AnalysisTaskService 的输入校验与拒绝边界。
    */
   @Test

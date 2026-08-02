@@ -301,6 +301,8 @@ public class ResumeController {
       @PathVariable String resumeId, HttpServletRequest request) {
     String tenantId = AuthenticatedUserContext.tenantId(request);
     String userId = AuthenticatedUserContext.userId(request);
+    analysisTaskService.cancelActiveResource(
+        tenantId, userId, AnalysisTaskService.TYPE_RESUME, resumeId);
     resumeStorageService.delete(resumeId, tenantId, userId);
     return ApiResponse.success(new DeletedResponse(true));
   }

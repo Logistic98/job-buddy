@@ -58,6 +58,16 @@ public interface AnalysisTaskService {
   AnalysisTaskResponse cancel(String taskId, String tenantId, String userId);
 
   /**
+   * 取消指定资源当前仍在运行的分析任务。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param taskType 任务类型
+   * @param resourceKey 资源标识
+   */
+  void cancelActiveResource(String tenantId, String userId, String taskType, String resourceKey);
+
+  /**
    * 查询最新。
    *
    * @param tenantId 租户标识

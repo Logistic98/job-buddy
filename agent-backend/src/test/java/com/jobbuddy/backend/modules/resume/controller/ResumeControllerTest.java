@@ -3,6 +3,7 @@ package com.jobbuddy.backend.modules.resume.controller;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -18,6 +19,7 @@ import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
 import com.jobbuddy.backend.modules.resume.service.ResumeStorageService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.mock.web.MockMultipartFile;
 
 /**
@@ -57,6 +59,24 @@ class ResumeControllerTest {
     verify(storageService).upload(file, "中文简历.pdf", "tenant-1", "user-1");
     verify(storageService, never()).parseSync(anyString(), any(), anyString(), anyString());
     verifyNoInteractions(analysisTaskService);
+  }
+
+  /**
+   * 验证删除简历前先取消同一资源的活动分析任务。
+   */
+  @Test
+  void deleteCancelsActiveAnalysisBeforeRemovingStoredResume() {
+    ResumeStorageService storageService = mock(ResumeStorageService.class);
+    AnalysisTaskService analysisTaskService = mock(AnalysisTaskService.class);
+    ResumeController controller = new ResumeController(storageService, analysisTaskService);
+
+    controller.delete("resume-1", authenticatedRequest());
+
+    InOrder lifecycle = inOrder(analysisTaskService, storageService);
+    lifecycle
+        .verify(analysisTaskService)
+        .cancelActiveResource("tenant-1", "user-1", AnalysisTaskService.TYPE_RESUME, "resume-1");
+    lifecycle.verify(storageService).delete("resume-1", "tenant-1", "user-1");
   }
 
   /**

@@ -159,11 +159,24 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
   public AnalysisTaskResponse cancel(String taskId, String tenantId, String userId) {
     AnalysisTask owned = mapper.findOwned(taskId, tenantId, userId);
     if (owned == null) throw new IllegalArgumentException("分析任务不存在");
-    if (!owned.isTerminal() && mapper.markCancelled(taskId) == 1) {
-      FutureTask<Void> future = taskFutures.remove(taskId);
-      if (future != null) future.cancel(true);
-    }
+    cancelTask(owned);
     return AnalysisTaskResponse.from(mapper.findOwned(taskId, tenantId, userId), jsonCodec);
+  }
+
+  /**
+   * 取消指定资源当前仍在运行的分析任务。
+   *
+   * @param tenantId 租户标识
+   * @param userId 用户标识
+   * @param taskType 任务类型
+   * @param resourceKey 资源标识
+   */
+  @Override
+  public void cancelActiveResource(
+      String tenantId, String userId, String taskType, String resourceKey) {
+    validateType(taskType);
+    requireText(resourceKey, "缺少分析资源标识");
+    cancelTask(mapper.findActive(tenantId, userId, taskType, resourceKey));
   }
 
   /**
@@ -444,6 +457,17 @@ public class AnalysisTaskServiceImpl implements AnalysisTaskService {
   private boolean isCancellationRequested(String taskId) {
     AnalysisTask current = mapper.findById(taskId);
     return current != null && "cancelled".equals(current.getStatus());
+  }
+
+  /**
+   * 原子写入取消终态，并中断当前进程内仍在执行的任务。
+   *
+   * @param task 待取消任务
+   */
+  private void cancelTask(AnalysisTask task) {
+    if (task == null || task.isTerminal() || mapper.markCancelled(task.getTaskId()) != 1) return;
+    FutureTask<Void> future = taskFutures.remove(task.getTaskId());
+    if (future != null) future.cancel(true);
   }
 
   /**

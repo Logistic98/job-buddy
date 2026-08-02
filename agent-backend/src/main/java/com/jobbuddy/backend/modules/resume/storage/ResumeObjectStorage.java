@@ -28,6 +28,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class ResumeObjectStorage {
 
   private static final Logger LOG = LoggerFactory.getLogger(ResumeObjectStorage.class);
+  private static final int DOWNLOAD_MAX_ATTEMPTS = 2;
 
   private final JobBuddyProperties properties;
   private final MinioClient minioClient;
@@ -186,19 +187,66 @@ public class ResumeObjectStorage {
    * @return 下载后的临时文件
    */
   public Path downloadToTempFile(ResumeRecord record, String workspaceDir) {
+    Path tempFile = null;
     try {
       Path dir = workspaceDir == null || workspaceDir.isEmpty() ? null : Paths.get(workspaceDir);
       if (dir != null) Files.createDirectories(dir);
-      Path tempFile =
+      tempFile =
           dir == null
               ? Files.createTempFile("job-buddy-resume-", "." + record.getSuffix())
               : Files.createTempFile(dir, "job-buddy-resume-", "." + record.getSuffix());
-      try (InputStream input = openStream(record)) {
-        Files.copy(input, tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+      for (int attempt = 1; attempt <= DOWNLOAD_MAX_ATTEMPTS; attempt++) {
+        try (InputStream input = openStream(record)) {
+          Files.copy(input, tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+          return tempFile;
+        } catch (Exception error) {
+          if (attempt >= DOWNLOAD_MAX_ATTEMPTS || !isRetryableDownloadFailure(error)) throw error;
+          LOG.warn(
+              "MinIO 简历流式读取中断，执行有界重试 - resumeId: {}, attempt: {}",
+              record == null ? "-" : record.getResumeId(),
+              attempt + 1);
+        }
       }
-      return tempFile;
+      throw new IllegalStateException("简历下载未产生结果");
     } catch (Exception e) {
+      deletePartialTempFile(tempFile);
       throw new RuntimeException("从 MinIO 下载简历失败: " + record.getStoragePath(), e);
+    }
+  }
+
+  /**
+   * 判断流式读取异常是否允许做一次有界重试。
+   *
+   * <p>确定性的对象不存在、权限和签名错误由 MinIO 异常直接表达，不包含 IOException，因此不会重试。
+   *
+   * @param error 下载异常
+   * @return 是否允许重试
+   */
+  private boolean isRetryableDownloadFailure(Throwable error) {
+    if (Thread.currentThread().isInterrupted()) return false;
+    Throwable current = error;
+    while (current != null) {
+      if (current instanceof IOException) return true;
+      String type = current.getClass().getSimpleName();
+      if ("ServerException".equals(type)
+          || "InternalException".equals(type)
+          || "InsufficientDataException".equals(type)) return true;
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  /**
+   * 清理下载失败产生的半成品文件。
+   *
+   * @param tempFile 临时文件
+   */
+  private void deletePartialTempFile(Path tempFile) {
+    if (tempFile == null) return;
+    try {
+      Files.deleteIfExists(tempFile);
+    } catch (IOException cleanupError) {
+      LOG.warn("清理失败的简历临时文件失败 - file: {}", tempFile.getFileName());
     }
   }
 
