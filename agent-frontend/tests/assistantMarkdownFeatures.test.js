@@ -96,9 +96,9 @@ $$`,
       .toBe('preview')
 
     expect(wrapper.find('[data-mermaid-wrapper] svg').exists()).toBe(true)
-    expect(wrapper.findAll('.katex')).toHaveLength(1)
+    expect(wrapper.findAll('.katex')).toHaveLength(2)
     expect(wrapper.find('.katex-display').exists()).toBe(true)
-    expect(wrapper.find('math annotation').text()).toContain('\\frac')
+    expect(wrapper.find('.assistant-math-block math annotation').text()).toContain('\\frac')
     wrapper.unmount()
   }, 10000)
 
@@ -133,14 +133,41 @@ $$`,
       .poll(
         () => ({
           mermaid: wrapper.find('[data-mermaid-wrapper] svg').exists(),
-          blockMath: wrapper.findAll('.katex').length,
+          math: wrapper.findAll('.katex').length,
           displayMath: wrapper.findAll('.katex-display').length,
         }),
         { timeout: 5000 },
       )
-      .toEqual({ mermaid: true, blockMath: 2, displayMath: 2 })
+      .toEqual({ mermaid: true, math: 4, displayMath: 2 })
     wrapper.unmount()
   }, 10000)
+
+  it('renders common assistant list formulas through the eager KaTeX component', async () => {
+    const wrapper = mount(MarkdownContent, {
+      props: {
+        content: [
+          '- **贝叶斯定理：**',
+          String.raw`  $$P(A|B) = \frac{P(B|A) \cdot P(A)}{P(B)}$$`,
+          '',
+          '- **Transformer 注意力机制：**',
+          String.raw`  $$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$`,
+          '',
+          '- **均方误差损失函数：**',
+          String.raw`  $$\mathcal{L}_{\text{MSE}} = \frac{1}{n}\sum_{i=1}^{n}(y_i - \hat{y}_i)^2$$`,
+        ].join('\n'),
+        customId: 'job-chat',
+      },
+      attachTo: document.body,
+    })
+
+    await flushPromises()
+
+    expect(wrapper.findAll('.assistant-math-block')).toHaveLength(3)
+    expect(wrapper.findAll('.assistant-math-block .katex-display')).toHaveLength(3)
+    expect(wrapper.text()).not.toContain('$$')
+    expect(wrapper.find('math annotation').text()).toContain('\\frac')
+    wrapper.unmount()
+  })
 
   it('syntax-highlights and copies fenced code from the assistant renderer', async () => {
     mockVisibleViewport()

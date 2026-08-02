@@ -20,6 +20,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownContent from '../MarkdownContent.vue'
 import { copyText } from '../../utils/clipboard'
+import { registerMarkdownComponents } from '../../utils/markdownFeatures'
 
 const props = defineProps({
   content: { type: [String, Number], default: '' },
@@ -53,6 +54,7 @@ function normalizeThematicBreaks(content) {
 }
 
 const normalizedContent = computed(() => normalizeThematicBreaks(props.content))
+registerMarkdownComponents(props.customId)
 const containerRef = ref(null)
 let observer = null
 let feedbackTimer = null

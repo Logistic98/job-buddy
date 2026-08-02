@@ -460,6 +460,14 @@ export const useChatStore = defineStore('chat', {
       const memoryReasoning = typeof memoryLastAssistant?.reasoning === 'string' ? memoryLastAssistant.reasoning : ''
       const rows = await this.loadSessionMessagesCached(sessionId, { force: true })
       if (this.sessionId !== sessionId || !Array.isArray(rows) || rows.length === 0) return
+      // 较早一轮 done 触发的历史同步可能晚于下一轮请求返回。新请求在途时禁止旧快照投影到
+      // 当前全局状态；本轮请求完成后会再次执行权威同步。
+      if (this.activeSessionRequests[sessionId]) {
+        // force 读取已经把服务端旧行缓存到 sessionSnapshots；立即用当前乐观消息和请求缓冲
+        // 覆盖该缓存，避免用户在流式期间切走再切回时丢掉新用户轮次。
+        this.snapshotCurrentSession()
+        return
+      }
       // 优先原位合并：保持现有消息对象与 id 不变，只更新字段，避免整列表替换导致 DOM 全量重建闪烁。
       if (!this.applyServerRowsInPlace(sessionId, rows)) {
         // 服务端行数少于内存（落库尚未完成）时跳过替换，保留内存内容，避免答案/过程短暂回退。
@@ -645,15 +653,14 @@ export const useChatStore = defineStore('chat', {
             content: '',
             reasoning: '',
             pending: false,
-            toolEvents: [...this.toolEvents],
-            jobCards: Array.isArray(this.lastJobCardsEvent) ? [...this.lastJobCardsEvent] : [],
+            toolEvents: [...requestAcc.toolEvents],
+            jobCards: [...requestAcc.jobCards],
           }
           this.messages.push(msg)
           assistantCreated = true
         } else {
-          if (!msg.toolEvents?.length && this.toolEvents.length) msg.toolEvents = [...this.toolEvents]
-          if (!msg.jobCards?.length && Array.isArray(this.lastJobCardsEvent) && this.lastJobCardsEvent.length)
-            msg.jobCards = [...this.lastJobCardsEvent]
+          if (!msg.toolEvents?.length && requestAcc.toolEvents.length) msg.toolEvents = [...requestAcc.toolEvents]
+          if (!msg.jobCards?.length && requestAcc.jobCards.length) msg.jobCards = [...requestAcc.jobCards]
         }
         return msg
       }
@@ -813,7 +820,7 @@ export const useChatStore = defineStore('chat', {
                     const msg = ensureAssistant()
                     if (!msg) return
                     msg.jobCards = rows
-                    if (this.toolEvents.length) msg.toolEvents = [...this.toolEvents]
+                    if (requestAcc.toolEvents.length) msg.toolEvents = [...requestAcc.toolEvents]
                     this.snapshotCurrentSession()
                   }
                 }
@@ -825,7 +832,7 @@ export const useChatStore = defineStore('chat', {
                 this.$patch({ lastPersonalContextEvent: data && typeof data === 'object' ? data : null })
               if (event === 'tool_status') {
                 this.accumulateToolEvent(requestAcc, data)
-                if (isRequestVisible()) this.upsertToolEvent(data, assistantId)
+                if (isRequestVisible()) this.upsertToolEvent(data, assistantId, requestAcc.toolEvents)
               }
             },
           },
@@ -990,19 +997,24 @@ export const useChatStore = defineStore('chat', {
         attachments: pending.attachments,
       })
     },
-    upsertToolEvent(data, assistantId) {
+    upsertToolEvent(data, assistantId, requestToolEvents = null) {
       if (!data || !data.id) return
-      const now = Date.now()
-      const idx = this.toolEvents.findIndex((item) => item.id === data.id)
-      const previous = idx >= 0 ? this.toolEvents[idx] : null
       if (data.id === 'sse_connect') return
-      const normalized = {
-        ...normalizeToolEvent(data),
-        startedAt: previous?.startedAt || now,
-        updatedAt: now,
+      if (Array.isArray(requestToolEvents)) {
+        // SSE 事件以当前请求缓冲为唯一来源，避免较早历史同步回填的全局事件混进新轮次。
+        this.toolEvents = filterVisibleToolEvents(requestToolEvents).map((item) => ({ ...item }))
+      } else {
+        const now = Date.now()
+        const idx = this.toolEvents.findIndex((item) => item.id === data.id)
+        const previous = idx >= 0 ? this.toolEvents[idx] : null
+        const normalized = {
+          ...normalizeToolEvent(data),
+          startedAt: previous?.startedAt || now,
+          updatedAt: now,
+        }
+        if (idx >= 0) this.toolEvents.splice(idx, 1, { ...previous, ...normalized })
+        else this.toolEvents.push(normalized)
       }
-      if (idx >= 0) this.toolEvents.splice(idx, 1, { ...previous, ...normalized })
-      else this.toolEvents.push(normalized)
       // 首个工具事件即创建助手消息占位，过程面板始终挂在助手消息上，流式与完成态共用同一 DOM 不闪烁。
       let msg = this.messages.find((item) => item.id === assistantId)
       if (!msg) {

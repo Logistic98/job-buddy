@@ -1,6 +1,7 @@
 import katex from 'katex'
 import { enableKatex, enableMermaid, setCustomComponents } from 'markstream-vue'
 import HighlightedCodeBlock from '../components/HighlightedCodeBlock.vue'
+import MarkdownMathNode from '../components/MarkdownMathNode.vue'
 
 const MERMAID_CONFIG = Object.freeze({
   startOnLoad: false,
@@ -32,8 +33,18 @@ enableKatex(loadKatex)
 
 export function registerAssistantMarkdownFeatures() {
   if (assistantMarkdownFeaturesRegistered) return
-  setCustomComponents('job-chat', { code_block: HighlightedCodeBlock })
+  registerMarkdownComponents('job-chat')
   assistantMarkdownFeaturesRegistered = true
+}
+
+export function registerMarkdownComponents(customId) {
+  if (!String(customId || '').trim()) return
+  const components = {
+    math_block: MarkdownMathNode,
+    math_inline: MarkdownMathNode,
+  }
+  if (customId === 'job-chat') components.code_block = HighlightedCodeBlock
+  setCustomComponents(customId, components)
 }
 
 export function markdownMermaidProps(overrides = {}) {

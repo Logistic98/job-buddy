@@ -392,6 +392,46 @@ describe('chat store - send', () => {
     await sendPromise
   })
 
+  it('keeps the new user turn when an older history refresh finishes during the request', async () => {
+    let resolveHistory
+    let finishStream
+    listSessionMessages.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHistory = resolve
+        }),
+    )
+    streamChat.mockImplementationOnce(
+      (payload, handlers) =>
+        new Promise((resolve) => {
+          finishStream = () => {
+            handlers.done?.({ ok: true })
+            resolve()
+          }
+        }),
+    )
+    const store = useChatStore()
+    store.sessionId = 's1'
+    store.messages = [
+      { id: 'old-user', role: 'user', content: '筛选岗位' },
+      { id: 'old-assistant', role: 'assistant', content: '旧结果', toolEvents: [], jobCards: [] },
+    ]
+    store.snapshotCurrentSession()
+
+    const historyPromise = store.syncCurrentMessagesFromServer()
+    const sendPromise = store.send('换一批', 'resume-1', { flipJobs: true })
+    resolveHistory([
+      { role: 'user', content: '筛选岗位' },
+      { role: 'assistant', content: '旧结果' },
+    ])
+    await historyPromise
+
+    expect(store.sessionSnapshots.s1.messages.map((item) => item.content)).toEqual(['筛选岗位', '旧结果', '换一批'])
+
+    finishStream()
+    await sendPromise
+  })
+
   it('keeps streaming in the original session without polluting the visible session', async () => {
     let streamHandlers
     let finishStream
@@ -673,12 +713,15 @@ describe('chat store - send', () => {
   })
 
   it('creates a new message turn when flipping job batches', async () => {
+    let store
     streamChat.mockImplementation(async (payload, handlers) => {
+      // 模拟上一轮完成后的历史同步在新请求开始后迟到，重新污染全局投影。
+      store.toolEvents = [{ id: 'old', status: 'success', name: '旧轮次任务理解' }]
       handlers.onEvent?.('tool_status', { id: 'job_flip', status: 'success', name: '换一批', detail: '第 2 批' })
       handlers.onEvent?.('job_cards', [{ securityId: 'new-job', jobName: '新岗位' }])
       handlers.done?.({ ok: true })
     })
-    const store = useChatStore()
+    store = useChatStore()
     store.sessionId = 's1'
     store.messages = [
       { id: 'u1', role: 'user', content: '筛选岗位' },

@@ -71,7 +71,7 @@ $$`,
 
     expect(wrapper.find('.katex').exists()).toBe(true)
     expect(wrapper.find('.katex-display').exists()).toBe(true)
-    expect(wrapper.find('math annotation').text()).toContain('\\frac')
+    expect(wrapper.find('.assistant-math-block math annotation').text()).toContain('\\frac')
     wrapper.unmount()
   })
 

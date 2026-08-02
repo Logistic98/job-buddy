@@ -49,6 +49,44 @@ Object.defineProperty(window.HTMLElement.prototype, 'scrollTo', {
 })
 
 describe('ChatPanel web search progress', () => {
+  it('keeps completed process panels immutable while a new flip request is running', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const chat = useChatStore()
+    const completed = [
+      { id: 'runtime_understanding', name: 'Runtime 任务理解', status: 'success', detail: '已完成任务理解。' },
+      { id: 'recommendation_context', name: '画像与简历已就绪', status: 'success', detail: '上下文准备完成。' },
+      { id: 'job_search', name: '岗位搜索完成', status: 'success', detail: '检索到候选岗位。' },
+      { id: 'recommendation_quality_gate', name: '画像与简历预筛完成', status: 'success', detail: '5 个岗位达标。' },
+    ]
+    const current = [
+      { id: 'job_flip', name: '换一批', status: 'success', detail: '直接翻到第 2 批岗位。' },
+      { id: 'recommendation_quality_gate', name: '画像与简历预筛', status: 'running', detail: '正在验证候选岗位。' },
+    ]
+    chat.loading = true
+    // 模拟上一轮历史同步迟到后污染会话级投影；面板必须只读取所属助手消息。
+    chat.toolEvents = [...completed, ...current]
+    chat.messages = [
+      { id: 'user-search', role: 'user', content: '筛选岗位' },
+      { id: 'assistant-search', role: 'assistant', content: '', pending: false, toolEvents: completed, jobCards: [] },
+      { id: 'user-flip', role: 'user', content: '换一批' },
+      { id: 'assistant-flip', role: 'assistant', content: '', pending: false, toolEvents: current, jobCards: [] },
+    ]
+
+    const wrapper = mount(ChatPanel, { global: { plugins: [pinia] } })
+    const panels = wrapper.findAll('.tool-process')
+
+    expect(panels).toHaveLength(2)
+    expect(panels[0].get('summary').text()).toContain('已完成 4/4 步')
+    expect(panels[0].find('.tool-thinking-step').exists()).toBe(false)
+    expect(panels[1].get('summary').text()).toContain('进行中 · 1/2 步')
+    expect(panels[1].get('.tool-thinking-step').text()).toContain('画像与简历预筛')
+    expect(panels[1].get('.tool-thinking-step').text()).toContain('1/2')
+    expect(panels[1].text()).not.toContain('Runtime 任务理解')
+
+    wrapper.unmount()
+  })
+
   it('shows web search while it is running and keeps the completed evidence in the process panel', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)

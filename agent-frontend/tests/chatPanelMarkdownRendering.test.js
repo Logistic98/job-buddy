@@ -81,7 +81,7 @@ describe('ChatPanel assistant Markdown rendering', () => {
         }),
         { timeout: 5000 },
       )
-      .toEqual({ mermaid: true, blockMath: 1, displayMath: 1, rawMermaidText: false })
+      .toEqual({ mermaid: true, blockMath: 3, displayMath: 1, rawMermaidText: false })
 
     wrapper.unmount()
   }, 10000)
