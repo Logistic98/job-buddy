@@ -62,6 +62,26 @@ class JobRecommendationCriteriaBuilderTest {
   }
 
   /**
+   * 画像编辑器会用顿号串联排除项，补全槽位时必须还原为独立词条。
+   */
+  @Test
+  void shouldSplitEnumerationCommaSeparatedExcludes() {
+    Map<String, Object> expectations = new LinkedHashMap<String, Object>();
+    expectations.put("hard_excludes", "外包、劳务派遣、驻场、OD");
+    Map<String, Object> profile = new LinkedHashMap<String, Object>();
+    profile.put("job_expectations", expectations);
+
+    IntentResult result =
+        JobRecommendationCriteriaBuilder.enrich(
+            intent(Collections.<String, Object>emptyMap()),
+            context(profile, Collections.<String, Object>emptyMap()),
+            "筛选岗位");
+
+    List<?> excludes = (List<?>) result.getSlots().get("hard_excludes");
+    assertEquals(java.util.Arrays.asList("外包", "劳务派遣", "驻场", "OD"), excludes);
+  }
+
+  /**
    * 断言薪资范围上下限。
    *
    * @param value 待处理值

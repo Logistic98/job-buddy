@@ -40,6 +40,18 @@ class _StubLLM:
         return {"content": self._content}
 
 
+class _SequencedStubLLM(_StubLLM):
+    def __init__(self, contents):
+        super().__init__(contents[-1])
+        self._contents = list(contents)
+
+    async def chat(self, messages, temperature=None, max_tokens=None, disable_thinking=False):
+        response = await super().chat(messages, temperature, max_tokens, disable_thinking)
+        index = min(len(self.calls) - 1, len(self._contents) - 1)
+        response["content"] = self._contents[index]
+        return response
+
+
 def test_extract_json_merges_multiple_fenced_object_blocks():
     payload = _extract_json(
         """
@@ -1041,6 +1053,47 @@ async def test_resume_match_rejects_empty_model_matches(workspace):
     assert result.success is False
     assert "岗位匹配结果不完整" in result.error
     assert "未返回有效" in result.error
+
+
+@pytest.mark.asyncio
+async def test_resume_match_repairs_semantically_incomplete_cached_response(workspace):
+    stub = _SequencedStubLLM(
+        [
+            json.dumps({"evaluation_schema": "evidence_based_resume_job_match_v4"}),
+            json.dumps(
+                {
+                    "matches": [
+                        {
+                            "id": "job_0",
+                            "score": 82,
+                            "score_confidence": "high",
+                            "recommendation": "推荐",
+                        }
+                    ],
+                    "evaluation_schema": "evidence_based_resume_job_match_v4",
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    tool = ResumeMatchTool(llm_client=stub)
+    call = ToolCall(
+        id="repair-incomplete-match",
+        name="resume_match",
+        arguments={
+            "resume": {"skills": ["Java", "Python"]},
+            "jobs": [{"jobName": "AI 全栈工程师", "jobDescription": "负责 AI 应用全栈开发"}],
+            "sections": ["score", "score_confidence", "recommendation"],
+        },
+    )
+
+    result = await tool.safe_run(call, _context(workspace))
+
+    assert result.success is True
+    assert result.output["matches"][0]["id"] == "job_0"
+    assert len(stub.calls) == 2
+    assert len(stub.calls[1]["messages"]) == len(stub.calls[0]["messages"]) + 1
+    assert "根对象必须先输出 matches" in stub.calls[1]["messages"][-1].content
 
 
 @pytest.mark.asyncio

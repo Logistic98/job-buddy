@@ -16,6 +16,7 @@ from app.models.schemas import AgentPlan, AgentPlanStep, ChatMessage, TaskUnders
 
 DETERMINISTIC_TOOL_MATCH_MIN_SCORE = 4
 PLANNER_MAX_TOKENS = 2048
+CODE_GENERATION_PLANNER_MAX_TOKENS = 4096
 PLANNER_LLM_TIMEOUT_SECONDS = 30
 
 
@@ -90,7 +91,7 @@ class RuntimePlanner:
             response = await asyncio.wait_for(
                 self.llm_client.chat(
                     planner_messages,
-                    max_tokens=PLANNER_MAX_TOKENS,
+                    max_tokens=self._max_tokens(task_understanding),
                     disable_thinking=True,
                 ),
                 timeout=PLANNER_LLM_TIMEOUT_SECONDS,
@@ -109,6 +110,14 @@ class RuntimePlanner:
             return self._fallback_plan(
                 objective, observations, tools, current_plan, task_understanding, llm_error=str(e)
             )
+
+    def _max_tokens(self, task_understanding: Optional[TaskUnderstandingResult]) -> int:
+        """仅为必须携带候选代码的计划预留更大的结构化输出空间。"""
+        capability_contract = task_understanding.metadata.get("capability_contract", {}) if task_understanding else {}
+        required_tools = capability_contract.get("required_tools", []) if isinstance(capability_contract, dict) else []
+        if "sandbox_code_execute" in required_tools:
+            return CODE_GENERATION_PLANNER_MAX_TOKENS
+        return PLANNER_MAX_TOKENS
 
     def _build_plan_and_calls(
         self,

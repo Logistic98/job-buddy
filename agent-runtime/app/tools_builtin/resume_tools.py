@@ -760,26 +760,29 @@ class ResumeMatchTool(BaseTool):
             ),
         ]
 
-        # 模型只生成候选判断，结构完整性和证据约束由本地代码复核。
-        try:
-            response = await self._client().chat(
-                messages=messages,
-                temperature=0.1,
-                max_tokens=(
-                    MAX_RECOMMENDATION_LIST_MATCH_TOKENS
-                    if evaluation_mode == "recommendation_list"
-                    else MAX_RESUME_MATCH_TOKENS
-                ),
-                disable_thinking=True,
-            )
-        except LLMServiceError as exc:
-            raise RuntimeError(f"岗位匹配调用 LLM 失败：{exc}") from exc
+        match_max_tokens = (
+            MAX_RECOMMENDATION_LIST_MATCH_TOKENS
+            if evaluation_mode == "recommendation_list"
+            else MAX_RESUME_MATCH_TOKENS
+        )
 
-        content = response.get("content") or ""
-        data = _extract_json(content)
-        if not isinstance(data, dict):
-            raise ValueError("LLM 输出的匹配结果不是 JSON 对象")
-        payload: Dict[str, Any] = data
+        async def request_match_payload(request_messages: List[ChatMessage]) -> Dict[str, Any]:
+            try:
+                response = await self._client().chat(
+                    messages=request_messages,
+                    temperature=0.1,
+                    max_tokens=match_max_tokens,
+                    disable_thinking=True,
+                )
+            except LLMServiceError as exc:
+                raise RuntimeError(f"岗位匹配调用 LLM 失败：{exc}") from exc
+            data = _extract_json(response.get("content") or "")
+            if not isinstance(data, dict):
+                raise ValueError("LLM 输出的匹配结果不是 JSON 对象")
+            return data
+
+        # 模型只生成候选判断，结构完整性和证据约束由本地代码复核。
+        payload = await request_match_payload(messages)
         rows = self._extract_match_rows(payload)
         if not rows:
             logger.warning(
@@ -787,7 +790,28 @@ class ResumeMatchTool(BaseTool):
                 sorted(payload.keys()),
                 type(payload.get("matches")).__name__,
             )
-            raise ValueError("岗位匹配结果不完整: 大模型未返回有效的岗位匹配结果，请重试")
+            # 请求缓存会保存传输成功但语义不完整的响应。追加修复指令形成新缓存键，
+            # 只做一次有界重生成，避免工具运行时重试反复命中同一份坏缓存。
+            repair_messages = [
+                *messages,
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "上一次响应缺少有效 matches。请重新生成完整 JSON，根对象必须先输出 "
+                        "matches，且每个输入岗位恰好返回一条记录；不要只返回 evaluation_schema "
+                        "或 limitations。"
+                    ),
+                ),
+            ]
+            payload = await request_match_payload(repair_messages)
+            rows = self._extract_match_rows(payload)
+            if not rows:
+                logger.warning(
+                    "岗位匹配模型修复输出仍未包含有效结果：keys={}, matches_type={}",
+                    sorted(payload.keys()),
+                    type(payload.get("matches")).__name__,
+                )
+                raise ValueError("岗位匹配结果不完整: 大模型未返回有效的岗位匹配结果，请重试")
         rows = self._align_match_rows(rows, jobs_brief)
         # 逐项归一化分数、置信度和证据，再按请求模式裁剪返回字段。
         normalized = [

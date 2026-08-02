@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.core.capability.models import CapabilityCard, ProfileDefinition
@@ -462,6 +464,79 @@ async def test_profile_specific_planner_prompt_reaches_runtime_planner(tmp_path)
     assert llm.kwargs["max_tokens"] == 2048
     assert plan.final_answer == "custom prompt applied"
     assert call is None
+
+
+@pytest.mark.asyncio
+async def test_code_generation_planner_has_room_for_structured_code_arguments():
+    class BudgetSensitivePlannerLLM:
+        def __init__(self):
+            self.max_tokens = None
+
+        async def chat(self, messages, **kwargs):
+            self.max_tokens = kwargs["max_tokens"]
+            if self.max_tokens <= 2048:
+                return {
+                    "content": '{"tool_call":{"name":"sandbox_code_execute","arguments":{"language":"python","code":"print(1)',
+                }
+            return {
+                "content": json.dumps(
+                    {
+                        "tool_call": {
+                            "name": "sandbox_code_execute",
+                            "arguments": {"language": "python", "code": "print(1)"},
+                        }
+                    },
+                    ensure_ascii=False,
+                )
+            }
+
+    capability = CapabilityCard(
+        id="runtime.code_generation_task",
+        name="代码生成",
+        domain="runtime",
+        intent="code_generation_task",
+        execution_intent="generate_artifact",
+        next_action="run_runtime_planner",
+        planner_needed=True,
+        required_tools=["sandbox_code_execute"],
+        allowed_tools=["sandbox_code_execute"],
+    )
+    profile = ProfileDefinition(id="job-buddy", name="JobBuddy", capabilities=[capability])
+    task = TaskResultBuilder(CapabilityRegistry()).build(
+        profile=profile,
+        message="输出 Mermaid 图表、LaTeX 公式和 Python 代码示例",
+        trace_id="trace-code-generation-budget",
+        capability=capability,
+        candidates=[],
+        confidence=1.0,
+        slots={},
+        router="llm",
+        reason="test",
+    )
+    llm = BudgetSensitivePlannerLLM()
+    sandbox_tool = ToolDefinition(
+        name="sandbox_code_execute",
+        description="隔离执行代码",
+        input_schema={
+            "type": "object",
+            "properties": {"language": {"type": "string"}, "code": {"type": "string"}},
+            "required": ["language", "code"],
+        },
+    )
+
+    plan, call = await RuntimePlanner(llm_client=llm).create_or_update_plan(
+        objective=task.rewritten_query.planner_query,
+        messages=[],
+        observations=[],
+        tools=[sandbox_tool],
+        task_understanding=task,
+    )
+
+    assert llm.max_tokens == 4096
+    assert plan.is_complete is False
+    assert call is not None
+    assert call.name == "sandbox_code_execute"
+    assert call.arguments == {"language": "python", "code": "print(1)"}
 
 
 def _latest_engineering_search_task():

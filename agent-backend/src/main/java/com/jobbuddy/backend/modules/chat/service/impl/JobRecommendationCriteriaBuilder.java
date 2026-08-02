@@ -269,7 +269,7 @@ public final class JobRecommendationCriteriaBuilder {
   private static void addValue(Set<String> result, Object value) {
     String text = stringValue(value);
     if (text.isEmpty() || "[]".equals(text) || "{}".equals(text)) return;
-    for (String item : text.split("[,，;；/|\\n]+")) {
+    for (String item : text.split("[,，、;；/|\\n]+")) {
       String normalized = item.trim();
       if (!normalized.isEmpty() && normalized.length() <= 80) result.add(normalized);
     }

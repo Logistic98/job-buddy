@@ -42,7 +42,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -53,6 +57,95 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * 验证 ChatSseCollaborators 的核心行为、异常路径与边界条件。
  */
 class ChatSseCollaboratorsTest {
+
+  /**
+   * 匹配简历快照应在 Boss 搜索期间已经开始准备，不得等候候选返回后再串行加载。
+   *
+   * @throws Exception 并发同步失败时抛出
+   */
+  @Test
+  void jobRecommendationShouldPrefetchResumeWhileBossSearchRuns() throws Exception {
+    ChatSseEventSender sender = mock(ChatSseEventSender.class);
+    ChatPersistenceCoordinator persistence = mock(ChatPersistenceCoordinator.class);
+    JobRuntimeService jobRuntimeService = mock(JobRuntimeService.class);
+    PersonalContextBuilder personalContextBuilder = mock(PersonalContextBuilder.class);
+    CurrentResumeLoader resumeLoader = mock(CurrentResumeLoader.class);
+    CountDownLatch resumeStarted = new CountDownLatch(1);
+    CountDownLatch allowResumeCompletion = new CountDownLatch(1);
+    ExecutorService preparationExecutor = Executors.newSingleThreadExecutor();
+    when(personalContextBuilder.build(anyString(), anyString(), anyString(), any(), any()))
+        .thenReturn(
+            new PersonalContext(
+                "job",
+                Collections.<String, Object>emptyMap(),
+                Collections.<String, Object>emptyMap(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                Collections.<Map<String, Object>>emptyList(),
+                ""));
+    ResumeRecord resume = mock(ResumeRecord.class);
+    when(resumeLoader.loadCurrentResume(any(ChatSessionState.class)))
+        .thenAnswer(
+            invocation -> {
+              resumeStarted.countDown();
+              assertTrue(allowResumeCompletion.await(1, TimeUnit.SECONDS));
+              return resume;
+            });
+    when(jobRuntimeService.bossCandidatePoolTimeoutSeconds()).thenReturn(30);
+    when(jobRuntimeService.recommendJobsFast(any(IntentResult.class), eq("s1"), any()))
+        .thenAnswer(
+            invocation -> {
+              assertTrue(resumeStarted.await(1, TimeUnit.SECONDS));
+              allowResumeCompletion.countDown();
+              return Collections.<Map<String, Object>>emptyList();
+            });
+    when(jobRuntimeService.prequalifyRecommendationsWithContinuation(
+            eq(resume), any(IntentResult.class), anyList(), eq("s1")))
+        .thenReturn(
+            new JobRecommendationResult(
+                Collections.<Map<String, Object>>emptyList(),
+                0,
+                Collections.<String, Integer>emptyMap(),
+                Collections.<String>emptyList()));
+    JobRecommendHandler handler =
+        new JobRecommendHandler(
+            sender,
+            persistence,
+            jobRuntimeService,
+            personalContextBuilder,
+            resumeLoader,
+            new JobBuddyProperties(),
+            preparationExecutor);
+    ChatSessionState state = new ChatSessionState();
+    state.sessionId = "s1";
+    state.resumeId = "resume-1";
+    state.tenantId = "tenant-a";
+    state.userId = "user-a";
+    IntentResult intent =
+        new IntentResult(
+            "job",
+            "job.recommend",
+            1.0,
+            Collections.<String>emptyList(),
+            "low",
+            false,
+            "call_get_recommend_jobs",
+            Collections.<String, Object>singletonMap("role", "大模型应用开发"));
+
+    try {
+      handler.handle(new SseEmitter(0L), "s1", state, intent, false, "筛选大模型岗位");
+    } finally {
+      allowResumeCompletion.countDown();
+      preparationExecutor.shutdownNow();
+    }
+
+    verify(resumeLoader).loadCurrentResume(state);
+    verify(jobRuntimeService)
+        .prequalifyRecommendationsWithContinuation(
+            eq(resume), any(IntentResult.class), anyList(), eq("s1"));
+  }
 
   /**
    * 验证 ChatSseCollaborators 中简历的去重与幂等边界。

@@ -77,6 +77,8 @@ public class ChatSseServiceImpl implements ChatSseService {
       new ConcurrentHashMap<SseEmitter, AtomicBoolean>();
   // SSE 长连接只在独立有界线程池执行，队列满时必须在提交阶段拒绝，禁止占用 servlet 请求线程。
   private final ExecutorService executor;
+  // 岗位推荐只把本地简历快照准备与 Boss 串行搜索重叠；外部岗位请求不进入该线程池。
+  private final ExecutorService recommendationPreparationExecutor;
   private final ChatStreamAdmissionController admissionController;
   private final ChatPersistenceCoordinator persistence;
   private final ChatSseEventSender sender;
@@ -163,6 +165,15 @@ public class ChatSseServiceImpl implements ChatSseService {
                 Math.max(1, agentServiceProperties.getStreamQueueCapacity())),
             namedThreadFactory("chat-sse"),
             new ThreadPoolExecutor.AbortPolicy());
+    this.recommendationPreparationExecutor =
+        new ThreadPoolExecutor(
+            4,
+            4,
+            30L,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<Runnable>(32),
+            namedThreadFactory("job-recommend-prepare"),
+            new ThreadPoolExecutor.CallerRunsPolicy());
     // 会话持久化（Postgres/Redis 读写）从 SSE 主线程剥离，统一交给单线程顺序执行，
     // 既保证用户消息/助手消息/工具事件的落库顺序，又避免每次 tool_status 的 DB 写阻塞首包与答案流式。
     this.persistence =
@@ -197,7 +208,8 @@ public class ChatSseServiceImpl implements ChatSseService {
             jobRuntimeService,
             personalContextBuilder,
             resumeLoader,
-            properties);
+            properties,
+            recommendationPreparationExecutor);
     this.runtimeManagedTaskHandler =
         new RuntimeManagedTaskHandler(sender, integrationService, requestFactory);
   }
@@ -208,6 +220,7 @@ public class ChatSseServiceImpl implements ChatSseService {
   @PreDestroy
   public void shutdownExecutors() {
     executor.shutdownNow();
+    recommendationPreparationExecutor.shutdownNow();
     heartbeatScheduler.shutdown();
     // 持久化队列允许已提交任务执行完毕，避免关停时丢失尚未落库的会话消息。
     persistence.shutdown();

@@ -3,7 +3,9 @@ package com.jobbuddy.backend.modules.chat.service.impl;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 执行确定性排除、岗位兼容、薪资规则与排序。
@@ -52,10 +54,10 @@ class JobCandidateFilter {
     if (!(excludes instanceof List) || jobs.isEmpty()) return jobs;
     List<Map<String, Object>> filtered = new ArrayList<Map<String, Object>>();
     for (Map<String, Object> job : jobs) {
-      String text = String.valueOf(job).toLowerCase();
+      String text = searchableJobContent(job);
       boolean hit = false;
       for (Object exclude : (List) excludes) {
-        if (exclude != null && text.contains(String.valueOf(exclude).toLowerCase())) {
+        if (exclude != null && keywordMatches(text, String.valueOf(exclude))) {
           hit = true;
           break;
         }
@@ -63,6 +65,72 @@ class JobCandidateFilter {
       if (!hit) filtered.add(job);
     }
     return filtered;
+  }
+
+  /**
+   * 只拼接用户可见的岗位业务字段。加密 ID、URL、图片和其他不透明元数据不参与排除词判定，
+   * 否则 `OD` 等短词会在随机令牌中产生大量误报。
+   *
+   * @param job 岗位
+   * @return 可检索岗位内容
+   */
+  private String searchableJobContent(Map<String, Object> job) {
+    if (job == null || job.isEmpty()) return "";
+    StringBuilder text = new StringBuilder();
+    appendFields(
+        text,
+        job,
+        "jobName",
+        "job_name",
+        "title",
+        "name",
+        "jobDescription",
+        "description",
+        "postDescription",
+        "jobDesc",
+        "jobSecText",
+        "detailText",
+        "jobRequire",
+        "skills",
+        "jobLabels",
+        "labels",
+        "welfareList",
+        "welfare",
+        "benefits");
+    return text.toString().toLowerCase(Locale.ROOT);
+  }
+
+  /**
+   * 将指定业务字段追加到检索文本。
+   *
+   * @param target 目标文本
+   * @param job 岗位
+   * @param keys 业务字段
+   */
+  private void appendFields(StringBuilder target, Map<String, Object> job, String... keys) {
+    for (String key : keys) {
+      Object value = job.get(key);
+      if (value == null) continue;
+      if (target.length() > 0) target.append(' ');
+      target.append(value);
+    }
+  }
+
+  /**
+   * 排除词命中。中文和长文本按包含匹配，纯 ASCII 短词按英数边界匹配，防止 `OD`
+   * 误伤 `model`、`product` 等正常技术文本。
+   *
+   * @param content 岗位内容
+   * @param keyword 排除词
+   * @return 是否命中
+   */
+  private boolean keywordMatches(String content, String keyword) {
+    String normalized = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+    if (normalized.isEmpty()) return false;
+    if (!normalized.matches("[a-z0-9]+")) return content.contains(normalized);
+    return Pattern.compile("(?<![a-z0-9])" + Pattern.quote(normalized) + "(?![a-z0-9])")
+        .matcher(content)
+        .find();
   }
 
   /**

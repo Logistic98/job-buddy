@@ -3,6 +3,7 @@ package com.jobbuddy.backend.modules.chat.service.impl;
 import static com.jobbuddy.backend.modules.chat.util.ChatSseSupport.toolStatus;
 
 import com.jobbuddy.backend.common.config.JobBuddyProperties;
+import com.jobbuddy.backend.common.security.AuthenticationScope;
 import com.jobbuddy.backend.modules.auth.exception.BossAuthRequiredException;
 import com.jobbuddy.backend.modules.chat.entity.ChatSessionState;
 import com.jobbuddy.backend.modules.chat.service.JobRecommendationResult;
@@ -16,6 +17,9 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
@@ -30,6 +34,7 @@ class JobRecommendHandler {
   private final PersonalContextBuilder personalContextBuilder;
   private final CurrentResumeLoader resumeLoader;
   private final JobBuddyProperties properties;
+  private final Executor recommendationPreparationExecutor;
 
   /**
    * 创建岗位推荐处理器实例。
@@ -48,12 +53,42 @@ class JobRecommendHandler {
       PersonalContextBuilder personalContextBuilder,
       CurrentResumeLoader resumeLoader,
       JobBuddyProperties properties) {
+    this(
+        sender,
+        persistence,
+        jobRuntimeService,
+        personalContextBuilder,
+        resumeLoader,
+        properties,
+        Runnable::run);
+  }
+
+  /**
+   * 创建支持简历预取的岗位推荐处理器。
+   *
+   * @param sender SSE 事件发送器
+   * @param persistence 持久化协调器
+   * @param jobRuntimeService 岗位运行时服务
+   * @param personalContextBuilder 个人上下文构建器
+   * @param resumeLoader 简历加载器
+   * @param properties 配置属性
+   * @param recommendationPreparationExecutor 推荐准备执行器
+   */
+  JobRecommendHandler(
+      ChatSseEventSender sender,
+      ChatPersistenceCoordinator persistence,
+      JobRuntimeService jobRuntimeService,
+      PersonalContextBuilder personalContextBuilder,
+      CurrentResumeLoader resumeLoader,
+      JobBuddyProperties properties,
+      Executor recommendationPreparationExecutor) {
     this.sender = sender;
     this.persistence = persistence;
     this.jobRuntimeService = jobRuntimeService;
     this.personalContextBuilder = personalContextBuilder;
     this.resumeLoader = resumeLoader;
     this.properties = properties;
+    this.recommendationPreparationExecutor = recommendationPreparationExecutor;
   }
 
   /**
@@ -188,6 +223,9 @@ class JobRecommendHandler {
         JobRecommendationCriteriaBuilder.enrich(intent, personalContext, rawMessage);
     int candidateOffset = currentCandidateOffset(effectiveIntent.getSlots());
     state.lastSlots = new LinkedHashMap<String, Object>(effectiveIntent.getSlots());
+    // 完整简历准备不参与 Boss 搜索参数计算，可在槽位补全后与串行候选搜索安全重叠。
+    // 质量门等待同一 Future，避免搜索结束后再同步读库和下载简历证据。
+    CompletableFuture<ResumePreparation> resumePreparation = prepareResumeAsync(state);
     Map<String, Object> searchPayload = new LinkedHashMap<String, Object>();
     searchPayload.put("stage", "prepare_cli");
     searchPayload.put("slots", effectiveIntent.getSlots());
@@ -204,6 +242,7 @@ class JobRecommendHandler {
     try {
       jobs = jobRuntimeService.recommendJobsFast(effectiveIntent, sessionId, null);
     } catch (BossAuthRequiredException e) {
+      resumePreparation.cancel(true);
       String reason =
           e.getMessage() == null || e.getMessage().trim().isEmpty()
               ? "Boss 登录态失效。"
@@ -223,6 +262,7 @@ class JobRecommendHandler {
       persistence.saveStateAsync(state);
       throw e;
     } catch (RuntimeException e) {
+      resumePreparation.cancel(true);
       String reason =
           e.getMessage() == null || e.getMessage().trim().isEmpty() ? "岗位搜索失败" : e.getMessage();
       boolean retainedPreviousBatch = !previousJobs.isEmpty();
@@ -278,6 +318,7 @@ class JobRecommendHandler {
     gateStart.put("candidateCount", candidateCount);
     gateStart.put("minimumScore", properties.getMinimumRecommendedMatchScore());
     gateStart.put("contextSources", personalContext.sources());
+    gateStart.put("resumePrefetchStatus", resumePreparation.isDone() ? "ready" : "running");
     sender.sendToolStatus(
         emitter,
         sessionId,
@@ -290,8 +331,12 @@ class JobRecommendHandler {
             gateStart));
     long qualityStartedAt = System.nanoTime();
     JobRecommendationResult quality;
+    long resumePreparationElapsedMs = 0L;
     try {
-      ResumeRecord resume = resumeLoader.loadCurrentResume(state);
+      ResumePreparation preparedResume = awaitResumePreparation(resumePreparation);
+      ResumeRecord resume = preparedResume.resume;
+      resumePreparationElapsedMs = preparedResume.elapsedMs;
+      gateStart.put("resumePreparationElapsedMs", resumePreparationElapsedMs);
       quality =
           jobRuntimeService.prequalifyRecommendationsWithContinuation(
               resume, effectiveIntent, jobs, sessionId);
@@ -368,6 +413,7 @@ class JobRecommendHandler {
         "funnelAccountedCount", quality.getQualifiedCount() + quality.getRejectedCount());
     gateDetail.put("rejectionReasons", quality.getRejectionReasons());
     gateDetail.put("warnings", quality.getWarnings());
+    gateDetail.put("resumePreparationElapsedMs", resumePreparationElapsedMs);
     gateDetail.put("elapsedMs", elapsedMillis(qualityStartedAt));
     boolean continuedSearch = quality.getCandidateCount() > candidateCount;
     if (continuedSearch) {
@@ -430,6 +476,70 @@ class JobRecommendHandler {
     }
     // 岗位列表与本轮推理过程统一异步落库，确保扫码搜索路径下首屏卡片即时呈现、不被持久化阻塞。
     persistence.saveStateAsync(state);
+  }
+
+  /**
+   * 在专用执行器中预取匹配所需的完整简历，并显式传播租户与用户身份。
+   *
+   * @param state 会话状态
+   * @return 简历准备 Future
+   */
+  private CompletableFuture<ResumePreparation> prepareResumeAsync(ChatSessionState state) {
+    final String tenantId = state == null ? null : state.tenantId;
+    final String userId = state == null ? null : state.userId;
+    return CompletableFuture.supplyAsync(
+        () -> {
+          long startedAt = System.nanoTime();
+          boolean hadPrevious = AuthenticationScope.isBound();
+          String previousTenant = hadPrevious ? AuthenticationScope.tenantId() : null;
+          String previousUser = hadPrevious ? AuthenticationScope.userId() : null;
+          if (tenantId != null
+              && !tenantId.trim().isEmpty()
+              && userId != null
+              && !userId.trim().isEmpty()) {
+            AuthenticationScope.set(tenantId, userId);
+          }
+          try {
+            return new ResumePreparation(
+                resumeLoader.loadCurrentResume(state), elapsedMillis(startedAt));
+          } finally {
+            if (hadPrevious) {
+              AuthenticationScope.set(previousTenant, previousUser);
+            } else {
+              AuthenticationScope.clear();
+            }
+          }
+        },
+        recommendationPreparationExecutor);
+  }
+
+  /**
+   * 等待简历预取并保留原始业务异常语义。
+   *
+   * @param future 简历准备 Future
+   * @return 简历准备结果
+   */
+  private ResumePreparation awaitResumePreparation(CompletableFuture<ResumePreparation> future) {
+    try {
+      return future.join();
+    } catch (CompletionException exception) {
+      Throwable cause = exception.getCause() == null ? exception : exception.getCause();
+      if (cause instanceof RuntimeException) throw (RuntimeException) cause;
+      throw new RuntimeException("简历预取失败", cause);
+    }
+  }
+
+  /**
+   * 简历预取结果与独立执行耗时。
+   */
+  private static final class ResumePreparation {
+    private final ResumeRecord resume;
+    private final long elapsedMs;
+
+    private ResumePreparation(ResumeRecord resume, long elapsedMs) {
+      this.resume = resume;
+      this.elapsedMs = elapsedMs;
+    }
   }
 
   /**

@@ -386,6 +386,53 @@ class JobRuntimeServiceImplTest {
   }
 
   /**
+   * 短 ASCII 硬排除词只检查用户可见的岗位内容，不得命中随机令牌、URL 或普通英文单词片段。
+   */
+  @Test
+  void recommendJobsFastShouldNotMatchOdInsideOpaqueMetadata() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    BossAuthService bossAuthService = mock(BossAuthService.class);
+    BossCliService bossCliService = mock(BossCliService.class);
+    SystemSettingsService settingsService = mock(SystemSettingsService.class);
+    Map<String, Object> valid = job("token-model-product", "大模型应用开发工程师", "40-60K");
+    valid.put("originalUrl", "https://example.test/product/model/token");
+    valid.put("brandLogo", "https://example.test/upload/model.png");
+    Map<String, Object> excluded = job("clean-token", "大模型应用 OD 开发工程师", "40-60K");
+    when(bossCliService.searchJobsFirstPage(any(IntentResult.class)))
+        .thenReturn(java.util.Arrays.asList(valid, excluded));
+    when(settingsService.filterBlacklistedJobs(any(List.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            new JobBuddyProperties(),
+            bossAuthService,
+            new JsonCodec(),
+            bossCliService,
+            settingsService);
+    Map<String, Object> slots = new LinkedHashMap<String, Object>();
+    slots.put("role", "大模型应用开发");
+    slots.put("hard_excludes", Collections.singletonList("OD"));
+
+    List<Map<String, Object>> result =
+        service.recommendJobsFast(
+            new IntentResult(
+                "job",
+                "job.recommend",
+                0.99,
+                Collections.<String>emptyList(),
+                "low",
+                false,
+                "call_get_recommend_jobs",
+                slots),
+            "s1",
+            null);
+
+    assertEquals(1, result.size());
+    assertEquals("token-model-product", result.get(0).get("securityId"));
+  }
+
+  /**
    * 验证 JobRuntimeServiceImpl 中岗位的检索、筛选与排序规则。
    */
   @Test
