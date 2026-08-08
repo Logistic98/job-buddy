@@ -37,10 +37,15 @@ import { imageUrlToDataUrl } from '../utils/imageData'
 import { collectPageSegments, groupSegmentsIntoPages, renderPageSegments } from '../utils/resumePagination'
 import {
   addPdfLinks,
+  addPdfTextLayer,
   getPdfLinkLayouts,
   getPdfPhotoLayouts,
+  getPdfTextLayouts,
+  PDF_JPEG_QUALITY,
+  PDF_RASTER_SCALE,
   photoResizeDelta,
   pinPdfPhotoFrames,
+  registerPdfTextFont,
 } from '../utils/resumePdf'
 import ResumeIconModal from '../components/resume-writer/ResumeIconModal.vue'
 import ResumePhotoModal from '../components/resume-writer/ResumePhotoModal.vue'
@@ -849,6 +854,7 @@ export function useResumeWriterPage() {
       wrapper.appendChild(style)
       const photoLayouts = getPdfPhotoLayouts(pageEls)
       const linkLayouts = getPdfLinkLayouts(pageEls)
+      const textLayouts = getPdfTextLayouts(pageEls)
       const clones = pageEls.map((pageEl, index) => {
         const clone = pageEl.cloneNode(true)
         clone.style.width = '210mm'
@@ -876,24 +882,38 @@ export function useResumeWriterPage() {
         )
       }
       await Promise.all(clones.map(waitForImages))
-      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
+      const pdf = new jsPDF({
+        unit: 'mm',
+        format: 'a4',
+        orientation: 'portrait',
+        compress: true,
+        putOnlyUsedFonts: true,
+      })
+      pdf.setLanguage('zh-CN')
+      pdf.setProperties({
+        title: exportBaseName(),
+        subject: '求职简历',
+        creator: 'JobBuddy',
+      })
+      await registerPdfTextFont(pdf)
       const pageWmm = 210
       const pageHmm = 297
       // 逐页独立渲染：每个 .resume-page 单独成一张 A4，避免依赖自动分页切片产生空白页。
       for (let i = 0; i < clones.length; i++) {
         const canvas = await html2canvas(clones[i], {
-          scale: 2.6,
+          scale: PDF_RASTER_SCALE,
           useCORS: true,
           backgroundColor: '#ffffff',
           scrollX: 0,
           scrollY: 0,
           letterRendering: true,
         })
-        const imgData = canvas.toDataURL('image/jpeg', 1)
+        const imgData = canvas.toDataURL('image/jpeg', PDF_JPEG_QUALITY)
         const imgHmm = (canvas.height * pageWmm) / canvas.width
         if (i > 0) pdf.addPage()
         pdf.addImage(imgData, 'JPEG', 0, 0, pageWmm, Math.min(imgHmm, pageHmm), undefined, 'FAST')
         addPdfLinks(pdf, linkLayouts[i] || [], pageEls[i])
+        addPdfTextLayer(pdf, textLayouts[i] || [])
       }
       pdf.save(`${exportBaseName()}.pdf`)
     } catch (error) {

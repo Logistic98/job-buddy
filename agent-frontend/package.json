@@ -13,12 +13,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "dompurify": "3.4.12",
+    "dompurify": "3.4.13",
     "html2canvas": "1.4.1",
     "jspdf": "4.2.1",
     "katex": "0.16.22",
     "markstream-vue": "^1.0.1-beta.1",
-    "mermaid": "11.16.0",
+    "mermaid": "11.16.1",
     "pinia": "2.3.1",
     "shiki": "4.4.1",
     "stream-markdown": "0.0.16",
@@ -36,6 +36,7 @@
     "vitest": "3.2.7"
   },
   "overrides": {
-    "linkify-it": "5.0.2"
+    "linkify-it": "5.0.2",
+    "nanoid": "3.3.17"
   }
 }
