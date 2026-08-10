@@ -45,7 +45,7 @@ $ curl -X POST http://localhost:8040/v1/tools/boss_browser/execute \
 
 未配置 `AGENT_INTERNAL_SERVICE_TOKEN` 的本地开发环境可以省略该请求头；production/prod 环境必须配置并传递。
 
-二维码登录后若缺少 `__zp_stoken__` 这类由网页 JavaScript 生成的关键 Cookie，工具会在配置允许时使用一次性 headless Chromium 补齐；该流程只使用项目保存的 Cookie，不读取 Chrome Safe Storage。若补齐失败，将返回登录态不完整，不会自动访问本机浏览器钥匙串。
+二维码登录后若缺少 `__zp_stoken__` 这类由网页 JavaScript 生成的关键 Cookie，工具会在配置允许时使用一次性完整 Chromium new-headless 模式补齐；浏览器与 boss-cli HTTP Client 使用和运行系统一致的平台标识，避免 Linux 容器暴露 macOS User-Agent 与 Linux 平台信息冲突。该流程只使用项目保存的 Cookie，不读取 Chrome Safe Storage。若补齐失败，将返回登录态不完整，不会自动访问本机浏览器钥匙串。
 
 完整登录、检索和风控契约见[Boss 直聘集成与岗位检索](../agent-doc/业务功能/Boss直聘集成与岗位检索.md)。
 

@@ -5,12 +5,16 @@ from __future__ import annotations
 import tempfile
 import time
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
+
+from loguru import logger
 
 from app.tools.boss_browser.core.settings import Settings
 
 _BROWSER_ATTEMPTS = 2
 _COOKIE_POLL_INTERVAL_SECONDS = 0.2
 _COOKIE_POLL_ATTEMPTS = 16
+_BROWSER_CHANNEL = "chromium"
 _TARGET_CLOSED_MARKERS = (
     "target page, context or browser has been closed",
     "target closed",
@@ -69,6 +73,12 @@ class HeadlessCookieCompleter:
                             break
             if not completed_attempt and last_closed_error is not None:
                 raise RuntimeError("Boss 临时浏览器会话提前关闭，未能刷新安全令牌，请稍后重试。") from last_closed_error
+        if not combined.get("__zp_stoken__"):
+            logger.warning(
+                "Boss 临时浏览器完成有界刷新但未生成安全令牌：browser_channel={}, attempts={}",
+                _BROWSER_CHANNEL,
+                _BROWSER_ATTEMPTS,
+            )
         return combined
 
     def _complete_once(
@@ -85,6 +95,7 @@ class HeadlessCookieCompleter:
         context = playwright.chromium.launch_persistent_context(
             user_data_dir,
             headless=True,
+            channel=_BROWSER_CHANNEL,
             user_agent=headers.get("User-Agent"),
             locale="zh-CN",
             viewport={"width": 1365, "height": 900},
@@ -137,15 +148,27 @@ class HeadlessCookieCompleter:
                         time.sleep(_COOKIE_POLL_INTERVAL_SECONDS)
 
             def visit(url: str, wait_until: str = "domcontentloaded") -> None:
+                response = None
+                navigation_error_type = ""
                 try:
-                    page.goto(url, wait_until=wait_until, timeout=timeout_ms)
+                    response = page.goto(url, wait_until=wait_until, timeout=timeout_ms)
                 except Exception as exc:  # noqa: BLE001
                     if self._is_target_closed(exc):
                         raise
+                    navigation_error_type = type(exc).__name__
                 # Playwright 的 page.wait_for_timeout 依赖页面仍存活。Boss 页面在导航期间
                 # 主动关闭或替换页面时，这个等待会把可恢复的临时页面事件误报成登录失效。
                 # 使用进程内有界轮询从 context 回收 Cookie，不依赖旧 page 的生命周期。
                 collect_until_stoken()
+                logger.info(
+                    "Boss 临时浏览器导航结果：requested_url={}, final_url={}, status={}, "
+                    "navigation_error_type={}, token_issued={}",
+                    self._safe_url(url),
+                    self._safe_page_url(page, url),
+                    getattr(response, "status", None),
+                    navigation_error_type or "none",
+                    "__zp_stoken__" in combined,
+                )
 
             visit(f"{base_url}/")
             if "__zp_stoken__" not in combined:
@@ -170,3 +193,18 @@ class HeadlessCookieCompleter:
     def _is_target_closed(exc: Exception) -> bool:
         lowered = str(exc).lower()
         return any(marker in lowered for marker in _TARGET_CLOSED_MARKERS)
+
+    @classmethod
+    def _safe_page_url(cls, page: Any, fallback: str) -> str:
+        try:
+            return cls._safe_url(str(page.url or fallback))
+        except Exception:  # noqa: BLE001
+            return cls._safe_url(fallback)
+
+    @staticmethod
+    def _safe_url(value: str) -> str:
+        try:
+            parts = urlsplit(value)
+            return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+        except ValueError:
+            return "invalid-url"

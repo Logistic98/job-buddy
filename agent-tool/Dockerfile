@@ -21,7 +21,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /app
 COPY --from=build /app/.venv ./.venv
-RUN python -m playwright install --with-deps --only-shell chromium \
+RUN python -m playwright install --with-deps --no-shell chromium \
     && rm -rf /var/lib/apt/lists/* /root/.cache /tmp/*
 COPY app ./app
 COPY server.py ./

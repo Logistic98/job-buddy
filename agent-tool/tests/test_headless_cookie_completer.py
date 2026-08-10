@@ -15,9 +15,11 @@ class _FakePage:
         self._context = context
         self._stoken_visit = stoken_visit
         self._close_on_visit = close_on_visit
+        self.url = "about:blank"
 
     def goto(self, url: str, *, wait_until: str, timeout: int) -> None:
         self._context.visits.append((url, wait_until, timeout))
+        self.url = url
         if len(self._context.visits) == self._close_on_visit:
             raise RuntimeError("Page.goto: Target page, context or browser has been closed")
         if len(self._context.visits) == self._stoken_visit:
@@ -61,9 +63,11 @@ class _FakePlaywrightManager:
     def __init__(self, contexts: list[_FakeContext]) -> None:
         self._contexts = iter(contexts)
         self.user_data_dirs: list[str] = []
+        self.launch_options: list[dict[str, object]] = []
 
-        def launch_persistent_context(user_data_dir: str, **_kwargs):
+        def launch_persistent_context(user_data_dir: str, **kwargs):
             self.user_data_dirs.append(user_data_dir)
+            self.launch_options.append(kwargs)
             return next(self._contexts)
 
         chromium = SimpleNamespace(launch_persistent_context=launch_persistent_context)
@@ -154,6 +158,7 @@ def test_lean_refresh_retries_with_fresh_browser_when_first_context_has_no_stoke
     assert second.closed is True
     assert len(manager.user_data_dirs) == 2
     assert manager.user_data_dirs[0] != manager.user_data_dirs[1]
+    assert all(options["channel"] == "chromium" for options in manager.launch_options)
 
 
 def test_lean_refresh_waits_for_delayed_stoken_generation(monkeypatch):
@@ -169,3 +174,12 @@ def test_lean_refresh_waits_for_delayed_stoken_generation(monkeypatch):
     assert context.cookie_reads == 4
     assert sleeps == [0.2, 0.2, 0.2]
     assert [visit[0] for visit in context.visits] == ["https://www.zhipin.com/"]
+
+
+def test_diagnostic_url_removes_query_and_fragment():
+    assert (
+        HeadlessCookieCompleter._safe_url(  # noqa: SLF001
+            "https://www.zhipin.com/web/geek/job?securityId=sensitive#detail"
+        )
+        == "https://www.zhipin.com/web/geek/job"
+    )

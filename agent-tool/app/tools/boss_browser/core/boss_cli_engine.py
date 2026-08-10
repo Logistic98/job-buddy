@@ -24,6 +24,7 @@ import httpx
 import qrcode
 from loguru import logger
 
+from app.tools.boss_browser.core.browser_identity import platform_browser_headers
 from app.tools.boss_browser.core.headless_cookie_completer import HeadlessCookieCompleter
 from app.tools.boss_browser.core.settings import Settings
 
@@ -87,6 +88,12 @@ class BossCliEngine:
             from boss_cli.client import BossClient
             from boss_cli.exceptions import BossApiError, ParamError, RateLimitError, SessionExpiredError
 
+            # boss-cli 的默认请求头面向 macOS。容器运行在 Linux 时必须原地校正共享
+            # HEADERS 对象，使 HTTP Client 与临时 Chromium 使用同一平台标识；不能重新
+            # 绑定常量，否则 client/auth 模块已经导入的字典引用仍会保留旧值。
+            effective_headers = platform_browser_headers(boss_constants.HEADERS)
+            boss_constants.HEADERS.clear()
+            boss_constants.HEADERS.update(effective_headers)
             self._auth = boss_auth
             self._constants = boss_constants
             self._client_cls = BossClient

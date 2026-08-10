@@ -13,6 +13,7 @@ BACKEND_DOCKERFILE = REPO_ROOT / "agent-backend" / "Dockerfile"
 FRONTEND_DOCKERFILE = REPO_ROOT / "agent-frontend" / "Dockerfile"
 SANDBOX_DOCKERFILE = REPO_ROOT / "agent-sandbox" / "Dockerfile"
 TOOL_DOCKERFILE = REPO_ROOT / "agent-tool" / "Dockerfile"
+TOOL_LOCKFILE = REPO_ROOT / "agent-tool" / "uv.lock"
 PYTHON_DOCKERFILES = tuple(
     REPO_ROOT / module / "Dockerfile"
     for module in (
@@ -106,8 +107,13 @@ class InfrastructureInitializationTest(unittest.TestCase):
 
     def test_tool_browser_layer_is_independent_from_application_sources(self):
         dockerfile = TOOL_DOCKERFILE.read_text(encoding="utf-8")
+        lockfile = TOOL_LOCKFILE.read_text(encoding="utf-8")
 
         browser_install_position = dockerfile.index("python -m playwright install")
+        self.assertIn("--no-shell chromium", dockerfile)
+        self.assertNotIn("--only-shell", dockerfile)
+        self.assertNotIn("pypi.tuna.tsinghua.edu.cn", lockfile)
+        self.assertIn("files.pythonhosted.org", lockfile)
         self.assertLess(browser_install_position, dockerfile.index("COPY app ./app"))
         self.assertLess(browser_install_position, dockerfile.index("COPY server.py ./"))
 

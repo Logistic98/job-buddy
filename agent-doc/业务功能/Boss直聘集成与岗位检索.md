@@ -52,6 +52,8 @@
 
 - `__zp_stoken__` 是搜索和详情所需的临时网页令牌，不等于登录身份。
 - 若它过期而 `wt2`、`zp_at` 等持久 Cookie 仍有效，Tool 使用 Backend 注入的同属主凭据访问首页和登录岗位页，静默重生后重试当前请求，不读取本机浏览器、清除登录态或要求重复扫码。
+- 临时浏览器必须使用 Playwright 完整 Chromium 的 new-headless 模式，浏览器页面与 boss-cli HTTP Client 使用和运行操作系统一致的 User-Agent 与 Client Hints；Linux 容器不得复用 macOS 平台标识，也不得仅安装行为差异更大的 Chromium Headless Shell。
+- 补齐诊断只记录去除查询参数后的请求地址、最终地址、HTTP 状态、异常类型和是否生成令牌，禁止记录 Cookie 值、页面正文或完整跳转参数。
 
 ```mermaid
 sequenceDiagram
