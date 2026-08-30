@@ -12,6 +12,7 @@ import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.prompt.model.PersonalContext;
 import com.jobbuddy.backend.modules.prompt.service.PersonalContextBuilder;
 import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
+import com.jobbuddy.backend.modules.resume.service.ResumeParsedContent;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -325,17 +326,26 @@ class JobRecommendHandler {
         state,
         toolStatus(
             "recommendation_quality_gate",
-            "画像与简历预筛",
+            "岗位推荐预筛",
             "running",
-            "正在使用求职画像和当前简历验证候选岗位。",
+            "正在使用岗位条件、求职画像和可用简历验证候选岗位。",
             gateStart));
     long qualityStartedAt = System.nanoTime();
     JobRecommendationResult quality;
     long resumePreparationElapsedMs = 0L;
+    boolean resumeUsed = false;
     try {
-      ResumePreparation preparedResume = awaitResumePreparation(resumePreparation);
-      ResumeRecord resume = preparedResume.resume;
-      resumePreparationElapsedMs = preparedResume.elapsedMs;
+      ResumeRecord resume = null;
+      try {
+        ResumePreparation preparedResume = awaitResumePreparation(resumePreparation);
+        resume = preparedResume.resume;
+        resumePreparationElapsedMs = preparedResume.elapsedMs;
+      } catch (RuntimeException resumeException) {
+        gateStart.put("resumeFallbackReason", conciseMessage(resumeException, "当前简历准备失败，已降级推荐。"));
+      }
+      resumeUsed = resume != null && ResumeParsedContent.hasContent(resume.getParsed());
+      gateStart.put("recommendationMode", resumeUsed ? "profile_resume" : "profile_only");
+      gateStart.put("resumeUsed", resumeUsed);
       gateStart.put("resumePreparationElapsedMs", resumePreparationElapsedMs);
       quality =
           jobRuntimeService.prequalifyRecommendationsWithContinuation(
@@ -385,8 +395,8 @@ class JobRecommendHandler {
             sessionId,
             state,
             retainedPreviousBatch
-                ? "换一批未能完成，上一批通过画像与简历预筛的岗位消息仍保留，请稍后重试。"
-                : "岗位已经召回，但画像与简历匹配预筛未能完成。为避免展示未经验证的岗位，本轮未生成推荐卡片。请稍后重试。");
+                ? "换一批未能完成，上一批岗位消息仍保留，请稍后重试。"
+                : "岗位已经召回，但推荐预筛未能完成。本轮未生成推荐卡片，请稍后重试。");
       } finally {
         // SSE 已超时或客户端断开时，仍需保存与页面一致的岗位状态，避免历史恢复后出现卡片与失败文案矛盾。
         persistence.saveStateAsync(state);
@@ -400,11 +410,13 @@ class JobRecommendHandler {
         CANDIDATE_OFFSET_SLOT, candidateOffset + Math.max(0, quality.getCandidateCount()));
     Map<String, Object> gateDetail = new LinkedHashMap<String, Object>();
     gateDetail.put("candidateCount", quality.getCandidateCount());
+    gateDetail.put("recommendationMode", resumeUsed ? "profile_resume" : "profile_only");
+    gateDetail.put("resumeUsed", resumeUsed);
     gateDetail.put("requestedMatchCount", quality.getCandidateCount());
     gateDetail.put("returnedMatchCount", quality.getCandidateCount());
     gateDetail.put("missingMatchCount", 0);
-    gateDetail.put("scoredCount", quality.getCandidateCount());
-    gateDetail.put("unscoredCount", 0);
+    gateDetail.put("scoredCount", resumeUsed ? quality.getCandidateCount() : 0);
+    gateDetail.put("unscoredCount", resumeUsed ? 0 : quality.getCandidateCount());
     gateDetail.put("initialCandidateCount", candidateCount);
     gateDetail.put("continuedSearch", quality.getCandidateCount() > candidateCount);
     gateDetail.put("qualifiedCount", quality.getQualifiedCount());
@@ -444,15 +456,19 @@ class JobRecommendHandler {
         state,
         toolStatus(
             "recommendation_quality_gate",
-            jobs.isEmpty() ? "当前批次无合格岗位" : "画像与简历预筛完成",
+            jobs.isEmpty() ? "当前批次无合格岗位" : resumeUsed ? "画像与简历预筛完成" : "岗位条件与画像预筛完成",
             "success",
             continuedSearch
-                ? "首批候选不足后已继续检索，累计评估 "
+                ? "首批候选不足后已继续检索，累计排序 "
                     + quality.getCandidateCount()
                     + " 个候选，其中 "
                     + jobs.size()
-                    + " 个通过推荐门槛。"
-                : jobs.isEmpty() ? "没有岗位同时达到薪资、方向、匹配分和置信度门槛。" : "已有 " + jobs.size() + " 个岗位通过推荐门槛。",
+                    + " 个满足岗位硬条件。"
+                : jobs.isEmpty()
+                    ? "没有岗位满足本轮岗位条件。"
+                    : resumeUsed
+                        ? "已有 " + jobs.size() + " 个岗位满足硬条件，简历匹配仅用于排序和提示。"
+                        : "当前简历未参与匹配，已有 " + jobs.size() + " 个岗位按条件与画像排序推荐。",
             gateDetail));
     state.jobs = jobs;
     if (jobs.isEmpty()) {
@@ -460,7 +476,9 @@ class JobRecommendHandler {
           emitter,
           sessionId,
           state,
-          "已继续检索到当前页深或评分预算上限，但仍没有岗位同时满足目标方向、薪资要求以及画像和简历匹配门槛。你可以适当放宽岗位方向、薪资或经验条件后重新搜索。");
+          resumeUsed
+              ? "已继续检索到当前页深，但仍没有岗位满足目标方向、薪资和经验等硬条件。你可以适当放宽条件后重新搜索。"
+              : "已检索到当前页深，但仍没有岗位满足目标方向、薪资和经验条件。你可以适当放宽条件后重新搜索。");
       persistence.saveStateAsync(state);
       return;
     }

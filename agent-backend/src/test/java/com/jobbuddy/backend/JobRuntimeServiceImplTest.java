@@ -1032,10 +1032,10 @@ class JobRuntimeServiceImplTest {
   }
 
   /**
-   * 验证 JobRuntimeServiceImpl 中岗位推荐的输入校验与拒绝边界。
+   * 简历匹配分、置信度和建议只能影响排序与提示，不能淘汰已经满足岗位硬条件的候选。
    */
   @Test
-  void prequalifyRecommendationsShouldRejectLowScoreLowConfidenceAndNegativeAdvice() {
+  void prequalifyRecommendationsShouldUseResumeMatchAsSoftRankingSignal() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
     BossAuthService bossAuthService = mock(BossAuthService.class);
     BossCliService bossCliService = mock(BossCliService.class);
@@ -1068,19 +1068,53 @@ class JobRuntimeServiceImplTest {
                 realJob("negative")),
             "s1");
 
-    assertEquals(1, result.getQualifiedCount());
+    assertEquals(4, result.getQualifiedCount());
     assertEquals("accepted", result.getJobs().get(0).get("securityId"));
-    assertEquals(82, result.getJobs().get(0).get("matchScore"));
-    assertEquals("medium", result.getJobs().get(0).get("matchConfidence"));
-    assertTrue(result.getRejectionReasons().containsKey("未达到最低匹配分"));
-    assertTrue(result.getRejectionReasons().containsKey("匹配置信度低"));
-    assertTrue(result.getRejectionReasons().containsKey("投递建议为不建议"));
+    assertEquals("low-score", result.getJobs().get(3).get("securityId"));
+    assertTrue(result.getRejectionReasons().isEmpty());
+    assertTrue(
+        String.valueOf(result.getJobs().get(3).get("recommendationWarnings")).contains("仅作为排序参考"));
     verify(runtimeToolClient)
         .invoke(
             eq("resume_match"),
             argThat(args -> "recommendation_list".equals(args.get("evaluation_mode").asText())),
             eq("s1"),
             any());
+  }
+
+  /**
+   * 简历未选择或只有分析附属数据时，岗位推荐应降级为画像排序而不是返回空结果。
+   */
+  @Test
+  void prequalifyRecommendationsShouldFallBackWhenResumeIsUnavailable() {
+    RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
+    JobBuddyProperties properties = new JobBuddyProperties();
+    properties.setMaxJobsPerRecommend(1);
+    JobRuntimeServiceImpl service =
+        new JobRuntimeServiceImpl(
+            runtimeToolClient,
+            properties,
+            mock(BossAuthService.class),
+            new JsonCodec(),
+            mock(BossCliService.class),
+            mock(SystemSettingsService.class));
+    ResumeRecord analysisOnlyResume = new ResumeRecord();
+    analysisOnlyResume.setParsed(
+        Collections.<String, Object>singletonMap(
+            "analysis", Collections.singletonMap("summary", "简历分析报告")));
+
+    for (ResumeRecord resume : java.util.Arrays.asList(null, analysisOnlyResume)) {
+      com.jobbuddy.backend.modules.chat.service.JobRecommendationResult result =
+          service.prequalifyRecommendations(
+              resume, java.util.Arrays.asList(realJob("first"), realJob("second")), "s1");
+
+      assertEquals(1, result.getQualifiedCount());
+      assertEquals("first", result.getJobs().get(0).get("securityId"));
+      assertEquals("profile_only", result.getJobs().get(0).get("recommendationEvidenceLevel"));
+      assertTrue(String.valueOf(result.getWarnings()).contains("仅按岗位条件与求职画像排序"));
+    }
+    verify(runtimeToolClient, never())
+        .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 
   /**
@@ -1167,14 +1201,14 @@ class JobRuntimeServiceImplTest {
     Collections.sort(sortedBatchSizes);
     assertEquals(java.util.Arrays.asList(3, 4, 4, 4, 4, 4), sortedBatchSizes);
     assertEquals(23, result.getCandidateCount());
-    assertEquals(2, result.getQualifiedCount());
-    assertEquals(21, result.getRejectedCount());
+    assertEquals(23, result.getQualifiedCount());
+    assertEquals(0, result.getRejectedCount());
     assertEquals(
         java.util.Arrays.asList("job-3", "job-19"),
-        result.getJobs().stream().map(row -> String.valueOf(row.get("securityId"))).toList());
-    assertTrue(result.getRejectionReasons().containsKey("未达到最低匹配分"));
-    assertTrue(result.getRejectionReasons().containsKey("匹配置信度低"));
-    assertTrue(result.getRejectionReasons().containsKey("投递建议为不建议"));
+        result.getJobs().subList(0, 2).stream()
+            .map(row -> String.valueOf(row.get("securityId")))
+            .toList());
+    assertTrue(result.getRejectionReasons().isEmpty());
     assertEquals(
         result.getCandidateCount(), result.getQualifiedCount() + result.getRejectedCount());
     verify(runtimeToolClient, times(6))
@@ -1484,7 +1518,7 @@ class JobRuntimeServiceImplTest {
    */
   @Test
   @SuppressWarnings("unchecked")
-  void prequalifyRecommendationsShouldContinueBossSearchWhenInitialCandidatesAreRejected() {
+  void prequalifyRecommendationsShouldUseSoftMatchFallbackBeforeContinuingBossSearch() {
     RuntimeToolClient runtimeToolClient = mock(RuntimeToolClient.class);
     BossAuthService bossAuthService = mock(BossAuthService.class);
     BossCliService bossCliService = mock(BossCliService.class);
@@ -1540,12 +1574,12 @@ class JobRuntimeServiceImplTest {
         service.prequalifyRecommendationsWithContinuation(parsedResume(), intent, initial, "s1");
 
     assertEquals(60, properties.getMinimumRecommendedMatchScore());
-    assertEquals(3, result.getCandidateCount());
+    assertEquals(2, result.getCandidateCount());
     assertEquals(1, result.getQualifiedCount());
-    assertEquals(2, result.getRejectedCount());
-    assertEquals("p2-0", result.getJobs().get(0).get("securityId"));
-    verify(bossCliService, times(1)).searchJobsPage(any(IntentResult.class), anyInt());
-    verify(runtimeToolClient, times(3))
+    assertEquals(1, result.getRejectedCount());
+    assertEquals("p1-0", result.getJobs().get(0).get("securityId"));
+    verify(bossCliService, never()).searchJobsPage(any(IntentResult.class), anyInt());
+    verify(runtimeToolClient, times(2))
         .invoke(any(String.class), any(RuntimeToolArguments.class), any(String.class), any());
   }
 

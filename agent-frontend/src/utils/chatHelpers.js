@@ -318,7 +318,7 @@ export function selectToolEventHighlights(item = {}) {
     const minimumScore = firstValue(sources, ['minimumScore'])
     add('候选岗位', candidateCount === null ? '' : `${candidateCount} 个`)
     add('通过门槛', qualifiedCount === null ? '' : `${qualifiedCount} 个`)
-    add('最低匹配分', minimumScore === null ? '' : `${minimumScore} 分`)
+    add('简历提示分', minimumScore === null ? '' : `${minimumScore} 分`)
     const rejectionReasons = payload.rejectionReasons
     if (rejectionReasons && typeof rejectionReasons === 'object' && !Array.isArray(rejectionReasons)) {
       add(

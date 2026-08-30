@@ -43,7 +43,7 @@
               /><small>范围 1–10，合格岗位不足时按倍率继续评估后续候选。</small></label
             >
             <label class="wide"
-              ><span>最低推荐匹配度（分）</span
+              ><span>简历匹配提示分</span
               ><input
                 aria-required="true"
                 v-model.number="workspace.minimumRecommendedMatchScore"
@@ -52,7 +52,7 @@
                 max="100"
                 step="5"
                 @blur="normalizeLimits"
-              /><small>范围 0–100，候选不足时扩大评估范围，但不会降低推荐门槛。</small></label
+              /><small>范围 0–100，低于该分时展示风险提示，不阻止岗位推荐。</small></label
             >
           </div>
         </div>
@@ -382,7 +382,7 @@ async function save() {
     const rules = [
       ['maxJobsPerRecommend', '每批展示岗位数', 1, 30],
       ['recommendOverfetchFactor', '候选池倍率', 1, 10],
-      ['minimumRecommendedMatchScore', '最低推荐匹配度', 0, 100],
+      ['minimumRecommendedMatchScore', '简历匹配提示分', 0, 100],
       ['bossSearchMaxPages', '单次抓取页数', 1, 5],
       ['bossSearchMaxPageDepth', '最大检索页深', 1, 30],
       ['bossSearchCacheTtlMinutes', '候选缓存时间', 1, 1440],

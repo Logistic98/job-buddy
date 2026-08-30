@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 岗位推荐严格质量门结果，包含最终岗位和不含敏感正文的候选漏斗摘要。
+ * 岗位推荐过滤与排序结果，包含最终岗位和不含敏感正文的候选漏斗摘要。
  */
 public class JobRecommendationResult {
   private final List<Map<String, Object>> jobs;

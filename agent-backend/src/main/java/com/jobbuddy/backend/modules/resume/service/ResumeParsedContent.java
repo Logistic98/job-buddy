@@ -13,7 +13,14 @@ import java.util.Set;
 public final class ResumeParsedContent {
   private static final Set<String> METADATA_ONLY_KEYS =
       new HashSet<String>(
-          Arrays.asList("folder", "resumeFolder", "version", "labels", "manageTags", "updatedAt"));
+          Arrays.asList(
+              "folder",
+              "resumeFolder",
+              "version",
+              "labels",
+              "manageTags",
+              "updatedAt",
+              "analysis"));
 
   /**
    * 创建简历解析后内容实例。

@@ -15,6 +15,7 @@ import com.jobbuddy.backend.modules.chat.service.RuntimeToolClient;
 import com.jobbuddy.backend.modules.chat.util.ChatValueSupport;
 import com.jobbuddy.backend.modules.chat.vo.IntentResult;
 import com.jobbuddy.backend.modules.resume.entity.ResumeRecord;
+import com.jobbuddy.backend.modules.resume.service.ResumeParsedContent;
 import com.jobbuddy.backend.modules.system.service.SystemSettingsService;
 import jakarta.annotation.PreDestroy;
 import java.util.ArrayList;
@@ -50,7 +51,9 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   private static final String RECOMMENDATION_LIST_MODE = "recommendation_list";
   private static final String FULL_JD_ANALYSIS_MODE = "full_jd_analysis";
   private static final String CANDIDATE_OFFSET_SLOT = "candidate_offset";
+  private static final String SOFT_REJECTION_REASON = "_recommendationSoftRejectionReason";
   private static final String NO_QUALIFIED_BATCH_WARNING = "当前批次没有岗位同时达到匹配分、置信度和投递建议门槛。";
+  private static final String PROFILE_ONLY_WARNING = "当前简历不可用于匹配，本批岗位仅按岗位条件与求职画像排序。";
 
   private final Map<String, CacheEntry> fastSearchCache =
       new ConcurrentHashMap<String, CacheEntry>();
@@ -1062,20 +1065,31 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   private JobRecommendationResult prequalifyRecommendations(
       ResumeRecord resume, List<Map<String, Object>> jobs, String sessionId, int desired) {
     int candidateCount = jobs == null ? 0 : jobs.size();
-    // 缺少简历或候选岗位时直接返回可解释空结果，不调用评分模型。
-    if (resume == null || resume.getParsed() == null || resume.getParsed().isEmpty()) {
-      return new JobRecommendationResult(
-          Collections.<Map<String, Object>>emptyList(),
-          candidateCount,
-          Collections.singletonMap("缺少当前简历", candidateCount),
-          Collections.singletonList("请先选择并解析当前简历，再获取个性化岗位推荐。"));
-    }
     if (jobs == null || jobs.isEmpty()) {
       return new JobRecommendationResult(
           Collections.<Map<String, Object>>emptyList(),
           0,
           Collections.<String, Integer>emptyMap(),
           Collections.<String>emptyList());
+    }
+    desired = Math.max(1, desired);
+    if (resume == null || !ResumeParsedContent.hasContent(resume.getParsed())) {
+      int acceptedCount =
+          Math.min(
+              candidateCount, Math.min(desired, Math.max(1, properties.getMaxJobsPerScoring())));
+      List<Map<String, Object>> accepted = new ArrayList<Map<String, Object>>(acceptedCount);
+      for (Map<String, Object> job : jobs.subList(0, acceptedCount)) {
+        Map<String, Object> ranked = new LinkedHashMap<String, Object>(job);
+        ranked.put("recommendationReasons", Collections.singletonList("符合本轮岗位条件与求职画像排序。"));
+        ranked.put("recommendationWarnings", Collections.singletonList(PROFILE_ONLY_WARNING));
+        ranked.put("recommendationEvidenceLevel", "profile_only");
+        accepted.add(ranked);
+      }
+      return new JobRecommendationResult(
+          accepted,
+          acceptedCount,
+          Collections.<String, Integer>emptyMap(),
+          Collections.singletonList(PROFILE_ONLY_WARNING));
     }
     List<String> sections =
         Arrays.asList(
@@ -1088,8 +1102,8 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
             "gaps",
             "limitations");
     List<Map<String, Object>> qualified = new ArrayList<Map<String, Object>>();
+    List<Map<String, Object>> softCandidates = new ArrayList<Map<String, Object>>();
     Map<String, Integer> rejected = new LinkedHashMap<String, Integer>();
-    desired = Math.max(1, desired);
     int scoringLimit = Math.min(candidateCount, Math.max(1, properties.getMaxJobsPerScoring()));
     int evaluated = 0;
     if (scoringLimit >= RESUME_MATCH_PARALLEL_THRESHOLD) {
@@ -1099,7 +1113,8 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
           scoreRecommendationBatchesInParallel(
               resume, jobs.subList(0, scoringLimit), sessionId, sections);
       for (ScoredRecommendationBatch scoredBatch : scoredBatches) {
-        applyRecommendationBatch(scoredBatch.normalized, scoredBatch.jobs, qualified, rejected);
+        applyRecommendationBatch(
+            scoredBatch.normalized, scoredBatch.jobs, qualified, softCandidates);
         evaluated += scoredBatch.jobs.size();
       }
     } else {
@@ -1112,7 +1127,7 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
             new ArrayList<Map<String, Object>>(jobs.subList(from, to));
         Map<String, Object> normalized =
             scoreCompleteRecommendationBatch(resume, batch, sessionId, sections);
-        applyRecommendationBatch(normalized, batch, qualified, rejected);
+        applyRecommendationBatch(normalized, batch, qualified, softCandidates);
         evaluated += batch.size();
         from = to;
       }
@@ -1121,6 +1136,17 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     qualified.sort(
         (left, right) ->
             Integer.compare(toScore(right.get("matchScore")), toScore(left.get("matchScore"))));
+    softCandidates.sort(
+        (left, right) ->
+            Integer.compare(toScore(right.get("matchScore")), toScore(left.get("matchScore"))));
+    while (qualified.size() < desired && !softCandidates.isEmpty()) {
+      Map<String, Object> fallback = softCandidates.remove(0);
+      fallback.remove(SOFT_REJECTION_REASON);
+      qualified.add(fallback);
+    }
+    for (Map<String, Object> candidate : softCandidates) {
+      increment(rejected, stringValue(candidate.get(SOFT_REJECTION_REASON)));
+    }
     if (qualified.size() > desired) {
       increment(rejected, "超出本轮展示上限", qualified.size() - desired);
       qualified = new ArrayList<Map<String, Object>>(qualified.subList(0, desired));
@@ -1187,14 +1213,14 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   }
 
   /**
-   * 将一个已完成批次按完整性、匹配分、置信度和投递建议依次纳入质量漏斗。
+   * 将一个已完成批次按完整性校验后纳入推荐，并把简历匹配结果作为排序与风险提示。
    */
   @SuppressWarnings("unchecked")
   private void applyRecommendationBatch(
       Map<String, Object> normalized,
       List<Map<String, Object>> batch,
       List<Map<String, Object>> qualified,
-      Map<String, Integer> rejected) {
+      List<Map<String, Object>> softCandidates) {
     Map<String, Map<String, Object>> matchesById = new LinkedHashMap<String, Map<String, Object>>();
     Object matches = normalized.get("matches");
     if (matches instanceof List) {
@@ -1213,31 +1239,43 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
         throw new IllegalStateException("岗位匹配结果完整性校验失效，缺少岗位 ID：" + id);
       }
       int score = toScore(match.get("score"));
-      if (match.get("score") == null || score < properties.getMinimumRecommendedMatchScore()) {
-        increment(rejected, "未达到最低匹配分");
-        continue;
-      }
       String confidence = stringValue(firstPresent(match, "score_confidence", "confidence"));
       String recommendation = stringValue(match.get("recommendation"));
-      if ("low".equalsIgnoreCase(confidence)) {
-        increment(rejected, "匹配置信度低");
-        continue;
-      }
-      if (isRejectedRecommendation(recommendation)) {
-        increment(rejected, recommendation.isEmpty() ? "投递建议不明确" : "投递建议为" + recommendation);
-        continue;
+      String softRejectionReason = "";
+      if (match.get("score") == null || score < properties.getMinimumRecommendedMatchScore()) {
+        softRejectionReason = "未达到最低匹配分";
+      } else if ("low".equalsIgnoreCase(confidence)) {
+        softRejectionReason = "匹配置信度低";
+      } else if (isRejectedRecommendation(recommendation)) {
+        softRejectionReason = recommendation.isEmpty() ? "投递建议不明确" : "投递建议为" + recommendation;
       }
       Map<String, Object> accepted = new LinkedHashMap<String, Object>(job);
-      accepted.put("matchScore", score);
+      if (match.get("score") != null) accepted.put("matchScore", score);
       accepted.put("matchConfidence", confidence);
       accepted.put("matchRecommendation", recommendation);
       accepted.put(
           "recommendationReasons", firstTexts(match.get("hits"), match.get("evidence"), 2));
-      accepted.put(
-          "recommendationWarnings", firstTexts(match.get("gaps"), match.get("limitations"), 2));
+      List<String> recommendationWarnings = new ArrayList<String>();
+      if ("未达到最低匹配分".equals(softRejectionReason)) {
+        recommendationWarnings.add("简历匹配分较低，仅作为排序参考。求职条件已通过硬过滤。");
+      } else if ("匹配置信度低".equals(softRejectionReason)) {
+        recommendationWarnings.add("简历匹配置信度较低，仅作为排序参考。求职条件已通过硬过滤。");
+      } else if (!softRejectionReason.isEmpty()) {
+        recommendationWarnings.add("简历匹配建议为" + recommendation + "，仅作为风险提示。求职条件已通过硬过滤。");
+      }
+      for (String warning : firstTexts(match.get("gaps"), match.get("limitations"), 2)) {
+        if (recommendationWarnings.size() >= 2) break;
+        recommendationWarnings.add(warning);
+      }
+      accepted.put("recommendationWarnings", recommendationWarnings);
       accepted.put(
           "recommendationEvidenceLevel", hasJobDescription(job) ? "full_jd" : "list_metadata");
-      qualified.add(accepted);
+      if (softRejectionReason.isEmpty()) {
+        qualified.add(accepted);
+      } else {
+        accepted.put(SOFT_REJECTION_REASON, softRejectionReason);
+        softCandidates.add(accepted);
+      }
     }
   }
 
@@ -1269,9 +1307,6 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
       IntentResult intent,
       List<Map<String, Object>> initialJobs,
       String sessionId) {
-    if (resume == null || resume.getParsed() == null || resume.getParsed().isEmpty()) {
-      return prequalifyRecommendations(resume, initialJobs, sessionId);
-    }
     int desired = Math.max(1, properties.getMaxJobsPerRecommend());
     int scoringLimit = Math.max(1, properties.getMaxJobsPerScoring());
     int candidateBatchSize = recommendationCandidateBatchSize(desired);

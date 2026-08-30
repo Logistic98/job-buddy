@@ -165,7 +165,7 @@ describe('assistant presentation helpers', () => {
     expect(highlights).toEqual([
       { label: '候选岗位', value: '10 个' },
       { label: '通过门槛', value: '3 个' },
-      { label: '最低匹配分', value: '70 分' },
+      { label: '简历提示分', value: '70 分' },
       { label: '主要剔除原因', value: '未达到最低匹配分 4 个；匹配置信度低 2 个；投递建议为不建议 1 个' },
     ])
   })
