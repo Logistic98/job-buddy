@@ -282,7 +282,7 @@ class WebFetchTool(BaseTool):
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
         timeout = int(arguments.get("timeout_seconds") or self.timeout_seconds)
         current_url = str(arguments["url"])
-        response: FetchedHop | None = None
+        response: FetchedHop
         for redirect_count in range(_MAX_REDIRECTS + 1):
             target = await resolve_public_http_target(current_url)
             response = await _request_once(target, timeout)
@@ -294,8 +294,6 @@ class WebFetchTool(BaseTool):
             if redirect_count >= _MAX_REDIRECTS:
                 raise ValueError("URL 重定向次数超过限制")
             current_url = urljoin(response.url, location)
-        if response is None:
-            raise ValueError("Web 请求未产生响应")
         headers = {key: value for key, value in response.headers.items() if key.lower() not in self.SENSITIVE_HEADERS}
         return {
             "url": response.url,

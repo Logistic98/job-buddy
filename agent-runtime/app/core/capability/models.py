@@ -91,22 +91,6 @@ class CapabilityCard(BaseModel):
             raise ValueError("tool_scope=allowlist 必须声明 required_tools 或 allowed_tools")
         return self
 
-    def searchable_text(self) -> str:
-        parts = [
-            self.id,
-            self.name,
-            self.domain,
-            self.intent,
-            self.execution_intent,
-            self.execution_mode,
-            self.description,
-            " ".join(self.examples),
-            " ".join(self.keywords),
-            " ".join(self.business_tags),
-            " ".join(self.capability_tags),
-        ]
-        return "\n".join(part for part in parts if part)
-
 
 class ProfileDefinition(BaseModel):
     id: str

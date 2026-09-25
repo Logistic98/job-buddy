@@ -150,8 +150,6 @@ def _extract_experience(text: str) -> Tuple[Optional[int], Optional[str]]:
 def _map_experience_enum(years: int) -> str:
     if years <= 0:
         return "应届"
-    if years < 1:
-        return "一年以内"
     if years < 3:
         return "一到三年"
     if years < 5:

@@ -9,7 +9,11 @@ from typing import Any, Dict, Optional
 
 import asyncpg
 from loguru import logger
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
+from app.core.checkpoint.entities import RunCheckpoint, RunResumeClaim
 from app.core.common.settings import settings
 from app.core.security.redaction import redact_sensitive
 from app.core.utils.time_utils import TimeUtils
@@ -27,7 +31,8 @@ class CheckpointStore:
             self._database_url = database_url.strip()
         else:
             self._database_url = os.getenv("AGENT_RUNTIME_DATABASE_URL", "").strip()
-        self._pool: asyncpg.Pool | None = None
+        self._engine: AsyncEngine | None = None
+        self._sessions: async_sessionmaker | None = None
         self._memory: list[Dict[str, Any]] = []
         self._memory_resume_claims: set[tuple[str, str, str, str]] = set()
         self._warn_memory_fallback_once()
@@ -42,17 +47,24 @@ class CheckpointStore:
             _missing_dsn_warning_emitted = True
         logger.warning("Checkpoint 已开启但未配置 AGENT_RUNTIME_DATABASE_URL，将降级为进程内存存储；进程重启后不可恢复")
 
-    async def _get_pool(self) -> asyncpg.Pool | None:
+    async def _get_sessions(self) -> async_sessionmaker | None:
         if not self._database_url:
             return None
-        if self._pool is None:
-            self._pool = await asyncpg.create_pool(
-                dsn=self._database_url,
-                min_size=1,
-                max_size=5,
-                command_timeout=10,
+        if self._sessions is None:
+
+            async def connect():
+                # 由原驱动解析 DSN，保留 sslmode 等连接参数的语义。
+                return await asyncpg.connect(self._database_url, command_timeout=10)
+
+            self._engine = create_async_engine(
+                "postgresql+asyncpg://",
+                async_creator=connect,
+                pool_size=5,
+                max_overflow=0,
+                pool_timeout=10,
             )
-        return self._pool
+            self._sessions = async_sessionmaker(self._engine, expire_on_commit=False)
+        return self._sessions
 
     async def save(self, session_id: str, run_id: str, stage: str, state: Dict[str, Any]):
         if not settings.config.checkpoint.enabled:
@@ -68,72 +80,49 @@ class CheckpointStore:
         }
         sequence = time.time_ns()
         tenant_id, user_id = self._state_owner(state)
-        pool = await self._get_pool()
-        if pool is None:
+        sessions = await self._get_sessions()
+        if sessions is None:
             self._memory.append({**payload, "sequence": sequence})
             self._cleanup_memory(session_id)
             return
-        encoded = json.dumps(payload, ensure_ascii=False)
-        async with pool.acquire() as conn:
-            max_count = settings.config.checkpoint.max_per_session
-            if max_count > 0:
-                await conn.execute(
-                    """
-                    WITH inserted AS (
-                      INSERT INTO agent_run_checkpoint(
-                        session_id, run_id, stage, sequence, payload_json, tenant_id, user_id, created_at
-                      )
-                      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, CURRENT_TIMESTAMP)
-                      RETURNING id
-                    ), deleted AS (
-                      DELETE FROM agent_run_checkpoint
-                      WHERE id IN (
-                        SELECT id FROM agent_run_checkpoint
-                        WHERE session_id = $1
-                        ORDER BY sequence DESC
-                        OFFSET $8
-                      )
-                      RETURNING id
-                    )
-                    SELECT id FROM inserted
-                    """,
-                    session_id,
-                    run_id,
-                    stage,
-                    sequence,
-                    encoded,
-                    tenant_id or None,
-                    user_id or None,
-                    max_count - 1,
-                )
-            else:
-                await conn.execute(
-                    """
-                    INSERT INTO agent_run_checkpoint(
-                      session_id, run_id, stage, sequence, payload_json, tenant_id, user_id, created_at
-                    )
-                    VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, CURRENT_TIMESTAMP)
-                    """,
-                    session_id,
-                    run_id,
-                    stage,
-                    sequence,
-                    encoded,
-                    tenant_id or None,
-                    user_id or None,
-                )
+        statement = insert(RunCheckpoint).values(
+            session_id=session_id,
+            run_id=run_id,
+            stage=stage,
+            sequence=sequence,
+            payload_json=payload,
+            tenant_id=tenant_id or None,
+            user_id=user_id or None,
+        )
+        max_count = settings.config.checkpoint.max_per_session
+        if max_count > 0:
+            # 同一语句快照中保留旧记录的前 N-1 条，再加本次插入，与原语义一致。
+            inserted = statement.returning(RunCheckpoint.id).cte("inserted")
+            expired = (
+                select(RunCheckpoint.id)
+                .where(RunCheckpoint.session_id == session_id)
+                .order_by(RunCheckpoint.sequence.desc())
+                .offset(max_count - 1)
+            )
+            deleted = (
+                delete(RunCheckpoint).where(RunCheckpoint.id.in_(expired)).returning(RunCheckpoint.id).cte("deleted")
+            )
+            statement = select(inserted.c.id).add_cte(deleted)
+        async with sessions.begin() as session:
+            await session.execute(statement)
 
     async def load_latest(self, session_id: str) -> Optional[Dict[str, Any]]:
-        pool = await self._get_pool()
-        if pool is None:
+        sessions = await self._get_sessions()
+        if sessions is None:
             rows = self._memory_rows(session_id)
             return self._public_payload(rows[0]) if rows else None
-        async with pool.acquire() as conn:
-            value = await conn.fetchval(
-                "SELECT payload_json::text FROM agent_run_checkpoint WHERE session_id=$1 ORDER BY sequence DESC LIMIT 1",
-                session_id,
+        async with sessions() as session:
+            return await session.scalar(
+                select(RunCheckpoint.payload_json)
+                .where(RunCheckpoint.session_id == session_id)
+                .order_by(RunCheckpoint.sequence.desc())
+                .limit(1)
             )
-        return json.loads(value) if value else None
 
     async def load_latest_by_run(
         self,
@@ -162,36 +151,23 @@ class CheckpointStore:
         tenant_id: str | None,
         user_id: str | None,
     ) -> Optional[Dict[str, Any]]:
-        pool = await self._get_pool()
-        if pool is None:
+        sessions = await self._get_sessions()
+        if sessions is None:
             rows = [row for row in self._memory_rows(session_id) if row.get("run_id") == run_id]
             if tenant_id is not None or user_id is not None:
                 rows = [row for row in rows if self._row_owned_by(row, tenant_id or "", user_id or "")]
             return self._public_payload(rows[0]) if rows else None
-        async with pool.acquire() as conn:
-            if tenant_id is None and user_id is None:
-                value = await conn.fetchval(
-                    """
-                    SELECT payload_json::text FROM agent_run_checkpoint
-                    WHERE session_id=$1 AND run_id=$2
-                    ORDER BY sequence DESC LIMIT 1
-                    """,
-                    session_id,
-                    run_id,
-                )
-            else:
-                value = await conn.fetchval(
-                    """
-                    SELECT payload_json::text FROM agent_run_checkpoint
-                    WHERE session_id=$1 AND run_id=$2 AND tenant_id=$3 AND user_id=$4
-                    ORDER BY sequence DESC LIMIT 1
-                    """,
-                    session_id,
-                    run_id,
-                    tenant_id or "",
-                    user_id or "",
-                )
-        return json.loads(value) if value else None
+        statement = select(RunCheckpoint.payload_json).where(
+            RunCheckpoint.session_id == session_id,
+            RunCheckpoint.run_id == run_id,
+        )
+        if tenant_id is not None or user_id is not None:
+            statement = statement.where(
+                RunCheckpoint.tenant_id == (tenant_id or ""),
+                RunCheckpoint.user_id == (user_id or ""),
+            )
+        async with sessions() as session:
+            return await session.scalar(statement.order_by(RunCheckpoint.sequence.desc()).limit(1))
 
     async def claim_resume(
         self,
@@ -203,29 +179,27 @@ class CheckpointStore:
     ) -> bool:
         """原子领取来源运行的唯一续跑权，防止重复点击并发执行。"""
 
-        pool = await self._get_pool()
-        if pool is None:
+        sessions = await self._get_sessions()
+        if sessions is None:
             key = (session_id, source_run_id, tenant_id or "", user_id or "")
             if key in self._memory_resume_claims:
                 return False
             self._memory_resume_claims.add(key)
             return True
-        async with pool.acquire() as conn:
-            claimed = await conn.fetchval(
-                """
-                INSERT INTO agent_run_resume_claim(
-                  session_id, source_run_id, resumed_run_id, tenant_id, user_id, claimed_at
-                )
-                VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-                ON CONFLICT (session_id, source_run_id) DO NOTHING
-                RETURNING id
-                """,
-                session_id,
-                source_run_id,
-                resumed_run_id,
-                tenant_id or "",
-                user_id or "",
+        statement = (
+            insert(RunResumeClaim)
+            .values(
+                session_id=session_id,
+                source_run_id=source_run_id,
+                resumed_run_id=resumed_run_id,
+                tenant_id=tenant_id or "",
+                user_id=user_id or "",
             )
+            .on_conflict_do_nothing(index_elements=[RunResumeClaim.session_id, RunResumeClaim.source_run_id])
+            .returning(RunResumeClaim.id)
+        )
+        async with sessions.begin() as session:
+            claimed = await session.scalar(statement)
         return claimed is not None
 
     async def list_snapshots(
@@ -234,41 +208,41 @@ class CheckpointStore:
         tenant_id: str,
         user_id: str,
     ) -> list[Dict[str, Any]]:
-        pool = await self._get_pool()
-        if pool is None:
+        sessions = await self._get_sessions()
+        if sessions is None:
             payloads = [
                 self._public_payload(row)
                 for row in self._memory_rows(session_id)
                 if self._row_owned_by(row, tenant_id, user_id)
             ]
         else:
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
-                    SELECT payload_json::text AS payload FROM agent_run_checkpoint
-                    WHERE session_id=$1 AND tenant_id=$2 AND user_id=$3
-                    ORDER BY sequence DESC
-                    """,
-                    session_id,
-                    tenant_id,
-                    user_id,
+            async with sessions() as session:
+                result = await session.scalars(
+                    select(RunCheckpoint.payload_json)
+                    .where(
+                        RunCheckpoint.session_id == session_id,
+                        RunCheckpoint.tenant_id == tenant_id,
+                        RunCheckpoint.user_id == user_id,
+                    )
+                    .order_by(RunCheckpoint.sequence.desc())
                 )
-            payloads = [json.loads(row["payload"]) for row in rows]
+                payloads = result.all()
         return [
             {
                 "session_id": item.get("session_id"),
                 "run_id": item.get("run_id"),
                 "stage": item.get("stage"),
                 "saved_at": item.get("saved_at"),
-                "storage": "postgresql" if pool is not None else "memory",
+                "storage": "postgresql" if sessions is not None else "memory",
             }
             for item in payloads
         ]
 
     async def close(self) -> None:
-        if self._pool is not None:
-            await self._pool.close()
-            self._pool = None
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+            self._sessions = None
 
     def _memory_rows(self, session_id: str) -> list[Dict[str, Any]]:
         return sorted(

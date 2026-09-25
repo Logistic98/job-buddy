@@ -399,8 +399,6 @@ class RuntimePlanner:
                     succeeded.add(match.group(1))
             if not required.issubset(succeeded):
                 return False
-        if task_understanding and task_understanding.planner_constraints.planner_needed and len(observations) < 1:
-            return False
         return True
 
     def _normalize_step_reference(

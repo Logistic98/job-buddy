@@ -641,7 +641,12 @@ async def test_runtime_execute_rejects_upstream_task_with_mismatched_contract(mo
     directive = executor.task_understanding.build_directive(
         executor.task_understanding.get_profile("job-buddy"), upstream_task
     )
-    directive["capability_contract"] = {"required_tools": ["web_search"]}
+    directive["capability_contract"] = {
+        "required_tools": ["web_search"],
+        "allowed_tools": ["web_search"],
+        "evidence_requirements": ["source"],
+        "eval_rubric": {},
+    }
     fallback_task = _task(["web_search"])
     fallback_task.clarification.needed = True
     fallback_task.clarification.question = "请确认是否允许联网。"

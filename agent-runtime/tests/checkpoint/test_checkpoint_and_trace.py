@@ -26,40 +26,42 @@ async def test_checkpoint_save_and_load_latest(checkpoint_store):
 
 @pytest.mark.asyncio
 async def test_postgres_checkpoint_save_combines_insert_and_retention_cleanup(monkeypatch):
+    from sqlalchemy.dialects import postgresql
+
     from app.core.common.settings import settings
 
     calls = []
 
-    class Connection:
-        async def execute(self, sql, *args):
-            calls.append((sql, args))
-
-    class Acquire:
+    class Session:
         async def __aenter__(self):
-            return Connection()
+            return self
 
         async def __aexit__(self, exc_type, exc, traceback):
             return False
 
-    class Pool:
-        def acquire(self):
-            return Acquire()
+        async def execute(self, statement):
+            calls.append(statement.compile(dialect=postgresql.dialect()))
+
+    class Sessions:
+        def begin(self):
+            return Session()
 
     store = CheckpointStore(database_url="postgresql://runtime.invalid/job_buddy")
 
-    async def fake_pool():
-        return Pool()
+    async def fake_sessions():
+        return Sessions()
 
-    monkeypatch.setattr(store, "_get_pool", fake_pool)
+    monkeypatch.setattr(store, "_get_sessions", fake_sessions)
     monkeypatch.setattr(settings.config.checkpoint, "enabled", True)
     monkeypatch.setattr(settings.config.checkpoint, "max_per_session", 5)
 
     await store.save("session_one_roundtrip", "run_one_roundtrip", "observe", {"turn": 1})
 
     assert len(calls) == 1
-    assert "WITH inserted AS" in calls[0][0]
-    assert "DELETE FROM agent_run_checkpoint" in calls[0][0]
-    assert calls[0][1][-1] == 4
+    assert "INSERT INTO agent_run_checkpoint" in str(calls[0])
+    assert "DELETE FROM agent_run_checkpoint" in str(calls[0])
+    assert "session_one_roundtrip" not in str(calls[0])
+    assert 4 in calls[0].params.values()
 
 
 @pytest.mark.asyncio

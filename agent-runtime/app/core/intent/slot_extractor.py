@@ -54,7 +54,7 @@ class SlotExtractor:
                         slots[key] = coerce_value(value)
             else:
                 for target_slot, group_name in extractor.target_slots.items():
-                    value = match.group(group_name) if group_name.isdigit() else match.groupdict().get(group_name)
+                    value = match.group(int(group_name)) if group_name.isdigit() else match.groupdict().get(group_name)
                     if value is not None:
                         slots[target_slot] = coerce_value(value)
             break

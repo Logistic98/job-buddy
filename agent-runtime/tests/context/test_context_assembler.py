@@ -134,3 +134,42 @@ def test_context_assembler_searches_memory_when_backend_results_are_empty():
 
     assert memory_client.calls == 1
     assert result["payload"]["memory_refs"][0]["id"] == "runtime-memory"
+
+
+def test_restored_context_preserves_compaction_and_ignores_synthetic_results():
+    assembler = ContextAssembler()
+    task = TaskUnderstandingResult(
+        original_query="goal",
+        context={"resolved_references": [{"text": "document", "resolved_to": "ref", "source": "attachment"}]},
+    )
+    result = assembler.assemble(
+        messages=[ChatMessage(role="assistant", content="previous")],
+        task=task,
+        observations=[],
+        metadata={"attachments": [None, {"content": "document"}]},
+        tool_results=[
+            ToolResult(tool_call_id="synthetic", tool_name="echo", success=True, metadata={"synthetic": True})
+        ],
+        compaction={"objective": "goal", "next_step": "review"},
+    )
+    assert result["payload"]["compaction"]["next_step"] == "review"
+    assert result["payload"]["tool_refs"] == []
+    assert len(result["payload"]["attachments"]) == 1
+    assert result["payload"]["long_term_refs"][0]["text"] == "document"
+    assert assembler._last_user_message([ChatMessage(role="assistant", content="previous")]) == ""
+    assert "personal_context" in assembler.direct_evidence_summary({"personal_context": {"profile": "plain"}})
+
+
+def test_compactor_preserves_recent_observations_and_final_answer_next_step():
+    from types import SimpleNamespace
+
+    from app.core.context.compactor import ContextCompactor
+
+    compactor = ContextCompactor(enabled=True, trigger_observations=1, keep_recent=2)
+    state = {"observations": ["recent"]}
+    assert compactor.maybe_compact(state) is None
+    assert state["observations"] == ["recent"]
+    state.update(observations=["old", "recent1", "recent2"], plan=SimpleNamespace(final_answer="done", steps=[]))
+    assert compactor.maybe_compact(state).folded_observations == 1
+    assert state["compaction"]["next_step"] == "输出最终答案"
+    assert state["observations"][-2:] == ["recent1", "recent2"]

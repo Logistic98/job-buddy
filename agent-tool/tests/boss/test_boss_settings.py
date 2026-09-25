@@ -7,7 +7,7 @@ from app.tools.boss_browser.core.settings import RateLimitConfig, Settings, _app
 
 def test_rate_limit_model_defaults_match_yaml_baseline():
     rate_limit = RateLimitConfig()
-    config_path = Path(__file__).resolve().parents[1] / "app" / "tools" / "boss_browser" / "config" / "config.yaml"
+    config_path = Path(__file__).resolve().parents[2] / "app" / "tools" / "boss_browser" / "config" / "config.yaml"
     yaml_settings = Settings.model_validate(yaml.safe_load(config_path.read_text(encoding="utf-8")))
 
     assert rate_limit.search_per_hour == yaml_settings.rate_limit.search_per_hour == 60

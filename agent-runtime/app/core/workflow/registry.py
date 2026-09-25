@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 import yaml
 from loguru import logger
@@ -57,10 +57,6 @@ class WorkflowRegistry:
     def get(self, workflow_id: str) -> Optional[WorkflowDefinition]:
         """按工作流标识返回不可变定义；不存在时返回 ``None``。"""
         return self._workflows.get(workflow_id)
-
-    def list_workflows(self) -> List[WorkflowDefinition]:
-        """按工作流标识排序返回当前注册表快照。"""
-        return [self._workflows[key] for key in sorted(self._workflows)]
 
     def match(self, entry_capability: str | None, profile: str | None = None) -> Optional[WorkflowDefinition]:
         """优先匹配指定 Profile 的入口能力，未命中时回退到全局工作流。"""

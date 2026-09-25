@@ -433,9 +433,6 @@ class TaskUnderstandingService:
             result.metadata = updated_metadata
             return
         contract = metadata.get("capability_contract")
-        if not isinstance(contract, dict):
-            result.metadata = updated_metadata
-            return
         required = [str(item) for item in (contract.get("required_tools") or [])]
         if "web_search" not in required:
             required.append("web_search")

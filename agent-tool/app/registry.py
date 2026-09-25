@@ -17,7 +17,7 @@ TOOLS: list[dict] = [
         "example": {
             "arguments": {"events": [{"event": "run_start", "run_id": "run_1", "timestamp": "2026-01-01 00:00:00"}]}
         },
-        "eval": "tests/test_tools.py::test_trace_summarize_counts_events",
+        "eval": "tests/registry/test_tools.py::test_trace_summarize_counts_events",
     },
     {
         "name": "memory_search",
@@ -30,7 +30,7 @@ TOOLS: list[dict] = [
         "returns": "data 为记忆条目数组,每条含 id、scope、content、created_at",
         "errors": ["invalid_arguments", "memory_timeout", "memory_unavailable"],
         "example": {"arguments": {"query": "Agent 开发岗位偏好", "scope": "session"}},
-        "eval": "tests/test_tools.py::test_memory_search_requires_query",
+        "eval": "tests/registry/test_tools.py::test_memory_search_requires_query",
     },
     {
         "name": "sandbox_execute",
@@ -43,7 +43,7 @@ TOOLS: list[dict] = [
         "returns": "data 含 returncode、stdout、stderr",
         "errors": ["invalid_arguments", "command_failed", "sandbox_timeout", "sandbox_unavailable"],
         "example": {"arguments": {"command": "echo hello"}, "confirm": True},
-        "eval": "tests/test_tools.py::test_sandbox_execute_requires_confirm",
+        "eval": "tests/registry/test_tools.py::test_sandbox_execute_requires_confirm",
     },
     {
         "name": "boss_browser",
@@ -66,7 +66,7 @@ TOOLS: list[dict] = [
             "boss_browser_error",
         ],
         "example": {"arguments": {"operation": "rate", "payload": {}}},
-        "eval": "tests/test_boss_browser_tool.py::test_boss_browser_rate_operation_returns_envelope",
+        "eval": "tests/boss/test_boss_browser_tool.py::test_boss_browser_rate_operation_returns_envelope",
     },
 ]
 

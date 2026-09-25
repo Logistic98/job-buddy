@@ -465,9 +465,7 @@ class InterviewQuestionGenerateTool(BaseTool):
             *(generate_batch(start_index, batch_size) for start_index, batch_size in batches)
         )
         rows = [row for batch_rows in generated_batches for row in batch_rows]
-        # 并行批次按起始序号合并后仍必须与请求题量完全一致，再逐题规范化。
-        if len(rows) != count:
-            raise ValueError(f"模型应返回 {count} 道候选题，请重新生成")
+        # 每批已校验题量，gather 保留批次顺序后逐题规范化。
         items = [_normalize_item(row, bank_type, category, difficulty, question_type, language) for row in rows]
         notice = (
             "算法候选题尚未入库，请人工核对题面、代码入口和测试预期后确认导入。"

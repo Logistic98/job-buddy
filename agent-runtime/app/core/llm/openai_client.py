@@ -335,14 +335,6 @@ class OpenAICompatibleClient:
         message["usage"] = data.get("usage", {})
         return message
 
-    def _parse_stream_piece(self, chunk: Dict[str, Any]) -> Optional[str]:
-        if self._is_anthropic():
-            if chunk.get("type") == "content_block_delta":
-                return (chunk.get("delta") or {}).get("text")
-            return None
-        choices = chunk.get("choices") or []
-        return ((choices[0].get("delta") or {}).get("content")) if choices else None
-
     def _parse_stream_event(self, chunk: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
         """解析一帧流式增量，区分推理过程与最终答案，返回 (kind, text)。
 

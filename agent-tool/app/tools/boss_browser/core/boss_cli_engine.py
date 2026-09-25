@@ -255,10 +255,7 @@ class BossCliEngine:
         return payload
 
     def _get_credential_without_browser_import(self) -> Any | None:
-        try:
-            return self._memory_credential
-        except Exception:  # noqa: BLE001
-            return None
+        return self._memory_credential
 
     def load_credential_json(self, credential_json: str | None) -> None:
         """从后端 PostgreSQL auth_state 注入凭证，仅保存在当前进程内存。"""

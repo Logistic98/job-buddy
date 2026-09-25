@@ -3,17 +3,15 @@
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Dict
 
 from loguru import logger
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from app.core.common.constants import ToolKind, ToolRiskLevel
 from app.core.common.settings import settings
 from app.core.utils.time_utils import TimeUtils
 from app.models.schemas import ToolCall, ToolDefinition, ToolResult
-
-ToolProgressCallback = Callable[[Dict[str, Any]], Awaitable[None]]
 
 
 class ToolExecutionFailure(ValueError):
@@ -32,9 +30,6 @@ class ToolExecutionContext(BaseModel):
     session_id: str
     workspace_dir: str = "."
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    progress_callback: Optional[ToolProgressCallback] = None
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ValidationResult(BaseModel):
@@ -48,7 +43,7 @@ class BaseTool(ABC):
     工具基类。
 
     参考 Claude Code Tool 成熟接口：工具自描述、别名、检索提示、只读/破坏性标识、并发安全、
-    输入校验、权限前置、执行上下文、进度回调和大结果有界截断都由工具协议统一承载。
+    输入校验、权限前置、执行上下文、大结果有界截断都由工具协议统一承载。
     """
 
     name: str = ""
@@ -100,12 +95,6 @@ class BaseTool(ABC):
 
     def is_destructive(self, arguments: Dict[str, Any]) -> bool:
         return self.destructive
-
-    def inputs_equivalent(self, a: Dict[str, Any], b: Dict[str, Any]) -> bool:
-        return a == b
-
-    async def description_for_call(self, arguments: Dict[str, Any]) -> str:
-        return self.description
 
     async def validate_input(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> ValidationResult:
         required = self.input_schema.get("required", []) or []
@@ -183,10 +172,6 @@ class BaseTool(ABC):
         metadata["truncated"] = False
         return output, metadata
 
-    async def emit_progress(self, context: ToolExecutionContext, payload: Dict[str, Any]):
-        if context.progress_callback:
-            await context.progress_callback(payload)
-
     @abstractmethod
     async def _run(self, arguments: Dict[str, Any], context: ToolExecutionContext) -> Any:
-        pass
+        """执行已校验的工具输入，由具体工具实现。"""

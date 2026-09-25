@@ -92,7 +92,7 @@ def _engine(tmp_path) -> BossCliEngine:
 
 
 def test_default_search_page_guard_allows_configurable_backend_depth():
-    config_path = Path(__file__).resolve().parents[1] / "app/tools/boss_browser/config/config.yaml"
+    config_path = Path(__file__).resolve().parents[2] / "app/tools/boss_browser/config/config.yaml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert Settings().boss_cli.max_search_page == 30
@@ -817,7 +817,7 @@ def test_unknown_nonzero_payload_is_not_treated_as_empty_success(tmp_path):
 
 
 def test_config_covers_nationwide_boss_cities():
-    config_path = Path(__file__).resolve().parents[1] / "app" / "tools" / "boss_browser" / "config" / "config.yaml"
+    config_path = Path(__file__).resolve().parents[2] / "app" / "tools" / "boss_browser" / "config" / "config.yaml"
     data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     codes = data["boss"]["city_codes"]
 
@@ -831,7 +831,7 @@ def test_config_covers_nationwide_boss_cities():
 
 
 def test_city_resolver_supports_suffix(tmp_path):
-    config_path = Path(__file__).resolve().parents[1] / "app" / "tools" / "boss_browser" / "config" / "config.yaml"
+    config_path = Path(__file__).resolve().parents[2] / "app" / "tools" / "boss_browser" / "config" / "config.yaml"
     settings = Settings(**yaml.safe_load(config_path.read_text(encoding="utf-8")))
     engine = BossCliEngine(settings)
 

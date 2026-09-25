@@ -230,3 +230,51 @@ async def test_adapter_propagates_is_error():
 
     assert result.success is False
     assert "cookie 已失效" in result.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", [{"text": "text"}, {"raw": {"value": 1}}])
+async def test_adapter_preserves_text_and_raw_fallback(result):
+    stub = _StubClient("test", call_results={"tool": result})
+    adapter = McpToolAdapter(stub, "tool", "tool", "", {})
+    output = await adapter.safe_run(ToolCall(id="call", name="tool", arguments={}), _tool_context())
+    assert output.success is True
+    assert output.output == ({"text": "text"} if "text" in result else {"value": 1})
+
+
+@pytest.mark.asyncio
+async def test_adapter_protocol_failure_is_explicit():
+    from unittest.mock import AsyncMock
+
+    from app.core.tool.mcp_client import McpProtocolError
+
+    stub = _StubClient("test")
+    stub.call_tool = AsyncMock(side_effect=McpProtocolError("invalid response"))
+    adapter = McpToolAdapter(stub, "tool", "tool", "", {})
+    result = await adapter.safe_run(ToolCall(id="call", name="tool", arguments={}), _tool_context())
+    assert result.success is False
+    assert "协议异常" in result.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_disabled_or_removed_servers_remove_previous_tools(enabled):
+    registry = ToolRegistry()
+    registry.replace_source("mcp:old", [McpToolAdapter(_StubClient("old"), "tool", "tool", "", {})])
+    assert await register_mcp_tools(registry, McpConfig(enabled=enabled, servers={})) == []
+    assert registry.has("tool") is False
+
+
+@pytest.mark.asyncio
+async def test_catalog_collision_drops_entire_remote_generation(monkeypatch):
+    from app.core.tool import mcp_adapter
+
+    registry = ToolRegistry()
+    existing = McpToolAdapter(_StubClient("local"), "tool", "tool", "", {})
+    registry.replace_source("local", [existing])
+    stub = _StubClient("remote", tools=[{"name": "tool"}])
+    monkeypatch.setattr(mcp_adapter, "McpClient", lambda *args: stub)
+    config = McpConfig(enabled=True, servers={"remote": McpServerConfig(enabled=True, url="http://example.test")})
+    assert await register_mcp_tools(registry, config) == []
+    assert registry.get("tool") is existing
+    assert "mcp:remote" not in registry.source_ids()

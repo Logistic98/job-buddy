@@ -92,7 +92,6 @@ def classify_with_llm(text: str) -> Optional[IntentResult]:
         except Exception as e:
             logger.warning(f"agent-intent LLM 分类失败,降级到评分层: {e}")
             return None
-    return None
 
 
 def _parse_result(content: str) -> Optional[IntentResult]:

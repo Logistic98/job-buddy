@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import playwright.sync_api
+import pytest
 
 from app.tools.boss_browser.core.headless_cookie_completer import HeadlessCookieCompleter
 from app.tools.boss_browser.core.settings import Settings
@@ -183,3 +184,67 @@ def test_diagnostic_url_removes_query_and_fragment():
         )
         == "https://www.zhipin.com/web/geek/job"
     )
+
+
+def test_missing_playwright_has_actionable_error(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
+    with pytest.raises(RuntimeError, match="缺少 Playwright"):
+        _completer().complete({})
+
+
+def test_both_browser_attempts_closing_is_failure(monkeypatch):
+    contexts = [_FakeContext(stoken_visit=99, close_on_visit=1) for _ in range(2)]
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright", lambda: _FakePlaywrightManager(contexts))
+    with pytest.raises(RuntimeError, match="提前关闭"):
+        _completer().complete({})
+    assert all(context.closed for context in contexts)
+
+
+def test_full_refresh_without_token_is_bounded_and_cleans_contexts(monkeypatch):
+    contexts = [_FakeContext(stoken_visit=99) for _ in range(2)]
+    monkeypatch.setattr(playwright.sync_api, "sync_playwright", lambda: _FakePlaywrightManager(contexts))
+    monkeypatch.setattr("app.tools.boss_browser.core.headless_cookie_completer.time.sleep", lambda _: None)
+    assert _completer().complete({}) == {}
+    assert all(len(context.visits) == 3 and context.closed for context in contexts)
+
+
+@pytest.mark.parametrize("message", ["Target closed", "unexpected close failure"])
+def test_context_close_errors_only_ignore_already_closed(monkeypatch, message):
+    context = _install_fake_playwright(monkeypatch, stoken_visit=1)
+
+    def close():
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(context, "close", close)
+    if message == "Target closed":
+        assert _completer().complete({})["__zp_stoken__"] == "fresh-token"
+    else:
+        with pytest.raises(RuntimeError, match="unexpected"):
+            _completer().complete({})
+
+
+def test_navigation_timeout_still_collects_issued_cookie(monkeypatch):
+    context = _install_fake_playwright(monkeypatch, stoken_visit=1)
+
+    def goto(*args, **kwargs):
+        context.cookie_jar["__zp_stoken__"] = "issued"
+        raise TimeoutError("navigation timeout")
+
+    monkeypatch.setattr(context.pages[0], "goto", goto)
+    assert _completer().complete({})["__zp_stoken__"] == "issued"
+    assert context.closed is True
+
+
+def test_diagnostic_url_survives_closed_page_and_invalid_url():
+    class ClosedPage:
+        @property
+        def url(self):
+            raise RuntimeError("closed")
+
+    assert (
+        _completer()._safe_page_url(ClosedPage(), "https://boss.invalid/path?secret=value")
+        == "https://boss.invalid/path"
+    )
+    assert _completer()._safe_url("http://[invalid") == "invalid-url"

@@ -23,7 +23,8 @@ def memory_enabled(monkeypatch):
     monkeypatch.setattr(settings.config.memory, "enabled", True)
 
 
-def test_memory_client_disabled_by_default(monkeypatch):
+def test_memory_client_disabled_makes_no_request(monkeypatch):
+    monkeypatch.setattr(settings.config.memory, "enabled", False)
 
     def fail_get(*args, **kwargs):
         raise AssertionError("memory disabled 时不应发起 HTTP 请求")
@@ -142,3 +143,19 @@ def test_assembler_degrades_when_memory_unavailable(monkeypatch, memory_enabled)
     )
     assert "memory_refs" not in result["payload"]
     assert result["metrics"]["memory_ref_count"] == 0
+
+
+@pytest.mark.parametrize("body", [[], {"data": {}}, {"data": None}])
+def test_memory_client_rejects_malformed_search_data(monkeypatch, memory_enabled, body):
+    monkeypatch.setenv("AGENT_INTERNAL_SERVICE_TOKEN", "synthetic")
+    captured = {}
+
+    def get(url, **kwargs):
+        captured.update(kwargs)
+        return FakeResponse(body)
+
+    monkeypatch.setattr(httpx, "get", get)
+    client = MemoryClient()
+    assert client.enabled
+    assert client.search("query") == []
+    assert captured["headers"]["X-Internal-Service-Token"] == "synthetic"

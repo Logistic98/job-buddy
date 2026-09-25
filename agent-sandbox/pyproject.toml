@@ -18,6 +18,7 @@ dependencies = [
 dev = [
     "httpx>=0.25.0,<0.29.0",
     "pytest>=7.4.0,<8.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
     "ruff>=0.15.0,<1.0.0",
 ]
 
@@ -41,4 +42,22 @@ line-ending = "lf"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-q"
+
+addopts = "--strict-config --strict-markers"
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "coverage/html"
+
+[tool.coverage.xml]
+output = "coverage/coverage.xml"
+
+[tool.coverage.json]
+output = "coverage/coverage.json"

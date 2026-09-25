@@ -762,8 +762,6 @@ class WebSearchTool(BaseTool):
 
         async def enrich(article: OfficialArticle) -> OfficialArticle:
             nonlocal detail_budget
-            if detail_budget <= 0:
-                return article
             detail_budget -= 1
             try:
                 fetched = await self._fetch_trusted_official_url(
@@ -964,17 +962,14 @@ class WebSearchTool(BaseTool):
             0.0,
             min(2.0, float(settings.config.web_search.official_fetch_retry_backoff_seconds or 0.0)),
         )
-        last_error: httpx.TransportError | None = None
         for attempt in range(attempts):
             if attempt > 0 and backoff > 0:
                 await asyncio.sleep(backoff * (2 ** (attempt - 1)))
             try:
                 return await self._fetch_allowlisted_official_source(source, timeout)
-            except httpx.TransportError as error:
-                last_error = error
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("官方稳定入口代理抓取未执行")
+            except httpx.TransportError:
+                if attempt == attempts - 1:
+                    raise
 
     async def _fetch_allowlisted_official_url_with_retries(
         self,
@@ -987,17 +982,14 @@ class WebSearchTool(BaseTool):
             0.0,
             min(2.0, float(settings.config.web_search.official_fetch_retry_backoff_seconds or 0.0)),
         )
-        last_error: httpx.TransportError | None = None
         for attempt in range(attempts):
             if attempt > 0 and backoff > 0:
                 await asyncio.sleep(backoff * (2 ** (attempt - 1)))
             try:
                 return await self._fetch_allowlisted_official_url(source, url, timeout)
-            except httpx.TransportError as error:
-                last_error = error
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("官方文章代理抓取未执行")
+            except httpx.TransportError:
+                if attempt == attempts - 1:
+                    raise
 
     def _error_summary(self, error: Exception) -> str:
         """保留异常类型，避免 httpx 空消息导致审计信息不可读。"""

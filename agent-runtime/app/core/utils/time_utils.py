@@ -60,6 +60,3 @@ class ExecutionTimer:
 
     def get_latency_ms(self) -> int:
         return TimeUtils.calculate_latency_ms(self.start_timestamp, self.end_timestamp)
-
-    def get_formatted_duration(self) -> str:
-        return f"{self.get_latency_ms()}ms"

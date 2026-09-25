@@ -234,3 +234,64 @@ def test_official_article_dataclass_is_immutable():
     metadata = parse_official_article("<h1>Title</h1>")
     with pytest.raises(FrozenInstanceError):
         metadata.title = "Changed"
+
+
+@pytest.mark.parametrize(
+    ("cutoff", "start"), [("invalid", None), ("2026-01-01", "invalid"), ("2026-01-01", "2026-01-02")]
+)
+def test_latest_article_rejects_invalid_or_reversed_window(cutoff, start):
+    with pytest.raises(ValueError):
+        select_latest_article([], as_of_date=cutoff, not_before_date=start)
+
+
+def test_parser_handles_self_closing_nodes_titles_and_ignored_script_text():
+    from datetime import datetime
+
+    assert normalize_published_date(datetime(2026, 1, 2, 12, 30)) == "2026-01-02"
+    article = parse_official_article("<title>Page title</title><div/><br/><script>ignored</script>")
+    assert article.title == "Page title"
+    assert parse_official_article("<div/>").title == ""
+    rows = parse_official_listing(
+        """<main><a href="/engineering/plain">navigation</a>
+        <a href="/engineering/labeled" aria-label="  Accessible title  "></a>
+        <article><span><a href="/engineering/card">Card text<script>ignored</script></a></span></article>
+        <article><a href="/engineering/empty"></a></article></main>""",
+        base_url="https://www.anthropic.com",
+        trusted_hosts=TRUSTED_HOSTS,
+        allowed_path_prefixes=("engineering",),
+    )
+    assert [row.title for row in rows] == ["Accessible title", "Card text"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.anthropic.com:invalid/engineering/post",
+        "/engineering/%00post",
+        "/engineering/%255cpost",
+        "/engineering/%25252e%25252e/private",
+    ],
+)
+def test_official_url_rejects_invalid_ports_and_nested_encoded_paths(url):
+    assert (
+        canonicalize_official_url(
+            url,
+            base_url="https://www.anthropic.com",
+            trusted_hosts=TRUSTED_HOSTS,
+            allowed_path_prefixes=ALLOWED_PATH_PREFIXES,
+        )
+        is None
+    )
+
+
+def test_duplicate_listing_urls_keep_the_more_complete_article():
+    html = '<article><a href="/engineering/same"><h2>Title</h2></a></article><article><a href="/engineering/same"><h2>Title</h2></a><time datetime="2026-01-01"></time><p class="summary">Detail</p></article>'
+    articles = parse_official_listing(
+        html,
+        base_url="https://www.anthropic.com/engineering",
+        trusted_hosts=TRUSTED_HOSTS,
+        allowed_path_prefixes=ALLOWED_PATH_PREFIXES,
+    )
+    assert len(articles) == 1
+    assert articles[0].published_date == "2026-01-01"
+    assert articles[0].summary == "Detail"

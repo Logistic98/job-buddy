@@ -63,3 +63,8 @@ def test_resolved_current_resume_follow_up_keeps_web_search_optional():
 
     assert decision.mode == "optional"
     assert "provided_context" in decision.signals
+
+
+def test_missing_capability_contract_cannot_grant_explicit_search():
+    decision = WebSearchPolicy().decide("请联网搜索资料", TaskUnderstandingResult())
+    assert decision.mode == "not_allowed"
