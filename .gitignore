@@ -19,3 +19,11 @@ agent-eval/reports/
 .agent-harness/runs/
 .agent-harness/**/*.log
 deploy.sh
+
+# Test coverage artifacts
+.coverage
+.coverage.*
+coverage/
+
+# Mem0 native history contains private memory content.
+agent-memory/data/

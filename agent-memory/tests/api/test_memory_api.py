@@ -1,22 +1,20 @@
 import os
-from unittest.mock import AsyncMock
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
 import app.api as server
-from app.store import MemoryStore
 
 
-def make_client(monkeypatch) -> TestClient:
-    monkeypatch.setattr(server, "local_store", MemoryStore())
-    monkeypatch.setattr(server.postgres_store, "dsn", "")
+def make_client(monkeypatch, memory_store) -> TestClient:
+    monkeypatch.setattr(server, "store", memory_store)
     token = os.getenv("AGENT_INTERNAL_SERVICE_TOKEN", "").strip()
     headers = {"X-Internal-Service-Token": token} if token else None
     return TestClient(server.app, headers=headers)
 
 
-def test_create_and_search_via_local_backend(monkeypatch):
-    client = make_client(monkeypatch)
+def test_create_and_search_via_local_backend(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     created = client.post("/v1/memories", json={"scope": "session", "content": "候选人偏好远程办公"}).json()
     assert created["code"] == 200
     assert created["data"]["id"].startswith("mem_")
@@ -26,13 +24,12 @@ def test_create_and_search_via_local_backend(monkeypatch):
     assert len(found["data"]) == 1
 
 
-def test_health_returns_503_when_postgres_is_not_ready(monkeypatch):
-    client = make_client(monkeypatch)
-    monkeypatch.setattr(server.postgres_store, "dsn", "postgresql://configured")
+def test_health_returns_503_when_postgres_is_not_ready(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     monkeypatch.setattr(
-        server.postgres_store,
+        memory_store,
         "ensure_ready",
-        AsyncMock(side_effect=RuntimeError("database unavailable")),
+        Mock(side_effect=RuntimeError("database unavailable")),
     )
 
     response = client.get("/health")
@@ -41,22 +38,21 @@ def test_health_returns_503_when_postgres_is_not_ready(monkeypatch):
     assert response.json()["data"]["status"] == "DOWN"
 
 
-def test_health_reports_self_hosted_postgres_backend(monkeypatch):
-    client = make_client(monkeypatch)
-    monkeypatch.setattr(server.postgres_store, "dsn", "postgresql://configured")
-    monkeypatch.setattr(server.postgres_store, "ensure_ready", AsyncMock(return_value=None))
+def test_health_reports_self_hosted_postgres_backend(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
+    monkeypatch.setattr(memory_store, "ensure_ready", Mock(return_value=None))
 
     response = client.get("/health")
 
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["status"] == "UP"
-    assert data["backend"] == "postgresql"
+    assert data["backend"] == "mem0"
     assert "gateway" not in data
 
 
-def test_list_and_clear_long_term_memories(monkeypatch):
-    client = make_client(monkeypatch)
+def test_list_and_clear_long_term_memories(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     headers = {"X-Tenant-Id": "tenant-a", "X-Operator-Id": "user-a"}
     created = client.post(
         "/v1/memories",
@@ -80,8 +76,8 @@ def test_list_and_clear_long_term_memories(monkeypatch):
     assert client.get("/v1/memories", headers=headers).json()["data"] == []
 
 
-def test_update_memory_changes_content(monkeypatch):
-    client = make_client(monkeypatch)
+def test_update_memory_changes_content(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     memory_id = client.post("/v1/memories", json={"content": "示例目标城市杭州"}).json()["data"]["id"]
 
     updated = client.put(f"/v1/memories/{memory_id}", json={"content": "目标城市杭州"}).json()
@@ -93,25 +89,25 @@ def test_update_memory_changes_content(monkeypatch):
     assert len(found["data"]) == 1
 
 
-def test_update_missing_memory_returns_error_code(monkeypatch):
-    client = make_client(monkeypatch)
+def test_update_missing_memory_returns_error_code(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     result = client.put("/v1/memories/mem_missing", json={"content": "x"}).json()
-    assert result["code"] == 1
+    assert result["code"] == 404
     assert "not found" in result["message"]
 
 
-def test_delete_memory(monkeypatch):
-    client = make_client(monkeypatch)
+def test_delete_memory(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     memory_id = client.post("/v1/memories", json={"content": "临时记录"}).json()["data"]["id"]
 
     deleted = client.delete(f"/v1/memories/{memory_id}").json()
     assert deleted["code"] == 200
     assert deleted["data"]["deleted"] is True
-    assert client.delete(f"/v1/memories/{memory_id}").json()["code"] == 1
+    assert client.delete(f"/v1/memories/{memory_id}").json()["code"] == 404
 
 
-def test_rollback_restores_previous_content(monkeypatch):
-    client = make_client(monkeypatch)
+def test_rollback_restores_previous_content(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     memory_id = client.post("/v1/memories", json={"content": "示例目标城市杭州"}).json()["data"]["id"]
     client.put(f"/v1/memories/{memory_id}", json={"content": "目标城市杭州"})
 
@@ -120,17 +116,17 @@ def test_rollback_restores_previous_content(monkeypatch):
     assert rolled["data"]["content"] == "示例目标城市杭州"
 
     # 已无更早版本可回滚。
-    assert client.post(f"/v1/memories/{memory_id}/rollback").json()["code"] == 1
+    assert client.post(f"/v1/memories/{memory_id}/rollback").json()["code"] == 404
 
 
-def test_rollback_without_history_returns_error(monkeypatch):
-    client = make_client(monkeypatch)
+def test_rollback_without_history_returns_error(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     memory_id = client.post("/v1/memories", json={"content": "仅一次写入"}).json()["data"]["id"]
-    assert client.post(f"/v1/memories/{memory_id}/rollback").json()["code"] == 1
+    assert client.post(f"/v1/memories/{memory_id}/rollback").json()["code"] == 404
 
 
-def test_create_persists_operator_and_kind(monkeypatch):
-    client = make_client(monkeypatch)
+def test_create_persists_operator_and_kind(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     created = client.post(
         "/v1/memories",
         json={"content": "稳定偏好：远程优先", "kind": "long_term"},
@@ -141,8 +137,8 @@ def test_create_persists_operator_and_kind(monkeypatch):
     assert created["data"]["kind"] == "long_term"
 
 
-def test_body_operator_id_cannot_impersonate_memory_owner(monkeypatch):
-    client = make_client(monkeypatch)
+def test_body_operator_id_cannot_impersonate_memory_owner(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
 
     created = client.post(
         "/v1/memories",
@@ -153,8 +149,8 @@ def test_body_operator_id_cannot_impersonate_memory_owner(monkeypatch):
     assert created["data"]["operator_id"] == "anonymous"
 
 
-def test_memory_owner_isolation_blocks_cross_user_access(monkeypatch):
-    client = make_client(monkeypatch)
+def test_memory_owner_isolation_blocks_cross_user_access(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     owner_headers = {"X-Tenant-Id": "tenant-a", "X-Operator-Id": "user-a"}
     attacker_headers = {"X-Tenant-Id": "tenant-a", "X-Operator-Id": "user-b"}
     other_tenant_headers = {"X-Tenant-Id": "tenant-b", "X-Operator-Id": "user-a"}
@@ -167,26 +163,27 @@ def test_memory_owner_isolation_blocks_cross_user_access(monkeypatch):
     assert client.get("/v1/memories/search", params={"q": "私有"}, headers=other_tenant_headers).json()["data"] == []
     assert (
         client.put(f"/v1/memories/{memory_id}", json={"content": "越权修改"}, headers=attacker_headers).json()["code"]
-        == 1
+        == 404
     )
-    assert client.post(f"/v1/memories/{memory_id}/rollback", headers=attacker_headers).json()["code"] == 1
-    assert client.delete(f"/v1/memories/{memory_id}", headers=attacker_headers).json()["code"] == 1
+    assert client.post(f"/v1/memories/{memory_id}/rollback", headers=attacker_headers).json()["code"] == 404
+    assert client.delete(f"/v1/memories/{memory_id}", headers=attacker_headers).json()["code"] == 404
     assert client.delete(f"/v1/memories/{memory_id}", headers=owner_headers).json()["code"] == 200
 
 
-def test_invalid_kind_falls_back_to_task(monkeypatch):
-    client = make_client(monkeypatch)
+def test_invalid_kind_falls_back_to_task(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
     created = client.post("/v1/memories", json={"content": "x", "kind": "bogus"}).json()
     assert created["data"]["kind"] == "task"
 
 
-def test_expired_memory_excluded_and_purged(monkeypatch):
-    client = make_client(monkeypatch)
-    memory_id = client.post("/v1/memories", json={"content": "短期记忆", "ttl_seconds": 60}).json()["data"]["id"]
+def test_expired_memory_excluded_and_purged(monkeypatch, memory_store):
+    client = make_client(monkeypatch, memory_store)
+    client.post("/v1/memories", json={"content": "短期记忆", "ttl_seconds": 60})
 
-    store = server.local_store
-    item = next(it for it in store.items if it.id == memory_id)
-    item.expires_at = "2000-01-01T00:00:00+00:00"
+    import time
+
+    future = time.time() + 61
+    monkeypatch.setattr("app.store.time.time", lambda: future)
 
     found = client.get("/v1/memories/search", params={"q": "短期"}).json()
     assert found["data"] == []
@@ -194,4 +191,4 @@ def test_expired_memory_excluded_and_purged(monkeypatch):
     client.post("/v1/memories", json={"content": "短期记忆2", "ttl_seconds": 60})
     purged = client.post("/v1/memories/purge-expired").json()
     assert purged["code"] == 200
-    assert purged["data"]["purged"] == 0
+    assert purged["data"]["purged"] == 1

@@ -1,75 +1,73 @@
 # agent-memory
 
-`agent-memory` 是自部署的长程记忆与上下文管理服务。用户在平台设置中管理的长期记忆统一使用 `long_term` scope，并以本服务的 PostgreSQL 存储为唯一事实来源；Backend 只保存全局记忆策略，不保存第二份记忆条目。所有 scope 均由本服务统一存储和检索。未配置 PostgreSQL 连接时仅保留进程内存实现，适用于本地快速验证，不属于正式持久化方案。
+基于 `mem0ai==2.2.1` OSS 的独立记忆服务。Mem0 负责写入、Embedding、检索、排序、更新和历史；HTTP 适配层保留租户/用户隔离、scope、秒级 TTL、禁用过滤、回滚和审计。已移除自研 BM25/RRF/Embedding/Rerank 引擎。
 
-## 接口
+正式运行使用 PostgreSQL + pgvector，Mem0 原生 SQLite history 使用持久卷；当前仅支持单实例，数据库故障返回 503，不切换到内存后端。`/health` 同时检查向量库和 history，但不主动调用收费模型。
 
-| 方法与路径                                      | 用途                   |
-| ----------------------------------------------- | ---------------------- |
-| `GET /health`                                   | 健康检查               |
-| `POST /v1/memories`                             | 创建记忆               |
-| `GET /v1/memories?scope=long_term&limit=1000`   | 按 scope 列出记忆      |
-| `GET /v1/memories/search?q=trace&scope=session` | 检索并融合排序         |
-| `PUT /v1/memories/{memory_id}`                  | 更新并保留历史版本     |
-| `POST /v1/memories/{memory_id}/rollback`        | 回滚到上一版本         |
-| `DELETE /v1/memories/{memory_id}`               | 删除单条记忆           |
-| `DELETE /v1/memories?scope=long_term`           | 按 scope 批量清理      |
-| `POST /v1/memories/purge-expired`               | 清理过期记忆及相关历史 |
+## 配置与启动
 
-写入与召回采用 BM25、时间衰减和可选向量信号的 RRF 融合排序（详见 `app/relevance.py`），不包含图数据库召回。每条记忆带 `kind`（step / task / long_term / semantic）、`source`、`enabled`、`operator_id` 与 `version` 字段，不再按内容类型分类；禁用条目不会进入搜索结果，`PUT` 更新会在覆盖前留存历史版本，`POST .../rollback` 回滚到上一版本内容。列表和批量清理同样按请求头中的租户、操作者及 scope 隔离。
+配置只放仓库根目录 `.env`，示例见 `.env.example`。必需项：
 
-PostgreSQL 检索会在权限与 TTL 条件内合并显著词候选和近期兜底候选。开启 Embedding 后，向量相似度作为 RRF 的第三路召回信号；开启 Rerank 后，对有界的 RRF 候选做最终精排。任一外部模型未配置、超时或返回非法结构时，检索保留可用的本地排序结果，不会切换存储后端或绕过隔离条件。
-
-`GET /health` 的状态以启动时选定的存储后端为准。PostgreSQL 不可用时返回 HTTP 503 和 `DOWN`；未配置 PostgreSQL 的本地验证模式则报告进程内存后端状态。
-
-所有写类与召回接口只从受信的 `X-Tenant-Id`、`X-Operator-Id` 请求头解析所有权；请求模型中的 `operator_id` 兼容字段不参与身份判定，缺少操作者请求头时进入匿名隔离分区。服务通过 Loguru `audit="memory"` 绑定字段输出审计日志，覆盖创建、检索、更新、回滚、删除与过期清理，便于按操作者还原记忆变更链路。跨模块边界与排序策略见[记忆管理与混合检索](../agent-doc/核心能力/记忆管理与混合检索.md)。
-
-配置 `AGENT_INTERNAL_SERVICE_TOKEN` 后，除 `/health` 外的接口都必须携带 `X-Internal-Service-Token`；`production` / `prod` 环境缺少令牌时服务拒绝启动。服务令牌只证明内部调用方身份，租户和操作者请求头仍须独立传递。
-
-## 启动与验证
-
-```bash
-$ uv sync --extra dev
-$ uv run python server.py
-$ uv run python -m pytest
-```
-
-## PostgreSQL 持久化配置
-
-PostgreSQL 连接统一读取仓库根目录 `.env`：
-
-```bash
-SPRING_DATASOURCE_URL=jdbc:postgresql://<host>:<port>/<database>
-SPRING_DATASOURCE_USERNAME=<username>
-SPRING_DATASOURCE_PASSWORD=<password>
+```dotenv
+AGENT_MEMORY_DATABASE_URL=postgresql://user:password@localhost:5432/job_buddy
 AGENT_MEMORY_DB_SSL_MODE=disable
-AGENT_MEMORY_DB_POOL_SIZE=5
-AGENT_MEMORY_DB_CONNECT_ATTEMPTS=4
-AGENT_MEMORY_DB_CONNECT_TIMEOUT_SECONDS=8
-AGENT_MEMORY_DB_CONNECT_BACKOFF_SECONDS=0.5
+AGENT_MEMORY_COLLECTION=agent_memory_mem0
+AGENT_MEMORY_HISTORY_PATH=data/mem0/history.db
+AGENT_MEMORY_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1/embeddings
+AGENT_MEMORY_EMBEDDING_API_KEY=replace-me
+AGENT_MEMORY_EMBEDDING_MODEL=BAAI/bge-m3
+AGENT_MEMORY_EMBEDDING_DIMS=1024
+AGENT_MEMORY_EMBEDDING_TIMEOUT_SECONDS=5
+AGENT_MEMORY_SEARCH_TOP_K=10
+AGENT_MEMORY_SEARCH_THRESHOLD=0.1
 ```
 
-`agent-memory` 会自动加载根目录 `.env`，并将 `SPRING_DATASOURCE_*` 转换为 PostgreSQL 连接串，默认与 Backend 共用业务数据库。也可通过根目录 `.env` 中的 `AGENT_MEMORY_DATABASE_URL` 覆盖连接串，其优先级高于 `SPRING_DATASOURCE_*`。服务启动时会自动创建带 `agent_memory_` 前缀的表和必要索引。
-
-`AGENT_MEMORY_DB_SSL_MODE` 支持 `disable`、`prefer`、`allow`、`require`、`verify-ca` 和 `verify-full`。未配置且连接串不含 `sslmode` 时默认使用 `disable`，避免本地无 TLS PostgreSQL 在 SSL 升级阶段断开；连接串中的 `sslmode` 可直接生效，独立环境变量的优先级更高。生产环境应使用 `require` 或 `verify-full`，并通过 Secret 或部署平台注入连接串，不要提交真实账号密码。
-
-服务启动时会对建池和幂等 Schema 初始化期间出现的瞬时断连、连接超时或数据库临时不可用执行有界重试。默认最多尝试 4 次，单次建连超时 8 秒，按 0.5、1、2 秒指数退避；可分别通过 `AGENT_MEMORY_DB_CONNECT_ATTEMPTS`、`AGENT_MEMORY_DB_CONNECT_TIMEOUT_SECONDS` 和 `AGENT_MEMORY_DB_CONNECT_BACKOFF_SECONDS` 调整。密码、库名、权限、SSL 校验及非法配置等确定性错误不会重试，重试耗尽后服务仍会启动失败，避免静默退化造成持久化记忆丢失。
-
-## Embedding 与 Rerank 配置
+LLM 配置读取 `AGENT_MEMORY_LLM_BASE_URL/API_KEY/MODEL`，缺失时复用 `JOB_BUDDY_LLM_BASE_URL/API_KEY/MODEL_NAME`。现有显式记忆接口使用 `infer=false`，不会擅自抽取、改写或拆分用户保存的内容，LLM 自动抽取尚未开放为 HTTP 接口。Embedding 必须可用。原有 Embedding/Rerank 开关不再控制检索；排序完全由 Mem0 完成。Mem0 telemetry 强制关闭。
 
 ```bash
-AGENT_MEMORY_EMBEDDING_ENABLED=true
-AGENT_MEMORY_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1/embeddings
-AGENT_MEMORY_EMBEDDING_API_KEY=sk-xxx
-AGENT_MEMORY_EMBEDDING_MODEL=BAAI/bge-m3
-AGENT_MEMORY_EMBEDDING_TIMEOUT_SECONDS=5
-AGENT_MEMORY_VECTOR_MIN_SIMILARITY=0.3
-AGENT_MEMORY_RERANK_ENABLED=true
-AGENT_MEMORY_RERANK_BASE_URL=https://api.siliconflow.cn/v1/rerank
-AGENT_MEMORY_RERANK_API_KEY=sk-xxx
-AGENT_MEMORY_RERANK_MODEL=BAAI/bge-reranker-v2-m3
-AGENT_MEMORY_RERANK_CANDIDATES=30
-AGENT_MEMORY_RERANK_TIMEOUT_SECONDS=5
+uv sync --extra dev
+uv run python server.py
+uv run python -m pytest
 ```
 
-API Key 只能通过根目录 `.env`、Compose `env_file` 或部署平台 Secret 注入，`.env.example` 必须保持脱敏。只有开关、地址、模型和非模板 API Key 全部有效时才会访问远端服务。启用后，查询文本与有界候选记忆正文会发送到对应服务；生产环境需确认数据合规边界。Embedding 失败时回退到词法与时间融合，Rerank 失败时保留 RRF 顺序。
+## HTTP 契约
+
+接口均保留 `{code, message, data}`。除 `/health` 外，配置内部令牌后必须传入 `X-Internal-Service-Token`。身份只从可信上游的 `X-Tenant-Id` 与 `X-Operator-Id` 读取，请求正文不能覆盖身份。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | /health | 引擎与存储就绪检查 |
+| POST | /v1/memories | 显式保存一条事实 |
+| GET | /v1/memories | scope、limit 范围内列表 |
+| GET | /v1/memories/search?q=... | Mem0 Top-K 召回 |
+| PUT | /v1/memories/{id} | 更新正文，可刷新 TTL |
+| POST | /v1/memories/{id}/rollback | 回滚上一版本，连续回滚直到无历史 |
+| DELETE | /v1/memories/{id} | 删除记忆并清除其明文历史 |
+| DELETE | /v1/memories?scope=... | 清理当前用户指定范围 |
+| POST | /v1/memories/purge-expired | 只清理当前用户过期记忆 |
+
+不存在或越权均返回 HTTP 404；引擎异常返回 HTTP 503，不返回密钥、底层响应或连接串。禁用和过期条件在候选检索前交给 Mem0 过滤。旧的 `mem_` ID 格式保持兼容。
+
+## 评估
+
+数据集和阈值：`agent-eval/cases/memory-baseline.yaml`。评分器：`agent-eval/app/memory_grader.py`。确定性测试使用真实 Mem0 SDK + Qdrant 和 Embedding 替身，仅验证契约。真实效果必须运行：
+
+```bash
+uv run python scripts/evaluate_memory.py --backend pgvector --output ../agent-eval/reports/memory-live-unique.json
+# 无 PostgreSQL 时可测真实 Embedding + Mem0 Qdrant；不能代替生产存储验收。
+uv run python scripts/evaluate_memory.py --backend qdrant --output ../agent-eval/reports/memory-qdrant-unique.json
+```
+
+脚本使用独立合成身份和评估 collection，结束后清理；报告路径必须未存在，避免覆盖证据。失败与缺依赖均返回非零退出码。门槛：Recall@5 ≥ 0.90、MRR@5 ≥ 0.85、显式更新/隔离/生命周期 100%、检索 p95 ≤ 3000 ms、显式更新 p95 ≤ 5000 ms。真实评估不证明自动抽取或模型自然语言纠错效果，指标定义见[设计文档](../agent-doc/核心能力/记忆管理与混合检索.md)。
+
+## 数据与部署
+
+不要把旧 `agent_memory_items`/`agent_memory_revisions` 表删除或复用为向量表。正式切换前备份 PostgreSQL 与 history，停止写入，使用迁移脚本导入并核验旧记录及历史，再启动服务。保留旧表用于人工核对，不能双写两个引擎。未完成迁移不能声称旧数据已切换。pgvector 扩展需数据库管理员预先提供；容器镜像升级前应备份现有 PostgreSQL 卷。
+
+```bash
+uv run python scripts/migrate_legacy.py
+# 服务停写且完成备份后，显式导入；源表只读。
+uv run python scripts/migrate_legacy.py --apply
+```
+
+迁移保留旧公开 ID 和历史正文。遇到中断或目标冲突会停止，不能盲目覆盖；需核对未完成条目后重试。

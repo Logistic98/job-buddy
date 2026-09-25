@@ -51,15 +51,15 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=${AGENT_SANDBOX_CONTAINER_TMPFS_SIZE:-268435456}
       - /run/job-buddy-sandbox-deps:rw,exec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=${AGENT_SANDBOX_CONTAINER_DEPENDENCY_TMPFS_SIZE:-268435456}
       - /var/cache/job-buddy-sandbox-uv:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700,size=${AGENT_SANDBOX_CONTAINER_DEPENDENCY_CACHE_TMPFS_SIZE:-134217728}
+    # Compose 在校验数值类型前展开变量；抑制 JetBrains 对占位符的误报。
+    # noinspection ComposeUnknownValues
     pids_limit: ${AGENT_SANDBOX_CONTAINER_PIDS_LIMIT:-256}
+    # noinspection ComposeUnknownValues
     mem_limit: ${AGENT_SANDBOX_CONTAINER_MEMORY_LIMIT:-1g}
+    # noinspection ComposeUnknownValues
     cpus: ${AGENT_SANDBOX_CONTAINER_CPU_LIMIT:-1}
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8061/ready', timeout=18)
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8061/ready', timeout=18)"]
       interval: ${AGENT_SANDBOX_CONTAINER_HEALTH_INTERVAL:-30s}
       timeout: ${AGENT_SANDBOX_CONTAINER_HEALTH_TIMEOUT:-20s}
       start_period: ${AGENT_SANDBOX_CONTAINER_HEALTH_START_PERIOD:-60s}
@@ -77,7 +77,10 @@ services:
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:?Set SPRING_DATASOURCE_URL in the environment file}
       AGENT_MEMORY_DB_SSL_MODE: ${AGENT_MEMORY_DB_SSL_MODE:-require}
       AGENT_MEMORY_EMBEDDING_API_KEY: ${AGENT_MEMORY_EMBEDDING_API_KEY:-}
-      AGENT_MEMORY_RERANK_API_KEY: ${AGENT_MEMORY_RERANK_API_KEY:-}
+      AGENT_MEMORY_HISTORY_PATH: /var/lib/agent-memory/history.db
+      AGENT_MEMORY_EMBEDDING_DIMS: ${AGENT_MEMORY_EMBEDDING_DIMS:-1024}
+    volumes:
+      - agent-memory-history:/var/lib/agent-memory
     depends_on:
       agent-backend:
         condition: service_healthy
@@ -186,4 +189,5 @@ networks:
     name: ${JOB_BUDDY_NETWORK_NAME:-job-buddy-network}
 
 volumes:
+  agent-memory-history:
   runtime-workspace:

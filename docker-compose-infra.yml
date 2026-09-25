@@ -9,7 +9,8 @@ x-infrastructure-service: &infrastructure-service
 services:
   postgres:
     <<: *infrastructure-service
-    image: ${DOCKER_REGISTRY:-docker.io}/library/postgres:17.5-alpine
+    # Memory 依赖服务端 vector 扩展；普通 postgres 镜像不包含扩展文件。
+    image: ${DOCKER_REGISTRY:-docker.io}/pgvector/pgvector:0.8.1-pg17
     environment:
       POSTGRES_DB: ${POSTGRES_APP_DB:-job_buddy}
       POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME:-job_buddy}
