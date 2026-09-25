@@ -7,9 +7,6 @@ import com.jobbuddy.backend.modules.auth.exception.LoginRateLimitException;
 import java.time.Clock;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 LoginAttemptGuard 的核心行为、异常路径与边界条件。
- */
 class LoginAttemptGuardTest {
 
   /**
@@ -28,9 +25,6 @@ class LoginAttemptGuardTest {
     assertDoesNotThrow(() -> acquireAndClose(guard, "same-user", "127.0.0.1"));
   }
 
-  /**
-   * 验证 LoginAttemptGuard 中用户的数量、长度与分页边界。
-   */
   @Test
   void limitsDistributedUsernameAttemptsFromOneSource() {
     LoginAttemptGuard guard = new LoginAttemptGuard(null, Clock.systemUTC(), 300L, 20, 2, 8);

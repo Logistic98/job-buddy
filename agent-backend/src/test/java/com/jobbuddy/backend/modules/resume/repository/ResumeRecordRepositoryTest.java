@@ -15,9 +15,6 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 ResumeRecordRepository 的核心行为、异常路径与边界条件。
- */
 class ResumeRecordRepositoryTest {
   /**
    * 验证 ResumeRecordRepository 中简历的持久化与状态变更规则。

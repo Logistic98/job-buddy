@@ -15,9 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
-/**
- * 验证 ChatSessionCache 的核心行为、异常路径与边界条件。
- */
 class ChatSessionCacheTest {
 
   /**

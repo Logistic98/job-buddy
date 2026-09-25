@@ -18,14 +18,8 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 RbacDelegationPolicy 的核心行为、异常路径与边界条件。
- */
 class RbacDelegationPolicyTest {
 
-  /**
-   * 验证 RbacDelegationPolicy 中角色的权限与租户隔离边界。
-   */
   @Test
   void assignableRolesLoadPermissionsInBatches() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -57,9 +51,6 @@ class RbacDelegationPolicyTest {
             org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString());
   }
 
-  /**
-   * 验证 RbacDelegationPolicy 中角色的权限与租户隔离边界。
-   */
   @Test
   void platformAdministratorCanAssignProtectedAdministratorRole() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -82,9 +73,6 @@ class RbacDelegationPolicyTest {
     assertEquals(List.of("role-admin", "role-user"), assignable);
   }
 
-  /**
-   * 验证 RbacDelegationPolicy 中菜单的权限与租户隔离边界。
-   */
   @Test
   void assignableMenusReadPermissionDefinitionsOnce() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -105,9 +93,6 @@ class RbacDelegationPolicyTest {
     verify(users, times(1)).listPermissionDefinitions();
   }
 
-  /**
-   * 验证 RbacDelegationPolicy 中角色的权限与租户隔离边界。
-   */
   @Test
   void cannotAssignRoleWithPermissionActorDoesNotOwn() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -130,9 +115,6 @@ class RbacDelegationPolicyTest {
                 List.of("role-manager")));
   }
 
-  /**
-   * 验证 RbacDelegationPolicy 的输入校验与拒绝边界。
-   */
   @Test
   void canResetAnyPasswordWithinActorTenant() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -146,9 +128,6 @@ class RbacDelegationPolicyTest {
     verify(users, never()).findPermissions(org.mockito.ArgumentMatchers.anyString());
   }
 
-  /**
-   * 验证 RbacDelegationPolicy 中权限的权限与租户隔离边界。
-   */
   @Test
   void platformAdministratorCanDelegateOwnedProtectedPermission() {
     RbacMapper mapper = mock(RbacMapper.class);
@@ -183,6 +162,77 @@ class RbacDelegationPolicyTest {
     actor.setTenantId("tenant-a");
     actor.setPermissions(permissions);
     return actor;
+  }
+
+  @Test
+  void roleAndMenuChangesRejectProtectedOrUnownedPermissions() {
+    RbacMapper mapper = mock(RbacMapper.class);
+    UserAuthRepository users = mock(UserAuthRepository.class);
+    when(users.listPermissionDefinitions())
+        .thenReturn(
+            List.of(
+                permission("chat:use", true),
+                permission("roles:manage", true),
+                permission("platform:manage", false)));
+    when(mapper.findMenu("tenant-a", "chat")).thenReturn(Map.of("permissionCode", "chat:use"));
+    when(mapper.findMenu("tenant-a", "roles")).thenReturn(Map.of("permissionCode", "roles:manage"));
+    when(mapper.findMenu("tenant-a", "platform"))
+        .thenReturn(Map.of("permissionCode", "platform:manage"));
+    when(mapper.findMenu("tenant-a", "missing")).thenReturn(null);
+    RbacDelegationPolicy policy = new RbacDelegationPolicy(mapper, users);
+    var manager = actor("manager", Set.of("chat:use"));
+    assertDoesNotThrow(
+        () -> policy.validateRoleMenuChange("tenant-a", manager, List.of(), List.of("chat")));
+    assertThrows(
+        AuthorizationDeniedException.class,
+        () -> policy.validateRoleMenuChange("tenant-a", manager, List.of(), List.of("roles")));
+    assertThrows(
+        AuthorizationDeniedException.class,
+        () -> policy.validateRoleMenuChange("tenant-a", manager, List.of("platform"), List.of()));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> policy.validateRoleMenuChange("tenant-a", manager, List.of(), List.of("missing")));
+    assertThrows(
+        AuthorizationDeniedException.class,
+        () -> policy.validateMenuPermissionChange("tenant-a", manager, "platform:manage", ""));
+    assertThrows(
+        AuthorizationDeniedException.class,
+        () -> policy.validateMenuPermissionChange("tenant-a", manager, "chat:use", "roles:manage"));
+    assertDoesNotThrow(
+        () -> policy.validateMenuPermissionChange("tenant-a", manager, "chat:use", "chat:use"));
+    assertEquals(Set.of("chat:use"), policy.assignablePermissionCodes("tenant-a", manager));
+    assertThrows(
+        AuthorizationDeniedException.class, () -> policy.requireActorTenant("other", manager));
+    assertThrows(
+        AuthorizationDeniedException.class, () -> policy.requireActorTenant("tenant-a", null));
+  }
+
+  @Test
+  void userRoleChangesRejectSelfPeersAndProtectedTargets() {
+    RbacMapper mapper = mock(RbacMapper.class);
+    UserAuthRepository users = mock(UserAuthRepository.class);
+    when(users.listPermissionDefinitions())
+        .thenReturn(
+            List.of(
+                permission("chat:use", true),
+                permission("roles:manage", true),
+                permission("platform:manage", false)));
+    RbacDelegationPolicy policy = new RbacDelegationPolicy(mapper, users);
+    var manager = actor("manager", Set.of("chat:use", "roles:manage"));
+    assertThrows(
+        AuthorizationDeniedException.class,
+        () -> policy.validateUserRoleChange("tenant-a", manager, "manager", List.of()));
+    when(users.findPermissions("target")).thenReturn(List.of("chat:use", "roles:manage"));
+    assertThrows(
+        AuthorizationDeniedException.class,
+        () -> policy.validateUserRoleChange("tenant-a", manager, "target", List.of()));
+    when(users.findPermissions("target")).thenReturn(List.of("platform:manage"));
+    assertThrows(
+        AuthorizationDeniedException.class,
+        () -> policy.validateUserRoleChange("tenant-a", manager, "target", List.of()));
+    when(users.findPermissions("target")).thenReturn(List.of("chat:use"));
+    assertDoesNotThrow(
+        () -> policy.validateUserRoleChange("tenant-a", manager, "target", List.of()));
   }
 
   /**

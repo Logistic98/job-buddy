@@ -23,14 +23,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
 
-/**
- * 验证 AgentMemoryClient 的核心行为、异常路径与边界条件。
- */
 class AgentMemoryClientTest {
 
-  /**
-   * 验证 AgentMemoryClient 的数据转换与协议契约。
-   */
   @Test
   void listUsesOwnedLongTermScopeAndMapsMetadata() {
     RestTemplate restTemplate = new RestTemplate();

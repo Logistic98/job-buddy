@@ -9,23 +9,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 ResumeParsedContent 的核心行为、异常路径与边界条件。
- */
 class ResumeParsedContentTest {
 
-  /**
-   * 验证 ResumeParsedContent 的核心业务契约。
-   */
   @Test
   void nullOrEmptyParsedHasNoContent() {
     assertFalse(ResumeParsedContent.hasContent(null));
     assertFalse(ResumeParsedContent.hasContent(Collections.<String, Object>emptyMap()));
   }
 
-  /**
-   * 验证 ResumeParsedContent 的数据转换与协议契约。
-   */
   @Test
   void folderMetadataOnlyParsedHasNoContent() {
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();
@@ -39,9 +30,6 @@ class ResumeParsedContentTest {
     assertFalse(ResumeParsedContent.hasContent(parsed));
   }
 
-  /**
-   * 验证 ResumeParsedContent 的输入校验与拒绝边界。
-   */
   @Test
   void blankValuesDoNotCountAsContent() {
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();
@@ -51,9 +39,6 @@ class ResumeParsedContentTest {
     assertFalse(ResumeParsedContent.hasContent(parsed));
   }
 
-  /**
-   * 验证 ResumeParsedContent 中简历的数量、长度与分页边界。
-   */
   @Test
   void realResumeFieldsCountAsContent() {
     Map<String, Object> parsed = new LinkedHashMap<String, Object>();

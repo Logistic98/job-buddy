@@ -22,14 +22,8 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
-/**
- * 验证 ProjectDeepDiveMaterialController 的核心行为、异常路径与边界条件。
- */
 class ProjectDeepDiveMaterialControllerTest {
 
-  /**
-   * 验证 ProjectDeepDiveMaterialController 中认证的身份认证与会话边界。
-   */
   @Test
   void shouldReturnAttachmentResponseWithAuthorizedFileName() {
     ProjectDeepDiveService service = mock(ProjectDeepDiveService.class);

@@ -14,9 +14,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/**
- * 验证 ChatSseHeartbeatScheduler 的核心行为、异常路径与边界条件。
- */
 class ChatSseHeartbeatSchedulerTest {
 
   /**

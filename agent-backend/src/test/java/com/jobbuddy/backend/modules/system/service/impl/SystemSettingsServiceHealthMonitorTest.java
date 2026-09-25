@@ -23,9 +23,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 SystemSettingsServiceHealthMonitor 的核心行为、异常路径与边界条件。
- */
 class SystemSettingsServiceHealthMonitorTest {
   private static final JsonCodec JSON = new JsonCodec();
 
@@ -123,9 +120,6 @@ class SystemSettingsServiceHealthMonitorTest {
     assertEquals(2, historySize(statuses(settings), "runtime"));
   }
 
-  /**
-   * 验证 SystemSettingsServiceHealthMonitor 的数量、长度与分页边界。
-   */
   @Test
   void scheduledSamplesAreLimitedToRecentHistory() {
     SystemSettingsServiceImpl service =

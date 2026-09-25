@@ -28,14 +28,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/**
- * 验证 ResumeFlowHandler 的核心行为、异常路径与边界条件。
- */
 class ResumeFlowHandlerTest {
 
-  /**
-   * 验证 ResumeFlowHandler 中简历的核心业务契约。
-   */
   @Test
   void shouldRecognizeResumeSwitchFollowUpWithoutTreatingNewTargetAsDeictic() {
     assertTrue(ResumeFlowHandler.isSelectedJobResumeFollowUp("现在这个3年的简历呢"));
@@ -44,9 +38,6 @@ class ResumeFlowHandlerTest {
     assertFalse(ResumeFlowHandler.isSelectedJobResumeFollowUp("提供另一份岗位 JD"));
   }
 
-  /**
-   * 验证 ResumeFlowHandler 中简历的核心业务契约。
-   */
   @Test
   void shouldPreferPreviouslySelectedJobForResumeSwitchFollowUp() {
     ResumeFlowHandler handler = handler();
@@ -76,9 +67,6 @@ class ResumeFlowHandlerTest {
     assertEquals("示例科技", jobs.get(0).get("company"));
   }
 
-  /**
-   * 验证 ResumeFlowHandler 中岗位的核心业务契约。
-   */
   @Test
   @SuppressWarnings("unchecked")
   void shouldRespectExplicitNewTargetInsteadOfReusingSelectedJob() {
@@ -106,9 +94,6 @@ class ResumeFlowHandlerTest {
             true));
   }
 
-  /**
-   * 验证 ResumeFlowHandler 中岗位的核心业务契约。
-   */
   @Test
   void shouldKeepCurrentJobListForPluralReference() {
     ResumeFlowHandler handler = handler();
@@ -296,9 +281,6 @@ class ResumeFlowHandlerTest {
             any(Map.class));
   }
 
-  /**
-   * 验证 ResumeFlowHandler 的数据转换与协议契约。
-   */
   @Test
   void shouldReadReusePreviousSlotsFromTaskMetadata() {
     Map<String, Object> metadata = new LinkedHashMap<String, Object>();

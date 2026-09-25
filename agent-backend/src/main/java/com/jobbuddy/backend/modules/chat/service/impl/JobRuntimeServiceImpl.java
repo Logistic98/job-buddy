@@ -475,18 +475,6 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   }
 
   /**
-   * 获取字符串槽位。
-   *
-   * @param value 输入值
-   * @param fallback 降级结果
-   * @return 字符串槽位
-   */
-  private String stringSlot(Object value, String fallback) {
-    String text = value == null ? "" : String.valueOf(value).trim();
-    return text.isEmpty() ? fallback : text;
-  }
-
-  /**
    * 校验 Boss 检索是否处于冷却期。
    */
   private void assertBossSearchNotCoolingDown() {
@@ -1436,23 +1424,6 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
    * @param jobs 岗位列表
    * @param sessionId 会话标识
    * @param sections 简历章节列表
-   * @return 简历匹配调用结果
-   */
-  private Map<String, Object> invokeResumeMatch(
-      ResumeRecord resume,
-      List<Map<String, Object>> jobs,
-      String sessionId,
-      List<String> sections) {
-    return invokeResumeMatch(resume, jobs, sessionId, sections, FULL_JD_ANALYSIS_MODE);
-  }
-
-  /**
-   * 调用简历匹配结果。
-   *
-   * @param resume 简历
-   * @param jobs 岗位列表
-   * @param sessionId 会话标识
-   * @param sections 简历章节列表
    * @param evaluationMode 是否为评估模式
    * @return 简历匹配调用结果
    */
@@ -1934,62 +1905,6 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
   }
 
   /**
-   * 仅写入非空字段。
-   *
-   * @param map 数据映射
-   * @param key 业务键
-   * @param value 输入值
-   */
-  private void putIfPresent(Map<String, Object> map, String key, Object value) {
-    if (value != null && !String.valueOf(value).isEmpty()) map.put(key, value);
-  }
-
-  /**
-   * 规范化 Boss 输出。
-   *
-   * @param output 输出数据
-   * @return 规范化后的 Boss 输出
-   */
-  private Object normalizeBossOutput(Object output) {
-    if (!(output instanceof Map)) return output;
-    Map map = (Map) output;
-    Object result = map.get("result");
-    if (result instanceof String) {
-      Map<String, Object> parsed = jsonCodec.toMap((String) result);
-      if (!parsed.isEmpty()) return parsed;
-    }
-    Object text = map.get("text");
-    if (text instanceof String) {
-      Map<String, Object> parsed = jsonCodec.toMap((String) text);
-      if (!parsed.isEmpty()) return parsed;
-    }
-    return output;
-  }
-
-  /**
-   * 确保 Boss 输出成功结果。
-   *
-   * @param output 输出数据
-   * @param sessionId 会话标识
-   */
-  private void ensureBossOutputSuccess(Object output, String sessionId) {
-    if (!(output instanceof Map)) return;
-    Map map = (Map) output;
-    Object error = map.get("error");
-    Object status = map.get("status");
-    String message = String.valueOf(map.get("message"));
-    if ("未登录".equals(String.valueOf(error)) || message.contains("请先完成登录")) {
-      bossAuthService.markLoginInvalid(jsonCodec.toTree(authFailureSource("runtime_boss_output")));
-      throw new BossAuthRequiredException(
-          "Boss 直聘未登录，请先完成二维码登录。", jsonCodec.toMap(bossAuthService.loginPrompt()));
-    }
-    if ("error".equals(String.valueOf(status)) || error != null) {
-      throw new RuntimeException(
-          message == null || "null".equals(message) ? String.valueOf(error) : message);
-    }
-  }
-
-  /**
    * 获取认证失败结果来源。
    *
    * @param source 源数据
@@ -2001,29 +1916,6 @@ public class JobRuntimeServiceImpl implements JobRuntimeService {
     data.put("ok", false);
     data.put("source", source);
     return data;
-  }
-
-  /**
-   * 提取岗位。
-   *
-   * @param output 输出数据
-   * @return 岗位
-   */
-  private List<Map<String, Object>> extractJobs(Object output) {
-    if (output instanceof List) return (List<Map<String, Object>>) output;
-    if (output instanceof Map) {
-      Map map = (Map) output;
-      for (String key : Arrays.asList("jobs", "list", "items", "jobList")) {
-        Object value = map.get(key);
-        if (value instanceof List) return (List<Map<String, Object>>) value;
-      }
-      Object data = map.get("data");
-      if (data instanceof List) return (List<Map<String, Object>>) data;
-      if (data instanceof Map) return extractJobs(data);
-      Object structured = map.get("structured");
-      if (structured instanceof Map) return extractJobs(structured);
-    }
-    return new ArrayList<Map<String, Object>>();
   }
 
   /**

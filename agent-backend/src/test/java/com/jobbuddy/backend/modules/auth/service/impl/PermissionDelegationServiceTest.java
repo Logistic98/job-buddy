@@ -13,14 +13,8 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 PermissionDelegationService 的核心行为、异常路径与边界条件。
- */
 class PermissionDelegationServiceTest {
 
-  /**
-   * 验证 PermissionDelegationService 中权限的权限与租户隔离边界。
-   */
   @Test
   void filtersPermissionDefinitionsWithoutChangingRepositoryOrder() {
     UserAuthRepository repository = mock(UserAuthRepository.class);

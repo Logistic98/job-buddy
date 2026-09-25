@@ -112,3 +112,14 @@ $ ../.agent-harness/scripts/gate.sh agent-backend --quick
 ```
 
 聊天主链路、SSE、Runtime 代理、Trace、Intent、工具或评估字段变化时，还要同步检查 `.agent-harness/scripts/evaluate.sh`、agent-eval 用例和评分器。跨模块设计见[系统架构与核心链路](../agent-doc/架构设计/系统架构与核心链路.md)，认证和接口细节见[账号认证与权限体系](../agent-doc/架构设计/账号认证与权限体系.md)。
+
+## 测试目录组织
+
+`src/test/java/com/jobbuddy/backend/` 下按职责组织测试，根包不平铺业务测试类：
+
+- `common/`：公共配置、安全、异常、工具等测试，与生产包一致。
+- `modules/`：按业务域与 controller、service、repository、client 等分层归位，与被测类包一致。
+- `contract/`：跨业务域的共同协议与权限契约。
+- `integration/`：按 chat、auth、interview、database、platform 等主题组织需要 Spring 上下文或数据库的测试，保留 JUnit `integration` 标签。
+
+Maven 递归发现 `*Test` 类。移动测试包后先执行 `mvn clean test -DexcludedGroups=integration`，清除旧 class 并验证单元测试；具备集成依赖时再执行完整 `mvn test`。测试包的变化不应通过扩大生产类访问权限解决，公共契约测试使用正式接口，同包测试可验证包内行为。

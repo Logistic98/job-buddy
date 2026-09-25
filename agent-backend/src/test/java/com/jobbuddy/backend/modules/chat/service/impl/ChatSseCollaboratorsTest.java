@@ -53,9 +53,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/**
- * 验证 ChatSseCollaborators 的核心行为、异常路径与边界条件。
- */
 class ChatSseCollaboratorsTest {
 
   /**
@@ -223,11 +220,6 @@ class ChatSseCollaboratorsTest {
     verify(persistence).saveStateAsync(state);
   }
 
-  /**
-   * 验证 ChatSseCollaborators 中岗位的输入校验与拒绝边界。
-   *
-   * @throws Exception 处理失败时抛出
-   */
   @Test
   void jobRecommendationShouldPersistClearedStateWhenQualityGateErrorCannotBeSent()
       throws Exception {
@@ -856,9 +848,6 @@ class ChatSseCollaboratorsTest {
     coordinator.shutdown();
   }
 
-  /**
-   * 验证 ChatSseCollaborators 中岗位的输入校验与拒绝边界。
-   */
   @Test
   void replaceLatestJobMessageShouldFallBackToAppendWhenMissing() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -876,9 +865,6 @@ class ChatSseCollaboratorsTest {
     coordinator.shutdown();
   }
 
-  /**
-   * 验证 ChatSseCollaborators 中岗位的核心业务契约。
-   */
   @Test
   void replaceLatestJobMessageShouldNotAppendWhenReplaced() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -913,9 +899,6 @@ class ChatSseCollaboratorsTest {
 
   // ---- RuntimeManagedRequestFactory ----
 
-  /**
-   * 验证 ChatSseCollaborators 中运行时的数据转换与协议契约。
-   */
   @Test
   void buildRuntimeManagedRequestShouldCarryBudgetAndMetadata() {
     JobBuddyProperties properties = new JobBuddyProperties();
@@ -966,9 +949,6 @@ class ChatSseCollaboratorsTest {
     assertTrue(context.isEmpty());
   }
 
-  /**
-   * 验证 ChatSseCollaborators 中简历的核心业务契约。
-   */
   @Test
   void buildUnderstandingContextShouldUseSessionCatalogWithoutLoadingPersonalContext() {
     PersonalContextBuilder builder = mock(PersonalContextBuilder.class);
@@ -1069,9 +1049,6 @@ class ChatSseCollaboratorsTest {
     verifyNoInteractions(builder, resumeStorageService);
   }
 
-  /**
-   * 验证 ChatSseCollaborators 中运行时的数据转换与协议契约。
-   */
   @Test
   void runtimeManagedMetadataShouldToleranteNullState() {
     RuntimeManagedRequestFactory factory =

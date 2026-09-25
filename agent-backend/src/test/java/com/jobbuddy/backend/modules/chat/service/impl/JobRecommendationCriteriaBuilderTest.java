@@ -11,9 +11,6 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 JobRecommendationCriteriaBuilder 的核心行为、异常路径与边界条件。
- */
 class JobRecommendationCriteriaBuilderTest {
 
   /**

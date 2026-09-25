@@ -30,25 +30,22 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.mock.web.MockMultipartFile;
 
-/**
- * 验证 ResumeStorageServiceImpl 的核心行为、异常路径与边界条件。
- */
 class ResumeStorageServiceImplTest {
 
   private final JsonCodec jsonCodec = new JsonCodec();
   private final RuntimeToolClient toolClient = mock(RuntimeToolClient.class);
+  private final ResumeRecordRepository repository = mock(ResumeRecordRepository.class);
+  private final ResumeObjectStorage objectStorage = mock(ResumeObjectStorage.class);
+  private final BossCliService bossCliService = mock(BossCliService.class);
   private final ResumeStorageServiceImpl service =
       new ResumeStorageServiceImpl(
           new JobBuddyProperties(),
           toolClient,
-          mock(ResumeRecordRepository.class),
-          mock(ResumeObjectStorage.class),
-          mock(BossCliService.class),
+          repository,
+          objectStorage,
+          bossCliService,
           jsonCodec);
 
-  /**
-   * 验证 ResumeStorageServiceImpl 中岗位的文件解析与存储边界。
-   */
   @Test
   void generateJobProfileSummaryReadsBusinessSummaryFromToolOutput() {
     Map<String, Object> output = new LinkedHashMap<String, Object>();
@@ -73,9 +70,6 @@ class ResumeStorageServiceImplTest {
     assertEquals("AI", response.getProvider());
   }
 
-  /**
-   * 验证 ResumeStorageServiceImpl 中岗位的输入校验与拒绝边界。
-   */
   @Test
   void generateJobProfileSummaryFallsBackWhenToolOutputIsInvalid() {
     Map<String, Object> toolResult = new LinkedHashMap<String, Object>();
@@ -92,9 +86,6 @@ class ResumeStorageServiceImplTest {
     assertEquals("fallback", response.getProvider());
   }
 
-  /**
-   * 验证 ResumeStorageServiceImpl 中简历的数量、长度与分页边界。
-   */
   @Test
   void uploadReadsCurrentResumeSizeLimit() {
     JobBuddyProperties properties = new JobBuddyProperties();
@@ -118,11 +109,6 @@ class ResumeStorageServiceImplTest {
     assertEquals("简历文件超出大小限制: 4 bytes", error.getMessage());
   }
 
-  /**
-   * 验证 ResumeStorageServiceImpl 的文件解析与存储边界。
-   *
-   * @throws Exception 处理失败时抛出
-   */
   @Test
   void uploadPrefersExplicitUtf8OriginalNameOverMultipartHeaderName() throws Exception {
     MockMultipartFile file =
@@ -135,11 +121,6 @@ class ResumeStorageServiceImplTest {
     assertEquals("pdf", record.getSuffix());
   }
 
-  /**
-   * 验证 ResumeStorageServiceImpl 的文件解析与存储边界。
-   *
-   * @throws Exception 处理失败时抛出
-   */
   @Test
   void uploadRemovesClientPathFromExplicitOriginalName() throws Exception {
     MockMultipartFile file =
@@ -180,6 +161,131 @@ class ResumeStorageServiceImplTest {
             eq("job-buddy:resume-thumbnail:" + record.getResumeId()),
             anyString(),
             eq(Duration.ofHours(24)));
+  }
+
+  @Test
+  void uploadResolvesTenantFromUserAndFallsBackWhenLookupFails() throws Exception {
+    MockMultipartFile file =
+        new MockMultipartFile("file", "resume.pdf", "application/pdf", new byte[] {1});
+    when(repository.findTenantIdByUserId("user")).thenReturn("resolved-tenant");
+    assertEquals("resolved-tenant", service.upload(file, null, "user").getTenantId());
+    when(repository.findTenantIdByUserId("user"))
+        .thenThrow(new IllegalStateException("database unavailable"));
+    org.junit.jupiter.api.Assertions.assertNotNull(
+        service.upload(file, null, "user").getTenantId());
+    org.mockito.Mockito.verify(repository, org.mockito.Mockito.times(2)).save(any());
+  }
+
+  @Test
+  void uploadRejectsControlCharactersBeforeWritingObjects() {
+    MockMultipartFile file =
+        new MockMultipartFile("file", "resume.pdf", "application/pdf", new byte[] {1});
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> service.upload(file, "resume\u0001.pdf", "tenant", "user"));
+    org.mockito.Mockito.verifyNoInteractions(objectStorage, repository);
+  }
+
+  @Test
+  void missingOrTenantlessResumeCannotBeReadOrUpdated() {
+    org.junit.jupiter.api.Assertions.assertNull(service.get(""));
+    assertThrows(IllegalArgumentException.class, () -> service.get("missing", "tenant", "user"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> service.updateParsed("missing", null, "tenant", "user"));
+    ResumeRecord record = new ResumeRecord();
+    record.setResumeId("resume");
+    record.setUserId("user");
+    when(repository.findById("resume")).thenReturn(record);
+    assertThrows(IllegalArgumentException.class, () -> service.get("resume", "tenant", "user"));
+  }
+
+  @Test
+  void originalFileIsReadOnlyAfterOwnerValidation() {
+    ResumeRecord record = new ResumeRecord();
+    record.setResumeId("resume");
+    record.setUserId("user");
+    record.setTenantId("tenant");
+    when(repository.findById("resume")).thenReturn(record);
+    java.io.InputStream content = new java.io.ByteArrayInputStream(new byte[] {1});
+    when(objectStorage.openStream(record)).thenReturn(content);
+    org.junit.jupiter.api.Assertions.assertSame(
+        content, service.openOriginalFile("resume", "tenant", "user"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> service.openOriginalFile("resume", "tenant", "other"));
+    org.mockito.Mockito.verify(objectStorage).openStream(record);
+  }
+
+  @Test
+  void profileCreationUsesResolvedTenantAndIgnoresUnrelatedResumes() throws Exception {
+    ResumeRecord existing = new ResumeRecord();
+    existing.setResumeId("resume");
+    existing.setSuffix("pdf");
+    when(repository.findLatestByUserId(null, "user", 50)).thenReturn(java.util.List.of(existing));
+    when(repository.findTenantIdByUserId("user")).thenReturn("tenant");
+    ResumeRecord created = service.getOrCreateJobProfile("user");
+    assertEquals("tenant", created.getTenantId());
+    assertEquals("user", created.getUserId());
+    assertEquals("success", created.getParseStatus());
+    org.mockito.Mockito.verify(repository).save(created);
+    when(repository.findLatestByUserId(null, "user", 50)).thenReturn(java.util.List.of(created));
+    org.junit.jupiter.api.Assertions.assertSame(created, service.getOrCreateJobProfile("user"));
+    org.mockito.Mockito.verify(repository).save(any());
+  }
+
+  @Test
+  void assetDatabaseFailureRemovesUploadedObjectAndPreservesCleanupFailure() {
+    com.jobbuddy.backend.modules.resume.mapper.ResumeAssetMapper mapper =
+        mock(com.jobbuddy.backend.modules.resume.mapper.ResumeAssetMapper.class);
+    org.springframework.test.util.ReflectionTestUtils.setField(
+        service, "resumeAssetMapper", mapper);
+    IllegalStateException failure = new IllegalStateException("database unavailable");
+    org.mockito.Mockito.doThrow(failure).when(mapper).insertAsset(any());
+    org.mockito.Mockito.doThrow(new IllegalStateException("storage unavailable"))
+        .when(objectStorage)
+        .deleteObject(anyString());
+    MockMultipartFile file = new MockMultipartFile("file", "photo.png", null, new byte[] {1});
+    IllegalStateException actual =
+        assertThrows(
+            IllegalStateException.class, () -> service.uploadAsset(file, "tenant", "user"));
+    org.junit.jupiter.api.Assertions.assertSame(failure, actual);
+    assertEquals("storage unavailable", actual.getSuppressed()[0].getMessage());
+    org.mockito.Mockito.verify(objectStorage)
+        .deleteObject(org.mockito.ArgumentMatchers.startsWith("user/assets/"));
+  }
+
+  @Test
+  void assetLookupRejectsForeignPathsAndDisallowedExtensions() {
+    com.jobbuddy.backend.modules.resume.mapper.ResumeAssetMapper mapper =
+        mock(com.jobbuddy.backend.modules.resume.mapper.ResumeAssetMapper.class);
+    org.springframework.test.util.ReflectionTestUtils.setField(
+        service, "resumeAssetMapper", mapper);
+    when(mapper.findByAssetIdAndUser(any()))
+        .thenReturn(Map.of("storagePath", "other/assets/photo.png"));
+    assertThrows(
+        IllegalArgumentException.class, () -> service.openAsset("asset_0123456789abcdef", "user"));
+    when(mapper.findByAssetIdAndUser(any()))
+        .thenReturn(Map.of("storagePath", "user/assets/photo.exe"));
+    assertThrows(
+        IllegalArgumentException.class, () -> service.openAsset("asset_0123456789abcdef", "user"));
+    assertEquals("application/octet-stream", service.assetContentType("invalid", "user"));
+    org.mockito.Mockito.verifyNoInteractions(objectStorage);
+  }
+
+  @Test
+  void assetContentTypesFollowAuthorizedStoredExtension() {
+    com.jobbuddy.backend.modules.resume.mapper.ResumeAssetMapper mapper =
+        mock(com.jobbuddy.backend.modules.resume.mapper.ResumeAssetMapper.class);
+    org.springframework.test.util.ReflectionTestUtils.setField(
+        service, "resumeAssetMapper", mapper);
+    for (String suffix : java.util.List.of("png", "webp", "jpg")) {
+      when(mapper.findByAssetIdAndUser(any()))
+          .thenReturn(Map.of("storagePath", "user/assets/photo." + suffix));
+      assertEquals(
+          suffix.equals("jpg") ? "image/jpeg" : "image/" + suffix,
+          service.assetContentType("asset_0123456789abcdef", "user"));
+    }
   }
 
   /**

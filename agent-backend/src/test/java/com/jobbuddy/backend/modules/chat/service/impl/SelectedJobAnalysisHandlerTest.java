@@ -16,9 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-/**
- * 验证 SelectedJobAnalysisHandler 的核心行为、异常路径与边界条件。
- */
 class SelectedJobAnalysisHandlerTest {
 
   /**
@@ -55,11 +52,6 @@ class SelectedJobAnalysisHandlerTest {
             eq(emitter), eq("session-1"), eq(state), eq("分析此岗位"), any(Map.class));
   }
 
-  /**
-   * 验证 SelectedJobAnalysisHandler 中岗位的输入校验与拒绝边界。
-   *
-   * @throws Exception 处理失败时抛出
-   */
   @Test
   @SuppressWarnings("unchecked")
   void shouldMergeMissingJobDescriptionFromCurrentRecommendationSnapshot() throws Exception {
@@ -121,11 +113,6 @@ class SelectedJobAnalysisHandlerTest {
             any(Map.class));
   }
 
-  /**
-   * 验证 SelectedJobAnalysisHandler 中岗位的输入校验与拒绝边界。
-   *
-   * @throws Exception 处理失败时抛出
-   */
   @Test
   void shouldRunListEvidenceMatchWithoutLoadingJobDescription() throws Exception {
     ChatSseEventSender sender = mock(ChatSseEventSender.class);

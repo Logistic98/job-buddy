@@ -27,14 +27,22 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 SystemSettingsMemory 的核心行为、异常路径与边界条件。
- */
 class SystemSettingsMemoryTest {
 
-  /**
-   * 验证 SystemSettingsMemory 中记忆的核心业务契约。
-   */
+  @Test
+  void searchPolicyRejectsTinyQueryAndClampsOwnerScopedLimit() {
+    AgentMemoryClient client = mock(AgentMemoryClient.class);
+    SystemSettingsServiceImpl service = newService(statefulMapper(memoryEnabledState()), client);
+    assertTrue(service.searchLocalMemories("tenant-a", "user-a", "短", 10).isEmpty());
+    verify(client, never()).search(anyString(), anyString(), anyString(), anyInt());
+    service.searchLocalMemories("tenant-a", "user-a", "期望工作城市", 100);
+    verify(client).search("tenant-a", "user-a", "期望工作城市", 2);
+    service.searchLocalMemories("tenant-a", "user-a", "期望工作城市", 0);
+    verify(client).search("tenant-a", "user-a", "期望工作城市", 1);
+    when(client.clear("tenant-a", "user-a")).thenReturn(3);
+    assertEquals(3, service.clearMemories("tenant-a", "user-a"));
+  }
+
   @Test
   void autoMemoryShouldPersistStableSignalsByDefault() {
     AgentMemoryClient client = statefulClient();
@@ -82,9 +90,6 @@ class SystemSettingsMemoryTest {
     assertEquals("我希望做后端", items.get(1).getContent());
   }
 
-  /**
-   * 验证 SystemSettingsMemory 中记忆的输入校验与拒绝边界。
-   */
   @Test
   void autoMemoryShouldRejectTinyContent() {
     AgentMemoryClient client = statefulClient();
@@ -110,9 +115,6 @@ class SystemSettingsMemoryTest {
     assertTrue(service.listMemories("tenant-a", "user-a").isEmpty());
   }
 
-  /**
-   * 验证 SystemSettingsMemory 中用户的权限与租户隔离边界。
-   */
   @Test
   void memoriesMustBeIsolatedAcrossTenantAndUserMatrix() {
     AgentMemoryClient client = statefulClient();

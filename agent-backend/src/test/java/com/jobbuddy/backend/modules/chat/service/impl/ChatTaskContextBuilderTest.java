@@ -14,9 +14,6 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/**
- * 验证 ChatTaskContextBuilder 的核心行为、异常路径与边界条件。
- */
 class ChatTaskContextBuilderTest {
 
   /**
@@ -60,9 +57,6 @@ class ChatTaskContextBuilderTest {
         1, messages.stream().filter(item -> "现在这个5年经验的简历呢".equals(item.get("content"))).count());
   }
 
-  /**
-   * 验证 ChatTaskContextBuilder 的输入校验与拒绝边界。
-   */
   @Test
   void shouldLimitHistoryAndIgnoreUnsupportedOrBlankMessages() {
     ChatSessionStore store = mock(ChatSessionStore.class);
@@ -83,9 +77,6 @@ class ChatTaskContextBuilderTest {
     assertTrue(messages.stream().noneMatch(item -> "system".equals(item.get("role"))));
   }
 
-  /**
-   * 验证 ChatTaskContextBuilder 的输入校验与拒绝边界。
-   */
   @Test
   void shouldDegradeToCurrentMessageWhenHistoryCannotBeRead() {
     ChatSessionStore store = mock(ChatSessionStore.class);

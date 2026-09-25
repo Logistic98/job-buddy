@@ -24,9 +24,6 @@ import org.springframework.web.context.request.async.AsyncRequestTimeoutExceptio
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-/**
- * 验证 GlobalExceptionHandler 的核心行为、异常路径与边界条件。
- */
 class GlobalExceptionHandlerTest {
 
   /**
@@ -84,11 +81,6 @@ class GlobalExceptionHandlerTest {
         .andExpect(jsonPath("$.message").value("岗位匹配服务执行失败，请稍后重试"));
   }
 
-  /**
-   * 验证 GlobalExceptionHandler 的输入校验与拒绝边界。
-   *
-   * @throws Exception 处理失败时抛出
-   */
   @Test
   void missingStaticResourceShouldReturn404WithoutInternalError() throws Exception {
     MockMvc mockMvc =
@@ -102,11 +94,6 @@ class GlobalExceptionHandlerTest {
         .andExpect(jsonPath("$.code").value(404));
   }
 
-  /**
-   * 验证 GlobalExceptionHandler 中认证的输入校验与拒绝边界。
-   *
-   * @throws Exception 处理失败时抛出
-   */
   @Test
   void bossAuthRequiredShouldPreserveDynamicDataAsJsonObject() throws Exception {
     MockMvc mockMvc =
@@ -178,9 +165,6 @@ class GlobalExceptionHandlerTest {
       throw new NoResourceFoundException(HttpMethod.GET, "missing-resource");
     }
 
-    /**
-     * 验证 GlobalExceptionHandler 中认证的输入校验与拒绝边界。
-     */
     @GetMapping("/boss-auth-required")
     void bossAuthRequired() {
       Map<String, Object> login = new LinkedHashMap<String, Object>();
