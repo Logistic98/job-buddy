@@ -799,7 +799,7 @@ class BossCliEngine:
             self._qr_state = {
                 "status": "qr_ready",
                 "qr_id": qr_id,
-                "cookies": dict(client.cookies),
+                "cookies": self._cookie_snapshot(client.cookies),
                 "created_at": now,
                 "expires_at": now + _QR_LOGIN_TTL_SECONDS,
                 "image_base64": base64.b64encode(image_bytes).decode("ascii"),
@@ -869,7 +869,7 @@ class BossCliEngine:
         with self._qr_client(cookies=state.get("cookies") or {}) as client:
             if phase not in {"scanned", "confirmed"}:
                 scanned = self._qr_scan(client, qr_id)
-                self._qr_state["cookies"] = dict(client.cookies)
+                self._qr_state["cookies"] = self._cookie_snapshot(client.cookies)
                 if not scanned:
                     return self._qr_waiting_payload()
                 self._qr_state["status"] = "scanned"
@@ -877,7 +877,7 @@ class BossCliEngine:
 
             if phase == "scanned":
                 confirmed = self._qr_confirm(client, qr_id)
-                self._qr_state["cookies"] = dict(client.cookies)
+                self._qr_state["cookies"] = self._cookie_snapshot(client.cookies)
                 if not confirmed:
                     return self._qr_waiting_payload(scanned=True)
                 self._qr_state["status"] = "confirmed"
@@ -910,6 +910,14 @@ class BossCliEngine:
             # 触发 scan/confirm/dispatch 重复访问 Boss，规避风控。
             self._qr_state = {"status": "auth_required", "reason": base["reason"]}
         return base
+
+    @staticmethod
+    def _cookie_snapshot(cookies: httpx.Cookies | dict[str, str]) -> dict[str, str]:
+        # HTTPX 按名称取值会因不同域/路径的同名 SERVERID 抛出 CookieConflict。
+        # ponytail: 沿用名称到值的凭据协议，最后一项覆盖；多域独立会话需升级为保留作用域的协议。
+        if isinstance(cookies, httpx.Cookies):
+            return {cookie.name: cookie.value for cookie in cookies.jar}
+        return dict(cookies)
 
     def _qr_client(self, cookies: dict[str, str] | None = None) -> httpx.Client:
         return httpx.Client(
@@ -949,19 +957,14 @@ class BossCliEngine:
             timeout=_QR_POLL_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
-        cookies: dict[str, str] = {}
-        for name, value in resp.cookies.items():
-            cookies[name] = value
-        for name, value in client.cookies.items():
-            cookies[name] = value
+        cookies = self._cookie_snapshot(resp.cookies)
+        cookies.update(self._cookie_snapshot(client.cookies))
 
         try:
             warmup = client.get("/", timeout=_QR_WARMUP_TIMEOUT_SECONDS)
             warmup.raise_for_status()
-            for name, value in warmup.cookies.items():
-                cookies[name] = value
-            for name, value in client.cookies.items():
-                cookies[name] = value
+            cookies.update(self._cookie_snapshot(warmup.cookies))
+            cookies.update(self._cookie_snapshot(client.cookies))
         except httpx.HTTPError as exc:
             logger.debug(f"Boss QR warmup 失败：{exc}")
 

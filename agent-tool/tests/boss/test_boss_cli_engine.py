@@ -837,3 +837,28 @@ def test_city_resolver_supports_suffix(tmp_path):
 
     assert engine._resolve_city_code("杭州市") == "101210100"  # noqa: SLF001
     assert engine._resolve_city_code("阿克苏地区") == "101131000"  # noqa: SLF001
+
+
+def test_qr_flow_accepts_duplicate_cookie_names(tmp_path, monkeypatch):
+    engine = _engine(tmp_path)
+
+    def respond(request):
+        if request.method == "POST":
+            return httpx.Response(
+                200,
+                json={"code": 0, "zpData": {"qrId": "synthetic-qr"}},
+                headers={"set-cookie": "SERVERID=new; Path=/"},
+            )
+        return httpx.Response(200, json={"scaned": True}, headers={"set-cookie": "SERVERID=new; Path=/"})
+
+    def client(cookies=None):
+        jar = httpx.Cookies(cookies or {"SERVERID": "old", "wt2": "identity", "zp_at": "account"})
+        return httpx.Client(base_url=engine._constants.BASE_URL, cookies=jar, transport=httpx.MockTransport(respond))
+
+    monkeypatch.setattr(engine, "_qr_client", client)
+    monkeypatch.setattr(engine, "_complete_qr_credential", lambda credential: credential)
+    assert engine._qr_start_sync()["status"] == "qr_ready"
+    assert engine._qr_state["cookies"]["SERVERID"] == "new"
+    assert engine._qr_poll_sync()["reason"] == "qr_waiting_confirm"
+    assert engine._qr_poll_sync()["status"] == "qr_confirmed"
+    assert engine._qr_poll_sync()["status"] == "logged_in"
