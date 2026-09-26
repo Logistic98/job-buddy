@@ -1,0 +1,324 @@
+import { describe, it, expect } from 'vitest'
+import {
+  normalizeMessageText,
+  requestKey,
+  isAbortError,
+  formatSendError,
+  isBossAuthenticated,
+  activeToolSummary,
+  normalizeToolEvent,
+  isMemoryNoiseEvent,
+  filterVisibleToolEvents,
+  normalizeAssistantMarkdown,
+  selectReasoningHighlights,
+  selectSandboxExecutionDetail,
+  selectToolEventHighlights,
+} from '../../src/utils/chatHelpers'
+
+describe('normalizeMessageText', () => {
+  it('collapses whitespace and trims', () => {
+    expect(normalizeMessageText('  hello   world \n ')).toBe('hello world')
+  })
+  it('handles nullish input', () => {
+    expect(normalizeMessageText(null)).toBe('')
+    expect(normalizeMessageText(undefined)).toBe('')
+  })
+})
+
+describe('requestKey', () => {
+  it('builds a stable key from parts', () => {
+    expect(requestKey('s1', 'r1', '  hi  ')).toBe('s1::r1::hi::::')
+  })
+  it('falls back to placeholders and reads selected job identity', () => {
+    const key = requestKey(null, null, 'x', { securityId: 'sec-9' })
+    expect(key).toBe('new::none::x::sec-9::')
+  })
+  it('treats whitespace-different messages as the same key', () => {
+    expect(requestKey('s', 'r', 'a b')).toBe(requestKey('s', 'r', 'a   b'))
+  })
+  it('sorts attachment ids so selection order does not change idempotency', () => {
+    expect(requestKey('s', 'r', 'x', null, ['file-2', 'file-1'])).toBe(
+      requestKey('s', 'r', 'x', null, ['file-1', 'file-2']),
+    )
+  })
+})
+
+describe('isAbortError', () => {
+  it('detects AbortError by name and message', () => {
+    expect(isAbortError({ name: 'AbortError' })).toBe(true)
+    expect(isAbortError({ message: 'the operation was aborted' })).toBe(true)
+    expect(isAbortError({ message: 'boom' })).toBe(false)
+  })
+})
+
+describe('formatSendError', () => {
+  it('maps network failures to a friendly message', () => {
+    expect(formatSendError({ message: 'Failed to fetch' })).toContain('服务暂时不可用')
+    expect(formatSendError({ message: 'Load failed' })).toContain('服务暂时不可用')
+  })
+  it('passes through other messages', () => {
+    expect(formatSendError({ message: '限流' })).toBe('限流')
+  })
+  it('extracts nested structured errors without rendering object text', () => {
+    expect(formatSendError({ error: { message: '工具 resume_match 执行超时（125 秒）' } })).toBe(
+      '工具 resume_match 执行超时（125 秒）',
+    )
+    expect(formatSendError({ code: 'RUNTIME_TIMEOUT' })).toBe('请求处理失败（错误码：RUNTIME_TIMEOUT）')
+  })
+  it('defaults when empty', () => {
+    expect(formatSendError(null)).toBe('请求失败，请稍后重试。')
+    expect(formatSendError({})).toBe('请求失败，请稍后重试。')
+  })
+})
+
+describe('isBossAuthenticated', () => {
+  it('reads top-level and nested data flags', () => {
+    expect(isBossAuthenticated({ authenticated: true })).toBe(true)
+    expect(isBossAuthenticated({ data: { status: 'logged_in' } })).toBe(true)
+    expect(isBossAuthenticated({ status: 'auth_required' })).toBe(false)
+    expect(isBossAuthenticated(null)).toBe(false)
+  })
+})
+
+describe('activeToolSummary', () => {
+  it('keeps the runtime detail free of duplicated elapsed time', () => {
+    expect(activeToolSummary({ detail: '已收到请求，正在理解你的问题并准备作答。' })).toBe(
+      '已收到请求，正在理解你的问题并准备作答。',
+    )
+    expect(activeToolSummary()).toBe('请求已提交，正在初始化会话和服务链路，请稍候。')
+  })
+})
+
+describe('assistant presentation helpers', () => {
+  it('repairs historical job search events that used the qualified count as the display count', () => {
+    const event = normalizeToolEvent({
+      id: 'job_search',
+      title: '岗位搜索完成',
+      status: 'success',
+      summary: '找到 8 个符合画像和简历的岗位。',
+      detail: { count: 8, candidateCount: 23, qualifiedCount: 8 },
+    })
+
+    expect(event.detail).toBe('累计检索到 23 个候选岗位。')
+    expect(selectToolEventHighlights(event)).toContainEqual({ label: '候选岗位', value: '23 个' })
+  })
+
+  it('normalizes repeated prose punctuation and linkifies bare URLs', () => {
+    const output = normalizeAssistantMarkdown('实践经验。。；主要差距，，。详情：https://example.com/jobs。')
+    expect(output).toBe('实践经验；主要差距。详情：[https://example.com/jobs](https://example.com/jobs)。')
+  })
+
+  it('keeps punctuation inside fenced code, inline code and markdown links unchanged', () => {
+    const input = '正文。。\n```text\n原样。。\n```\n`内联。。` [说明。。](https://example.com/a..b)'
+    const output = normalizeAssistantMarkdown(input)
+    expect(output).toContain('正文。')
+    expect(output).toContain('原样。。')
+    expect(output).toContain('`内联。。`')
+    expect(output).toContain('[说明。。](https://example.com/a..b)')
+  })
+
+  it('keeps local file names as text while preserving explicit links', () => {
+    const input =
+      '根据你上传的《智能问答组件项目-平台介绍.md》总结内容；本地：[项目介绍.md](项目介绍.md)；下载：[项目介绍.md](https://example.com/project.md)。'
+    const output = normalizeAssistantMarkdown(input)
+
+    expect(output).toContain('《智能问答组件项目-平台介绍\\.md》')
+    expect(output).toContain('本地：项目介绍\\.md')
+    expect(output).not.toContain('](项目介绍.md)')
+    expect(output).toContain('[项目介绍.md](https://example.com/project.md)')
+  })
+
+  it('selects readable resume match details without exposing raw payload', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'resume_match',
+      payload: {
+        count: 1,
+        top: {
+          score: 86,
+          score_confidence: 'high',
+          recommendation: '推荐',
+          hits: ['具备 Java 与 Agent 工程经验'],
+          gaps: ['缺少证券行业背景'],
+          rawResponse: 'should-not-render',
+        },
+      },
+    })
+    expect(highlights).toEqual([
+      { label: '匹配评分', value: '86/100' },
+      { label: '投递建议', value: '推荐' },
+      { label: '置信度', value: '高' },
+      { label: '关键依据', value: '具备 Java 与 Agent 工程经验' },
+    ])
+    expect(JSON.stringify(highlights)).not.toContain('rawResponse')
+  })
+
+  it('summarizes the strict recommendation quality funnel', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'recommendation_quality_gate',
+      payload: {
+        candidateCount: 10,
+        qualifiedCount: 3,
+        minimumScore: 70,
+        rejectionReasons: { 未达到最低匹配分: 4, 匹配置信度低: 2, 投递建议为不建议: 1 },
+      },
+    })
+    expect(highlights).toEqual([
+      { label: '候选岗位', value: '10 个' },
+      { label: '通过门槛', value: '3 个' },
+      { label: '简历提示分', value: '70 分' },
+      { label: '主要剔除原因', value: '未达到最低匹配分 4 个；匹配置信度低 2 个；投递建议为不建议 1 个' },
+    ])
+  })
+
+  it('shows auditable sandbox execution evidence', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'runtime_sandbox_code_execute',
+      payload: {
+        language: 'python',
+        exitCode: 0,
+        sandboxed: true,
+        outputChars: 2,
+        outputSha256: 'a'.repeat(64),
+      },
+    })
+
+    expect(highlights).toEqual([
+      { label: '执行环境', value: 'agent-sandbox' },
+      { label: '语言', value: 'Python' },
+      { label: '退出码', value: '0' },
+      { label: '输出字符数', value: '2' },
+    ])
+    expect(JSON.stringify(highlights)).not.toContain('outputSha256')
+  })
+
+  it('selects bounded sandbox source and code products without exposing internal fields', () => {
+    const detail = selectSandboxExecutionDetail({
+      id: 'runtime_sandbox_code_execute',
+      payload: {
+        language: 'python',
+        code: "text = 'JobBuddy'\nprint(text.count('d'))",
+        codeChars: 42,
+        codeTruncated: false,
+        stdout: '2\n',
+        stdoutChars: 2,
+        stdoutTruncated: false,
+        stderr: '',
+        stderrChars: 0,
+        stderrTruncated: false,
+        argv: ['python3', '/tmp/private.py'],
+      },
+    })
+
+    expect(detail).toEqual({
+      language: 'Python',
+      source: {
+        content: "text = 'JobBuddy'\nprint(text.count('d'))",
+        chars: 42,
+        truncated: false,
+      },
+      products: [
+        { id: 'stdout', label: '标准输出', content: '2\n', chars: 2, truncated: false, emptyText: '无标准输出' },
+        { id: 'stderr', label: '标准错误', content: '', chars: 0, truncated: false, emptyText: '无标准错误' },
+      ],
+    })
+    expect(JSON.stringify(detail)).not.toContain('private.py')
+    expect(
+      selectSandboxExecutionDetail({
+        id: 'runtime_sandbox_code_execute',
+        payload: { language: 'python', exitCode: 0, outputChars: 2 },
+      }),
+    ).toBeNull()
+    expect(selectSandboxExecutionDetail({ id: 'runtime_web_search', payload: {} })).toBeNull()
+  })
+
+  it('shows auditable web search evidence', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'runtime_web_search',
+      payload: {
+        query: 'OpenAI latest models',
+        queries: ['OpenAI latest models', 'OpenAI latest models 2026 official'],
+        provider: 'bocha_web',
+        rawCount: 7,
+        deduplicatedCount: 5,
+        preferredSourceDomains: ['openai.com'],
+        preferredSourceFound: true,
+        officialSourceCount: 1,
+        thirdPartySourceCount: 4,
+        officialVerification: 'configured_direct_fetch',
+        sourceCount: 5,
+      },
+    })
+
+    expect(highlights).toEqual([
+      { label: '搜索词', value: 'OpenAI latest models' },
+      {
+        label: '扩展查询',
+        value: 'OpenAI latest models 2026 official',
+      },
+      { label: '搜索来源', value: '博查 Web Search' },
+      { label: '结果去重', value: '7 → 5 个' },
+      { label: '参考来源', value: '5 个' },
+    ])
+    expect(highlights.some((item) => item.label === '来源分层')).toBe(false)
+  })
+
+  it('does not expose official latest-verification details', () => {
+    const highlights = selectToolEventHighlights({
+      id: 'runtime_web_search',
+      payload: {
+        query: 'Anthropic 最新工程博客',
+        provider: 'bocha_web',
+        preferredSourceDomains: ['anthropic.com'],
+        preferredSourceFound: true,
+        officialSourceCount: 1,
+        thirdPartySourceCount: 0,
+        officialVerification: 'configured_official_index',
+        selectionMode: 'latest',
+        timeRangeStart: '2026-01-01',
+        asOfDate: '2026-08-01',
+        contentScope: 'engineering_blog',
+        latestEvidenceVerified: true,
+        selectedPublishedDate: '2026-05-25',
+        sourceCount: 1,
+      },
+    })
+
+    expect(highlights.some((item) => item.label === '官方核验')).toBe(false)
+    expect(highlights.some((item) => item.label === '来源分层')).toBe(false)
+    expect(highlights.some((item) => item.label === '最新性')).toBe(false)
+    expect(highlights.some((item) => item.label === '发布日期')).toBe(false)
+  })
+
+  it('selects high-signal reasoning sentences with a bounded count', () => {
+    const highlights = selectReasoningHighlights(
+      '先读取上下文。目标是判断当前简历与岗位的匹配度。。依据是 Java、RAG 和 Agent 项目经验。普通补充说明。主要风险是缺少证券行业背景。下一步建议补强金融场景案例。',
+      3,
+    )
+    expect(highlights).toHaveLength(3)
+    expect(highlights.join('')).not.toContain('。。')
+    expect(highlights.some((item) => item.includes('目标'))).toBe(true)
+    expect(highlights.some((item) => item.includes('风险'))).toBe(true)
+  })
+})
+
+describe('tool event helpers', () => {
+  it('normalizeToolEvent fills name and detail fallbacks', () => {
+    const out = normalizeToolEvent({ id: 'x', title: 'T', summary: 'S' })
+    expect(out.name).toBe('T')
+    expect(out.detail).toBe('S')
+  })
+  it('isMemoryNoiseEvent matches by id/name only', () => {
+    expect(isMemoryNoiseEvent({ id: 'memory_search' })).toBe(true)
+    expect(isMemoryNoiseEvent({ name: '记忆读取' })).toBe(true)
+    expect(isMemoryNoiseEvent({ summary: '包含memory字样的摘要' })).toBe(false)
+  })
+  it('filterVisibleToolEvents drops connect and memory noise', () => {
+    const events = [{ id: 'sse_connect' }, { id: 'memory_search' }, { id: 'boss_browser', title: 'Boss' }]
+    const visible = filterVisibleToolEvents(events)
+    expect(visible).toHaveLength(1)
+    expect(visible[0].name).toBe('Boss')
+  })
+  it('filterVisibleToolEvents tolerates non-array input', () => {
+    expect(filterVisibleToolEvents(null)).toEqual([])
+  })
+})

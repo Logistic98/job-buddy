@@ -19,10 +19,10 @@ import {
 } from '../api/projectDeepDive'
 import PracticeMarkdown from '../components/interview/PracticeMarkdown.vue'
 
-const projectQuestionDifficulties = ['简单', '中等', '困难']
+export const projectQuestionDifficulties = ['简单', '中等', '困难']
 const legacyProjectQuestionDifficulties = { 常规: '中等', 深入: '困难' }
 
-function normalizeProjectQuestionDifficulty(value, fallback = '') {
+export function normalizeProjectQuestionDifficulty(value, fallback = '') {
   const normalized = legacyProjectQuestionDifficulties[value] || value
   return projectQuestionDifficulties.includes(normalized) ? normalized : fallback
 }

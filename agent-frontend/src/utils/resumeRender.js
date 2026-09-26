@@ -181,6 +181,7 @@ export function renderResumeMarkdown(source) {
 }
 
 function renderResumeFencedBlock(language, source) {
+  if (language === 'latex') return renderResumeMath(source, true)
   if (language === 'mermaid') {
     return `<figure class="resume-mermaid" data-mermaid-source="${escapeHtml(source)}"><pre class="resume-mermaid-fallback"><code>${escapeHtml(source)}</code></pre></figure>`
   }

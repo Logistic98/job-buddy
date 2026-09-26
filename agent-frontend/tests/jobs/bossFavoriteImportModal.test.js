@@ -1,0 +1,178 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
+
+const mocks = vi.hoisted(() => ({
+  importBossFavoriteJobs: vi.fn(),
+  listBossFavoriteJobs: vi.fn(),
+}))
+
+vi.mock('../../src/api/jobs', async (importOriginal) => ({
+  ...(await importOriginal()),
+  importBossFavoriteJobs: mocks.importBossFavoriteJobs,
+  listBossFavoriteJobs: mocks.listBossFavoriteJobs,
+}))
+
+import BossFavoriteImportModal from '../../src/components/BossFavoriteImportModal.vue'
+import { useJobStore } from '../../src/stores/job'
+
+function favorite(index, alreadyImported = false) {
+  return {
+    favoriteKey: `boss-${index}`,
+    securityId: `boss-${index}`,
+    jobName: `Go 云原生平台开发岗 ${index}`,
+    brandName: `星河云科（虚构）${index}`,
+    cityName: '杭州',
+    salaryDesc: '25-35K',
+    favoritedAt: '2025-10-02T01:33:13Z',
+    alreadyImported,
+  }
+}
+
+function mountModal() {
+  const pinia = createPinia()
+  setActivePinia(pinia)
+  return {
+    job: useJobStore(),
+    wrapper: mount(BossFavoriteImportModal, {
+      props: { visible: true },
+      global: {
+        plugins: [pinia],
+        stubs: { BossLoginQrModal: true },
+      },
+    }),
+  }
+}
+
+describe('BossFavoriteImportModal', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.listBossFavoriteJobs.mockResolvedValue({
+      jobs: Array.from({ length: 7 }, (_, index) => favorite(index + 1, index === 0)),
+      page: 1,
+      hasMore: true,
+      totalCount: 12,
+      totalPages: 3,
+    })
+    mocks.importBossFavoriteJobs.mockResolvedValue({
+      importedCount: 6,
+      existingCount: 0,
+      failedCount: 0,
+      unprocessedCount: 0,
+      stopped: false,
+      items: Array.from({ length: 6 }, (_, index) => ({ jobKey: `boss-${index + 2}`, status: 'imported' })),
+      favorites: [favorite(2, true)],
+    })
+  })
+
+  it('loads one page only after opening and allows all selectable jobs', async () => {
+    const { wrapper } = mountModal()
+    await flushPromises()
+    const expectedFavoriteTime = new Date('2025-10-02T01:33:13Z').toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+
+    expect(mocks.listBossFavoriteJobs).toHaveBeenCalledTimes(1)
+    expect(mocks.listBossFavoriteJobs).toHaveBeenCalledWith(1, false)
+    expect(wrapper.text()).not.toContain('导入会按选择顺序补全职位描述并保存')
+    expect(wrapper.text()).toContain(`收藏于 ${expectedFavoriteTime}`)
+    expect(wrapper.find('.boss-favorite-import-title > .boss-favorite-import-time').exists()).toBe(true)
+    const selectable = wrapper.findAll('input[type="checkbox"]:not(:disabled)')
+    expect(selectable).toHaveLength(6)
+
+    for (const checkbox of selectable) await checkbox.trigger('change')
+
+    expect(wrapper.text()).toContain('已选择 6 个')
+    expect(wrapper.text()).not.toContain('最多选择')
+    const importButton = wrapper
+      .findAll('.boss-favorite-import-actions button')
+      .find((button) => button.text().includes('导入所选'))
+    await importButton.trigger('click')
+    await flushPromises()
+
+    expect(mocks.importBossFavoriteJobs).toHaveBeenCalledOnce()
+    expect(mocks.importBossFavoriteJobs.mock.calls[0][0]).toHaveLength(6)
+  })
+
+  it('uses page replacement instead of appending an endless list', async () => {
+    mocks.listBossFavoriteJobs
+      .mockReset()
+      .mockResolvedValueOnce({ jobs: [favorite(2)], page: 1, hasMore: true, totalPages: 2 })
+      .mockResolvedValueOnce({ jobs: [favorite(8)], page: 2, hasMore: false, totalPages: 2 })
+    const { wrapper } = mountModal()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Go 云原生平台开发岗 2')
+    const nextButton = wrapper.findAll('.boss-favorite-pagination button').find((button) => button.text() === '下一页')
+    await nextButton.trigger('click')
+    await flushPromises()
+
+    expect(mocks.listBossFavoriteJobs).toHaveBeenNthCalledWith(2, 2, false)
+    expect(wrapper.text()).not.toContain('Go 云原生平台开发岗 2')
+    expect(wrapper.text()).toContain('Go 云原生平台开发岗 8')
+    expect(wrapper.text()).toContain('第 2 / 2 页')
+    expect(nextButton.attributes('disabled')).toBeDefined()
+  })
+
+  it('updates local favorites after a partial-safe import response', async () => {
+    const { job, wrapper } = mountModal()
+    await flushPromises()
+    await wrapper.findAll('input[type="checkbox"]:not(:disabled)')[0].trigger('change')
+    mocks.importBossFavoriteJobs.mockResolvedValueOnce({
+      importedCount: 1,
+      existingCount: 0,
+      failedCount: 1,
+      unprocessedCount: 1,
+      stopped: true,
+      stoppedReason: 'Boss 请求过于频繁，已进入冷却',
+      items: [
+        { jobKey: 'boss-2', status: 'imported' },
+        { jobKey: 'boss-3', status: 'failed' },
+        { jobKey: 'boss-4', status: 'not_processed' },
+      ],
+      favorites: [favorite(2, true)],
+    })
+
+    await wrapper.vm.confirmImport()
+    await flushPromises()
+
+    expect(job.favorites).toHaveLength(1)
+    expect(wrapper.text()).toContain('成功导入 1 个')
+    expect(wrapper.text()).toContain('1 个为保护账号未处理')
+    expect(wrapper.text()).toContain('已进入冷却')
+  })
+
+  it('shows login in the same modal and loads one page after QR login', async () => {
+    const authError = Object.assign(new Error('Boss 直聘未登录'), {
+      authRequired: true,
+      authData: { authRequired: true, status: 'auth_required' },
+    })
+    mocks.listBossFavoriteJobs
+      .mockReset()
+      .mockRejectedValueOnce(authError)
+      .mockResolvedValueOnce({
+        jobs: Array.from({ length: 7 }, (_, index) => favorite(index + 1, index === 0)),
+        page: 1,
+        hasMore: true,
+        totalPages: 3,
+      })
+    const { wrapper } = mountModal()
+    await flushPromises()
+
+    expect(mocks.listBossFavoriteJobs).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.boss-favorite-import-modal').exists()).toBe(true)
+    expect(wrapper.find('.boss-login-modal-mask').exists()).toBe(false)
+
+    wrapper.vm.handleLoggedIn()
+    await flushPromises()
+
+    expect(mocks.listBossFavoriteJobs).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).not.toContain('Go 云原生平台开发岗 1')
+    expect(wrapper.text()).toContain('Go 云原生平台开发岗 2')
+  })
+})

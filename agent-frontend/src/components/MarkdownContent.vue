@@ -5,6 +5,7 @@
     :custom-id="customId"
     :final="final"
     html-policy="escape"
+    :custom-markdown-it="configureMarkdownMath"
     :mermaid-props="resolvedMermaidProps"
     @copy="handleCopy"
   />
@@ -14,7 +15,7 @@
 import { computed } from 'vue'
 import MarkdownRender from 'markstream-vue'
 import { copyText } from '../utils/clipboard'
-import { markdownMermaidProps } from '../utils/markdownFeatures'
+import { configureMarkdownMath, markdownMermaidProps } from '../utils/markdownFeatures'
 
 defineOptions({ inheritAttrs: false })
 

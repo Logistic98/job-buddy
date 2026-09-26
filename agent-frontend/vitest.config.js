@@ -8,5 +8,13 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['tests/**/*.test.js'],
     setupFiles: ['tests/setup.js'],
+    clearMocks: true,
+    restoreMocks: true,
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{js,vue}'],
+      reporter: ['text', 'html', 'json', 'json-summary', 'lcov'],
+      thresholds: { lines: 80, statements: 80, branches: 70, functions: 60 },
+    },
   },
 })

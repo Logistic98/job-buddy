@@ -28,6 +28,18 @@ export function loadKatex() {
   return Promise.resolve(katex)
 }
 
+export function configureMarkdownMath(md) {
+  // 只转换解析器已识别的公式围栏，避免改写普通代码中的围栏示例。
+  md.core.ruler.after('block', 'latex_fence', (state) => {
+    for (const token of state.tokens) {
+      if (token.type === 'fence' && token.info.trim().toLowerCase() === 'latex') {
+        token.type = 'math_block'
+      }
+    }
+  })
+  return md
+}
+
 enableMermaid(loadMermaid)
 enableKatex(loadKatex)
 

@@ -319,7 +319,7 @@
                     <div class="question-card-head">
                       <span class="question-index">Q{{ (questionPage - 1) * questionPageSize + index + 1 }}</span
                       ><b>{{ item.category || '综合追问' }}</b
-                      ><em>{{ projectQuestionDifficultyLabel(item.difficulty) }}</em>
+                      ><em>{{ normalizeProjectQuestionDifficulty(item.difficulty, '中等') }}</em>
                     </div>
                     <h3>{{ item.question }}</h3>
                   </button>
@@ -352,7 +352,7 @@
                       <h3>{{ selectedQuestion.question }}</h3>
                       <div class="question-tags">
                         <span>{{ selectedQuestion.category || '综合追问' }}</span
-                        ><span>{{ projectQuestionDifficultyLabel(selectedQuestion.difficulty) }}</span
+                        ><span>{{ normalizeProjectQuestionDifficulty(selectedQuestion.difficulty, '中等') }}</span
                         ><span v-if="isManualQuestion(selectedQuestion)" class="manual-tag">手动维护</span>
                       </div>
                     </div>
@@ -694,7 +694,7 @@
                 <span class="generated-question-content">
                   <span class="generated-question-meta">
                     <b>{{ candidate.category || '自定义' }}</b>
-                    <em>{{ projectQuestionDifficultyLabel(candidate.difficulty) }}</em>
+                    <em>{{ normalizeProjectQuestionDifficulty(candidate.difficulty, '中等') }}</em>
                   </span>
                   <strong>{{ candidate.question }}</strong>
                   <span class="generated-question-answer">{{ candidate.answer || '暂无参考答案' }}</span>
@@ -871,14 +871,11 @@
 
 <script setup>
 import ProjectLibraryPanel from './project-deep-dive/ProjectLibraryPanel.vue'
-import { useProjectDeepDivePage } from '../composables/useProjectDeepDivePage'
-
-const projectQuestionDifficultyOptions = ['简单', '中等', '困难']
-const legacyProjectQuestionDifficulties = { 常规: '中等', 深入: '困难' }
-function projectQuestionDifficultyLabel(value) {
-  const normalized = legacyProjectQuestionDifficulties[value] || value
-  return projectQuestionDifficultyOptions.includes(normalized) ? normalized : '中等'
-}
+import {
+  useProjectDeepDivePage,
+  projectQuestionDifficulties as projectQuestionDifficultyOptions,
+  normalizeProjectQuestionDifficulty,
+} from '../composables/useProjectDeepDivePage'
 
 const {
   loading,

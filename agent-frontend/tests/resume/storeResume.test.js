@@ -1,0 +1,561 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+
+vi.mock('../../src/api/resume', () => ({
+  startResumeAnalysisTask: vi.fn(),
+  latestResumeAnalysisTask: vi.fn(async () => null),
+  getAnalysisTask: vi.fn(async () => null),
+  streamAnalysisTask: vi.fn(async () => {}),
+  deleteResume: vi.fn(),
+  getJobProfile: vi.fn(),
+  getResume: vi.fn(),
+  listResumes: vi.fn(),
+  saveJobProfile: vi.fn(),
+  syncBossOnlineResume: vi.fn(),
+  updateResumeParsed: vi.fn(),
+  uploadResume: vi.fn(),
+}))
+vi.mock('../../src/api/workspace', () => ({
+  getWorkspaceState: vi.fn(),
+  saveWorkspaceState: vi.fn(),
+}))
+
+import {
+  deleteResume,
+  getAnalysisTask,
+  latestResumeAnalysisTask,
+  saveJobProfile,
+  syncBossOnlineResume,
+  getJobProfile,
+  getResume,
+  listResumes,
+  startResumeAnalysisTask,
+  streamAnalysisTask,
+  updateResumeParsed,
+  uploadResume,
+} from '../../src/api/resume'
+import { getWorkspaceState, saveWorkspaceState } from '../../src/api/workspace'
+import { useResumeStore } from '../../src/stores/resume'
+
+describe('resume store loading', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    getWorkspaceState.mockResolvedValue({ resumeId: 'r1' })
+    getResume.mockResolvedValue({ resumeId: 'r1', suffix: 'pdf', parsed: { analysis: { overall_score: 82 } } })
+    saveWorkspaceState.mockResolvedValue({})
+  })
+
+  it('deduplicates concurrent list loads and reuses loaded data', async () => {
+    listResumes.mockResolvedValue([{ resumeId: 'r1', suffix: 'pdf' }])
+    const store = useResumeStore()
+
+    await Promise.all([store.load(), store.load()])
+    await store.load()
+
+    expect(listResumes).toHaveBeenCalledTimes(1)
+    expect(getWorkspaceState).toHaveBeenCalledTimes(1)
+    expect(getResume).toHaveBeenCalledTimes(1)
+    expect(store.current.parsed.analysis.overall_score).toBe(82)
+  })
+
+  it('forces a fresh list load when force is true', async () => {
+    let firstResolve
+    let secondResolve
+    listResumes
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            firstResolve = resolve
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            secondResolve = resolve
+          }),
+      )
+    getResume.mockImplementation((resumeId) =>
+      Promise.resolve({ resumeId, suffix: 'pdf', parsed: { analysis: { overall_score: 90 } } }),
+    )
+
+    const store = useResumeStore()
+    getWorkspaceState.mockResolvedValue({})
+
+    const first = store.load()
+    const force = store.load(true)
+    expect(listResumes).toHaveBeenCalledTimes(2)
+
+    firstResolve([{ resumeId: 'r1', suffix: 'pdf' }])
+    secondResolve([{ resumeId: 'r2', suffix: 'pdf' }])
+
+    await first
+    await force
+
+    expect(listResumes).toHaveBeenCalledTimes(2)
+    expect(store.items).toHaveLength(1)
+    expect(store.items[0].resumeId).toBe('r2')
+  })
+
+  it('updates list cache after upload and refreshes from API', async () => {
+    const uploaded = { resumeId: 'new', suffix: 'pdf', originalName: 'new.pdf' }
+    uploadResume.mockResolvedValue(uploaded)
+    listResumes.mockResolvedValue([{ resumeId: 'new', suffix: 'pdf', originalName: 'new.pdf' }])
+    getResume.mockImplementation((resumeId) => Promise.resolve({ resumeId, suffix: 'pdf' }))
+
+    const store = useResumeStore()
+    store.items = [{ resumeId: 'old', suffix: 'pdf', originalName: 'old.pdf' }]
+    store.current = { resumeId: 'old', suffix: 'pdf', originalName: 'old.pdf' }
+    getWorkspaceState.mockResolvedValue({ resumeId: 'old' })
+
+    const file = { name: 'new.pdf', type: 'application/pdf', size: 1024 }
+    await store.upload(file)
+
+    expect(uploadResume).toHaveBeenCalledWith(file, undefined)
+    expect(store.uploading).toBe(false)
+    expect(store.current?.resumeId).toBe('new')
+    expect(store.items[0].resumeId).toBe('new')
+    expect(listResumes).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps uploaded item when list API is eventually stale', async () => {
+    const uploaded = { resumeId: 'new', suffix: 'pdf', originalName: 'new.pdf' }
+    uploadResume.mockResolvedValue(uploaded)
+    listResumes.mockResolvedValue([])
+    getResume.mockImplementation((resumeId) =>
+      Promise.resolve(
+        resumeId === 'new'
+          ? { resumeId: 'new', suffix: 'pdf', originalName: 'new.pdf', parsed: { status: 'ready' } }
+          : { resumeId, suffix: 'pdf' },
+      ),
+    )
+
+    const store = useResumeStore()
+    store.items = [{ resumeId: 'old', suffix: 'pdf', originalName: 'old.pdf' }]
+    store.current = { resumeId: 'old', suffix: 'pdf', originalName: 'old.pdf' }
+    getWorkspaceState.mockResolvedValue({ resumeId: 'old' })
+
+    const file = { name: 'new.pdf', type: 'application/pdf', size: 1024 }
+    await store.upload(file)
+
+    expect(store.items.some((item) => item.resumeId === 'new')).toBe(true)
+    expect(store.current?.resumeId).toBe('new')
+    expect(listResumes).toHaveBeenCalledTimes(1)
+  })
+
+  it('ends the uploading state before post-upload reconciliation completes', async () => {
+    let resolveWorkspaceSave
+    uploadResume.mockResolvedValue({ resumeId: 'new', suffix: 'pdf', originalName: '中文简历.pdf' })
+    saveWorkspaceState.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveWorkspaceSave = resolve
+      }),
+    )
+    const store = useResumeStore()
+    const upload = store.upload({ name: '中文简历.pdf', type: 'application/pdf', size: 1024 })
+
+    await vi.waitFor(() => expect(store.current?.resumeId).toBe('new'))
+    expect(store.uploading).toBe(false)
+
+    resolveWorkspaceSave({})
+    listResumes.mockResolvedValue([{ resumeId: 'new', suffix: 'pdf', originalName: '中文简历.pdf' }])
+    getWorkspaceState.mockResolvedValue({ resumeId: 'new' })
+    await upload
+  })
+
+  it('drops a late resume load after an authentication change', async () => {
+    let resolveItems
+    listResumes.mockReturnValue(
+      new Promise((resolve) => {
+        resolveItems = resolve
+      }),
+    )
+    const store = useResumeStore()
+    const loading = store.load()
+    store.disposeForAuthChange()
+    resolveItems([{ resumeId: 'account-a', suffix: 'pdf' }])
+    await loading
+    expect(store.items).toEqual([])
+    expect(store.current).toBeNull()
+    expect(store.loading).toBe(false)
+  })
+
+  it('keeps job profile separate from the current analysis resume', async () => {
+    listResumes.mockResolvedValue([{ resumeId: 'r1', suffix: 'pdf' }])
+    getJobProfile.mockResolvedValue({ resumeId: 'profile-1', parsed: { source: { type: 'job_profile' } } })
+    const store = useResumeStore()
+    await store.load()
+
+    await store.loadProfile()
+
+    expect(store.current.resumeId).toBe('r1')
+    expect(store.jobProfile.resumeId).toBe('profile-1')
+    expect(saveWorkspaceState).not.toHaveBeenCalled()
+  })
+
+  it('clears the previous resume error when selecting another resume', async () => {
+    const store = useResumeStore()
+    store.error = '上一份简历分析失败'
+    store.items = [
+      { resumeId: 'r1', suffix: 'pdf' },
+      { resumeId: 'r2', suffix: 'pdf' },
+    ]
+    getResume.mockResolvedValue({ resumeId: 'r2', suffix: 'pdf', parsed: {} })
+
+    await store.select(store.items[1])
+
+    expect(store.current.resumeId).toBe('r2')
+    expect(store.error).toBe('')
+  })
+
+  it('starts resume analysis as a task and applies a terminal result without blocking', async () => {
+    const analyzed = { resumeId: 'r1', suffix: 'pdf', parsed: { analysis: { overall_score: 91 } } }
+    startResumeAnalysisTask.mockResolvedValue({
+      taskId: 'resume-task-1',
+      resourceKey: 'r1',
+      status: 'succeeded',
+      stage: 'completed',
+      result: analyzed,
+    })
+    const store = useResumeStore()
+    store.current = { resumeId: 'r1', suffix: 'pdf' }
+    store.items = [store.current]
+
+    const task = await store.analyze('r1', 'session-1')
+
+    expect(startResumeAnalysisTask).toHaveBeenCalledWith('r1', 'session-1')
+    expect(task.taskId).toBe('resume-task-1')
+    expect(store.current.parsed.analysis.overall_score).toBe(91)
+    expect(store.isAnalyzing('r1')).toBe(false)
+  })
+
+  it('applies partial_result SSE data immediately while the task remains running', async () => {
+    const partialDetail = {
+      resumeId: 'r1',
+      suffix: 'pdf',
+      parseStatus: 'success',
+      parsed: { analysis: { overall_score: 77, summary: 'SSE 首组总体判断' } },
+    }
+    getResume.mockResolvedValue(partialDetail)
+    startResumeAnalysisTask.mockResolvedValue({
+      taskId: 'resume-sse-partial',
+      resourceKey: 'r1',
+      status: 'running',
+      stage: 'analyzing',
+      result: {},
+      partialResult: {},
+    })
+    streamAnalysisTask.mockImplementationOnce(async (_taskId, handlers) => {
+      handlers.partial_result({
+        taskId: 'resume-sse-partial',
+        resourceKey: 'r1',
+        status: 'running',
+        stage: 'partial_overview',
+        message: '总体判断、优势与风险已生成',
+        result: {},
+        partialResult: partialDetail,
+      })
+    })
+    const store = useResumeStore()
+    store.current = { resumeId: 'r1', suffix: 'pdf', parsed: {} }
+    store.items = [store.current]
+
+    await store.analyze('r1', 'session-1')
+    await vi.waitFor(() => expect(store.current.parsed.analysis.overall_score).toBe(77))
+
+    expect(store.isAnalyzing('r1')).toBe(true)
+    expect(store.current.parsed.analysis.summary).toBe('SSE 首组总体判断')
+    expect(store.analysisStage('r1')).toBe('总体判断、优势与风险已生成')
+  })
+
+  it('renders a resume partial result while later sections are still running', () => {
+    const store = useResumeStore()
+    store.current = { resumeId: 'r1', suffix: 'pdf' }
+    store.items = [store.current]
+
+    store.applyAnalysisTask({
+      taskId: 'resume-partial',
+      resourceKey: 'r1',
+      status: 'running',
+      stage: 'partial_overview',
+      result: {},
+      partialResult: {
+        resumeId: 'r1',
+        suffix: 'pdf',
+        parsed: { analysis: { overall_score: 79, summary: '首组总体判断' } },
+      },
+    })
+
+    expect(store.isAnalyzing('r1')).toBe(true)
+    expect(store.current.parsed.analysis.overall_score).toBe(79)
+    expect(store.current.parsed.analysis.summary).toBe('首组总体判断')
+  })
+
+  it('keeps a failed analysis error scoped to its resume instead of the manager error', () => {
+    const store = useResumeStore()
+
+    store.applyAnalysisTask({
+      taskId: 'resume-failed',
+      resourceKey: 'r1',
+      status: 'failed',
+      stage: 'failed',
+      errorMessage: '从 MinIO 下载简历失败',
+      result: {},
+      partialResult: {},
+    })
+
+    expect(store.analysisError('r1')).toBe('从 MinIO 下载简历失败')
+    expect(store.error).toBe('')
+  })
+
+  it('does not show a historical task failure when a successful report is currently available', () => {
+    const store = useResumeStore()
+    store.current = {
+      resumeId: 'r1',
+      suffix: 'pdf',
+      parsed: { analysis: { overall_score: 88, summary: '已保存的成功报告' } },
+    }
+    store.items = [store.current]
+
+    store.applyAnalysisTask({
+      taskId: 'resume-later-failed',
+      resourceKey: 'r1',
+      status: 'failed',
+      stage: 'failed',
+      errorMessage: '从 MinIO 下载简历失败',
+      result: {},
+      partialResult: {},
+    })
+
+    expect(store.analysisError('r1')).toBe('')
+    expect(store.current.parsed.analysis.overall_score).toBe(88)
+  })
+
+  it('drops a late account-A load after disposeForAuthChange', async () => {
+    let resolveList
+    listResumes.mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve
+      }),
+    )
+    const store = useResumeStore()
+
+    const loading = store.load()
+    store.disposeForAuthChange()
+    resolveList([{ resumeId: 'account-a-resume', suffix: 'pdf' }])
+    await loading
+
+    expect(store.items).toEqual([])
+    expect(store.current).toBeNull()
+    expect(store.loaded).toBe(false)
+  })
+
+  it('aborts an account-A analysis stream during authentication change', async () => {
+    let streamSignal
+    startResumeAnalysisTask.mockResolvedValue({
+      taskId: 'account-a-task',
+      resourceKey: 'r1',
+      status: 'running',
+      stage: 'analyzing',
+      result: {},
+      partialResult: {},
+    })
+    streamAnalysisTask.mockImplementation((_taskId, _handlers, signal) => {
+      streamSignal = signal
+      return new Promise(() => {})
+    })
+    const store = useResumeStore()
+    store.current = { resumeId: 'r1', suffix: 'pdf' }
+    store.items = [store.current]
+
+    await store.analyze('r1', 'session-a')
+    store.disposeForAuthChange()
+
+    expect(streamSignal.aborted).toBe(true)
+    expect(store.analysisTasks).toEqual({})
+  })
+
+  it('drops the deleted resume task subscription before selecting the next resume', async () => {
+    let streamSignal
+    deleteResume.mockResolvedValue({ deleted: true })
+    listResumes.mockResolvedValue([{ resumeId: 'r2', suffix: 'pdf', parsed: {} }])
+    getWorkspaceState.mockResolvedValue({ resumeId: 'r2' })
+    getResume.mockResolvedValue({ resumeId: 'r2', suffix: 'pdf', parsed: {} })
+    streamAnalysisTask.mockImplementation((_taskId, _handlers, signal) => {
+      streamSignal = signal
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+      })
+    })
+    const store = useResumeStore()
+    store.current = { resumeId: 'r1', suffix: 'pdf' }
+    store.items = [store.current, { resumeId: 'r2', suffix: 'pdf' }]
+    store.analysisTasks = {
+      r1: {
+        taskId: 'resume-task-r1',
+        resourceKey: 'r1',
+        status: 'running',
+        stage: 'analyzing',
+      },
+    }
+    store.watchAnalysisTask('resume-task-r1')
+
+    await store.remove('r1')
+
+    expect(deleteResume).toHaveBeenCalledWith('r1')
+    expect(streamSignal.aborted).toBe(true)
+    expect(store.analysisTasks.r1).toBeUndefined()
+    expect(store.current?.resumeId).toBe('r2')
+  })
+
+  it('merges management metadata with the full parsed detail before saving', async () => {
+    const fullDetail = {
+      resumeId: 'r1',
+      suffix: 'pdf',
+      parsed: { summary: '完整摘要', skills: ['Java'], folder: '原分组' },
+    }
+    getResume.mockResolvedValue(fullDetail)
+    updateResumeParsed.mockResolvedValue({
+      ...fullDetail,
+      parsed: { ...fullDetail.parsed, folder: '新分组', resumeFolder: '新分组' },
+    })
+    const store = useResumeStore()
+
+    await store.saveParsed('r1', { folder: '新分组', resumeFolder: '新分组' })
+
+    expect(updateResumeParsed).toHaveBeenCalledWith('r1', {
+      summary: '完整摘要',
+      skills: ['Java'],
+      folder: '新分组',
+      resumeFolder: '新分组',
+    })
+  })
+})
+
+describe('resume store recovery and failure boundaries', () => {
+  let store
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.resetAllMocks()
+    store = useResumeStore()
+    store.disposeForAuthChange()
+    listResumes.mockResolvedValue([])
+    getWorkspaceState.mockResolvedValue({})
+    saveWorkspaceState.mockResolvedValue({})
+    latestResumeAnalysisTask.mockResolvedValue(null)
+    streamAnalysisTask.mockResolvedValue(undefined)
+  })
+  afterEach(() => {
+    store.disposeForAuthChange()
+    vi.useRealTimers()
+  })
+
+  it.each([
+    ['loadProfile', getJobProfile],
+    ['saveProfile', saveJobProfile],
+    ['syncBossOnline', syncBossOnlineResume],
+    ['saveParsed', getResume],
+    ['analyze', startResumeAnalysisTask],
+    ['remove', deleteResume],
+    ['upload', uploadResume],
+  ])('surfaces %s failures and clears busy state', async (method, api) => {
+    api.mockRejectedValue(new Error('unavailable'))
+    await expect(store[method]('r1')).rejects.toThrow('unavailable')
+    expect(store.error).toBe('unavailable')
+    expect(store.uploading).toBe(false)
+    expect(store.syncingBoss).toBe(false)
+  })
+
+  it.each([
+    ['loadProfile', getJobProfile],
+    ['saveProfile', saveJobProfile],
+    ['syncBossOnline', syncBossOnlineResume],
+    ['saveParsed', getResume],
+    ['analyze', startResumeAnalysisTask],
+    ['remove', deleteResume],
+    ['upload', uploadResume],
+  ])('ignores a late %s failure after authentication changes', async (method, api) => {
+    let reject
+    api.mockReturnValue(
+      new Promise((_resolve, fail) => {
+        reject = fail
+      }),
+    )
+    const request = store[method]('r1')
+    store.disposeForAuthChange()
+    reject(new Error('account A failed'))
+    await expect(request).resolves.toBe(method === 'remove' ? false : null)
+    expect(store.error).toBe('')
+  })
+
+  it('retains selection while reporting workspace persistence failure', async () => {
+    saveWorkspaceState.mockRejectedValue(new Error('workspace offline'))
+    getResume.mockRejectedValue(new Error('detail offline'))
+    await store.select({ resumeId: 'r1' })
+    expect(store.current.resumeId).toBe('r1')
+    expect(store.error).toBe('workspace offline')
+    expect(await store.hydrateCurrent('other')).toBeNull()
+  })
+
+  it('keeps a successful upload visible when list reconciliation fails', async () => {
+    const uploaded = { resumeId: 'r1', suffix: 'pdf' }
+    store.items = [{ resumeId: 'r1', originalName: 'old.pdf' }]
+    uploadResume.mockResolvedValue(uploaded)
+    listResumes.mockRejectedValue(new Error('list offline'))
+    expect(await store.upload({ name: 'new.pdf' })).toEqual(uploaded)
+    expect(store.items).toEqual([uploaded])
+    expect(store.current).toEqual(uploaded)
+    expect(store.error).toBe('简历已上传，但列表刷新失败：list offline')
+  })
+
+  it('restores running tasks and retries a broken stream after polling', async () => {
+    vi.useFakeTimers()
+    const running = { taskId: 'recover-task', resourceKey: 'r1', status: 'running' }
+    latestResumeAnalysisTask.mockResolvedValue(running)
+    streamAnalysisTask
+      .mockRejectedValueOnce(new Error('stream offline'))
+      .mockImplementationOnce(async (_id, handlers) => {
+        handlers.result({
+          ...running,
+          status: 'succeeded',
+          result: { resumeId: 'r1', parsed: { analysis: { score: 90 } } },
+        })
+      })
+    getAnalysisTask.mockResolvedValue(running)
+    store.current = { resumeId: 'r1' }
+    store.items = [store.current]
+    await store.restoreAnalysis('r1')
+    await vi.advanceTimersByTimeAsync(0)
+    store.watchAnalysisTask('recover-task')
+    expect(streamAnalysisTask).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(streamAnalysisTask).toHaveBeenCalledTimes(2)
+    expect(store.isAnalyzing('r1')).toBe(false)
+    expect(store.current.parsed.analysis.score).toBe(90)
+  })
+
+  it.each(['remove', 'disposeForAuthChange'])('cancels scheduled task recovery on %s', async (operation) => {
+    vi.useFakeTimers()
+    const running = { taskId: 'cancel-task', resourceKey: 'r1', status: 'running' }
+    store.applyAnalysisTask(running)
+    streamAnalysisTask.mockRejectedValue(new Error('offline'))
+    getAnalysisTask.mockResolvedValue(running)
+    store.watchAnalysisTask(running.taskId)
+    await vi.advanceTimersByTimeAsync(0)
+    await store[operation]('r1')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(streamAnalysisTask).toHaveBeenCalledTimes(1)
+    expect(store.analysisTasks).toEqual({})
+  })
+
+  it('keeps a running task unchanged if fallback polling also fails', async () => {
+    const running = { taskId: 'poll-failure', resourceKey: 'r1', status: 'running' }
+    store.applyAnalysisTask(running)
+    streamAnalysisTask.mockRejectedValue(new Error('offline'))
+    getAnalysisTask.mockRejectedValue(new Error('poll offline'))
+    store.watchAnalysisTask(running.taskId)
+    await vi.waitFor(() => expect(getAnalysisTask).toHaveBeenCalledOnce())
+    expect(store.analysisTask('r1')).toEqual(running)
+    expect(store.error).toBe('')
+  })
+})
