@@ -71,6 +71,7 @@ job-buddy/
 
 ### 数据与中间件
 
+- 项目代码禁止手工拼接 SQL。Java 复用 MyBatis Plus 实体、BaseMapper 和 Lambda 条件构造器；Python 自有数据访问使用 SQLAlchemy ORM。复杂联查和原子冲突处理可保留参数化 MyBatis XML，禁止 `${}` 注入外部值。具体边界见 `agent-doc/工程规范/ORM数据访问规范.md`。
 - 当前正式数据栈为 PostgreSQL、Redis 与 MinIO；新增其他中间件必须先更新架构文档、配置、容器编排和 Harness。
 - 中间件连接信息、密钥、模型 API Key 等敏感配置必须通过环境变量或挂载的配置文件注入。
 - 任何对生产数据库的结构变更必须通过迁移脚本管理，不允许直接手工改库。
@@ -353,7 +354,7 @@ $ ./.agent-harness/scripts/evaluate.sh agent-eval
 - 在线写入轻量，离线做梦（Dreams）负责去重、冲突解决、洞察提炼，新 Store 不覆盖原 Store。
 - 记忆系统必须支持更新、覆盖、过期、删除与回滚，不能只追加。
 - 写入比检索更关键，需主动判断"是否值得记"，低质量写入会长期污染系统。
-- 当前检索用 BM25 + 时间衰减 + 可选 Vector 信号并以 RRF 融合，不包含图数据库召回；扩展检索信号时必须保持失败降级和权限过滤。
+- 记忆引擎使用 Mem0 OSS，正式存储为 PostgreSQL + pgvector，历史使用持久化的 Mem0 history；禁止重新实现检索排序。租户、用户、scope、启用状态和秒级 TTL 必须在检索前过滤，模型故障由 Runtime 降级为空引用，不切换记忆事实源。
 - 长期记忆是攻击面：写入、存储、召回、执行、共享、遗忘六个环节都要鉴权与审计。
 
 ### 意图识别与路由

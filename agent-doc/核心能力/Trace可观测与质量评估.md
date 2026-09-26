@@ -65,3 +65,29 @@ graph TD
 - Collector、Eval 或日志下游故障不能覆盖原业务错误，也不能让连接失去终态。
 
 测试应覆盖 JSONL 持久化和重载、OTel 开关与失败降级、字段映射、LLM usage、请求关联、内部鉴权，以及 grader 对成功和异常运行的判断。
+
+## 评估分层与样本契约
+
+评估分为评分器校准、Runtime 真实回归、人工开放质量复核三层。校准样本是明确标记的合成输入，只用于验证评分器能否识别已知好坏结果；不得计入产品通过率。Runtime 用例通过生产 HTTP/SSE 入口执行，覆盖路由、上下文、工具执行证据、安全边界和输出约束。Backend 业务规格 `business-job.yaml` 不作为 Runtime 可执行用例，业务事务与浏览器结果需要独立验收。
+
+可执行用例必须包含唯一 ID、类别、输入和非空期望，未知断言拒绝加载。Runtime 事件断言只使用 Runtime SSE 名称，不能使用 Backend 的 intent/message 等事件。前置条件由运行人员通过命令行显式声明满足，未满足时记录跳过原因；跳过与未选中均不计为通过。空选集、未知 ID、非法重复次数均以非零退出码失败。默认禁止真实 Boss 请求，显式开启时只允许单次采样，遇到异常立即停止后续请求。
+
+规则以结构化终态、实际工具执行、工具输出和附件事实作为主要证据。拒绝不能通过正文中的“无法”一词推断；提到 Boss 也不等于调用 Boss。输出逐字约束只用于格式化和确定性结果，开放答案采用带任务、证据和评分标准的可选 Judge；Judge 不可用时启用 Judge 的评估失败关闭，且其结论不能覆盖规则失败。
+
+## 统计、报告与验收
+
+每例保留全部尝试及失败原因，汇总经验 pass@1（成功次数 / 总次数）、观测 pass@k（至少一次成功）、观测 pass^k（所有尝试成功），并明确 k 为该例采样次数，不把一次成功称为稳定性证据。报告同时给出 Wilson 95% 区间、最近秩 p95 时延、分类覆盖及所有失败尝试。小样本区间和 p95 只能作诊断，不能代替生产 SLO。重复运行仅在相同配置、独立会话下可比较；显式 session_id 的用例反映会话内重复。
+
+报告元数据记录评估代码 Git SHA 与脏状态、用例及依赖锁摘要、Python 版本、Runtime 地址与操作人员提供的部署/模型标签。不能从评估端 Git 推断远端部署版本；未知标签必须如实保留。报告使用唯一文件名避免覆盖，结果包含答案和工具证据，作为含敏感内容的本地产物管理。
+
+验收包括用例加载校验、正反评分校准、runner 断言与统计回归、服务接口测试及 Harness Gate。离线 Gate 成功只证明评分与契约实现通过，真实模型效果和 Judge 人工一致性仍须通过独立运行与复核确认。
+
+## 统一用例目录契约
+
+`agent-eval/cases/` 中的数据集统一使用 YAML 和 `schema_version: 1`。套件固定包含 `id/name/description/kind/defaults/fixtures/contracts/cases`；单例固定包含 `id/category/description/input/expected`，执行约束放在 `options`，开放质量标准放在 `rubric`。输入与期望始终为对象，禁止以文件格式区分执行语义。
+
+`kind` 明确区分 `runtime`（真实请求）、`calibration`（合成结果校准）、`business`（待人工或业务端验收的规格）和 `memory`（真实记忆引擎基线）。公共加载器校验结构、唯一 ID、适用字段、预算与引用；Runtime runner 只执行 runtime 类型，校准测试只执行 calibration 类型，Memory runner 读取 memory 类型。业务规格通过格式门禁不代表业务已验证。
+
+Runtime 输入使用 `input.message`，历史和注入数据放在 `input.messages/metadata`；校准输入使用 `input.run_overrides`，期望使用 `expected.passed/checks`；记忆检索使用 `input.operation/query` 与 `expected.ids`，更新使用 `input.fact_id/content/query` 与 `expected.content/previous_content_absent`。共享数据置于 fixtures，默认预算与门槛置于 defaults，协议说明置于 contracts。字段含义由 kind 决定，不能把一种类型的输入默默当作另一种执行。
+
+全目录校验自动发现 YAML 文件，拒绝旧 JSON、重复 YAML 键、空用例、重复 ID、未知字段与错误类型。覆盖清单按套件类型与类别输出；回归新增重点包括联网许可正反边界、附件及多轮隔离、权限与预算终止、Checkpoint 恢复血缘、证据评分，以及业务登录失效、筛选边界与缺失数据。正反样本配对验证规则，失败标签不能由待测评分器生成。

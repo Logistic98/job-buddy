@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 START_ALL = REPO_ROOT / "scripts" / "start-all.sh"
 TEST_ENV = {
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",

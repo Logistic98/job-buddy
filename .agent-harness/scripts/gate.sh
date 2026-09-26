@@ -97,7 +97,7 @@ fail_with_log() {
 }
 
 if command -v python3 >/dev/null 2>&1 \
-  && python3 .agent-harness/tests/test_run_metadata.py > "$METADATA_TEST_LOG" 2>&1; then
+  && python3 .agent-harness/tests/metadata/test_run_metadata.py > "$METADATA_TEST_LOG" 2>&1; then
   log "run metadata contract passed"
 else
   {

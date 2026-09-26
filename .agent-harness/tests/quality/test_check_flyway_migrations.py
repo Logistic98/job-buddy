@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "check_flyway_migrations.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "check_flyway_migrations.py"
 SPEC = importlib.util.spec_from_file_location("check_flyway_migrations", SCRIPT_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader

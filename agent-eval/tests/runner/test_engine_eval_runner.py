@@ -838,7 +838,7 @@ def test_web_search_quality_eval_enforces_latest_path_segment_boundary():
 
 
 def test_latest_eval_cases_require_official_latest_certification():
-    payload = _load_cases(Path(__file__).resolve().parents[1] / "cases" / "engine-eval-v1.yaml")
+    payload = _load_cases(Path(__file__).resolve().parents[2] / "cases" / "runtime-engine.yaml")
     openai_cases = (
         "explicit_web_search_latest_model",
         "autonomous_web_search_latest_model",

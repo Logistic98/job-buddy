@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 APPLICATION_COMPOSE = REPO_ROOT / "docker-compose.yml"
 INFRASTRUCTURE_COMPOSE = REPO_ROOT / "docker-compose-infra.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
@@ -50,6 +50,13 @@ class InfrastructureInitializationTest(unittest.TestCase):
         self.assertNotIn("POSTGRES_MEMORY_DB", compose)
         self.assertNotIn("docker-entrypoint-initdb.d", compose)
         self.assertNotIn("POSTGRES_MEMORY_DB", env_example)
+
+    def test_full_compose_includes_pgvector_and_preserves_database_volume(self):
+        compose = INFRASTRUCTURE_COMPOSE.read_text(encoding="utf-8")
+        postgres_block = compose.split("  postgres:", 1)[1].split("\n  redis:", 1)[0]
+
+        self.assertIn("/pgvector/pgvector:0.8.1-pg17", postgres_block)
+        self.assertIn("postgres-data:/var/lib/postgresql/data", postgres_block)
 
     def test_full_compose_waits_for_infrastructure_and_backend_schema(self):
         application_compose = APPLICATION_COMPOSE.read_text(encoding="utf-8")
@@ -157,10 +164,7 @@ class InfrastructureInitializationTest(unittest.TestCase):
             "AGENT_MEMORY_EMBEDDING_API_KEY: ${AGENT_MEMORY_EMBEDDING_API_KEY:-}",
             memory_block,
         )
-        self.assertIn(
-            "AGENT_MEMORY_RERANK_API_KEY: ${AGENT_MEMORY_RERANK_API_KEY:-}",
-            memory_block,
-        )
+        self.assertNotIn("AGENT_MEMORY_RERANK_API_KEY", compose)
         non_memory_blocks = compose.replace(memory_block, "")
         self.assertNotIn("AGENT_MEMORY_EMBEDDING_API_KEY", non_memory_blocks)
         self.assertNotIn("AGENT_MEMORY_RERANK_API_KEY", non_memory_blocks)

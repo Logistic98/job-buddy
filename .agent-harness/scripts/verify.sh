@@ -89,7 +89,8 @@ run_python_module() {
     env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER \
       AGENT_INTERNAL_SERVICE_TOKEN= \
       JOB_BUDDY_ENVIRONMENT=development \
-      uv run python -m pytest -q || fail "$module: pytest failed"
+      uv run python -m pytest -q --cov --cov-report=term-missing --cov-report=html --cov-report=xml --cov-report=json --cov-fail-under=80 || fail "$module: pytest failed"
+    uv run python "$REPO_ROOT/.agent-harness/scripts/check_line_coverage.py" coverage/coverage.json || fail "$module: line coverage below 80%"
   else
     log "$module: no tests directory, skipping pytest"
   fi
@@ -137,7 +138,9 @@ run_node_module() {
     npm run lint --silent || fail "$module: npm run lint failed"
   fi
 
-  if has_npm_script test; then
+  if has_npm_script test:coverage; then
+    npm run test:coverage || fail "$module: coverage tests failed"
+  elif has_npm_script test; then
     npm test || fail "$module: npm test failed"
   fi
 
@@ -153,6 +156,21 @@ run_java_module() {
   local module="$1"
   log "java module: $module"
   pushd "$module" >/dev/null
+
+  local maven=""
+  if [[ -x ./mvnw ]]; then
+    maven="./mvnw"
+  elif [[ -f pom.xml ]]; then
+    need_cmd mvn "$module verification"
+    maven="mvn"
+  fi
+  if [[ -n "$maven" ]]; then
+    "$maven" -q -DexcludedGroups=integration test || fail "$module: unit tests or coverage failed"
+    if [[ -d target/site/jacoco ]]; then
+      mkdir -p target/site/jacoco-unit
+      cp -R target/site/jacoco/. target/site/jacoco-unit/
+    fi
+  fi
 
   if [[ -x ./mvnw ]]; then
     if [[ "$QUICK" -eq 1 ]]; then

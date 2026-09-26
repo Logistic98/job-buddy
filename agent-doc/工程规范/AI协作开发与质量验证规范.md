@@ -60,3 +60,21 @@ graph TD
 - 交付前审阅 diff，排除无关文件、产物、调试信息、敏感内容和失效链接，并按范围执行 Gate。
 - 无法运行的验证列出原因和风险；
 - 测试通过只是最低门槛，仍需审查架构、并发、资源释放、错误解释和文档一致性。
+
+## 单元测试与覆盖率
+
+测试按模块独立运行，Python 使用 pytest，Java 使用 JUnit 5 / Mockito，前端使用 Vitest / Vue Test Utils。用例名称描述输入条件和预期行为，遵循准备、执行、断言三个阶段；相同契约的输入边界使用参数化测试。共享 fixture 只封装必要的环境隔离和测试数据，不隐藏业务断言。
+
+测试目录必须体现被测职责，禁止将各业务域测试集中堆放在根包。Java 单元测试的包路径与被测生产类保持一致（`common/<职责>`、`modules/<业务域>/<分层>`）；跨模块契约测试归入 `contract/<主题>`，需要 Spring 上下文或数据库的集成测试归入 `integration/<主题>` 并保留 `integration` 标签。移动测试时同步修改 package、显式导入和路径引用；使用 clean 后的完整测试发现验证，防止旧 class 残留造成重复执行或漏测。前端和 Python 测试同样按被测能力或业务域分组，共享测试辅助代码集中管理。
+
+单元测试不得依赖真实模型、Boss 平台、部署数据库或用户凭据。HTTP、数据库、时钟和子进程等外部边界使用可控替身；临时文件使用测试临时目录，环境变量和全局状态在用例结束后恢复。Spring 上下文、数据库和多组件协作用例属于集成测试，覆盖率报告必须说明统计范围，不能把集成覆盖率称为纯单元覆盖率。
+
+覆盖率统计包含未被测试导入的生产代码，Python 统计 app，Java 统计 src/main/java，前端统计 src 下 JavaScript 和 Vue 文件。不得通过排除低覆盖业务代码、空断言、批量调用 getter 或吞掉异常来提高指标。覆盖率报告同时保留行和分支数据，重点检查权限拒绝、参数边界、超时、失败恢复和资源清理；指标达标不替代行为断言。
+
+各模块生产代码的单元测试行覆盖率必须达到 80%。Python 门禁根据报告中的总行数与未覆盖行数精确检查 80% 阈值，Java 和前端使用对应工具的行覆盖率门禁；分支覆盖率独立报告。不可达代码必须先证明不可达并审查调用链，不能通过排除统计或伪造运行条件使指标达标。
+
+### 测试目录分组
+
+前端 `tests/` 按 `api`、`auth`、`chat`、`jobs`、`interview`、`resume`、`project`、`settings`、`markdown`、`common` 和 `infrastructure` 分组。Python 各模块在 `tests/` 内按实际能力组织，例如 Runtime 的 `execution`、`intent`、`planner`、`tools`、`mcp`、`web`、`checkpoint`、`context` 等；小模块仅建立自身需要的分组。Harness 测试按 `quality`、`lifecycle` 和 `metadata` 分组。
+
+测试根目录只保留共享环境入口（Python `conftest.py`、Vitest `setup.js`）。共享 fixture 保持父目录作用域，业务测试不得反向导入其他测试文件。Pytest 和 Vitest 使用递归发现；Harness 的 unittest 子目录保留 `__init__.py`，确保默认 discover 不遗漏测试。引用测试文件的脚本、文档以及基于 `__file__` 定位资源的代码必须随迁移同步维护。

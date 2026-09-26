@@ -33,13 +33,14 @@ run_agent_eval() {
   [[ -d agent-eval ]] || fail "agent-eval directory is missing"
   need_cmd uv "agent-eval"
 
-  log "agent-eval: grader tests and engine self-check"
+  log "agent-eval: grader calibration, runner contracts, case validation and engine self-check"
   pushd agent-eval >/dev/null
   uv sync --frozen --extra dev --quiet || fail "agent-eval: dependency sync failed"
   env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER \
     AGENT_INTERNAL_SERVICE_TOKEN= \
     JOB_BUDDY_ENVIRONMENT=development \
     uv run python -m pytest -q || fail "agent-eval: pytest failed"
+  uv run python scripts/validate_cases.py || fail "agent-eval: invalid case catalog"
   uv run python scripts/run_engine_eval.py --self-check || fail "agent-eval: engine self-check failed"
   popd >/dev/null
 }
@@ -54,9 +55,20 @@ run_runtime_contract() {
   env -u JOB_BUDDY_RUNTIME_USE_LLM_PLANNER \
     AGENT_INTERNAL_SERVICE_TOKEN= \
     JOB_BUDDY_ENVIRONMENT=development \
-    uv run python -m pytest -q tests/test_runtime_delivery_contract.py \
+    uv run python -m pytest -q tests/contracts/test_runtime_delivery_contract.py \
     || fail "agent-runtime: delivery contract failed"
   popd >/dev/null
+}
+
+run_memory_live_eval() {
+  if [[ "${AGENT_MEMORY_LIVE_EVAL:-0}" != "1" ]]; then
+    log "agent-memory: deterministic contracts only; real model quality requires AGENT_MEMORY_LIVE_EVAL=1"
+    return
+  fi
+  local report_path="$REPO_ROOT/agent-eval/reports/memory-live-$(date +%Y%m%d-%H%M%S)-$$.json"
+  log "agent-memory: real model baseline against pgvector"
+  (cd agent-memory && uv run python scripts/evaluate_memory.py --backend pgvector --output "$report_path") \
+    || fail "agent-memory: live quality threshold failed; see $report_path"
 }
 
 is_known_target "$TARGET" || fail "unknown eval target: $TARGET"
@@ -66,6 +78,10 @@ if [[ "$TARGET" == "agent-frontend" ]]; then
 else
   run_agent_eval
   run_runtime_contract
+fi
+
+if [[ "$TARGET" == "agent-memory" || "$TARGET" == "all" ]]; then
+  run_memory_live_eval
 fi
 
 log "all evals passed"

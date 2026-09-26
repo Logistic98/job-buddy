@@ -1,0 +1,350 @@
+schema_version: 1
+id: memory-baseline
+version: 2
+name: Memory 真实检索与更新基线
+description: 固定合成事实与查询；使用真实引擎和配置模型，评估显式更新而非自动抽取。
+kind: memory
+defaults:
+  thresholds:
+    recall_at_5: 0.9
+    mrr_at_5: 0.85
+    update_accuracy: 1.0
+    isolation_accuracy: 1.0
+    lifecycle_accuracy: 1.0
+    search_p95_ms: 3000
+    update_p95_ms: 5000
+fixtures:
+  facts:
+    - id: city
+      content: 长期求职目标城市是上海。
+    - id: salary
+      content: 期望月薪税前 30000 到 40000 元。
+    - id: remote
+      content: 优先选择每周至少三天在家办公的岗位。
+    - id: stack
+      content: 主要使用 Java 和 Python 开发后端服务。
+    - id: outsourcing
+      content: 不考虑人力外包公司的岗位。
+    - id: commute
+      content: 希望单程通勤不超过四十五分钟。
+    - id: industry
+      content: 最感兴趣的行业是医疗科技。
+    - id: role
+      content: 下一份工作想做大模型应用工程师。
+    - id: notice
+      content: 入职前需要四周办理原公司的离职交接。
+    - id: schedule
+      content: 不接受长期夜班和大小周工作制。
+contracts:
+  isolation:
+    - cross_user
+    - cross_tenant
+  lifecycle:
+    - rollback
+    - disabled
+    - ttl
+    - purge
+    - delete
+    - expired_update
+  execution: agent-memory/scripts/evaluate_memory.py
+cases:
+  - id: memory_search_01
+    category: semantic_retrieval
+    description: 打算在哪座城市找工作？
+    input:
+      operation: search
+      query: 打算在哪座城市找工作？
+    expected:
+      ids:
+        - city
+  - id: memory_search_02
+    category: semantic_retrieval
+    description: 工作地点优先选择哪里？
+    input:
+      operation: search
+      query: 工作地点优先选择哪里？
+    expected:
+      ids:
+        - city
+  - id: memory_search_03
+    category: semantic_retrieval
+    description: 每月税前收入期望多少？
+    input:
+      operation: search
+      query: 每月税前收入期望多少？
+    expected:
+      ids:
+        - salary
+  - id: memory_search_04
+    category: semantic_retrieval
+    description: 薪资区间下限和上限是什么？
+    input:
+      operation: search
+      query: 薪资区间下限和上限是什么？
+    expected:
+      ids:
+        - salary
+  - id: memory_search_05
+    category: semantic_retrieval
+    description: 对远程办公有什么偏好？
+    input:
+      operation: search
+      query: 对远程办公有什么偏好？
+    expected:
+      ids:
+        - remote
+  - id: memory_search_06
+    category: semantic_retrieval
+    description: 每周希望几天不用去办公室？
+    input:
+      operation: search
+      query: 每周希望几天不用去办公室？
+    expected:
+      ids:
+        - remote
+  - id: memory_search_07
+    category: semantic_retrieval
+    description: 平时的主要编程语言是什么？
+    input:
+      operation: search
+      query: 平时的主要编程语言是什么？
+    expected:
+      ids:
+        - stack
+  - id: memory_search_08
+    category: semantic_retrieval
+    description: 服务端开发常用哪些技术语言？
+    input:
+      operation: search
+      query: 服务端开发常用哪些技术语言？
+    expected:
+      ids:
+        - stack
+  - id: memory_search_09
+    category: semantic_retrieval
+    description: 哪些用工类型需要排除？
+    input:
+      operation: search
+      query: 哪些用工类型需要排除？
+    expected:
+      ids:
+        - outsourcing
+  - id: memory_search_10
+    category: semantic_retrieval
+    description: 是否接受外包公司的工作？
+    input:
+      operation: search
+      query: 是否接受外包公司的工作？
+    expected:
+      ids:
+        - outsourcing
+  - id: memory_search_11
+    category: semantic_retrieval
+    description: 能够接受多长时间的上班路程？
+    input:
+      operation: search
+      query: 能够接受多长时间的上班路程？
+    expected:
+      ids:
+        - commute
+  - id: memory_search_12
+    category: semantic_retrieval
+    description: 通勤时长的上限是多少？
+    input:
+      operation: search
+      query: 通勤时长的上限是多少？
+    expected:
+      ids:
+        - commute
+  - id: memory_search_13
+    category: semantic_retrieval
+    description: 希望进入哪个业务行业？
+    input:
+      operation: search
+      query: 希望进入哪个业务行业？
+    expected:
+      ids:
+        - industry
+  - id: memory_search_14
+    category: semantic_retrieval
+    description: 医疗和金融更偏向哪个领域？
+    input:
+      operation: search
+      query: 医疗和金融更偏向哪个领域？
+    expected:
+      ids:
+        - industry
+  - id: memory_search_15
+    category: semantic_retrieval
+    description: 目标职位是什么？
+    input:
+      operation: search
+      query: 目标职位是什么？
+    expected:
+      ids:
+        - role
+  - id: memory_search_16
+    category: semantic_retrieval
+    description: 未来希望从事什么岗位？
+    input:
+      operation: search
+      query: 未来希望从事什么岗位？
+    expected:
+      ids:
+        - role
+  - id: memory_search_17
+    category: semantic_retrieval
+    description: 拿到 offer 后多久可以到岗？
+    input:
+      operation: search
+      query: 拿到 offer 后多久可以到岗？
+    expected:
+      ids:
+        - notice
+  - id: memory_search_18
+    category: semantic_retrieval
+    description: 离职交接需要多长时间？
+    input:
+      operation: search
+      query: 离职交接需要多长时间？
+    expected:
+      ids:
+        - notice
+  - id: memory_search_19
+    category: semantic_retrieval
+    description: 对工作时间有哪些限制？
+    input:
+      operation: search
+      query: 对工作时间有哪些限制？
+    expected:
+      ids:
+        - schedule
+  - id: memory_search_20
+    category: semantic_retrieval
+    description: 能否接受每隔一周只休一天？
+    input:
+      operation: search
+      query: 能否接受每隔一周只休一天？
+    expected:
+      ids:
+        - schedule
+  - id: memory_search_21
+    category: multi_fact_retrieval
+    description: 求职的地点和月薪期望分别是什么？
+    input:
+      operation: search
+      query: 求职的地点和月薪期望分别是什么？
+    expected:
+      ids:
+        - city
+        - salary
+  - id: memory_search_22
+    category: multi_fact_retrieval
+    description: 编程技术和目标职位分别是什么？
+    input:
+      operation: search
+      query: 编程技术和目标职位分别是什么？
+    expected:
+      ids:
+        - stack
+        - role
+  - id: memory_search_23
+    category: multi_fact_retrieval
+    description: 对通勤时间和居家办公有哪些要求？
+    input:
+      operation: search
+      query: 对通勤时间和居家办公有哪些要求？
+    expected:
+      ids:
+        - commute
+        - remote
+  - id: memory_search_24
+    category: multi_fact_retrieval
+    description: 外包公司和大小周是否可以接受？
+    input:
+      operation: search
+      query: 外包公司和大小周是否可以接受？
+    expected:
+      ids:
+        - outsourcing
+        - schedule
+  - id: memory_search_25
+    category: semantic_retrieval
+    description: 从原单位交接到可入职需要几周？
+    input:
+      operation: search
+      query: 从原单位交接到可入职需要几周？
+    expected:
+      ids:
+        - notice
+  - id: memory_search_26
+    category: semantic_retrieval
+    description: 医疗科技是不是优先考虑的行业？
+    input:
+      operation: search
+      query: 医疗科技是不是优先考虑的行业？
+    expected:
+      ids:
+        - industry
+  - id: memory_search_27
+    category: semantic_retrieval
+    description: 一趟上班希望控制在多少分钟？
+    input:
+      operation: search
+      query: 一趟上班希望控制在多少分钟？
+    expected:
+      ids:
+        - commute
+  - id: memory_search_28
+    category: semantic_retrieval
+    description: 不去办公室办公的天数期望是多少？
+    input:
+      operation: search
+      query: 不去办公室办公的天数期望是多少？
+    expected:
+      ids:
+        - remote
+  - id: memory_update_city
+    category: fact_update
+    description: 显式更新后返回新事实并排除旧事实。
+    input:
+      operation: update
+      fact_id: city
+      content: 长期求职目标城市改为杭州。
+      query: 现在打算在哪座城市找工作？
+    expected:
+      content: 长期求职目标城市改为杭州。
+      previous_content_absent: true
+  - id: memory_update_salary
+    category: fact_update
+    description: 显式更新后返回新事实并排除旧事实。
+    input:
+      operation: update
+      fact_id: salary
+      content: 期望月薪税前 40000 到 50000 元。
+      query: 最新的薪资期望是多少？
+    expected:
+      content: 期望月薪税前 40000 到 50000 元。
+      previous_content_absent: true
+  - id: memory_update_remote
+    category: fact_update
+    description: 更新后应检索到新事实且不出现旧事实。
+    input:
+      operation: update
+      fact_id: remote
+      content: 远程办公偏好改为每周一天在家办公。
+      query: 现在每周希望几天居家办公？
+    expected:
+      content: 远程办公偏好改为每周一天在家办公。
+      previous_content_absent: true
+  - id: memory_update_notice
+    category: fact_update
+    description: 更新后应检索到新事实且不出现旧事实。
+    input:
+      operation: update
+      fact_id: notice
+      content: 离职交接时间改为两周。
+      query: 最新到岗前交接需要几周？
+    expected:
+      content: 离职交接时间改为两周。
+      previous_content_absent: true

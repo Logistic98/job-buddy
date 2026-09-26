@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 STOP_ALL = REPO_ROOT / "scripts" / "stop-all.sh"
 TEST_ENV = {
     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",

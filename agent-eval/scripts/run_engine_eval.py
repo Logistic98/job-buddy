@@ -14,7 +14,7 @@
 用法：
   uv run python scripts/run_engine_eval.py \
     --runtime-url http://127.0.0.1:8010 \
-    --cases cases/engine-eval-v1.yaml \
+    --cases cases/runtime-engine.yaml \
     --repeats 3 \
     --out reports
 
@@ -25,11 +25,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
+import platform
 import statistics
+import subprocess
 import sys
 import time
+import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -38,14 +43,19 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.grader import grade_latency, grade_run, grade_trace  # noqa: E402
+from app.cases import load_suite, runtime_case  # noqa: E402
+from app.grader import executed_tool_names, grade_latency, grade_run, grade_trace  # noqa: E402
+from app.judge import judge_run  # noqa: E402
 
 
 def _load_cases(path: Path) -> dict:
-    import yaml  # 延迟导入，自检模式无需 yaml
-
-    with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    spec = load_suite(path, kind="runtime")
+    return {
+        **spec,
+        "runtime_profile": spec["defaults"].get("runtime_profile", "job-buddy"),
+        "latency_budget_defaults": spec["defaults"].get("latency_budget", {}),
+        "cases": [runtime_case(case) for case in spec["cases"]],
+    }
 
 
 def _now_ms(start: float) -> int:
@@ -129,6 +139,8 @@ def _stream_case(runtime_url: str, case: dict, timeout: float) -> dict:
                     elif event_name == "reasoning" and metrics["ttfr_ms"] is None:
                         metrics["ttfr_ms"] = elapsed
                     elif event_name == "done":
+                        if not isinstance(data, dict):
+                            raise ValueError("Runtime done payload must be a JSON object")
                         metrics["done_ms"] = elapsed
                         done_data = data
                     elif event_name == "error":
@@ -203,13 +215,15 @@ def _directive_from_trace(trace_events: list[dict]) -> dict:
         "confidence": p.get("confidence"),
         "next_action": p.get("next_action"),
         "needs_clarification": p.get("needs_clarification"),
+        "risk": p.get("risk"),
+        "slots": p.get("slots"),
     }
 
 
 def _build_run(sample: dict) -> dict:
     done = sample.get("done") or {}
     trace_events = done.get("trace_events") or []
-    directive = _directive_from_trace(trace_events)
+    directive = done.get("directive") or _directive_from_trace(trace_events)
     job_cards = done.get("job_cards") or done.get("jobCards") or []
     if not isinstance(job_cards, list):
         job_cards = []
@@ -229,6 +243,7 @@ def _build_run(sample: dict) -> dict:
     if not isinstance(tool_results, list):
         tool_results = []
     return {
+        **done,
         "status": done.get("status"),
         "stop_reason": done.get("stop_reason"),
         "answer": done.get("answer") or "",
@@ -334,8 +349,42 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
             stop_reason == str(exp["stop_reason"]).lower(),
             {"actual": stop_reason, "expected": exp["stop_reason"]},
         )
-    if exp.get("needs_clarification"):
-        add("needs_clarification", bool(directive.get("needs_clarification")) or stop_reason == "need_clarification")
+    if "needs_clarification" in exp:
+        actual = directive.get("needs_clarification")
+        if stop_reason == "need_clarification":
+            actual = True
+        add("needs_clarification", actual is exp["needs_clarification"], {"actual": actual})
+    if "events" in exp:
+        actual = [event.get("event") for event in sample.get("events") or []]
+        missing = [name for name in exp["events"] if name not in actual]
+        add("events", not missing, {"missing": missing})
+    if "runtime_capability" in exp:
+        task = run.get("task_understanding") or directive.get("task") or {}
+        capability = (task.get("routing") or {}).get("selected_capability") or {}
+        actual = capability.get("capability_id")
+        add("runtime_capability", actual == exp["runtime_capability"], {"actual": actual})
+    if "slots" in exp:
+        actual = directive.get("slots") or {}
+        add("slots", all(actual.get(key) == value for key, value in exp["slots"].items()), {"actual": actual})
+    if "forbidden_actions" in exp:
+        actual = directive.get("next_action")
+        add("forbidden_actions", actual is not None and actual not in exp["forbidden_actions"], {"actual": actual})
+    if "forbidden_tools" in exp:
+        violations = sorted(executed_tool_names(run) & set(exp["forbidden_tools"]))
+        add("forbidden_tools", not violations, {"violations": violations})
+    if "answer_equals" in exp:
+        add("answer_equals", answer.strip() == exp["answer_equals"].strip())
+    if "answer_not_contains" in exp:
+        found = [item for item in exp["answer_not_contains"] if item in answer]
+        add("answer_not_contains", not found, {"found": found})
+    if "tool_output_contains" in exp:
+        for name, fragments in exp["tool_output_contains"].items():
+            outputs = [
+                json.dumps(item.get("output"), ensure_ascii=False)
+                for item in run.get("tool_results") or []
+                if item.get("tool_name") == name and _valid_required_tool_result(name, item)
+            ]
+            add(f"tool_output_contains:{name}", any(all(part in output for part in fragments) for output in outputs))
     if "answer_min_chars" in exp:
         add(
             "answer_min_chars",
@@ -354,7 +403,8 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
             and not (isinstance(item.get("metadata"), dict) and item["metadata"].get("synthetic") is True)
         ]
         actual_tools = [str(item.get("tool_name") or item.get("toolName") or "") for item in real_tool_results]
-        add("expect_no_tool_results", not real_tool_results, {"actual_tools": actual_tools})
+        actual_tools = sorted(set(actual_tools) | executed_tool_names(run))
+        add("expect_no_tool_results", not real_tool_results and not actual_tools, {"actual_tools": actual_tools})
     if "required_tools" in exp:
         required_tools = [str(item) for item in exp.get("required_tools") or []]
         tool_results = [item for item in run.get("tool_results") or [] if isinstance(item, dict)]
@@ -676,13 +726,10 @@ def _effect_checks(case: dict, run: dict, sample: dict) -> list[dict]:
         llm_calls = token_usage.get("llm_calls")
         add("expect_no_llm_usage", llm_calls == 0, {"actual_llm_calls": llm_calls})
     if exp.get("expect_rejection"):
-        rejected = stop_reason in {"safety_blocked", "rejected"} or any(
-            w in answer for w in ["不能", "无法", "不支持", "拒绝", "不会"]
-        )
+        rejected = stop_reason in {"safety_blocked", "rejected"} or directive.get("next_action") == "reject_with_reason"
         add("expect_rejection", rejected, {"stop_reason": stop_reason})
     if exp.get("disallow_boss"):
-        blob = (answer + json.dumps(sample.get("events"), ensure_ascii=False)).lower()
-        add("disallow_boss", "boss" not in blob and "直聘" not in blob)
+        add("disallow_boss", not any("boss" in name.lower() for name in executed_tool_names(run)))
     return checks
 
 
@@ -694,7 +741,7 @@ def _score(checks: Iterable[dict]) -> float:
 
 
 def _valid_required_tool_result(tool_name: str, result: dict) -> bool:
-    if result.get("success") is not True:
+    if result.get("success") is not True or (result.get("metadata") or {}).get("synthetic") is True:
         return False
     if tool_name == "web_search":
         output = result.get("output")
@@ -724,6 +771,11 @@ def _evaluate_sample(case: dict, sample: dict) -> dict:
     run = _build_run(sample)
     effect = _effect_checks(case, run, sample)
     expected = case.get("expected") or {}
+    effect.append({"code": "terminal_payload_present", "passed": bool(sample.get("done"))})
+    if not _is_understanding_only_case(case):
+        effect.append({"code": "answer_present", "passed": bool(str(run.get("answer") or "").strip())})
+    if not any(key in expected for key in ("expect_status", "stop_reason", "expect_rejection", "needs_clarification")):
+        effect.append({"code": "successful_terminal", "passed": run.get("status") in {"success", "done", "ok"}})
     required_trace_events = expected.get("trace_events")
     process = grade_trace(
         run.get("trace_events") or [],
@@ -731,9 +783,19 @@ def _evaluate_sample(case: dict, sample: dict) -> dict:
     )
     speed = grade_latency(run.get("metrics") or {}, case.get("latency_budget") or {})
     quality = grade_run(run, _grader_expected(case))
+    if expected.get("checkpoint_resume"):
+        checks = quality["dimensions"].get("tool_execution", {}).get("checks", [])
+        resume_check = next((check for check in checks if check["code"] == "checkpoint_resume_trace_flow"), {})
+        process = {
+            "score": resume_check.get("score", 0),
+            "passed": resume_check.get("score") == 1,
+            **(resume_check.get("evidence") or {}),
+        }
     effect_score = _score(effect)
+    judge = sample.get("judge")
     passed = (
-        sample.get("error") is None
+        (judge is None or (judge.get("enabled") is True and judge.get("ok") is True and judge.get("verdict") == "pass"))
+        and sample.get("error") is None
         and effect_score >= 1.0
         and process.get("passed", False)
         and speed.get("passed", True)
@@ -741,6 +803,7 @@ def _evaluate_sample(case: dict, sample: dict) -> dict:
     )
     return {
         "passed": passed,
+        "judge": judge,
         "error": sample.get("error"),
         "metrics": run.get("metrics"),
         "effect": {"score": effect_score, "checks": effect},
@@ -765,6 +828,9 @@ def _grader_expected(case: dict) -> dict:
         "minimum_recommended_match_score",
         "minimum_qualified_jobs",
         "require_complete_recommendation_scoring",
+        "checkpoint_resume",
+        "checkpoint_replan",
+        "expect_injection_flag",
     ):
         if key in exp:
             out[key] = exp[key]
@@ -788,6 +854,17 @@ def _has_critical(quality: dict) -> bool:
     return any(issue.get("severity") == "critical" for issue in quality.get("issues") or [])
 
 
+def _wilson_interval(successes: int, count: int) -> list[float] | None:
+    if count == 0:
+        return None
+    z = 1.959963984540054
+    rate = successes / count
+    denominator = 1 + z * z / count
+    center = (rate + z * z / (2 * count)) / denominator
+    half = z * math.sqrt(rate * (1 - rate) / count + z * z / (4 * count * count)) / denominator
+    return [round(max(0.0, center - half), 4), round(min(1.0, center + half), 4)]
+
+
 def _aggregate(case: dict, samples: list[dict]) -> dict:
     evals = [s["eval"] for s in samples]
     runs = len(evals)
@@ -802,6 +879,8 @@ def _aggregate(case: dict, samples: list[dict]) -> dict:
         if vals:
             lat_summary[key] = {
                 "p50": int(statistics.median(vals)),
+                "p95": sorted(vals)[math.ceil(0.95 * len(vals)) - 1],
+                "n": len(vals),
                 "max": max(vals),
                 "min": min(vals),
             }
@@ -810,7 +889,13 @@ def _aggregate(case: dict, samples: list[dict]) -> dict:
         "category": case.get("category"),
         "input": case.get("input"),
         "runs": runs,
-        "pass_at_1": evals[0]["passed"] if evals else False,
+        "first_attempt_passed": evals[0]["passed"] if evals else False,
+        "pass_at_1": round(passes / runs, 4) if runs else 0.0,
+        "pass_at_k": passes > 0,
+        "pass_rate_ci95": _wilson_interval(passes, runs),
+        "failed_samples": [
+            {"attempt": i, **evaluation} for i, evaluation in enumerate(evals, 1) if not evaluation["passed"]
+        ],
         "pass_pow_k": passes == runs and runs > 0,  # pass^k：全部通过才算稳定可上线
         "pass_rate": round(passes / runs, 4) if runs else 0.0,
         "latency": lat_summary,
@@ -842,14 +927,15 @@ def _sample_record(entry: dict) -> dict:
 
 def _write_reports(out_dir: Path, results: list[dict], raw: list[dict], meta: dict) -> tuple[Path, Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
     jsonl_path = out_dir / f"engine-eval-{stamp}.jsonl"
-    with jsonl_path.open("w", encoding="utf-8") as fh:
+    with os.fdopen(os.open(jsonl_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as fh:
         fh.write(json.dumps({"meta": meta}, ensure_ascii=False) + "\n")
         for row in raw:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     md_path = out_dir / f"engine-eval-{stamp}.md"
-    md_path.write_text(_render_markdown(results, meta), encoding="utf-8")
+    with os.fdopen(os.open(md_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as fh:
+        fh.write(_render_markdown(results, meta))
     return jsonl_path, md_path
 
 
@@ -860,12 +946,22 @@ def _render_markdown(results: list[dict], meta: dict) -> str:
         f"- 时间：{meta['timestamp']}",
         f"- Runtime：{meta['runtime_url']}",
         f"- 重复次数/用例：{meta['repeats']}",
-        f"- 执行用例：{len(results)}（跳过 {meta['skipped']} 个高风控 Boss 用例）",
+        f"- 执行用例：{len(results)}（跳过 {meta['skipped']} 个用例）",
         "",
     ]
     total = len(results)
     stable = sum(1 for r in results if r["pass_pow_k"])
-    lines.append(f"- 稳定通过（pass^k）：{stable}/{total}")
+    lines.append(f"- 全次通过（观测 pass^k）：{stable}/{total}")
+    lines.append("- pass@1 为样本成功率；pass@k 为至少一次成功；pass^k 为全部成功。k=1 不能证明稳定性。")
+    lines.append(f"- Judge：{meta.get('judge', '未启用')}；部署/模型标签：{meta.get('deployment_label') or '未知'}")
+    lines.append(f"- 评估端 Git：{meta.get('git_sha', '未知')}；用例 SHA256：{meta.get('cases_sha256', '未知')}")
+    for skipped in meta.get("skipped_cases", []):
+        lines.append(f"- SKIP {skipped['id']}: {skipped['reason']}")
+    categories = sorted({r["category"] for r in results})
+    lines.extend(["", "| 类别 | 执行 | 全次通过 |", "|---|---:|---:|"])
+    for category in categories:
+        rows = [r for r in results if r["category"] == category]
+        lines.append(f"| {category} | {len(rows)} | {sum(r['pass_pow_k'] for r in rows)} |")
     lines.append("")
     lines.append("| 用例 | 类别 | pass^k | 通过率 | ttfb p50 | ttft p50/max | done p50/max | 效果 | 速度 | 过程 |")
     lines.append("|---|---|---|---|---|---|---|---|---|---|")
@@ -878,7 +974,7 @@ def _render_markdown(results: list[dict], meta: dict) -> str:
             "| {id} | {cat} | {pk} | {pr} | {ttfb} | {ttft} | {done} | {eff} | {spd} | {proc} |".format(
                 id=r["id"],
                 cat=r["category"],
-                pk="✅" if r["pass_pow_k"] else "❌",
+                pk="PASS" if r["pass_pow_k"] else "FAIL",
                 pr=f"{r['pass_rate']:.0%}",
                 ttfb=ttfb.get("p50", "-"),
                 ttft=f"{ttft.get('p50', '-')}/{ttft.get('max', '-')}",
@@ -889,13 +985,25 @@ def _render_markdown(results: list[dict], meta: dict) -> str:
             )
         )
     lines.append("")
+    lines.extend(["| 用例 | n | pass@1 | pass@k | Wilson 95% | done p95 |", "|---|---:|---:|---|---|---:|"])
+    for r in results:
+        lines.append(
+            f"| {r['id']} | {r.get('runs', '-')} | {r.get('pass_at_1', '-')} | {r.get('pass_at_k', '-')} | {r.get('pass_rate_ci95', '-')} | {r['latency'].get('done_ms', {}).get('p95', '-')} |"
+        )
     fails = [r for r in results if not r["pass_pow_k"]]
     if fails:
         lines.append("## 未稳定通过用例明细")
         lines.append("")
         for r in fails:
-            fs = r["first_sample"]
+            fs = (r.get("failed_samples") or [r["first_sample"]])[0]
             lines.append(f"### {r['id']}（{r['category']}）")
+            for failure in r.get("failed_samples", []):
+                codes = [c["code"] for c in failure.get("effect", {}).get("checks", []) if not c["passed"]]
+                codes += [i["code"] for i in failure.get("quality", {}).get("issues", [])]
+                codes += [i["code"] for i in failure.get("speed", {}).get("issues", [])]
+                lines.append(
+                    f"- 尝试 {failure['attempt']}：{codes}；error={failure.get('error')}；process={failure.get('process')}；judge={failure.get('judge')}"
+                )
             if fs.get("error"):
                 lines.append(f"- 错误：{fs['error']}")
             bad_effect = [c for c in fs.get("effect", {}).get("checks", []) if not c["passed"]]
@@ -965,32 +1073,85 @@ def _self_check() -> int:
     return 0 if ok else 1
 
 
+def _git_metadata() -> dict:
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=5, check=True
+        )
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True, timeout=5, check=True
+        )
+        diff = subprocess.run(
+            ["git", "diff", "HEAD", "--", "agent-eval"], cwd=ROOT.parent, capture_output=True, timeout=5, check=True
+        )
+        return {
+            "git_sha": sha.stdout.strip(),
+            "git_dirty": bool(status.stdout.strip()),
+            "eval_diff_sha256": hashlib.sha256(diff.stdout).hexdigest(),
+        }
+    except (OSError, subprocess.SubprocessError):
+        return {"git_sha": None, "git_dirty": None, "eval_diff_sha256": None}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="智能引擎效果/速度/过程联合评估")
     parser.add_argument("--runtime-url", default="http://127.0.0.1:8010")
-    parser.add_argument("--cases", default=str(ROOT / "cases" / "engine-eval-v1.yaml"))
+    parser.add_argument("--cases", default=str(ROOT / "cases" / "runtime-engine.yaml"))
     parser.add_argument("--repeats", type=int, default=1, help="每个用例重复次数，用于时延分位与 pass^k")
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--allow-boss", action="store_true", help="放开 requires_live_boss 用例（高风控，谨慎使用）")
     parser.add_argument("--only", help="只跑指定 case id，逗号分隔")
     parser.add_argument("--out", default=str(ROOT / "reports"))
     parser.add_argument("--self-check", action="store_true")
+    parser.add_argument("--validate-only", action="store_true", help="校验用例并打印分类清单，不调用 Runtime")
+    parser.add_argument("--category", help="按类别选择，逗号分隔")
+    parser.add_argument("--suite", choices=["regression", "capability"], help="分开执行回归与能力探索")
+    parser.add_argument("--precondition", action="append", default=[], help="声明已满足的前置条件，可重复")
+    parser.add_argument("--judge", action="store_true", help="追加 LLM Judge；不可用或不通过则本次失败")
+    parser.add_argument("--deployment-label", help="实际被测部署/模型/配置标识，未知时不推断")
     args = parser.parse_args()
 
     if args.self_check:
         return _self_check()
 
-    spec = _load_cases(Path(args.cases))
+    if args.repeats < 1 or not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("repeats and timeout must be positive")
+    if args.allow_boss and args.repeats != 1:
+        parser.error("live Boss evaluation only permits --repeats 1")
+    try:
+        spec = _load_cases(Path(args.cases))
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    if args.validate_only:
+        for case in spec["cases"]:
+            print(f"{case['id']}: {case['category']} ({len(case['expected'])} assertions)")
+        print(f"Validated {len(spec['cases'])} cases")
+        return 0
     only = set(filter(None, (args.only or "").split(","))) if args.only else None
     defaults = spec.get("latency_budget_defaults") or {}
 
+    known_ids = {case["id"] for case in spec["cases"]}
+    if only and only - known_ids:
+        parser.error(f"unknown case IDs: {sorted(only - known_ids)}")
+    categories = set(args.category.split(",")) if args.category else None
+    known_categories = {case["category"] for case in spec["cases"]}
+    if categories and categories - known_categories:
+        parser.error(f"unknown categories: {sorted(categories - known_categories)}")
     cases = []
-    skipped = 0
+    skipped_cases = []
     for case in spec.get("cases", []):
         if only and case.get("id") not in only:
             continue
+        if categories and case["category"] not in categories:
+            continue
+        if args.suite and case.get("suite", "regression") != args.suite:
+            continue
+        missing = set(case.get("preconditions") or []) - set(args.precondition)
         if case.get("requires_live_boss") and not args.allow_boss:
-            skipped += 1
+            skipped_cases.append({"id": case["id"], "reason": "live_boss_disabled"})
+            continue
+        if missing:
+            skipped_cases.append({"id": case["id"], "reason": "missing_preconditions:" + ",".join(sorted(missing))})
             continue
         budget = dict(defaults)
         budget.update(case.get("latency_budget") or {})
@@ -1006,14 +1167,28 @@ def main() -> int:
 
     results = []
     raw_records = []
+    boss_stopped = False
     for case in cases:
+        if case.get("requires_live_boss") and boss_stopped:
+            skipped_cases.append({"id": case["id"], "reason": "stopped_after_live_boss_failure"})
+            continue
         samples = []
         for _ in range(max(1, args.repeats)):
             sample = _execute_case(args.runtime_url, case, args.timeout)
+            if args.judge:
+                run = _build_run(sample)
+                run["input"] = case["input"]
+                run["evaluation_context"] = {
+                    "messages": case.get("messages", []),
+                    "attachments": (case.get("metadata") or {}).get("attachments", []),
+                }
+                sample["judge"] = judge_run(run, {**case["expected"], "rubric": case.get("rubric")})
             ev = _evaluate_sample(case, sample)
             samples.append({"sample": sample, "eval": ev})
         agg = _aggregate(case, samples)
         results.append(agg)
+        if case.get("requires_live_boss") and not agg["pass_pow_k"]:
+            boss_stopped = True
         raw_records.append({"id": case.get("id"), "aggregate": agg, "samples": [_sample_record(s) for s in samples]})
         status = "OK" if agg["pass_pow_k"] else "FAIL"
         ttft = agg["latency"].get("ttft_ms", {})
@@ -1025,16 +1200,26 @@ def main() -> int:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "runtime_url": args.runtime_url,
         "repeats": args.repeats,
-        "skipped": skipped,
+        "skipped": len(skipped_cases),
+        "skipped_cases": skipped_cases,
+        "selected": len(cases)
+        + len([row for row in skipped_cases if row["reason"] != "stopped_after_live_boss_failure"]),
         "cases_file": args.cases,
+        "cases_version": spec.get("version"),
+        "cases_sha256": hashlib.sha256(Path(args.cases).read_bytes()).hexdigest(),
+        "lock_sha256": hashlib.sha256((ROOT / "uv.lock").read_bytes()).hexdigest(),
+        "python": platform.python_version(),
+        "judge": "enabled" if args.judge else "disabled",
+        "deployment_label": args.deployment_label,
+        **_git_metadata(),
     }
     out_dir = Path(args.out)
     jsonl_path, md_path = _write_reports(out_dir, results, raw_records, meta)
     stable = sum(1 for r in results if r["pass_pow_k"])
-    print(f"\n稳定通过 pass^k: {stable}/{len(results)}  跳过(高风控): {skipped}")
+    print(f"\n全次通过 pass^k: {stable}/{len(results)}  跳过: {len(skipped_cases)}")
     print(f"报告: {md_path}")
     print(f"明细: {jsonl_path}")
-    return 0 if stable == len(results) else 1
+    return 0 if results and stable == len(results) else 1
 
 
 if __name__ == "__main__":

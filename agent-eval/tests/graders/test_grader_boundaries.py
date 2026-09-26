@@ -122,7 +122,7 @@ def test_missing_tool_events_downgrades_but_not_fatal():
 
 
 def test_disallow_boss_flags_boss_side_effect():
-    result = grade_run(_run(answer="已通过 Boss直聘 搜索岗位。"), {"disallow_boss": True})
+    result = grade_run(_run(tool_results=[{"tool_name": "boss_browser", "success": True}]), {"disallow_boss": True})
     assert any(issue["code"] == "no_boss_side_effect" for issue in result["issues"])
     assert result["passed"] is False
 
@@ -159,3 +159,52 @@ def test_min_score_threshold_is_respected():
     strict = grade_run(run, {"min_score": 0.99})
     assert lenient["passed"] is True
     assert strict["passed"] is False
+
+
+def test_missing_capability_inventory_is_critical():
+    from app.grader import grade_capability_inventory
+
+    result = grade_capability_inventory({})
+    assert result["passed"] is False
+    assert any(issue["code"] == "capabilities_present" for issue in result["issues"])
+
+
+def test_nested_fake_source_is_not_accepted_as_grounding():
+    result = grade_run(_run(tool_results=[{"metadata": {"source": "synthetic"}}]), {})
+    issue = next(issue for issue in result["issues"] if issue["code"] == "no_fixture_or_mock_claims")
+    assert "fake_source_field" in issue["evidence"]
+    assert result["passed"] is False
+
+
+def test_legacy_quality_counts_in_message_tool_events_remain_supported():
+    run = _run(
+        messages=[
+            {
+                "toolEvents": [
+                    {
+                        "id": "recommendation_quality_gate",
+                        "detail": {
+                            "candidateCount": 3,
+                            "scoredCount": 2,
+                            "unscoredCount": 1,
+                        },
+                    }
+                ]
+            }
+        ],
+        job_cards=["malformed"],
+    )
+    result = grade_run(run, {"require_complete_recommendation_scoring": True})
+    issue = next(issue for issue in result["issues"] if issue["code"] == "job_recommendation_scoring_is_complete")
+    assert issue["severity"] == "critical"
+    assert result["passed"] is False
+
+
+def test_maximum_only_latency_budget_passes_below_limit():
+    assert grade_latency({"ttft_ms": 5}, {"ttft_ms_max": 10})["score"] == 1
+
+
+def test_actual_evidence_counts_populated_objects_and_nonblank_text():
+    from app.grader import _actual_evidence_count
+
+    assert _actual_evidence_count({"evidence": [{"fact": "verified"}, {"fact": ""}, "verified", " ", None]}) == 2

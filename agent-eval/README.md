@@ -2,15 +2,70 @@
 
 `agent-eval` 是 Agent 运行质量评估服务。它不只检查 Trace 是否跑完，还对完整运行结果做多维质量门禁，避免执行契约缺失、fixture/mock 数据、无证据评分、空回答和失败状态伪完成等问题进入产品链路。
 
-## 评估能力
+## 从哪里开始
 
-- **Trace 完整性**：检查 `run_start → understand_goal → task_understanding → capability_route → finalize → run_end` 关键事件和顺序。
-- **任务理解质量**：检查结构化意图、领域、置信度和 LLM-first 路由结果。
-- **工具执行质量**：检查过程事件是否悬挂、失败是否被最终回答解释。
-- **证据可信度**：拒绝 fixture/mock 伪装真实结果；简历匹配必须有证据链、置信度和限制说明。
-- **输出质量**：检查是否有可展示回答，禁止把“未产出/失败”包装成“已完成”。
-- **安全与副作用**：支持用例声明 `disallow_boss`，用于防止非 Boss 任务触发 Boss 登录/搜索。
-- **功能可用性**：未实现或未接入能力不能被标记为成功。
+| 目标 | 入口 | 能证明什么 |
+| --- | --- | --- |
+| 看评分器会不会漏判、误判 | `uv run python -m pytest -q` | 规则、协议、统计和正反例校准正确；不代表真实模型效果 |
+| 检查用例是否写对 | `uv run python scripts/run_engine_eval.py --validate-only --cases cases/runtime-regression.yaml` | 唯一 ID、类型、断言字段和预算有效，无网络调用 |
+| 评估 Runtime 真实结果 | `scripts/run_engine_eval.py` | 同时检查效果、Trace、时延、规则质量；可选 Judge |
+| 验证交付 | `../.agent-harness/scripts/gate.sh agent-eval --quick` | 模块检查 + 确定性评估 + Runtime 代码契约 |
+| 检查 Backend 与页面业务结果 | 独立的 Backend / 浏览器验收 | Runtime 直连不能代替登录、数据库事务和页面验收 |
+
+## 用例分层
+
+所有数据集采用相同 YAML 契约：套件声明 `schema_version/id/version/name/description/kind/defaults/fixtures/contracts/cases`，单例声明 `id/category/description/input/expected`。字段和覆盖范围详见 [用例格式与覆盖范围](cases/用例格式与覆盖范围.md)。全目录校验使用 `$ uv run python scripts/validate_cases.py`，不需要逐个登记文件。
+
+
+| 文件 | 类型 | 典型覆盖 |
+| --- | --- | --- |
+| `cases/runtime-engine.yaml` | 真实执行 | Hint 快路径、联网证据、Planner、简历切换、工具与拒绝 |
+| `cases/runtime-regression.yaml` | 真实执行 | 路由边界、上下文缺失/纠正、附件事实/冲突/注入、精确格式、沙箱计算结果 |
+| `cases/runtime-observability.yaml` | 真实执行 | LLM usage、工具耗时与 Trace |
+| `cases/grader-calibration.yaml` | 合成校准 | 正常结果与对照反例；漏事件、假成功、伪造工具、时延边界、Judge 不可用 |
+| `cases/memory-baseline.yaml` | 真实记忆基线 | 多事实检索、显式更新；由 Memory runner 执行，并检查隔离和生命周期 |
+| `cases/business-job.yaml` | Backend 业务规格 | 求职业务验收参考，不能传给 Runtime runner |
+
+真实执行集里的任务输入可以是合成文本，但执行证据必须来自本次 Runtime 请求；合成校准集不会进入真实模型通过率。回归集用于已承诺能力，`suite: capability` 用于探索能力上限；二者应分别运行和解释。这里的公开开发集不是隐藏测试集，不能据此宣称生产泛化能力。
+
+## 判定规则
+
+一次尝试必须同时满足：没有传输错误、有终态、所有声明的效果断言通过、Trace 完整有序、速度预算通过、质量规则通过；显式启用 Judge 时还必须取得有效的通过结论。正确的拒绝和澄清由用例声明，不默认要求它们以 success 结束。
+
+主要维度是任务理解、工具执行、证据、输出、安全、运行契约、速度和可观测性。副作用根据真实工具结果、工具状态和执行 Trace 判断，正文提及平台不等于访问平台。拒绝依据结构化终止原因或拒绝动作判断，不能靠正文出现“不能”刷过评估。规则只能核对可观测契约；回答语义正确性、代码是否硬编码答案等仍需 Judge 和人工检查。
+
+用例契约在 `app/cases.py`。每例声明 `id/category/description/input/expected`。Runtime 消息在 `input.message`，历史与上下文在 `input.messages/metadata`；预算与前置条件在 `options.latency_budget/preconditions`，共享配置在 `defaults`，开放评审要求在 `rubric`。未知断言直接拒绝加载。常用结果断言包括 `answer_equals`、`answer_contains_all`、`answer_not_contains`、`required_tools`、`forbidden_tools`、`tool_output_contains`、`slots`、`runtime_capability`、`expect_status`、`needs_clarification`。子串断言只适合标记和格式，不能代替开放答案事实评审；严格数字输出优先用唯一标记并复核源码。
+
+Runtime SSE 使用 `processing/token/reasoning/done` 等事件；Backend 的 `intent/message/resume_match` 不属于这一采集入口。`preconditions` 不会自动创建简历或登录态，缺少条件会在报告中显式跳过；只有已经准备好环境才能通过 `--precondition` 声明。实际模型评估前应确认部署/模型配置与预算，并使用独立测试账号和合成数据。
+
+## 真实评估与报告
+
+在已启动 Runtime、加载根目录所需环境变量后，从本目录执行：
+
+```bash
+# 先查看并校验用例，不调用模型
+uv run python scripts/run_engine_eval.py --cases cases/runtime-regression.yaml --validate-only
+
+# 按类别检查典型结果，三次独立采样
+uv run python scripts/run_engine_eval.py --cases cases/runtime-regression.yaml \
+  --category output_contract,multi_turn --repeats 3 \
+  --runtime-url http://127.0.0.1:8010 --deployment-label '<部署版本/模型/配置>'
+
+# 开放质量评估：启用 Judge，未配置或调用失败会使该尝试失败
+uv run python scripts/run_engine_eval.py --cases cases/runtime-regression.yaml \
+  --category attachment_grounding --repeats 3 --judge
+```
+
+`--only` 按 ID 选择，`--category` 按类别选择；非法 ID、空执行集和零重复次数不会成功退出。Boss 用例默认跳过，显式开启时仅允许一次采样，任何一次失败后停止后续 Boss 用例；不得用重复采样访问真实招聘平台。
+
+JSONL 保留全部采样、最终答案、工具证据和评估明细；Markdown 给出分类覆盖、跳过原因、每次失败与统计。报告使用唯一文件名与仅属主可读写权限，可能包含输入与输出证据，禁止提交带真实业务数据的报告。
+
+- `pass@1`：成功尝试占比；Wilson 95% 区间体现样本不足带来的不确定性。
+- `pass@k`：本次 k 次尝试至少成功一次；`pass^k`：本次全部成功。这是观测值，不是对未来概率的承诺。
+- 时延：p50、最近秩 p95、min/max 和有效样本数；小样本 p95 不能当作生产 SLO。
+- 复现信息：评估端 Git SHA/脏状态、用例与依赖锁摘要、Python 版本及手工提供的被测部署标签。评估端版本不等于远端 Runtime 版本。
+
+Judge 输入包含任务、期望、回答与有界工具证据，不能覆盖规则失败。阈值为 0.7，越界、非有限分数和矛盾结论均拒绝。上线前应对代表性好坏答案做人工双人标注，与 Judge 的误接受/误拒绝对照；本模块未把未经人工校准的 Judge 当作可靠真值。
 
 ## 接口
 
@@ -117,6 +172,6 @@ $ source ../.env
 $ set +a
 $ uv run python scripts/run_engine_eval.py \
   --runtime-url http://127.0.0.1:8010 \
-  --cases cases/engine-eval-v1.yaml \
+  --cases cases/runtime-engine.yaml \
   --only resume_switch_reuses_selected_job
 ```

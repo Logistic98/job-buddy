@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import time
@@ -122,7 +123,11 @@ def judge_run(run: dict, expected: dict | None = None) -> dict:
 
 def _build_judge_input(run: dict, expected: dict) -> str:
     compact = {
-        "answer": str(run.get("answer") or "")[:4000],
+        "input": str(run.get("input") or "")[:4000],
+        "answer": str(run.get("answer") or "")[:8000],
+        "tool_evidence": json.dumps(run.get("tool_results") or [], ensure_ascii=False, default=str)[:12000],
+        "stop_reason": run.get("stop_reason"),
+        "evaluation_context": json.dumps(run.get("evaluation_context") or {}, ensure_ascii=False, default=str)[:12000],
         "status": run.get("status"),
         "directive": run.get("directive"),
         "expected": expected,
@@ -143,11 +148,13 @@ def _parse_verdict(content: Any) -> dict | None:
         data = json.loads(match.group(0))
     except json.JSONDecodeError:
         return None
-    if not isinstance(data, dict):
-        return None
     score = data.get("score")
     try:
-        score = max(0.0, min(1.0, float(score)))
+        if isinstance(score, bool):
+            return None
+        score = float(score)
+        if not math.isfinite(score) or not 0 <= score <= 1:
+            return None
     except (TypeError, ValueError):
         return None
     expected_verdict = "pass" if score >= 0.7 else "fail"

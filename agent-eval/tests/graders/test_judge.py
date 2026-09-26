@@ -82,8 +82,7 @@ def test_parse_verdict_rejects_invalid_payloads():
     assert _parse_verdict('{"score": 0.9, "verdict": "fail"}') is None
     assert _parse_verdict('{"score": 0.2, "verdict": "approve"}') is None
     parsed = _parse_verdict('前置说明 {"score": 1.2, "reasons": ["ok"]} 后缀')
-    assert parsed["score"] == 1.0
-    assert parsed["verdict"] == "pass"
+    assert parsed is None
 
 
 def test_judge_input_marks_run_content_as_untrusted():

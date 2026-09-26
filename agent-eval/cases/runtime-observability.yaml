@@ -1,0 +1,75 @@
+schema_version: 1
+id: runtime-observability
+version: 1
+name: Runtime 可观测契约评估集
+description: 面向 agent-runtime 可观测能力的契约评估集，配套 runner 为 scripts/run_engine_eval.py。 验证目标：LLM 路径在 run_end 前产出 llm_usage
+  汇总事件（调用次数、token 用量、缓存命中）； 工具路径的 tool_execute_end 携带 duration_ms 与逐工具 results；工具失败时产出 tool_execute_failed 事件并携带
+  tool 与 error 字段。评分逻辑位于 app/grader.py 的 observability 维度。
+kind: runtime
+defaults:
+  runtime_profile: job-buddy
+  latency_budget: {}
+fixtures: {}
+contracts:
+  risk_control:
+    default_skip_live_boss: true
+    stop_on_boss_challenge: true
+cases:
+  - id: obs_llm_usage_on_qa_path
+    category: observability
+    description: 解释一下 Agent 工具调用中重试与幂等的区别
+    input:
+      message: 解释一下 Agent 工具调用中重试与幂等的区别
+    expected:
+      domain: open_domain
+      expect_llm_usage: true
+      events:
+        - done
+      answer_min_chars: 40
+      min_score: 0.75
+    options:
+      latency_budget:
+        ttft_ms_target: 2500
+        ttft_ms_max: 5500
+        done_ms_target: 8000
+        done_ms_max: 14000
+  - id: obs_llm_usage_on_clarify_path
+    category: observability
+    description: 帮我优化一下
+    input:
+      message: 帮我优化一下
+    expected:
+      expect_status: paused
+      needs_clarification: true
+      expect_llm_usage: true
+      events:
+        - done
+      min_score: 0.75
+    options:
+      latency_budget:
+        ttft_ms_target: 1500
+        ttft_ms_max: 3500
+        done_ms_target: 3500
+        done_ms_max: 7000
+  - id: obs_tool_duration_on_job_path
+    category: observability
+    description: 在我的推荐里找 3 个 Agent 平台开发岗位
+    input:
+      message: 在我的推荐里找 3 个 Agent 平台开发岗位
+    expected:
+      domain: job
+      intent: job.recommend
+      expect_llm_usage: true
+      trace_events:
+        - run_start
+        - task_understanding
+        - capability_route
+        - tool_execute_start
+        - tool_execute_end
+        - finalize
+        - run_end
+      events:
+        - done
+      min_score: 0.75
+    options:
+      requires_live_boss: true
