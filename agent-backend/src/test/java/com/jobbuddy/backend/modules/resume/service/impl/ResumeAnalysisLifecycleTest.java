@@ -163,9 +163,8 @@ class ResumeAnalysisLifecycleTest {
   }
 
   @Test
-  void invalidPdfReturnsPlaceholderAndStillRemovesTemporaryFile() throws Exception {
-    byte[] png = service.thumbnail("resume", "tenant", "owner");
-    assertNotNull(javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(png)));
+  void invalidPdfFailsAndStillRemovesTemporaryFile() {
+    assertThrows(IllegalStateException.class, () -> service.thumbnail("resume", "tenant", "owner"));
     assertFalse(Files.exists(downloaded));
   }
 

@@ -535,8 +535,7 @@ public class ResumeStorageServiceImpl implements ResumeStorageService {
       writeThumbnailCache(cacheKey, bytes);
       return bytes;
     } catch (Exception e) {
-      LOG.warn("简历缩略图生成失败 - resumeId: {}, suffix: {}, error: {}", resumeId, suffix, e.getMessage());
-      return thumbnailRenderer.placeholderThumbnail(record);
+      throw new IllegalStateException("简历缩略图生成失败", e);
     } finally {
       deleteQuietly(tempFile);
     }

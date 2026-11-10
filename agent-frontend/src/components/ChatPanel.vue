@@ -413,7 +413,7 @@ const lastStreamedAssistantId = ref('')
 const defaultWorkbenchCopy = {
   placeholder: '例如：筛选上海 Agent 与大模型应用开发 40-50K 岗位',
   quick_prompts: [
-    '筛选上海 40-50K 大模型应用开发岗位',
+    '筛选上海 30-40K 大模型应用开发岗位',
     '分析当前简历与目标岗位的匹配度',
     '生成大模型应用开发面试准备清单',
   ],

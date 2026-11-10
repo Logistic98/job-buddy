@@ -154,7 +154,8 @@ export function resumePreviewUrl(resumeId) {
 }
 
 export function resumeThumbnailUrl(resumeId) {
-  return apiUrl(`/resume/${encodeURIComponent(resumeId)}/thumbnail`)
+  // Skip cached placeholders from earlier PDF thumbnail failures.
+  return apiUrl(`/resume/${encodeURIComponent(resumeId)}/thumbnail?v=2`)
 }
 
 export function resumeDownloadUrl(resumeId) {

@@ -5,7 +5,7 @@ import ResumeManager from '../../src/components/ResumeManager.vue'
 import { useResumeStore } from '../../src/stores/resume'
 import { getWorkspaceState, saveWorkspaceState } from '../../src/api/workspace'
 
-vi.mock('../../src/api/resume', () => ({
+vi.mock('../../src/api/resume', async (importOriginal) => ({
   deleteResume: vi.fn(),
   getAnalysisTask: vi.fn(),
   getJobProfile: vi.fn(),
@@ -14,7 +14,7 @@ vi.mock('../../src/api/resume', () => ({
   listResumes: vi.fn(),
   resumeDownloadUrl: vi.fn((resumeId) => `/api/resumes/${resumeId}/download`),
   resumePreviewUrl: vi.fn((resumeId) => `/api/resumes/${resumeId}/preview`),
-  resumeThumbnailUrl: vi.fn((resumeId) => `/api/resumes/${resumeId}/thumbnail`),
+  resumeThumbnailUrl: (await importOriginal()).resumeThumbnailUrl,
   saveJobProfile: vi.fn(),
   startResumeAnalysisTask: vi.fn(),
   streamAnalysisTask: vi.fn(),
@@ -406,7 +406,7 @@ describe('ResumeManager file and version actions', () => {
     await wrapper.get('.resume-thumb-image').trigger('error')
     expect(wrapper.find('.resume-thumb.is-error').exists()).toBe(true)
     await wrapper.get('.resume-thumb-retry').trigger('click')
-    expect(wrapper.get('.resume-thumb-image').attributes('src')).toMatch(/\?retry=\d+/)
+    expect(wrapper.get('.resume-thumb-image').attributes('src')).toMatch(/\?v=2&retry=\d+$/)
     await wrapper.get('.resume-thumb-image').trigger('load')
     expect(wrapper.find('.resume-thumb.is-loaded').exists()).toBe(true)
   })

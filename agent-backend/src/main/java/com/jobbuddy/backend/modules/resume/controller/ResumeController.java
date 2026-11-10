@@ -346,7 +346,7 @@ public class ResumeController {
         .contentType(MediaType.IMAGE_PNG)
         .cacheControl(
             org.springframework.http.CacheControl.maxAge(7, java.util.concurrent.TimeUnit.DAYS)
-                .cachePublic())
+                .cachePrivate())
         .body(new ByteArrayResource(bytes));
   }
 

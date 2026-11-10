@@ -127,6 +127,7 @@ class ResumeControllerTest {
     var thumbnail = controller.thumbnail("resume", authenticatedRequest());
     assertEquals(
         org.springframework.http.MediaType.IMAGE_PNG, thumbnail.getHeaders().getContentType());
+    assertEquals("max-age=604800, private", thumbnail.getHeaders().getCacheControl());
     org.junit.jupiter.api.Assertions.assertArrayEquals(
         new byte[] {7}, thumbnail.getBody().getInputStream().readAllBytes());
     when(storage.openAsset("asset", "user-1"))
